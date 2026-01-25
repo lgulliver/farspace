@@ -24,14 +24,15 @@ const (
 )
 
 type AppModel struct {
-	engine     *game.Engine
-	active     ScreenID
-	lastEvents []game.Event
-	width      int
-	height     int
-	log        []string
-	showHelp   bool
-	keys       KeyMap
+	engine      *game.Engine
+	active      ScreenID
+	lastEvents  []game.Event
+	width       int
+	height      int
+	log         []string
+	showHelp    bool
+	showPalette bool
+	keys        KeyMap
 }
 
 func NewAppModel(engine *game.Engine) *AppModel {
@@ -74,8 +75,15 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.active = ScreenTurnReport
 		case keyMatches(msg, m.keys.Help):
 			m.showHelp = !m.showHelp
+			if m.showHelp {
+				m.showPalette = false
+			}
 		case keyMatches(msg, m.keys.Palette):
-			m.log = components.AppendLog(m.log, "palette not implemented")
+			m.showPalette = !m.showPalette
+			if m.showPalette {
+				m.showHelp = false
+				m.log = components.AppendLog(m.log, "palette opened (placeholder)")
+			}
 		case keyMatches(msg, m.keys.EndTurn):
 			events, err := m.engine.ApplyTurn([]game.Command{game.EndTurn{}})
 			if err != nil {
@@ -101,9 +109,12 @@ func (m *AppModel) View() string {
 	header := components.RenderHeader(m.width, m.engine.State.Turn, screenName(m.active))
 
 	main := ""
-	if m.showHelp {
+	switch {
+	case m.showHelp:
 		main = lipgloss.NewStyle().Padding(1).Render("Help (placeholder)\n\nKeys: g p f t d r 0/home\nEnter: end turn\n?: toggle help\n: palette")
-	} else {
+	case m.showPalette:
+		main = lipgloss.NewStyle().Padding(1).Render("Command Palette (placeholder)\n\nType a command... (not implemented)\n\nExamples:\n- end turn\n- go galaxy\n- go reports\n\nPress : to close.")
+	default:
 		switch m.active {
 		case ScreenGalaxy:
 			main = screens.GalaxyView(m.width, m.height)

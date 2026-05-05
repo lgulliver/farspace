@@ -1,0 +1,77 @@
+name: Bug Report
+description: Report a bug or incorrect behaviour
+labels: ["bug"]
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behaviour
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps to reproduce the bug.
+      placeholder: |
+        1. Start a new game with seed 42
+        2. Issue SetBudget{ResearchPct: 110, ...}
+        3. Observe…
+    validations:
+      required: true
+
+  - type: textarea
+    id: seed
+    attributes:
+      label: Seed or save file (if relevant)
+      description: |
+        Paste the game seed (e.g. `--seed 42`) or attach a save file.
+        Required for any simulation/determinism bug.
+    validations:
+      required: false
+
+  - type: textarea
+    id: terminal_info
+    attributes:
+      label: Terminal / OS info (if UI-related)
+      description: |
+        Terminal emulator, OS, terminal size, colour depth.
+        Required for any rendering or layout bug.
+      placeholder: |
+        - OS: macOS 14 / Ubuntu 22.04 / Windows 11
+        - Terminal: iTerm2 / Alacritty / Windows Terminal
+        - Size: 220×50
+    validations:
+      required: false
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: Affected package / module
+      options:
+        - internal/game
+        - internal/ui
+        - internal/content
+        - internal/save
+        - cmd/farspace
+        - unknown
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: regression
+    attributes:
+      label: Regression test
+      options:
+        - label: I will add a regression test in the PR that fixes this bug
+          required: false

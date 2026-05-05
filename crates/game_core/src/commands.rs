@@ -1,10 +1,12 @@
 //! Commands that can be issued to the game engine
 
 use crate::state::{BuildItem, ColonyId, FleetId, StarId};
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 /// Commands that can be issued by the player
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Command {
     /// End the current turn
     EndTurn,
@@ -26,6 +28,7 @@ pub enum Command {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "serde")]
     #[test]
     fn command_serialization() {
         let cmd = Command::EndTurn;
@@ -34,6 +37,7 @@ mod tests {
         assert_eq!(cmd, parsed);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn set_colony_focus_serialization() {
         let cmd = Command::SetColonyFocus {
@@ -46,6 +50,7 @@ mod tests {
         assert_eq!(cmd, parsed);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn queue_build_serialization() {
         let cmd = Command::QueueBuild {

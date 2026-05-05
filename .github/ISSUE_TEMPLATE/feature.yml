@@ -19,13 +19,13 @@ body:
   - type: dropdown
     id: crate
     attributes:
-      label: Affected package / module
+      label: Affected crate / module
       options:
-        - internal/game
-        - internal/ui
-        - internal/content
-        - internal/save
-        - cmd/farspace
+        - game_core
+        - game_tui
+        - game_content
+        - game_save
+        - farspace
         - multiple / cross-cutting
     validations:
       required: true

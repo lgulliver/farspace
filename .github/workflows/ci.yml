@@ -5,22 +5,26 @@ on:
   pull_request:
 
 jobs:
-  lint:
+  fmt:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          go-version: '1.22.x'
-      - name: Format check
-        run: |
-          if [ -n "$(gofmt -l .)" ]; then
-            echo "The following files are not formatted:"
-            gofmt -l .
-            exit 1
-          fi
-      - name: Vet
-        run: go vet ./...
+          components: rustfmt
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
     strategy:
@@ -29,38 +33,37 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22.x'
-      - name: Test
-        run: go test ./...
-      - name: Build
-        run: go build ./cmd/farspace
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test --workspace --all-targets
 
   coverage:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          go-version: '1.22.x'
-      - name: Run tests with coverage
-        run: go test -coverprofile=coverage.out -covermode=atomic ./...
-      - name: Check coverage threshold
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate coverage report
+        run: cargo llvm-cov --workspace --all-targets --lcov --output-path lcov.info
+      - name: Check coverage threshold (80%)
         run: |
-          COVERAGE=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
-          echo "Total coverage: ${COVERAGE}%"
-          # Use awk for float comparison (bash doesn't handle floats natively)
+          COVERAGE=$(cargo llvm-cov --workspace --all-targets --summary-only 2>&1 \
+            | grep -oP 'TOTAL.*?(\d+\.\d+)%' | grep -oP '\d+\.\d+' | tail -1)
+          echo "Total line coverage: ${COVERAGE}%"
           awk -v cov="$COVERAGE" 'BEGIN {
             if (cov + 0 < 80) {
               print "Coverage " cov "% is below the required 80% minimum."
               exit 1
-            } else {
-              print "Coverage " cov "% meets the 80% minimum."
             }
+            print "Coverage " cov "% meets the 80% minimum."
           }'
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report
-          path: coverage.out
+          name: coverage-lcov
+          path: lcov.info

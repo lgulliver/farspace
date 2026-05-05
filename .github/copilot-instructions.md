@@ -5,33 +5,41 @@ Read this file before making any changes.
 
 ---
 
+## Stack
+
+- **Language:** Rust (2021 edition)
+- **TUI:** `ratatui` + `crossterm`
+- **Workspace crates:** `game_core`, `game_tui`, `game_content`, `game_save`, `farspace` (binary)
+
+---
+
 ## Architecture — Non-Negotiable Boundaries
 
 The codebase is split into strict layers. **Never cross these boundaries.**
 
-| Package | Responsibility | Allowed dependencies |
+| Crate | Responsibility | Allowed dependencies |
 |---|---|---|
-| `internal/game` | Headless game core: commands, validation, state, events, deterministic simulation | stdlib only |
-| `internal/content` | Static game content: ship templates, tech trees, planet traits | `internal/game` types only |
-| `internal/save` | Serialisation/deserialisation of `GameState` | `internal/game`, stdlib, encoding packages |
-| `internal/ui` | Bubble Tea TUI: input → Commands, Events → rendering | All of the above, `bubbletea`, `lipgloss`, `bubbles` |
-| `cmd/farspace` | Application entrypoint | All of the above |
+| `game_core` | Headless game core: commands, validation, state, events, deterministic simulation | `std` only |
+| `game_content` | Static game content: ship templates, tech trees, planet traits | `game_core` types only |
+| `game_save` | Serialisation/deserialisation of `GameState` | `game_core`, `serde`, `serde_json` |
+| `game_tui` | ratatui TUI: input → Commands, Events → rendering | `game_core`, `ratatui`, `crossterm` |
+| `farspace` | Application entrypoint and terminal setup | All of the above |
 
 ### Core rules
 
-- `internal/game` must **never** import `bubbletea`, `lipgloss`, `bubbles`, or any terminal/UI package.
-- `internal/game` must **never** import `internal/ui`.
-- `internal/content` and `internal/save` must **never** import `internal/ui`.
+- `game_core` must **never** depend on `ratatui`, `crossterm`, or any terminal/UI crate.
+- `game_core` must **never** depend on `game_tui`.
+- `game_content` and `game_save` must **never** depend on `game_tui`.
 - The UI sends **Commands** to the core; the core validates commands, mutates state, and emits **Events**.
-- The UI renders based on **Events** and `SnapshotFor` views. It never reads internal core structs directly.
+- The UI renders based on **Events** and snapshot views. It never reaches into core internals directly.
 
 ---
 
 ## Determinism — Non-Negotiable
 
-- All randomness must come from the seeded `Rng` stored in `GameState`.
-- **Never** use `time.Now()`, `rand.New(rand.NewSource(time.Now()...))`, or any non-deterministic source.
-- **Never** range over `map` directly in game logic — sort keys first.
+- All randomness must come from the seeded RNG stored in `GameState`. Use `rand::SeedableRng`.
+- **Never** seed from `SystemTime`, `Instant`, or any other wall-clock or OS source.
+- **Never** iterate `HashMap` without sorting keys first — use `BTreeMap` for ordered collections or sort before use.
 - Simulation must be fully reproducible: same seed + same commands ⇒ same output.
 - Tests for deterministic systems must use fixed seeds and assert exact output.
 
@@ -39,12 +47,13 @@ The codebase is split into strict layers. **Never cross these boundaries.**
 
 ## Coding Conventions
 
-- Prefer small, focused packages and types.
-- Use explicit domain structs and typed IDs (e.g. `StarID`, `EmpireID`, `FleetID`) rather than plain `int` or `string`.
-- Prefer named result types and domain errors over generic `error` strings.
+- Prefer small, focused modules.
+- Use strongly-typed ID newtypes (`StarId(u64)`, `EmpireId(u64)`, `FleetId(u64)`) — never bare integers.
+- Use enums for `Command` and `Event` — no stringly-typed dispatch.
+- Return `Vec<Event>` from `apply_turn`; surface validation failures as `Event::Error`.
 - Add a test for every meaningful change.
 - Tests must include at least one positive path and one negative/error path.
-- When adding a new command, add: struct definition, validation in `ApplyTurn`, event emission, and tests.
+- When adding a new command: add enum variant, validation arm in `apply_turn`, event emission, and tests.
 
 ---
 
@@ -72,7 +81,7 @@ FARSPACE uses original content only. When adding factions, technologies, ships, 
 ## Terminal UX Standards
 
 - All navigation must be keyboard-first.
-- Layout must be resize-safe: use proportional or responsive lipgloss containers.
+- Layout must be resize-safe: use `ratatui` `Constraint`-based layouts that respond to `Resize` events.
 - Contextual help (`?`) must be available on every screen.
 - Command palette (`:`) should be reachable globally.
 - Maintain a polished, minimal terminal feel inspired by Neovim, K9s, Lazygit.
@@ -82,10 +91,10 @@ FARSPACE uses original content only. When adding factions, technologies, ships, 
 
 ## Testing Policy
 
-- Minimum 80% total test coverage (enforced by CI).
+- Minimum 80% total test coverage (enforced by CI via `cargo llvm-cov`).
 - Every feature must have positive and negative tests.
 - Deterministic systems must be tested with fixed seeds and deterministic assertions.
-- UI tests: focus on state transitions, input handling, and layout decisions — not fragile pixel/character snapshots.
+- TUI tests: focus on state transitions, input handling, and layout decisions — not fragile full-screen snapshots.
 - Regression test required for every bug fix.
 
 ---
@@ -95,5 +104,5 @@ FARSPACE uses original content only. When adding factions, technologies, ships, 
 - Smallest possible diff that satisfies the acceptance criteria.
 - No unrelated refactors bundled in.
 - New code has tests; coverage does not decrease.
-- `go fmt`, `go vet`, and `golangci-lint` pass.
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` pass.
 - Architecture boundaries are preserved.

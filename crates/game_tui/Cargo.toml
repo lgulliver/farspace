@@ -5,9 +5,5 @@ edition.workspace = true
 
 [dependencies]
 game_core = { path = "../game_core" }
-game_content = { path = "../game_content" }
-game_save = { path = "../game_save" }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
-anyhow = { workspace = true }
-serde = { workspace = true }

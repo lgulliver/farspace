@@ -1,27 +1,33 @@
 //! Game state types and domain models
 
 use rand_chacha::ChaCha8Rng;
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Unique identifier for a star system
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct StarId(pub u64);
 
 /// Unique identifier for an empire
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct EmpireId(pub u64);
 
 /// Unique identifier for a colony
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ColonyId(pub u64);
 
 /// Unique identifier for a fleet
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct FleetId(pub u64);
 
 /// Spectral classification of a star
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum SpectralClass {
     O,
     B,
@@ -61,7 +67,8 @@ impl SpectralClass {
 }
 
 /// Size category for a planet
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum PlanetSize {
     Tiny,
     Small,
@@ -95,7 +102,8 @@ impl PlanetSize {
 }
 
 /// A planet within a star system
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Planet {
     pub name: String,
     pub size: PlanetSize,
@@ -103,7 +111,8 @@ pub struct Planet {
 }
 
 /// A star system in the galaxy
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Star {
     pub id: StarId,
     pub name: String,
@@ -114,7 +123,8 @@ pub struct Star {
 }
 
 /// An empire (player or AI)
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Empire {
     pub id: EmpireId,
     pub name: String,
@@ -124,7 +134,8 @@ pub struct Empire {
 }
 
 /// Items that can be built at a colony
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum BuildItem {
     Scout,
     Colony,
@@ -152,7 +163,8 @@ impl BuildItem {
 }
 
 /// A colony on a planet
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Colony {
     pub id: ColonyId,
     pub star: StarId,
@@ -167,7 +179,8 @@ pub struct Colony {
 }
 
 /// A fleet of ships
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Fleet {
     pub id: FleetId,
     pub owner: EmpireId,
@@ -176,7 +189,8 @@ pub struct Fleet {
 }
 
 /// Complete game state
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct GameState {
     pub seed: u64,
     pub turn: u32,
@@ -185,7 +199,7 @@ pub struct GameState {
     pub colonies: BTreeMap<ColonyId, Colony>,
     pub fleets: BTreeMap<FleetId, Fleet>,
     pub player_empire: EmpireId,
-    #[serde(with = "rng_serde")]
+    #[cfg_attr(feature = "serde", serde(with = "rng_serde"))]
     pub rng: ChaCha8Rng,
     pub event_log: Vec<String>,
     pub next_colony_id: u64,
@@ -224,6 +238,7 @@ impl PartialEq for GameState {
 }
 
 /// Serde helper for ChaCha8Rng serialization
+#[cfg(feature = "serde")]
 mod rng_serde {
     use rand_chacha::ChaCha8Rng;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};

@@ -18,6 +18,7 @@ pub fn compose_layout(area: Rect) -> (Rect, Rect, Rect) {
 
 /// Split area horizontally with given percentages
 pub fn split_horizontal(area: Rect, left_percent: u16) -> (Rect, Rect) {
+    let left_percent = left_percent.min(100);
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -78,6 +79,14 @@ mod tests {
 
         assert_eq!(left.width, 60);
         assert_eq!(right.width, 40);
+    }
+
+    #[test]
+    fn split_horizontal_clamps_over_100() {
+        let area = Rect::new(0, 0, 100, 24);
+        // Should not panic or wrap; 100% left means right=0
+        let (left, right) = split_horizontal(area, 150);
+        assert_eq!(left.width + right.width, area.width);
     }
 
     #[test]

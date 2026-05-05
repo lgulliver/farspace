@@ -4,10 +4,9 @@
 //! ship templates, and tech trees.
 
 use game_core::state::{BuildItem, PlanetSize};
-use serde::{Deserialize, Serialize};
 
 /// A trait that can be assigned to a planet
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlanetTrait {
     pub name: String,
     pub description: String,
@@ -53,7 +52,7 @@ impl PlanetTrait {
 }
 
 /// A ship design template
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShipTemplate {
     pub name: String,
     pub build_item: BuildItem,
@@ -91,7 +90,7 @@ impl ShipTemplate {
 }
 
 /// A technology that can be researched
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Technology {
     pub id: u32,
     pub name: String,

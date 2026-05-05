@@ -84,6 +84,11 @@ impl Theme {
         Style::default().fg(Self::muted())
     }
 
+    /// Accent style
+    pub fn accent_style() -> Style {
+        Style::default().fg(Self::accent())
+    }
+
     /// Header style
     pub fn header_style() -> Style {
         Style::default()

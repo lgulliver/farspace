@@ -5,4 +5,3 @@ edition.workspace = true
 
 [dependencies]
 game_core = { path = "../game_core" }
-serde = { workspace = true }

@@ -41,17 +41,6 @@ pub fn render_palette(frame: &mut Frame, area: Rect, input: &str) {
     frame.render_widget(paragraph, popup_area);
 }
 
-/// Helper for accent style
-trait ThemeExt {
-    fn accent_style() -> ratatui::style::Style;
-}
-
-impl ThemeExt for Theme {
-    fn accent_style() -> ratatui::style::Style {
-        ratatui::style::Style::default().fg(Theme::accent())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

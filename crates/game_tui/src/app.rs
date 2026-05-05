@@ -134,12 +134,9 @@ impl App {
 
     fn handle_menu_key(&mut self, key: KeyEvent) {
         if KeyMap::is_new_game(key) {
-            // Use current time as seed
-            let seed = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(42);
-            self.new_game(seed);
+            // Use a fixed default seed for deterministic, reproducible games.
+            // A user-configurable seed will be added via the command palette.
+            self.new_game(42);
         }
         // Load game would go here
     }

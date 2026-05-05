@@ -159,7 +159,6 @@ name = "game_content"
 version = "0.1.0"
 dependencies = [
  "game_core",
- "serde",
 ]
 
 [[package]]
@@ -170,7 +169,6 @@ dependencies = [
  "rand_chacha",
  "serde",
  "serde_json",
- "thiserror",
 ]
 
 [[package]]
@@ -187,13 +185,9 @@ dependencies = [
 name = "game_tui"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "crossterm",
- "game_content",
  "game_core",
- "game_save",
  "ratatui",
- "serde",
 ]
 
 [[package]]

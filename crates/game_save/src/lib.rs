@@ -13,8 +13,8 @@ use thiserror::Error;
 /// Errors that can occur during save/load operations
 #[derive(Debug, Error)]
 pub enum SaveError {
-    #[error("Failed to serialize save file: {0}")]
-    Serialize(#[from] serde_json::Error),
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
 
     #[error("Unsupported save version: found {found}, supported up to {supported}")]
     UnsupportedVersion { found: u32, supported: u32 },

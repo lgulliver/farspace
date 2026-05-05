@@ -165,16 +165,6 @@ fn render_star_details(
     frame.render_widget(paragraph, inner);
 }
 
-trait ThemeAccent {
-    fn accent_style() -> Style;
-}
-
-impl ThemeAccent for Theme {
-    fn accent_style() -> Style {
-        Style::default().fg(Theme::accent())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

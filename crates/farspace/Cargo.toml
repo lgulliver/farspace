@@ -1,0 +1,16 @@
+[package]
+name = "farspace"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "farspace"
+path = "src/main.rs"
+
+[dependencies]
+game_core = { path = "../game_core" }
+game_tui = { path = "../game_tui" }
+game_save = { path = "../game_save" }
+anyhow = { workspace = true }
+crossterm = { workspace = true }
+ratatui = { workspace = true }

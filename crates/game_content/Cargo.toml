@@ -1,0 +1,8 @@
+[package]
+name = "game_content"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+game_core = { path = "../game_core" }
+serde = { workspace = true }

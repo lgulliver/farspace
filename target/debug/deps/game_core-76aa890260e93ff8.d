@@ -1,0 +1,15 @@
+/home/runner/work/farspace/farspace/target/debug/deps/game_core-76aa890260e93ff8.d: crates/game_core/src/lib.rs crates/game_core/src/commands.rs crates/game_core/src/deterministic.rs crates/game_core/src/engine.rs crates/game_core/src/events.rs crates/game_core/src/galaxy.rs crates/game_core/src/state.rs Cargo.toml
+
+/home/runner/work/farspace/farspace/target/debug/deps/libgame_core-76aa890260e93ff8.rmeta: crates/game_core/src/lib.rs crates/game_core/src/commands.rs crates/game_core/src/deterministic.rs crates/game_core/src/engine.rs crates/game_core/src/events.rs crates/game_core/src/galaxy.rs crates/game_core/src/state.rs Cargo.toml
+
+crates/game_core/src/lib.rs:
+crates/game_core/src/commands.rs:
+crates/game_core/src/deterministic.rs:
+crates/game_core/src/engine.rs:
+crates/game_core/src/events.rs:
+crates/game_core/src/galaxy.rs:
+crates/game_core/src/state.rs:
+Cargo.toml:
+
+# env-dep:CLIPPY_ARGS=-D__CLIPPY_HACKERY__warnings__CLIPPY_HACKERY__
+# env-dep:CLIPPY_CONF_DIR

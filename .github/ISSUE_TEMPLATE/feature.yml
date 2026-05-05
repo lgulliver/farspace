@@ -1,0 +1,84 @@
+name: Feature Request
+description: Propose a new game feature or improvement
+labels: ["needs-design"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, check the roadmap (`docs/roadmap.md`) and existing issues.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Player-facing goal
+      description: What can the player do or experience that they cannot today?
+      placeholder: "As a player I want to…"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: crate
+    attributes:
+      label: Affected crate / module
+      options:
+        - game_core
+        - game_tui
+        - game_content
+        - game_save
+        - farspace
+        - multiple / cross-cutting
+    validations:
+      required: true
+
+  - type: textarea
+    id: commands_events
+    attributes:
+      label: Expected command / event changes
+      description: |
+        List new or modified Commands (UI → Core) and Events (Core → UI).
+        Example: `MoveFleet{FleetID, ToStarID}` command, `FleetArrived{FleetID, StarID}` event.
+    validations:
+      required: false
+
+  - type: textarea
+    id: ui_implications
+    attributes:
+      label: UI implications
+      description: Which screens are affected? New screens, keybindings, overlays?
+    validations:
+      required: false
+
+  - type: textarea
+    id: determinism
+    attributes:
+      label: Deterministic simulation implications
+      description: |
+        Does this feature involve randomness? If yes, describe how the seeded RNG will be used.
+        Confirm no wall-clock or non-deterministic sources are needed.
+    validations:
+      required: false
+
+  - type: textarea
+    id: testing
+    attributes:
+      label: Testing requirements
+      description: |
+        - What positive tests are needed?
+        - What negative/error tests are needed?
+        - Are fixed-seed determinism tests required?
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Bullet list of specific, verifiable outcomes.
+      placeholder: |
+        - [ ] Player can issue MoveFleet command
+        - [ ] FleetArrived event is emitted when fleet reaches destination
+        - [ ] Invalid destination returns ErrorEvent
+        - [ ] Positive and negative tests pass
+        - [ ] CI green
+    validations:
+      required: true

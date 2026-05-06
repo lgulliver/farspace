@@ -199,5 +199,60 @@ mod tests {
     fn end_turn_keys() {
         assert!(KeyMap::is_end_turn(key(KeyCode::Enter)));
         assert!(KeyMap::is_end_turn(key(KeyCode::Char('t'))));
+        assert!(!KeyMap::is_end_turn(key(KeyCode::Char('e'))));
+    }
+
+    #[test]
+    fn palette_key() {
+        assert!(KeyMap::is_palette(key(KeyCode::Char(':'))));
+        assert!(!KeyMap::is_palette(key(KeyCode::Char('p'))));
+    }
+
+    #[test]
+    fn search_key() {
+        assert!(KeyMap::is_search(key(KeyCode::Char('/'))));
+        assert!(!KeyMap::is_search(key(KeyCode::Char('s'))));
+    }
+
+    #[test]
+    fn new_game_key() {
+        assert!(KeyMap::is_new_game(key(KeyCode::Char('n'))));
+        assert!(KeyMap::is_new_game(key_with_mod(
+            KeyCode::Char('N'),
+            KeyModifiers::SHIFT
+        )));
+        assert!(!KeyMap::is_new_game(key(KeyCode::Char('m'))));
+    }
+
+    #[test]
+    fn load_game_key() {
+        assert!(KeyMap::is_load_game(key(KeyCode::Char('l'))));
+        assert!(KeyMap::is_load_game(key_with_mod(
+            KeyCode::Char('L'),
+            KeyModifiers::SHIFT
+        )));
+        assert!(!KeyMap::is_load_game(key(KeyCode::Char('k'))));
+    }
+
+    #[test]
+    fn escape_key() {
+        assert!(KeyMap::is_escape(key(KeyCode::Esc)));
+        assert!(!KeyMap::is_escape(key(KeyCode::Char('e'))));
+    }
+
+    #[test]
+    fn confirm_key() {
+        assert!(KeyMap::is_confirm(key(KeyCode::Enter)));
+        assert!(KeyMap::is_confirm(key(KeyCode::Char('y'))));
+        assert!(KeyMap::is_confirm(key(KeyCode::Char('Y'))));
+        assert!(!KeyMap::is_confirm(key(KeyCode::Char('n'))));
+    }
+
+    #[test]
+    fn quit_shift_q() {
+        assert!(KeyMap::is_quit(key_with_mod(
+            KeyCode::Char('Q'),
+            KeyModifiers::SHIFT
+        )));
     }
 }

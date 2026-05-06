@@ -322,4 +322,58 @@ mod tests {
         assert_eq!(f1.0, 1);
         assert_eq!(f2.0, 2);
     }
+
+    #[test]
+    fn spectral_class_as_char() {
+        assert_eq!(SpectralClass::O.as_char(), 'O');
+        assert_eq!(SpectralClass::B.as_char(), 'B');
+        assert_eq!(SpectralClass::A.as_char(), 'A');
+        assert_eq!(SpectralClass::F.as_char(), 'F');
+        assert_eq!(SpectralClass::G.as_char(), 'G');
+        assert_eq!(SpectralClass::K.as_char(), 'K');
+        assert_eq!(SpectralClass::M.as_char(), 'M');
+    }
+
+    #[test]
+    fn spectral_class_all_contains_all_variants() {
+        let all = SpectralClass::all();
+        assert_eq!(all.len(), 7);
+        assert!(all.contains(&SpectralClass::O));
+        assert!(all.contains(&SpectralClass::M));
+    }
+
+    #[test]
+    fn planet_size_all_contains_all_variants() {
+        let all = PlanetSize::all();
+        assert_eq!(all.len(), 5);
+        assert!(all.contains(&PlanetSize::Tiny));
+        assert!(all.contains(&PlanetSize::Huge));
+    }
+
+    #[test]
+    fn planet_size_all_base_capacities() {
+        assert_eq!(PlanetSize::Small.base_capacity(), 4);
+        assert_eq!(PlanetSize::Medium.base_capacity(), 8);
+        assert_eq!(PlanetSize::Large.base_capacity(), 12);
+    }
+
+    #[test]
+    fn build_item_names() {
+        assert_eq!(BuildItem::Scout.name(), "Scout");
+        assert_eq!(BuildItem::Colony.name(), "Colony Ship");
+        assert_eq!(BuildItem::Outpost.name(), "Outpost");
+    }
+
+    #[test]
+    fn game_state_partial_eq() {
+        let state_a = GameState::default();
+        let state_b = GameState::default();
+        assert_eq!(state_a, state_b);
+
+        let state_c = GameState {
+            turn: 5,
+            ..GameState::default()
+        };
+        assert_ne!(state_a, state_c);
+    }
 }

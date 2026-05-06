@@ -678,4 +678,246 @@ mod tests {
 
         assert!(engine.state.event_log.len() <= 50);
     }
+
+    #[test]
+    fn move_fleet_not_owned_by_player_emits_error() {
+        let mut engine = Engine::new(42);
+
+        // Create a fleet owned by a different empire
+        let other_empire = EmpireId(99);
+        let fleet_id = FleetId(99);
+        let location = *engine.state.stars.keys().next().unwrap();
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: other_empire,
+                location,
+                ships: 1,
+            },
+        );
+
+        let destination = *engine.state.stars.keys().nth(1).unwrap();
+        let events = engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination,
+        }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn queue_build_unknown_colony_emits_error() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(999);
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Scout,
+        }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn queue_build_not_owned_by_player_emits_error() {
+        let mut engine = Engine::new(42);
+
+        // Create a colony owned by a different empire
+        let other_empire = EmpireId(99);
+        let colony_id = ColonyId(99);
+        let star_id = *engine.state.stars.keys().next().unwrap();
+        engine.state.colonies.insert(
+            colony_id,
+            Colony {
+                id: colony_id,
+                star: star_id,
+                planet_index: 0,
+                owner: other_empire,
+                population: 5,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Scout,
+        }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn cancel_build_unknown_colony_emits_error() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(999);
+
+        let events = engine.apply_turn(vec![Command::CancelBuild {
+            colony: colony_id,
+            index: 0,
+        }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn cancel_build_not_owned_by_player_emits_error() {
+        let mut engine = Engine::new(42);
+
+        // Create a colony owned by a different empire with an item in the queue
+        let other_empire = EmpireId(99);
+        let colony_id = ColonyId(99);
+        let star_id = *engine.state.stars.keys().next().unwrap();
+        engine.state.colonies.insert(
+            colony_id,
+            Colony {
+                id: colony_id,
+                star: star_id,
+                planet_index: 0,
+                owner: other_empire,
+                population: 5,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: vec![BuildItem::Scout],
+                accumulated_production: 0,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::CancelBuild {
+            colony: colony_id,
+            index: 0,
+        }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn cancel_build_non_first_item_does_not_reset_accumulated() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // Queue two items
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Scout,
+        }]);
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Colony,
+        }]);
+
+        // Set some accumulated production
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .accumulated_production = 25;
+
+        // Cancel the second item (index 1) — accumulated should be preserved
+        let events = engine.apply_turn(vec![Command::CancelBuild {
+            colony: colony_id,
+            index: 1,
+        }]);
+
+        assert!(!events.iter().any(|e| e.is_error()));
+        let colony = engine.state.colonies.get(&colony_id).unwrap();
+        assert_eq!(colony.accumulated_production, 25);
+        assert_eq!(colony.build_queue.len(), 1);
+    }
+
+    #[test]
+    fn set_colony_focus_not_owned_by_player_emits_error() {
+        let mut engine = Engine::new(42);
+
+        // Create a colony owned by a different empire
+        let other_empire = EmpireId(99);
+        let colony_id = ColonyId(99);
+        let star_id = *engine.state.stars.keys().next().unwrap();
+        engine.state.colonies.insert(
+            colony_id,
+            Colony {
+                id: colony_id,
+                star: star_id,
+                planet_index: 0,
+                owner: other_empire,
+                population: 5,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 70,
+            research_pct: 30,
+        }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn build_completion_colony_ship_creates_fleet() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // Queue a colony ship (cost 200)
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Colony,
+        }]);
+
+        // Set production to 100%
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+
+        let initial_fleet_count = engine.state.fleets.len();
+
+        // Run enough turns to complete (production 10/turn, cost 200 => 20 turns)
+        for _ in 0..21 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        assert!(engine.state.fleets.len() > initial_fleet_count);
+    }
+
+    #[test]
+    fn determinism_same_seed_same_commands_same_state() {
+        let commands = vec![
+            Command::SetColonyFocus {
+                colony: ColonyId(1),
+                prod_pct: 80,
+                research_pct: 20,
+            },
+            Command::QueueBuild {
+                colony: ColonyId(1),
+                item: BuildItem::Scout,
+            },
+            Command::EndTurn,
+            Command::EndTurn,
+            Command::EndTurn,
+        ];
+
+        let mut engine_a = Engine::new(99999);
+        let mut engine_b = Engine::new(99999);
+
+        for cmd in commands {
+            let evts_a = engine_a.apply_turn(vec![cmd.clone()]);
+            let evts_b = engine_b.apply_turn(vec![cmd]);
+            assert_eq!(evts_a, evts_b);
+        }
+
+        assert_eq!(engine_a.state, engine_b.state);
+    }
 }

@@ -225,11 +225,10 @@ fn render_production_queue(
             let accumulated = colony.accumulated_production;
             let bar_width = inner.width.saturating_sub(4) as usize;
             let bar_width = bar_width.min(20);
-            let filled = if cost > 0 {
-                (accumulated * bar_width as u64 / cost).min(bar_width as u64) as usize
-            } else {
-                bar_width
-            };
+            let filled = (accumulated * bar_width as u64)
+                .checked_div(cost)
+                .unwrap_or(bar_width as u64)
+                .min(bar_width as u64) as usize;
             lines.push(Line::from(vec![
                 Span::styled(format!(" {} ", item.name()), Theme::accent_style()),
                 Span::styled(

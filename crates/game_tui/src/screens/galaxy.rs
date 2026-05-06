@@ -143,7 +143,7 @@ fn render_star_map(
                     .add_modifier(Modifier::BOLD),
             )
         } else if has_ai_colony {
-            // AI-owned colony — amber star
+            // AI-owned colony — yellow star (distinct from player-explored)
             (
                 '*',
                 Style::default()
@@ -274,7 +274,7 @@ fn render_star_details(
                     if colony.owner == game_state.player_empire {
                         Theme::accent_style()
                     } else {
-                        // AI colony — amber/yellow to distinguish
+                        // AI colony — yellow to distinguish from player colonies
                         ratatui::style::Style::default().fg(ratatui::style::Color::Yellow)
                     }
                 } else {

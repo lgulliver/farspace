@@ -54,8 +54,8 @@ impl Engine {
         let home_star_id = home_star.id;
 
         // Find the AI home star: farthest habitable star from the player
-        let ai_home_star_id =
-            find_ai_home_star(&stars_vec, home_star_id).expect("Galaxy must have a second star");
+        let ai_home_star_id = find_ai_home_star(&stars_vec, home_star_id)
+            .expect("Galaxy must have at least two habitable stars");
 
         // Create player empire
         let player_empire_id = EmpireId(1);

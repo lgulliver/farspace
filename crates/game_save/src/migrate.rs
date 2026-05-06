@@ -50,6 +50,8 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // v5 -> v6: GameState.ai_empire (Option<EmpireId>, default None) and
             // GameState.ai_explored_stars (BTreeSet<StarId>, default empty) added.
             // Both fields rely on serde defaults — nothing to populate explicitly.
+            // Note: saves migrated from v5 will have ai_empire=None until a new game is
+            // started, meaning no AI opponent will be active for existing saves.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,

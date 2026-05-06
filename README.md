@@ -51,7 +51,10 @@ Requires [Rust](https://rustup.rs/) (stable toolchain).
 git clone https://github.com/lgulliver/farspace.git
 cd farspace
 cargo build --release -p farspace
+# Linux/macOS:
 ./target/release/farspace
+# Windows:
+target\release\farspace.exe
 ```
 
 ---

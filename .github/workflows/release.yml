@@ -12,20 +12,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             artifact: farspace-linux-x86_64
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
             artifact: farspace-linux-aarch64
             cross: true
-          - os: macos-latest
+          - os: macos-14
             target: x86_64-apple-darwin
             artifact: farspace-macos-x86_64
-          - os: macos-latest
+          - os: macos-14
             target: aarch64-apple-darwin
             artifact: farspace-macos-aarch64
-          - os: windows-latest
+          - os: windows-2022
             target: x86_64-pc-windows-msvc
             artifact: farspace-windows-x86_64
     runs-on: ${{ matrix.os }}
@@ -42,7 +42,7 @@ jobs:
 
       - name: Install cross
         if: matrix.cross
-        run: cargo install cross --locked
+        run: cargo install cross --version 0.2.5 --locked
 
       - name: Build (cross)
         if: matrix.cross
@@ -81,7 +81,7 @@ jobs:
   release:
     name: Create GitHub release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:

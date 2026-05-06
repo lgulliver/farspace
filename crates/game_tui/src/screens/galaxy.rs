@@ -8,7 +8,7 @@ use crate::AppState;
 use game_core::{GameState, StarId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -80,6 +80,13 @@ fn render_star_map(
         return;
     }
 
+    // Collect stars that have an active scout en route (by destination)
+    let scout_destinations: std::collections::BTreeSet<StarId> = game_state
+        .scout_missions
+        .values()
+        .map(|m| m.destination)
+        .collect();
+
     // Scale stars to fit the map area
     // Stars are in range -500..500, map to 0..map_width/height
     for star in game_state.stars.values() {
@@ -95,15 +102,30 @@ fn render_star_map(
         }
 
         let is_selected = selected_star == Some(star.id);
-        let style = if is_selected {
-            Theme::highlight_style()
+        let is_explored = game_state.explored_stars.contains(&star.id);
+        let scout_en_route = scout_destinations.contains(&star.id);
+
+        let (render_char, style) = if is_selected {
+            ('@', Theme::highlight_style())
+        } else if scout_en_route {
+            // Scout is heading here — show with a distinct marker
+            (
+                '+',
+                Style::default()
+                    .fg(ratatui::style::Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else if is_explored {
+            (
+                '*',
+                Style::default().fg(Theme::star_color(star.spectral_class)),
+            )
         } else {
-            Style::default().fg(Theme::star_color(star.spectral_class))
+            // Unexplored: dim question mark
+            ('?', Theme::muted_style())
         };
 
-        let char = if is_selected { '@' } else { '*' };
-
-        let star_widget = Paragraph::new(char.to_string()).style(style);
+        let star_widget = Paragraph::new(render_char.to_string()).style(style);
         frame.render_widget(star_widget, Rect::new(x, y, 1, 1));
     }
 }
@@ -132,6 +154,48 @@ fn render_star_details(
         }
     };
 
+    let is_explored = game_state.explored_stars.contains(&star.id);
+
+    if !is_explored {
+        // Unknown system — show limited info only
+        // Find mission in a single pass (reused below to avoid duplicate search)
+        let active_mission = game_state
+            .scout_missions
+            .values()
+            .find(|m| m.destination == star.id);
+
+        let mut lines = vec![
+            Line::from(vec![Span::styled(
+                "[ Unknown System ]",
+                Theme::muted_style(),
+            )]),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "No data available.",
+                Theme::muted_style(),
+            )]),
+        ];
+
+        if let Some(mission) = active_mission {
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("Scout en route — ", Theme::accent_style()),
+                Span::raw(format!("{} turn(s) remaining", mission.turns_remaining)),
+            ]));
+        } else {
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![Span::styled(
+                "Press S to dispatch a scout.",
+                Theme::muted_style(),
+            )]));
+        }
+
+        let paragraph = Paragraph::new(lines).style(Theme::default_style());
+        frame.render_widget(paragraph, inner);
+        return;
+    }
+
+    // Explored system — show full details
     let mut lines = vec![
         Line::from(vec![Span::styled(&star.name, Theme::title_style())]),
         Line::from(""),
@@ -205,6 +269,67 @@ mod tests {
         let engine = Engine::new(42);
         let app_state = AppState {
             selected_star: engine.state.stars.keys().next().copied(),
+            ..Default::default()
+        };
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_galaxy(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn galaxy_screen_with_unexplored_selected() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let engine = Engine::new(42);
+        // Select an unexplored star (Engine::new(42) explores at most 4 of 20 stars)
+        let unexplored = engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .copied()
+            .expect("Engine::new(42) must have unexplored stars");
+
+        let app_state = AppState {
+            selected_star: Some(unexplored),
+            ..Default::default()
+        };
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_galaxy(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn galaxy_screen_with_scout_en_route() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut engine = Engine::new(42);
+        use game_core::{Command, FleetId};
+
+        let dest = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Unexplored star needed");
+
+        engine.apply_turn(vec![Command::SendScout {
+            fleet: FleetId(1),
+            destination: dest,
+        }]);
+
+        let app_state = AppState {
+            selected_star: Some(dest),
             ..Default::default()
         };
 

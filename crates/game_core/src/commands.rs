@@ -24,6 +24,8 @@ pub enum Command {
     CancelBuild { colony: ColonyId, index: usize },
     /// Select a technology to research
     SelectResearch { tech: TechId },
+    /// Dispatch a scout fleet to explore an unexplored star system
+    SendScout { fleet: FleetId, destination: StarId },
 }
 
 #[cfg(test)]
@@ -69,6 +71,19 @@ mod tests {
     fn select_research_serialization() {
         use crate::state::TechId;
         let cmd = Command::SelectResearch { tech: TechId(3) };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn send_scout_serialization() {
+        use crate::state::{FleetId, StarId};
+        let cmd = Command::SendScout {
+            fleet: FleetId(1),
+            destination: StarId(5),
+        };
         let json = serde_json::to_string(&cmd).unwrap();
         let parsed: Command = serde_json::from_str(&json).unwrap();
         assert_eq!(cmd, parsed);

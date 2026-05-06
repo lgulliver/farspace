@@ -96,6 +96,27 @@ pub enum Event {
     },
     /// An error occurred
     Error { message: String },
+    /// AI empire has selected a technology to research
+    AiResearchSelected { empire: EmpireId, tech: TechId },
+    /// AI empire has queued a build item at a colony
+    AiBuildQueued {
+        empire: EmpireId,
+        colony: ColonyId,
+        item: BuildItem,
+    },
+    /// AI empire has dispatched a scout fleet toward an unexplored system
+    AiScoutDispatched {
+        empire: EmpireId,
+        fleet: FleetId,
+        destination: StarId,
+    },
+    /// AI empire has founded a new colony
+    AiColonized {
+        empire: EmpireId,
+        star: StarId,
+        planet_index: usize,
+        colony: ColonyId,
+    },
 }
 
 impl Event {
@@ -220,6 +241,42 @@ impl Event {
                 )
             }
             Event::Error { message } => format!("Error: {}", message),
+            Event::AiResearchSelected { empire, tech } => {
+                format!("AI Empire {}: researching tech {}", empire.0, tech.0)
+            }
+            Event::AiBuildQueued {
+                empire,
+                colony,
+                item,
+            } => {
+                format!(
+                    "AI Empire {}: queued {} at colony {}",
+                    empire.0,
+                    item.name(),
+                    colony.0
+                )
+            }
+            Event::AiScoutDispatched {
+                empire,
+                fleet,
+                destination,
+            } => {
+                format!(
+                    "AI Empire {}: scout {} dispatched to system {}",
+                    empire.0, fleet.0, destination.0
+                )
+            }
+            Event::AiColonized {
+                empire,
+                star,
+                planet_index,
+                colony,
+            } => {
+                format!(
+                    "AI Empire {}: colonized system {} planet {} (colony {})",
+                    empire.0, star.0, planet_index, colony.0
+                )
+            }
         }
     }
 

@@ -3,6 +3,7 @@
 //! This crate contains the core game mechanics, state management,
 //! command processing, and event generation for FARSPACE.
 
+pub mod ai;
 pub mod commands;
 pub mod deterministic;
 pub mod engine;

@@ -13,7 +13,7 @@ use rand_chacha::ChaCha8Rng;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Number of turns for a scout to travel to an unexplored system
-const SCOUT_TRAVEL_TURNS: u32 = 3;
+pub(crate) const SCOUT_TRAVEL_TURNS: u32 = 3;
 
 /// Return the number of travel turns for a fleet moving the given squared distance.
 ///
@@ -48,13 +48,18 @@ impl Engine {
             stars.insert(star.id, star.clone());
         }
 
-        // Find a suitable home star
+        // Find a suitable home star for the player
         let home_star =
             find_home_star(&stars_vec).expect("Galaxy should have at least one habitable star");
         let home_star_id = home_star.id;
 
+        // Find the AI home star: farthest habitable star from the player
+        let ai_home_star_id = find_ai_home_star(&stars_vec, home_star_id)
+            .expect("Galaxy must have at least two habitable stars");
+
         // Create player empire
         let player_empire_id = EmpireId(1);
+        let ai_empire_id = EmpireId(2);
         let mut empires = BTreeMap::new();
         empires.insert(
             player_empire_id,
@@ -68,8 +73,20 @@ impl Engine {
                 food: 0,
             },
         );
+        empires.insert(
+            ai_empire_id,
+            Empire {
+                id: ai_empire_id,
+                name: "Veth Dominion".to_string(),
+                credits: 100,
+                research_points: 0,
+                home_star: ai_home_star_id,
+                research: ResearchState::default(),
+                food: 0,
+            },
+        );
 
-        // Create initial colony
+        // Create initial player colony (ColonyId 1)
         let colony_id = ColonyId(1);
         let mut colonies = BTreeMap::new();
         colonies.insert(
@@ -89,14 +106,40 @@ impl Engine {
             },
         );
 
-        // Update star's planet to reference the colony
+        // Create initial AI colony (ColonyId 2)
+        let ai_colony_id = ColonyId(2);
+        colonies.insert(
+            ai_colony_id,
+            Colony {
+                id: ai_colony_id,
+                star: ai_home_star_id,
+                planet_index: 0,
+                owner: ai_empire_id,
+                population: 10,
+                production: 10,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+                buildings: Vec::new(),
+            },
+        );
+
+        // Update player home star's planet 0 to reference the player colony
         if let Some(star) = stars.get_mut(&home_star_id) {
             if let Some(planet) = star.planets.get_mut(0) {
                 planet.colony = Some(colony_id);
             }
         }
 
-        // Create initial scout fleet
+        // Update AI home star's planet 0 to reference the AI colony
+        if let Some(star) = stars.get_mut(&ai_home_star_id) {
+            if let Some(planet) = star.planets.get_mut(0) {
+                planet.colony = Some(ai_colony_id);
+            }
+        }
+
+        // Create initial player scout fleet (FleetId 1)
         let fleet_id = FleetId(1);
         let mut fleets = BTreeMap::new();
         fleets.insert(
@@ -110,8 +153,22 @@ impl Engine {
             },
         );
 
-        // Determine initially explored stars: home system + 3 nearest neighbours
+        // Create initial AI scout fleet (FleetId 2)
+        let ai_fleet_id = FleetId(2);
+        fleets.insert(
+            ai_fleet_id,
+            Fleet {
+                id: ai_fleet_id,
+                owner: ai_empire_id,
+                location: ai_home_star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+            },
+        );
+
+        // Determine initially explored stars for player and AI
         let explored_stars = initial_explored_stars(&stars_vec, home_star_id);
+        let ai_explored_stars = initial_explored_stars(&stars_vec, ai_home_star_id);
 
         let state = GameState {
             seed,
@@ -123,11 +180,13 @@ impl Engine {
             player_empire: player_empire_id,
             rng,
             event_log: Vec::new(),
-            next_colony_id: 2,
-            next_fleet_id: 2,
+            next_colony_id: 3,
+            next_fleet_id: 3,
             explored_stars,
             scout_missions: BTreeMap::new(),
             fleet_missions: BTreeMap::new(),
+            ai_empire: Some(ai_empire_id),
+            ai_explored_stars,
         };
 
         Engine { state }
@@ -457,7 +516,19 @@ impl Engine {
 
             if new_remaining == 0 {
                 self.state.scout_missions.remove(&fleet_id);
-                self.state.explored_stars.insert(destination);
+
+                // Route the explored star to the correct empire's set
+                let is_ai_fleet = self
+                    .state
+                    .fleets
+                    .get(&fleet_id)
+                    .map(|f| Some(f.owner) == self.state.ai_empire)
+                    .unwrap_or(false);
+                if is_ai_fleet {
+                    self.state.ai_explored_stars.insert(destination);
+                } else {
+                    self.state.explored_stars.insert(destination);
+                }
 
                 // Move the fleet to the destination
                 if let Some(fleet) = self.state.fleets.get_mut(&fleet_id) {
@@ -491,6 +562,12 @@ impl Engine {
                     star: destination,
                 });
             }
+        }
+
+        // Run AI turn decisions (before advancing the turn counter)
+        if let Some(ai_empire_id) = self.state.ai_empire {
+            let ai_events = crate::ai::run_ai_turn(&mut self.state, ai_empire_id);
+            events.extend(ai_events);
         }
 
         // Advance turn
@@ -1002,6 +1079,25 @@ fn initial_explored_stars(stars: &[crate::state::Star], home_id: StarId) -> BTre
     }
 
     explored
+}
+
+/// Find the AI home star: the habitable star farthest from the player's home.
+///
+/// A star qualifies only if it has at least one habitable planet.
+/// Tie-breaking is by descending StarId so the choice is fully deterministic.
+fn find_ai_home_star(stars: &[crate::state::Star], player_home: StarId) -> Option<StarId> {
+    let player_star = stars.iter().find(|s| s.id == player_home)?;
+
+    stars
+        .iter()
+        .filter(|s| s.id != player_home && s.planets.iter().any(|p| p.habitable))
+        .max_by_key(|s| {
+            let dx = (s.x - player_star.x) as i64;
+            let dy = (s.y - player_star.y) as i64;
+            // Primary key: distance; secondary: StarId for determinism
+            (dx * dx + dy * dy, s.id.0)
+        })
+        .map(|s| s.id)
 }
 
 #[cfg(test)]

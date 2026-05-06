@@ -605,4 +605,56 @@ mod tests {
         let empire = loaded.empires.get(&loaded.player_empire).unwrap();
         assert_eq!(empire.food, 0, "Missing food field should default to 0");
     }
+
+    #[test]
+    fn save_load_preserves_ai_empire_and_explored_stars() {
+        let mut engine = Engine::new(42);
+        // Advance a few turns so the AI makes decisions and explores stars
+        for _ in 0..5 {
+            engine.apply_turn(vec![game_core::Command::EndTurn]);
+        }
+
+        let original = engine.state.clone();
+        let saved = save(&original).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert_eq!(
+            original.ai_empire, loaded.ai_empire,
+            "ai_empire must survive round-trip"
+        );
+        assert_eq!(
+            original.ai_explored_stars, loaded.ai_explored_stars,
+            "ai_explored_stars must survive round-trip"
+        );
+        // Both player + AI empires must be present
+        assert_eq!(original.empires.len(), loaded.empires.len());
+    }
+
+    #[test]
+    fn migrate_v5_defaults_ai_fields() {
+        // Simulate a v5 save without ai_empire / ai_explored_stars fields
+        let engine = Engine::new(42);
+        let saved_str = save_to_string(&engine.state).expect("save should succeed");
+
+        let mut json: serde_json::Value = serde_json::from_str(&saved_str).unwrap();
+        json["version"] = serde_json::json!(5);
+        // Remove AI fields to simulate a v5 save
+        if let Some(state) = json["state"].as_object_mut() {
+            state.remove("ai_empire");
+            state.remove("ai_explored_stars");
+        }
+        let patched = serde_json::to_string(&json).unwrap();
+
+        let loaded = load_from_string(&patched).expect("v5 migration should succeed");
+        // ai_empire should default to None
+        assert!(
+            loaded.ai_empire.is_none(),
+            "ai_empire should default to None from v5"
+        );
+        // ai_explored_stars should default to empty
+        assert!(
+            loaded.ai_explored_stars.is_empty(),
+            "ai_explored_stars should default to empty from v5"
+        );
+    }
 }

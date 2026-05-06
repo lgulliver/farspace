@@ -114,6 +114,16 @@ fn render_star_map(
         let scout_en_route = scout_destinations.contains(&star.id);
         let fleet_en_route = fleet_destinations.contains(&star.id);
 
+        // Check if the star has any AI-owned colony
+        let has_ai_colony = star.planets.iter().any(|p| {
+            p.colony.is_some_and(|cid| {
+                game_state
+                    .colonies
+                    .get(&cid)
+                    .is_some_and(|c| Some(c.owner) == game_state.ai_empire)
+            })
+        });
+
         let (render_char, style) = if is_selected {
             ('@', Theme::highlight_style())
         } else if scout_en_route {
@@ -131,6 +141,14 @@ fn render_star_map(
                 Style::default()
                     .fg(ratatui::style::Color::Cyan)
                     .add_modifier(Modifier::BOLD),
+            )
+        } else if has_ai_colony {
+            // AI-owned colony — yellow star (distinct from player-explored)
+            (
+                '*',
+                Style::default()
+                    .fg(ratatui::style::Color::Yellow)
+                    .add_modifier(Modifier::DIM),
             )
         } else if is_explored {
             (
@@ -235,7 +253,13 @@ fn render_star_details(
         let colony_info = match &planet.colony {
             Some(colony_id) => {
                 if let Some(colony) = game_state.colonies.get(colony_id) {
-                    format!(" [Colony - Pop: {}]", colony.population)
+                    if colony.owner == game_state.player_empire {
+                        format!(" [Colony - Pop: {}]", colony.population)
+                    } else if Some(colony.owner) == game_state.ai_empire {
+                        format!(" [AI Colony - Pop: {}]", colony.population)
+                    } else {
+                        format!(" [Foreign Colony - Pop: {}]", colony.population)
+                    }
                 } else {
                     String::new()
                 }
@@ -244,11 +268,30 @@ fn render_star_details(
             None => " [Uninhabitable]".to_string(),
         };
 
+        let colony_style = match &planet.colony {
+            Some(colony_id) => {
+                if let Some(colony) = game_state.colonies.get(colony_id) {
+                    if colony.owner == game_state.player_empire {
+                        Theme::accent_style()
+                    } else if Some(colony.owner) == game_state.ai_empire {
+                        // AI colony — yellow
+                        ratatui::style::Style::default().fg(ratatui::style::Color::Yellow)
+                    } else {
+                        // Foreign (unknown) colony — magenta
+                        ratatui::style::Style::default().fg(ratatui::style::Color::Magenta)
+                    }
+                } else {
+                    Theme::accent_style()
+                }
+            }
+            _ => Theme::accent_style(),
+        };
+
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(&planet.name, Theme::default_style()),
             Span::styled(format!(" ({:?})", planet.size), Theme::muted_style()),
-            Span::styled(colony_info, Theme::accent_style()),
+            Span::styled(colony_info, colony_style),
         ]));
     }
 

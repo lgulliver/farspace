@@ -1,5 +1,8 @@
 //! Main menu screen
 
+use crate::components::render_footer;
+use crate::layout::compose_layout;
+use crate::screens::Screen;
 use crate::theme::Theme;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -8,44 +11,60 @@ use ratatui::{
     Frame,
 };
 
+/// Each line of the FARSPACE ASCII art title — kept as separate entries so
+/// ratatui renders them as individual rows (spans with embedded `\n` are
+/// stripped by ratatui and would collapse the art into a single garbled line).
+const TITLE_LINES: &[&str] = &[
+    "  ███████╗ █████╗ ██████╗ ███████╗██████╗  █████╗  ██████╗███████╗",
+    "  ██╔════╝██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝██╔════╝",
+    "  █████╗  ███████║██████╔╝███████╗██████╔╝███████║██║     █████╗  ",
+    "  ██╔══╝  ██╔══██║██╔══██╗╚════██║██╔═══╝ ██╔══██║██║     ██╔══╝  ",
+    "  ██║     ██║  ██║██║  ██║███████║██║     ██║  ██║╚██████╗███████╗",
+    "  ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝╚══════╝",
+];
+
+/// Height of the menu box: 1 (padding) + 6 (title) + 1 (gap) + 5 (items) + 2 (border) = 15
+const MENU_BOX_HEIGHT: u16 = 15;
+
+/// Width of the menu box: wide enough for the 66-char title plus borders/padding
+const MENU_BOX_WIDTH: u16 = 70;
+
 /// Render the main menu
 pub fn render_menu(frame: &mut Frame, area: Rect) {
-    // Center the menu vertically
-    let chunks = Layout::default()
+    let (_header_area, main_area, footer_area) = compose_layout(area);
+
+    // Footer shows keyboard hints for the menu screen
+    render_footer(frame, footer_area, &Screen::Menu);
+
+    // Center the menu box vertically within the main area
+    let v_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(30),
-            Constraint::Length(12),
-            Constraint::Percentage(30),
+            Constraint::Fill(1),
+            Constraint::Length(MENU_BOX_HEIGHT),
+            Constraint::Fill(1),
         ])
-        .split(area);
+        .split(main_area);
 
-    let center = chunks[1];
-
-    // Center horizontally
+    // Center the menu box horizontally
     let h_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(25),
-            Constraint::Percentage(50),
-            Constraint::Percentage(25),
+            Constraint::Fill(1),
+            Constraint::Length(MENU_BOX_WIDTH),
+            Constraint::Fill(1),
         ])
-        .split(center);
+        .split(v_chunks[1]);
 
     let menu_area = h_chunks[1];
 
-    let title = r#"
-  ███████╗ █████╗ ██████╗ ███████╗██████╗  █████╗  ██████╗███████╗
-  ██╔════╝██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝██╔════╝
-  █████╗  ███████║██████╔╝███████╗██████╔╝███████║██║     █████╗  
-  ██╔══╝  ██╔══██║██╔══██╗╚════██║██╔═══╝ ██╔══██║██║     ██╔══╝  
-  ██║     ██║  ██║██║  ██║███████║██║     ██║  ██║╚██████╗███████╗
-  ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝╚══════╝
-"#;
-
-    let menu_items = vec![
-        Line::from(""),
-        Line::from(Span::styled(title, Theme::title_style())),
+    // Build menu items — each title row is its own Line so ratatui renders
+    // them on separate rows (a single Span with '\n' chars would be stripped).
+    let mut menu_items: Vec<Line> = vec![Line::from("")];
+    for line in TITLE_LINES {
+        menu_items.push(Line::from(Span::styled(*line, Theme::title_style())));
+    }
+    menu_items.extend([
         Line::from(""),
         Line::from(vec![
             Span::styled("[N]", Theme::title_style()),
@@ -61,7 +80,7 @@ pub fn render_menu(frame: &mut Frame, area: Rect) {
             Span::styled("[Q]", Theme::title_style()),
             Span::raw(" Quit"),
         ]),
-    ];
+    ]);
 
     let paragraph = Paragraph::new(menu_items)
         .block(
@@ -79,18 +98,85 @@ pub fn render_menu(frame: &mut Frame, area: Rect) {
 mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
     use ratatui::Terminal;
+
+    /// Extract the first char of a cell's symbol, falling back to a space.
+    fn cell_char(buf: &Buffer, x: u16, y: u16) -> char {
+        buf.cell((x, y))
+            .and_then(|c| c.symbol().chars().next())
+            .unwrap_or(' ')
+    }
+
+    /// Render the menu into a 100×30 test buffer.
+    fn render_to_buffer() -> Buffer {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_menu(frame, frame.area()))
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
 
     #[test]
     fn menu_screen_renders_without_panic() {
-        let backend = TestBackend::new(100, 30);
-        let mut terminal = Terminal::new(backend).unwrap();
+        render_to_buffer();
+    }
 
-        terminal
-            .draw(|frame| {
-                let area = frame.area();
-                render_menu(frame, area);
-            })
-            .unwrap();
+    /// Title must appear as separate rows — if all lines collapse to one the
+    /// first row of the title art will NOT appear on line 1 of the buffer.
+    #[test]
+    fn title_lines_are_rendered_on_separate_rows() {
+        let buf = render_to_buffer();
+        let rows: Vec<String> = (0..30u16)
+            .map(|y| (0..100u16).map(|x| cell_char(&buf, x, y)).collect())
+            .collect();
+
+        // The first and last title lines start with distinct box-drawing sequences.
+        let first_title_fragment = "███████"; // top of F
+        let last_title_fragment = "╚═╝"; // bottom row of the art
+
+        let has_first = rows.iter().any(|r| r.contains(first_title_fragment));
+        let has_last = rows.iter().any(|r| r.contains(last_title_fragment));
+
+        assert!(
+            has_first,
+            "First title art row not found — title lines may have collapsed"
+        );
+        assert!(
+            has_last,
+            "Last title art row not found — title lines may have collapsed"
+        );
+
+        // They must appear on *different* rows.
+        let first_row = rows.iter().position(|r| r.contains(first_title_fragment));
+        let last_row = rows.iter().position(|r| r.contains(last_title_fragment));
+        assert_ne!(
+            first_row, last_row,
+            "First and last title rows appear on the same line — art collapsed"
+        );
+    }
+
+    /// Footer keyboard hints must be visible on the menu screen.
+    #[test]
+    fn menu_footer_hints_are_rendered() {
+        let buf = render_to_buffer();
+        let full: String = (0..30u16)
+            .flat_map(|y| (0..100u16).map(move |x| (x, y)))
+            .map(|(x, y)| cell_char(&buf, x, y))
+            .collect();
+
+        assert!(
+            full.contains("[N]"),
+            "Footer hint [N] missing from menu screen"
+        );
+        assert!(
+            full.contains("[L]"),
+            "Footer hint [L] missing from menu screen"
+        );
+        assert!(
+            full.contains("[Q]"),
+            "Footer hint [Q] missing from menu screen"
+        );
     }
 }

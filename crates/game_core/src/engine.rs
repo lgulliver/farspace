@@ -307,7 +307,8 @@ impl Engine {
             }
         }
 
-        // Tick scout missions: decrement and resolve completed ones
+        // Tick scout missions: decrement and resolve completed ones.
+        // Collect keys first to avoid a borrow conflict when removing entries mid-loop.
         let mission_fleet_ids: Vec<FleetId> = self.state.scout_missions.keys().copied().collect();
         for fleet_id in mission_fleet_ids {
             let (destination, new_remaining) = {

@@ -15,6 +15,8 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // v1 → v2: populate explored_stars with each empire's home star.
             // explored_stars and scout_missions default to empty via serde(default),
             // so we just need to seed the exploration with home stars.
+            // Collect home stars first to satisfy the borrow checker (empires and
+            // explored_stars are separate fields on the same struct).
             let mut state = save.state;
             let home_stars: Vec<_> = state.empires.values().map(|e| e.home_star).collect();
             for star_id in home_stars {

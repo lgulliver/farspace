@@ -158,10 +158,11 @@ fn render_star_details(
 
     if !is_explored {
         // Unknown system — show limited info only
-        let scout_en_route = game_state
+        // Find mission in a single pass (reused below to avoid duplicate search)
+        let active_mission = game_state
             .scout_missions
             .values()
-            .any(|m| m.destination == star.id);
+            .find(|m| m.destination == star.id);
 
         let mut lines = vec![
             Line::from(vec![Span::styled(
@@ -175,18 +176,12 @@ fn render_star_details(
             )]),
         ];
 
-        if scout_en_route {
-            if let Some(mission) = game_state
-                .scout_missions
-                .values()
-                .find(|m| m.destination == star.id)
-            {
-                lines.push(Line::from(""));
-                lines.push(Line::from(vec![
-                    Span::styled("Scout en route — ", Theme::accent_style()),
-                    Span::raw(format!("{} turn(s) remaining", mission.turns_remaining)),
-                ]));
-            }
+        if let Some(mission) = active_mission {
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("Scout en route — ", Theme::accent_style()),
+                Span::raw(format!("{} turn(s) remaining", mission.turns_remaining)),
+            ]));
         } else {
             lines.push(Line::from(""));
             lines.push(Line::from(vec![Span::styled(

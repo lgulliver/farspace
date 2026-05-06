@@ -152,4 +152,44 @@ mod tests {
         let result = load_from_string("");
         assert!(matches!(result, Err(SaveError::Empty)));
     }
+
+    #[test]
+    fn save_to_file_and_load_from_file_round_trip() {
+        let engine = Engine::new(42);
+        let original = engine.state.clone();
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("farspace_test_save.json");
+
+        save_to_file(&original, &path).expect("save_to_file should succeed");
+        let loaded = load_from_file(&path).expect("load_from_file should succeed");
+
+        assert_eq!(original.seed, loaded.seed);
+        assert_eq!(original.turn, loaded.turn);
+        assert_eq!(original.stars.len(), loaded.stars.len());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_from_file_missing_file_returns_error() {
+        let path = std::path::Path::new("/tmp/farspace_nonexistent_save_file.json");
+        let result = load_from_file(path);
+        assert!(matches!(result, Err(SaveError::Io(_))));
+    }
+
+    #[test]
+    fn save_load_after_turn_advances_preserves_state() {
+        let mut engine = Engine::new(77);
+        engine.apply_turn(vec![game_core::Command::EndTurn]);
+        engine.apply_turn(vec![game_core::Command::EndTurn]);
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert_eq!(engine.state.turn, loaded.turn);
+        assert_eq!(engine.state.seed, loaded.seed);
+        assert_eq!(engine.state.colonies.len(), loaded.colonies.len());
+        assert_eq!(engine.state.fleets.len(), loaded.fleets.len());
+    }
 }

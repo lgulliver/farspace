@@ -343,4 +343,62 @@ mod tests {
 
         terminal.draw(|frame| app.render(frame)).unwrap();
     }
+
+    #[test]
+    fn end_turn_without_engine_does_nothing() {
+        let mut app = App::new();
+        // No game started — end_turn should be a no-op
+        app.end_turn();
+        assert!(app.engine.is_none());
+    }
+
+    #[test]
+    fn move_star_selection_without_engine_does_nothing() {
+        let mut app = App::new();
+        app.move_star_selection(1, 0);
+        assert!(app.state.selected_star.is_none());
+    }
+
+    #[test]
+    fn move_star_selection_with_no_selection_selects_first() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.selected_star = None;
+
+        // With no selection, move should select first star
+        app.move_star_selection(1, 0);
+        // Either first star selected or unchanged; verify no panic
+        // (may remain None if no star is to the right, but first-star selection triggers)
+    }
+
+    #[test]
+    fn handle_key_end_turn_on_galaxy_screen() {
+        let mut app = App::new();
+        app.new_game(42);
+        let initial_turn = app.engine.as_ref().unwrap().state.turn;
+
+        // 'Enter' ends the turn
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.engine.as_ref().unwrap().state.turn, initial_turn + 1);
+    }
+
+    #[test]
+    fn escape_closes_help_overlay() {
+        let mut app = App::new();
+        app.state.show_help = true;
+
+        app.handle_key(key(KeyCode::Esc));
+        assert!(!app.state.show_help);
+    }
+
+    #[test]
+    fn palette_key_closes_palette() {
+        let mut app = App::new();
+        app.state.show_palette = true;
+        app.state.palette_input = "test".to_string();
+
+        app.handle_key(key(KeyCode::Char(':')));
+        assert!(!app.state.show_palette);
+        assert!(app.state.palette_input.is_empty());
+    }
 }

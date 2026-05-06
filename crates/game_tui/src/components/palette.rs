@@ -11,6 +11,7 @@ use ratatui::{
 
 /// Render the command palette
 pub fn render_palette(frame: &mut Frame, area: Rect, input: &str) {
+    // Height 7 = border top + hint line + blank + input line + blank + help line + border bottom
     let popup_area = centered_fixed(50, 7, area);
 
     // Clear the background

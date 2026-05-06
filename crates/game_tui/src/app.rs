@@ -80,9 +80,9 @@ impl App {
         Ok(())
     }
 
-    /// Execute a palette command string (e.g. "save", "load")
+    /// Execute a palette command string (e.g. "save", ":save")
     fn execute_palette_command(&mut self, cmd: &str) {
-        let cmd = cmd.trim().trim_start_matches(':');
+        let cmd = cmd.trim_start_matches(':').trim();
         match cmd {
             "save" => match self.save_game() {
                 Ok(()) => self.state.log.push("Game saved.".to_string()),
@@ -150,10 +150,6 @@ impl App {
                 KeyCode::Esc => {
                     self.state.show_palette = false;
                     self.state.palette_input.clear();
-                }
-                KeyCode::Char(':') if self.state.palette_input.is_empty() => {
-                    // Second `:` while palette is open with empty input closes it
-                    self.state.show_palette = false;
                 }
                 KeyCode::Enter => {
                     let cmd = self.state.palette_input.clone();
@@ -477,9 +473,15 @@ mod tests {
         app.state.show_palette = true;
         app.state.palette_input = String::new();
 
-        // Pressing `:` when input is empty closes the palette
+        // Pressing `:` when palette is open adds `:` to input (does not close)
         app.handle_key(key(KeyCode::Char(':')));
+        assert!(app.state.show_palette);
+        assert_eq!(app.state.palette_input, ":");
+
+        // Pressing Esc closes the palette
+        app.handle_key(key(KeyCode::Esc));
         assert!(!app.state.show_palette);
+        assert!(app.state.palette_input.is_empty());
     }
 
     #[test]

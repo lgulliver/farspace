@@ -95,14 +95,44 @@ fn render_star_map(
         .map(|m| m.destination)
         .collect();
 
-    // Collect stars that are contested: idle fleets from opposing contacted empires present
+    // Collect contested stars in a single O(fleets) pass:
+    // build a map of star → set of idle empire owners, then mark a star as contested
+    // when the player and a contacted foreign empire both have idle fleets there.
     let contested_stars: std::collections::BTreeSet<StarId> = {
         let player = game_state.player_empire;
-        game_state
-            .stars
-            .keys()
-            .filter(|&&star_id| is_contested(game_state, star_id, player))
-            .copied()
+        // Accumulate idle owners per star
+        let mut owners_by_star: std::collections::BTreeMap<
+            StarId,
+            std::collections::BTreeSet<game_core::EmpireId>,
+        > = std::collections::BTreeMap::new();
+        for (fid, f) in &game_state.fleets {
+            if !game_state.fleet_missions.contains_key(fid)
+                && !game_state.scout_missions.contains_key(fid)
+            {
+                owners_by_star
+                    .entry(f.location)
+                    .or_default()
+                    .insert(f.owner);
+            }
+        }
+        // A star is contested only if it is explored AND has the player plus a
+        // contacted foreign empire as idle fleet owners.
+        owners_by_star
+            .into_iter()
+            .filter(|(star_id, owners)| {
+                game_state.explored_stars.contains(star_id)
+                    && owners.contains(&player)
+                    && owners.iter().any(|&owner| {
+                        owner != player
+                            && game_state
+                                .diplomacy
+                                .get(&owner)
+                                .copied()
+                                .unwrap_or(game_core::RelationshipStatus::Unknown)
+                                == game_core::RelationshipStatus::Contacted
+                    })
+            })
+            .map(|(star_id, _)| star_id)
             .collect()
     };
 
@@ -138,8 +168,8 @@ fn render_star_map(
 
         let (render_char, style) = if is_selected {
             ('@', Theme::highlight_style())
-        } else if is_contested {
-            // Contested system — fleets from opposing contacted empires present
+        } else if is_explored && is_contested {
+            // Contested explored system — fleets from opposing contacted empires present
             (
                 '!',
                 Style::default()
@@ -183,40 +213,6 @@ fn render_star_map(
         let star_widget = Paragraph::new(render_char.to_string()).style(style);
         frame.render_widget(star_widget, Rect::new(x, y, 1, 1));
     }
-}
-
-/// Returns true if `star_id` has idle fleets from at least two opposing contacted empires.
-fn is_contested(game_state: &GameState, star_id: StarId, player: game_core::EmpireId) -> bool {
-    // Gather distinct idle empire owners at this star
-    let owners: std::collections::BTreeSet<game_core::EmpireId> = game_state
-        .fleets
-        .iter()
-        .filter(|(fid, f)| {
-            f.location == star_id
-                && !game_state.fleet_missions.contains_key(*fid)
-                && !game_state.scout_missions.contains_key(*fid)
-        })
-        .map(|(_, f)| f.owner)
-        .collect();
-
-    if owners.len() < 2 {
-        return false;
-    }
-
-    // At least one owner must be the player and another must be a contacted foreign empire
-    if !owners.contains(&player) {
-        return false;
-    }
-
-    owners.iter().any(|&owner| {
-        owner != player
-            && game_state
-                .diplomacy
-                .get(&owner)
-                .copied()
-                .unwrap_or(game_core::RelationshipStatus::Unknown)
-                == game_core::RelationshipStatus::Contacted
-    })
 }
 
 /// Render star details panel

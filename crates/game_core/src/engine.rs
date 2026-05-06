@@ -1135,8 +1135,7 @@ impl Engine {
             return;
         }
 
-        // For every AI empire, check if contact is established.
-        // In practice only one AI empire exists, but iterate safely.
+        // Check if the single AI empire (stored in ai_empire) needs first contact established.
         if let Some(ai_empire_id) = self.state.ai_empire {
             let status = self
                 .state
@@ -1208,8 +1207,11 @@ impl Engine {
             // opponent's strength relative to its own.
             // Formula: damage = (opponent_strength * 100) / own_strength
             // This means equal strengths → both take 100 damage (destroyed).
-            let damage_to_arrived: u32 = (d_str * 100) / a_str.max(1);
-            let damage_to_enemy: u32 = (a_str * 100) / d_str.max(1);
+            // Use u64 intermediates to avoid overflow when strength is large.
+            let damage_to_arrived: u32 =
+                ((d_str as u64 * 100) / (a_str as u64).max(1)).min(u32::MAX as u64) as u32;
+            let damage_to_enemy: u32 =
+                ((a_str as u64 * 100) / (d_str as u64).max(1)).min(u32::MAX as u64) as u32;
 
             let new_a_int = a_int.saturating_sub(damage_to_arrived);
             let new_d_int = d_int.saturating_sub(damage_to_enemy);

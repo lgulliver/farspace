@@ -64,6 +64,7 @@ pub fn generate_galaxy(seed: u64, star_count: usize) -> Vec<Star> {
                     name: planet_name,
                     size,
                     colony: None,
+                    habitable: true,
                 }
             })
             .collect();

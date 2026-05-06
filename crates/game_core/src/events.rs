@@ -62,6 +62,14 @@ pub enum Event {
     },
     /// A fleet has arrived at its destination
     FleetArrived { fleet: FleetId, star: StarId },
+    /// A colonizer fleet has successfully founded a new colony
+    ColonizationCompleted {
+        empire: EmpireId,
+        fleet: FleetId,
+        star: StarId,
+        planet_index: usize,
+        colony: ColonyId,
+    },
     /// An error occurred
     Error { message: String },
 }
@@ -150,6 +158,18 @@ impl Event {
             }
             Event::FleetArrived { fleet, star } => {
                 format!("Fleet {} arrived at system {}", fleet.0, star.0)
+            }
+            Event::ColonizationCompleted {
+                empire,
+                fleet: _,
+                star,
+                planet_index,
+                colony,
+            } => {
+                format!(
+                    "Empire {} founded colony {} at system {} planet {}",
+                    empire.0, colony.0, star.0, planet_index
+                )
             }
             Event::Error { message } => format!("Error: {}", message),
         }

@@ -415,4 +415,150 @@ mod tests {
         let mission: &FleetMission = loaded.fleet_missions.get(&fleet_id).unwrap();
         assert_eq!(mission.destination, dest);
     }
+
+    #[test]
+    fn save_load_preserves_colonized_planet_and_fleet_changes() {
+        use game_core::{Command, FleetKind};
+
+        let mut engine = Engine::new(42);
+
+        // Build a colonizer fleet
+        let colony_id = game_core::ColonyId(1);
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: game_core::BuildItem::Colony,
+        }]);
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+        for _ in 0..21 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let colonizer_id = engine
+            .state
+            .fleets
+            .values()
+            .find(|f| f.kind == FleetKind::Colonizer)
+            .map(|f| f.id)
+            .expect("Colonizer must exist");
+
+        let home = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != home)
+            .expect("Need explored star");
+
+        // Move colonizer to target
+        engine.apply_turn(vec![Command::MoveFleet {
+            fleet: colonizer_id,
+            destination: target,
+        }]);
+        for _ in 0..4 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let planet_idx = engine
+            .state
+            .stars
+            .get(&target)
+            .unwrap()
+            .planets
+            .iter()
+            .enumerate()
+            .find(|(_, p)| p.habitable && p.colony.is_none())
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+
+        // Colonize
+        engine.apply_turn(vec![Command::Colonize {
+            fleet: colonizer_id,
+            star: target,
+            planet_index: planet_idx,
+        }]);
+
+        let colonies_after = engine.state.colonies.len();
+        let fleets_after = engine.state.fleets.len();
+        let new_colony_id = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.star == target)
+            .map(|c| c.id)
+            .expect("New colony must exist");
+
+        // Save and load
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        // Colony survived
+        assert_eq!(loaded.colonies.len(), colonies_after);
+        assert!(
+            loaded.colonies.contains_key(&new_colony_id),
+            "New colony must survive save/load"
+        );
+        let loaded_colony = loaded.colonies.get(&new_colony_id).unwrap();
+        assert_eq!(loaded_colony.star, target);
+        assert_eq!(loaded_colony.planet_index, planet_idx);
+        assert_eq!(loaded_colony.owner, engine.state.player_empire);
+
+        // Colonizer fleet consumed
+        assert_eq!(loaded.fleets.len(), fleets_after);
+        assert!(
+            !loaded.fleets.contains_key(&colonizer_id),
+            "Colonizer fleet must be consumed after save/load"
+        );
+
+        // Planet references the colony
+        let planet = &loaded.stars.get(&target).unwrap().planets[planet_idx];
+        assert_eq!(planet.colony, Some(new_colony_id));
+    }
+
+    #[test]
+    fn save_load_preserves_fleet_kind() {
+        use game_core::{Command, FleetKind};
+
+        let mut engine = Engine::new(42);
+        let colony_id = game_core::ColonyId(1);
+
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: game_core::BuildItem::Colony,
+        }]);
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+        for _ in 0..21 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let colonizer_id = engine
+            .state
+            .fleets
+            .values()
+            .find(|f| f.kind == FleetKind::Colonizer)
+            .map(|f| f.id)
+            .expect("Colonizer must exist");
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        let loaded_fleet = loaded.fleets.get(&colonizer_id).expect("Fleet must exist");
+        assert_eq!(
+            loaded_fleet.kind,
+            FleetKind::Colonizer,
+            "FleetKind::Colonizer must survive save/load"
+        );
+    }
 }

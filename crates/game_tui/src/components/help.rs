@@ -37,6 +37,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("k / ↑", "Move selection up"),
             ("l / →", "Move selection right"),
             ("c", "Enter colony (if colonized star selected)"),
+            ("C", "Colonize selected system with idle colonizer fleet"),
             ("r", "Open research screen"),
             ("S", "Dispatch scout to selected unexplored system"),
             ("M", "Move idle fleet to selected explored system"),

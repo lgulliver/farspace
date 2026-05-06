@@ -26,6 +26,12 @@ pub enum Command {
     SelectResearch { tech: TechId },
     /// Dispatch a scout fleet to explore an unexplored star system
     SendScout { fleet: FleetId, destination: StarId },
+    /// Colonize a habitable, unowned planet with an idle colonizer fleet
+    Colonize {
+        fleet: FleetId,
+        star: StarId,
+        planet_index: usize,
+    },
 }
 
 #[cfg(test)]

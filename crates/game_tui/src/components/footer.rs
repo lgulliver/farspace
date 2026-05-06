@@ -16,7 +16,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::Galaxy => vec![
             ("[hjkl/←↓↑→]", "Move"),
             ("[c]", "Colony"),
-            ("[E]", "End Turn"),
+            ("[E/T/Enter]", "End Turn"),
             ("[?]", "Help"),
             ("[:]", "Command"),
             ("[Q]", "Quit"),

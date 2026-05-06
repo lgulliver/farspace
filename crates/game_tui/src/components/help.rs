@@ -36,7 +36,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("k / ↑", "Move selection up"),
             ("l / →", "Move selection right"),
             ("c", "Enter colony (if colonized star selected)"),
-            ("E / T", "End turn"),
+            ("E / T / Enter", "End turn"),
             (":", "Command palette (:save, :load)"),
             ("/", "Search"),
             ("?", "Toggle this help"),

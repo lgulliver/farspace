@@ -855,11 +855,22 @@ mod tests {
         app.new_game(42);
         assert_eq!(app.state.active, Screen::Galaxy);
 
-        let entered = goto_colony_screen(&mut app);
-        assert!(
-            entered,
-            "Should enter colony screen when colony exists at star"
-        );
+        // Select the star that has the player's home colony
+        let player_empire = app.engine.as_ref().unwrap().state.player_empire;
+        let home_star_id = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == player_empire)
+            .map(|c| c.star);
+        app.state.selected_star = home_star_id;
+
+        // Press 'c' to enter the colony screen — exercises the actual key binding
+        app.handle_key(key(KeyCode::Char('c')));
+
         assert_eq!(app.state.active, Screen::Colony);
         assert!(app.state.selected_colony.is_some());
     }
@@ -1031,7 +1042,7 @@ mod tests {
         let mut app = App::new();
         app.new_game(42);
 
-        // Navigate to colony and queue a building
+        // Navigate to colony and queue AquacultureBay (first building, cost 60)
         goto_colony_screen(&mut app);
         app.handle_key(key(KeyCode::Enter)); // queue first building
         app.handle_key(key(KeyCode::Esc)); // back to galaxy
@@ -1047,7 +1058,12 @@ mod tests {
             .copied()
             .unwrap();
 
-        let queue_before = app
+        // Complete the building: base production is 10/turn, AquacultureBay costs 60 → 6 turns
+        for _ in 0..6 {
+            app.handle_key(key(KeyCode::Char('e')));
+        }
+
+        let buildings_before = app
             .engine
             .as_ref()
             .unwrap()
@@ -1055,14 +1071,19 @@ mod tests {
             .colonies
             .get(&colony_id)
             .unwrap()
-            .build_queue
-            .len();
+            .buildings
+            .clone();
+
+        assert!(
+            !buildings_before.is_empty(),
+            "Building should be completed after enough production turns"
+        );
 
         // Save and reload
         app.save_game(&path).expect("save should succeed");
         app.load_game(&path).expect("load should succeed");
 
-        let queue_after = app
+        let buildings_after = app
             .engine
             .as_ref()
             .unwrap()
@@ -1070,10 +1091,13 @@ mod tests {
             .colonies
             .get(&colony_id)
             .unwrap()
-            .build_queue
-            .len();
+            .buildings
+            .clone();
 
-        assert_eq!(queue_before, queue_after, "Queue should survive save/load");
+        assert_eq!(
+            buildings_before, buildings_after,
+            "Colony buildings should survive save/load"
+        );
 
         let _ = std::fs::remove_file(&path);
     }

@@ -1,13 +1,13 @@
 //! Galaxy map screen
 
-use crate::components::{render_footer, render_header};
+use crate::components::{render_footer, render_header, render_log};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
 use game_core::{GameState, StarId};
 use ratatui::{
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
@@ -35,14 +35,23 @@ pub fn render_galaxy(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
         research,
     );
 
-    // Split main area: 60% map, 40% details
-    let (map_area, details_area) = split_horizontal(main_area, 60);
+    // Split main area: 60% map, 40% right column
+    let (map_area, right_area) = split_horizontal(main_area, 60);
 
     // Render star map
     render_star_map(frame, map_area, game_state, app_state.selected_star);
 
+    // Split right column: 60% star details, 40% event log
+    let right_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .split(right_area);
+
     // Render star details
-    render_star_details(frame, details_area, game_state, app_state.selected_star);
+    render_star_details(frame, right_chunks[0], game_state, app_state.selected_star);
+
+    // Render event log
+    render_log(frame, right_chunks[1], &app_state.log);
 
     // Render footer
     render_footer(frame, footer_area, &Screen::Galaxy);

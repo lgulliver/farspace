@@ -9,10 +9,16 @@ use ratatui::{
 };
 
 /// Event log storage
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct EventLog {
     entries: Vec<String>,
     max_entries: usize,
+}
+
+impl Default for EventLog {
+    fn default() -> Self {
+        EventLog::new()
+    }
 }
 
 impl EventLog {

@@ -64,6 +64,14 @@ impl KeyMap {
                 code: KeyCode::Char('T'),
                 modifiers: KeyModifiers::SHIFT,
                 ..
+            } | KeyEvent {
+                code: KeyCode::Char('e'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            } | KeyEvent {
+                code: KeyCode::Char('E'),
+                modifiers: KeyModifiers::SHIFT,
+                ..
             }
         )
     }
@@ -199,7 +207,8 @@ mod tests {
     fn end_turn_keys() {
         assert!(KeyMap::is_end_turn(key(KeyCode::Enter)));
         assert!(KeyMap::is_end_turn(key(KeyCode::Char('t'))));
-        assert!(!KeyMap::is_end_turn(key(KeyCode::Char('e'))));
+        assert!(KeyMap::is_end_turn(key(KeyCode::Char('e'))));
+        assert!(!KeyMap::is_end_turn(key(KeyCode::Char('x'))));
     }
 
     #[test]

@@ -33,6 +33,14 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // v3 -> v4: FleetKind added to Fleet (serde default = Scout) and
             // habitable added to Planet (serde default = true).
             // Nothing to populate — just bump the version.
+            migrate(SaveFile {
+                version: 4,
+                state: save.state,
+            })
+        }
+        4 => {
+            // v4 -> v5: Empire.food field added (serde default = 0).
+            // Nothing to populate — just bump the version.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -82,6 +90,7 @@ mod tests {
                 research_points: 0,
                 home_star,
                 research: Default::default(),
+                food: 0,
             },
         );
         // explored_stars starts empty
@@ -111,6 +120,14 @@ mod tests {
         let state = GameState::default();
         let v3_save = SaveFile { version: 3, state };
         let migrated = migrate(v3_save).expect("v3 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn migrate_v4_to_v5_succeeds() {
+        let state = GameState::default();
+        let v4_save = SaveFile { version: 4, state };
+        let migrated = migrate(v4_save).expect("v4 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
     }
 

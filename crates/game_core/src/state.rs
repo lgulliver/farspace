@@ -213,6 +213,9 @@ pub struct Empire {
     /// Research progress for this empire
     #[cfg_attr(feature = "serde", serde(default))]
     pub research: ResearchState,
+    /// Empire-wide food stockpile (net of production minus consumption each turn)
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub food: i64,
 }
 
 /// Permanent buildings that can be constructed at a colony
@@ -261,6 +264,27 @@ impl BuildingType {
             BuildingType::AquacultureBay => 60,
             BuildingType::FabricationYard => 80,
             BuildingType::ScienceNexus => 100,
+        }
+    }
+
+    /// Credit maintenance cost per turn for this building
+    pub fn maintenance_cost(&self) -> i64 {
+        match self {
+            BuildingType::AquacultureBay => 0,
+            BuildingType::FabricationYard => 1,
+            BuildingType::ScienceNexus => 1,
+        }
+    }
+
+    /// Extra food produced per turn by this building, given the colony population.
+    ///
+    /// `AquacultureBay` produces additional food equal to the colony population,
+    /// effectively doubling the base food yield.  Other buildings produce no food.
+    pub fn food_bonus(&self, population: u64) -> i64 {
+        match self {
+            BuildingType::AquacultureBay => population as i64,
+            BuildingType::FabricationYard => 0,
+            BuildingType::ScienceNexus => 0,
         }
     }
 }
@@ -706,6 +730,7 @@ mod tests {
             research_points: 0,
             home_star: StarId(1),
             research: ResearchState::default(),
+            food: 0,
         };
         assert!(empire.research.current_tech.is_none());
         assert!(empire.research.completed.is_empty());

@@ -20,9 +20,9 @@ pub fn render_galaxy(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
 
     // Get empire info
     let empire = game_state.empires.get(&game_state.player_empire);
-    let (credits, research, empire_name) = match empire {
-        Some(e) => (e.credits, e.research_points, e.name.as_str()),
-        None => (0, 0, "Unknown"),
+    let (credits, food, research, empire_name) = match empire {
+        Some(e) => (e.credits, e.food, e.research_points, e.name.as_str()),
+        None => (0, 0, 0, "Unknown"),
     };
 
     // Render header
@@ -32,6 +32,7 @@ pub fn render_galaxy(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
         game_state.turn,
         empire_name,
         credits,
+        food,
         research,
     );
 

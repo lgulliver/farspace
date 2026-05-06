@@ -561,4 +561,48 @@ mod tests {
             "FleetKind::Colonizer must survive save/load"
         );
     }
+
+    #[test]
+    fn save_load_preserves_empire_food() {
+        let mut engine = Engine::new(42);
+
+        // Manually set a non-default food value so we can verify persistence
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .food = 42;
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        let loaded_empire = loaded.empires.get(&loaded.player_empire).unwrap();
+        assert_eq!(
+            loaded_empire.food, 42,
+            "Empire food must survive save/load round-trip"
+        );
+    }
+
+    #[test]
+    fn save_load_food_default_on_old_save() {
+        // Simulate a v4 save (no food field) → migration sets food = 0 via serde default
+        let engine = Engine::new(42);
+        let saved_str = save_to_string(&engine.state).expect("save should succeed");
+
+        // Patch version to 4 to simulate an old save
+        let mut json: serde_json::Value = serde_json::from_str(&saved_str).unwrap();
+        json["version"] = serde_json::json!(4);
+        // Remove food from empires to simulate old format
+        if let Some(empires) = json["state"]["empires"].as_object_mut() {
+            for emp in empires.values_mut() {
+                emp.as_object_mut().map(|o| o.remove("food"));
+            }
+        }
+        let patched = serde_json::to_string(&json).unwrap();
+
+        let loaded = load_from_string(&patched).expect("v4 migration should succeed");
+        let empire = loaded.empires.get(&loaded.player_empire).unwrap();
+        assert_eq!(empire.food, 0, "Missing food field should default to 0");
+    }
 }

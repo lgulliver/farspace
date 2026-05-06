@@ -15,7 +15,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::Menu => vec![("[N]", "New Game"), ("[L]", "Load"), ("[Q]", "Quit")],
         Screen::Galaxy => vec![
             ("[hjkl/←↓↑→]", "Move"),
-            ("[Enter/T]", "End Turn"),
+            ("[E]", "End Turn"),
             ("[?]", "Help"),
             ("[:]", "Command"),
             ("[Q]", "Quit"),

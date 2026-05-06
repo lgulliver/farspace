@@ -11,22 +11,25 @@ use ratatui::{
 
 /// Render the command palette
 pub fn render_palette(frame: &mut Frame, area: Rect, input: &str) {
-    let popup_area = centered_fixed(50, 5, area);
+    // Height 7 = border top + hint line + blank + input line + blank + help line + border bottom
+    let popup_area = centered_fixed(50, 7, area);
 
     // Clear the background
     frame.render_widget(Clear, popup_area);
 
     let lines = vec![
-        Line::from(Span::styled(
-            "Command palette — coming soon",
-            Theme::muted_style(),
-        )),
+        Line::from(Span::styled("Commands: save · load", Theme::muted_style())),
+        Line::from(""),
         Line::from(vec![
-            Span::styled("> ", Theme::accent_style()),
+            Span::styled(": ", Theme::accent_style()),
             Span::raw(input),
             Span::styled("_", Theme::accent_style()),
         ]),
-        Line::from(Span::styled("Press Esc to close", Theme::muted_style())),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Enter to execute  Esc to close",
+            Theme::muted_style(),
+        )),
     ];
 
     let paragraph = Paragraph::new(lines)

@@ -19,9 +19,9 @@ pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
     let (header_area, main_area, footer_area) = compose_layout(area);
 
     let empire = game_state.empires.get(&game_state.player_empire);
-    let (credits, research, empire_name) = match empire {
-        Some(e) => (e.credits, e.research_points, e.name.as_str()),
-        None => (0, 0, "Unknown"),
+    let (credits, food, research, empire_name) = match empire {
+        Some(e) => (e.credits, e.food, e.research_points, e.name.as_str()),
+        None => (0, 0, 0, "Unknown"),
     };
 
     render_header(
@@ -30,6 +30,7 @@ pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
         game_state.turn,
         empire_name,
         credits,
+        food,
         research,
     );
 
@@ -102,6 +103,15 @@ fn render_colony_stats(
 
     let industry = (colony.production as i64 * colony.prod_pct as i64) / 100;
     let research_out = (colony.production as i64 * colony.research_pct as i64) / 100;
+    // Food produced per turn: base = population, plus AquacultureBay bonus
+    let food_out: i64 = colony.population as i64
+        + colony
+            .buildings
+            .iter()
+            .map(|b| b.food_bonus(colony.population))
+            .sum::<i64>();
+    // Maintenance cost from buildings at this colony
+    let building_maint: i64 = colony.buildings.iter().map(|b| b.maintenance_cost()).sum();
 
     let lines = vec![
         Line::from(vec![Span::styled(planet_name, Theme::title_style())]),
@@ -122,12 +132,20 @@ fn render_colony_stats(
             Span::raw(format!("{}", food_cap)),
         ]),
         Line::from(vec![
+            Span::styled("Food/turn  : ", Theme::muted_style()),
+            Span::styled(format!("+{}/turn", food_out), Theme::accent_style()),
+        ]),
+        Line::from(vec![
             Span::styled("Industry   : ", Theme::muted_style()),
             Span::styled(format!("{}/turn", industry), Theme::accent_style()),
         ]),
         Line::from(vec![
             Span::styled("Research   : ", Theme::muted_style()),
             Span::styled(format!("{}/turn", research_out), Theme::accent_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("Maint cost : ", Theme::muted_style()),
+            Span::styled(format!("{} cr/turn", building_maint), Theme::muted_style()),
         ]),
         Line::from(""),
         Line::from(vec![

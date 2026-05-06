@@ -23,9 +23,9 @@ pub fn render_research(
     let (header_area, main_area, footer_area) = compose_layout(area);
 
     let empire = game_state.empires.get(&game_state.player_empire);
-    let (credits, research_pts, empire_name) = match empire {
-        Some(e) => (e.credits, e.research_points, e.name.as_str()),
-        None => (0, 0, "Unknown"),
+    let (credits, food, research_pts, empire_name) = match empire {
+        Some(e) => (e.credits, e.food, e.research_points, e.name.as_str()),
+        None => (0, 0, 0, "Unknown"),
     };
 
     render_header(
@@ -34,6 +34,7 @@ pub fn render_research(
         game_state.turn,
         empire_name,
         credits,
+        food,
         research_pts,
     );
 

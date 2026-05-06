@@ -230,11 +230,12 @@ fn render_production_queue(
             } else {
                 bar_width
             };
-            let bar: String = format!("[{}{}]", "=".repeat(filled), " ".repeat(bar_width - filled));
-
             lines.push(Line::from(vec![
                 Span::styled(format!(" {} ", item.name()), Theme::accent_style()),
-                Span::styled(bar, Theme::muted_style()),
+                Span::styled(
+                    format!("[{}{}]", "=".repeat(filled), " ".repeat(bar_width - filled)),
+                    Theme::muted_style(),
+                ),
                 Span::raw(format!(" {}/{}", accumulated, cost)),
             ]));
         } else {

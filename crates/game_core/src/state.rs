@@ -363,7 +363,11 @@ pub struct Fleet {
     /// Role of this fleet
     #[cfg_attr(feature = "serde", serde(default))]
     pub kind: FleetKind,
-    /// Military combat strength of this fleet
+    /// Military combat strength of this fleet.
+    ///
+    /// **Invariant: must be ≥ 1.**  The combat resolution formula divides by this
+    /// value; the engine defensively clamps via `.max(1)`, but callers should
+    /// always initialise this field to at least 1.
     #[cfg_attr(feature = "serde", serde(default = "default_fleet_strength"))]
     pub strength: u32,
     /// Structural integrity of this fleet (starts at 100; 0 = destroyed)

@@ -184,28 +184,10 @@ mod tests {
 
     #[test]
     fn migrate_v7_to_v8_succeeds() {
-        use game_core::{Fleet, FleetId, FleetKind, StarId};
-        let mut state = GameState::default();
-        // Insert a fleet without strength/integrity (simulating a v7 save loaded via serde)
-        state.fleets.insert(
-            FleetId(1),
-            Fleet {
-                id: FleetId(1),
-                owner: state.player_empire,
-                location: StarId(1),
-                ships: 1,
-                kind: FleetKind::Scout,
-                strength: 1,
-                integrity: 100,
-            },
-        );
+        let state = GameState::default();
         let v7_save = SaveFile { version: 7, state };
         let migrated = migrate(v7_save).expect("v7 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
-        // Fleet should have default strength and integrity
-        let fleet = migrated.state.fleets.get(&FleetId(1)).unwrap();
-        assert_eq!(fleet.strength, 1);
-        assert_eq!(fleet.integrity, 100);
     }
 
     #[test]

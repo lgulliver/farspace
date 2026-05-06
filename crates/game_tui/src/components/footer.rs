@@ -36,7 +36,11 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("[?]", "Help"),
             ("[Esc]", "Back"),
         ],
-        Screen::Diplomacy => vec![("[e/t]", "End Turn"), ("[?]", "Help"), ("[Esc]", "Back")],
+        Screen::Diplomacy => vec![
+            ("[e/t/Enter]", "End Turn"),
+            ("[?]", "Help"),
+            ("[Esc]", "Back"),
+        ],
     };
 
     let spans: Vec<Span> = hints

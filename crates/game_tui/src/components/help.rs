@@ -68,7 +68,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("Esc", "Return to galaxy map"),
         ],
         Screen::Diplomacy => vec![
-            ("e / t", "End turn"),
+            ("e / t / Enter", "End turn"),
             (":", "Command palette (:save, :load)"),
             ("?", "Toggle this help"),
             ("Esc", "Return to galaxy map"),

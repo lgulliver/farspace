@@ -73,7 +73,7 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
             RelationshipStatus::Contacted => {
                 lines.push(Line::from(vec![
                     Span::styled("● ", Theme::accent_style()),
-                    Span::styled(empire.name.clone(), Theme::title_style()),
+                    Span::styled(empire.name.as_str(), Theme::title_style()),
                     Span::raw("  "),
                     Span::styled("Contacted", Theme::accent_style()),
                 ]));

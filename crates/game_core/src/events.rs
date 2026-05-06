@@ -117,6 +117,11 @@ pub enum Event {
         planet_index: usize,
         colony: ColonyId,
     },
+    /// First diplomatic contact has been established with another empire
+    FirstContact {
+        /// The empire that the player has made first contact with
+        with_empire: EmpireId,
+    },
 }
 
 impl Event {
@@ -275,6 +280,12 @@ impl Event {
                 format!(
                     "AI Empire {}: colonized system {} planet {} (colony {})",
                     empire.0, star.0, planet_index, colony.0
+                )
+            }
+            Event::FirstContact { with_empire } => {
+                format!(
+                    "FIRST CONTACT: Diplomatic contact established with Empire {}",
+                    with_empire.0
                 )
             }
         }

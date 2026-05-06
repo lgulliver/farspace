@@ -6,7 +6,8 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy};
 use crate::state::{
     all_techs, BuildItem, BuildingType, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId,
-    FleetKind, FleetMission, GameState, ResearchState, ScoutMission, StarId, TechId,
+    FleetKind, FleetMission, GameState, RelationshipStatus, ResearchState, ScoutMission, StarId,
+    TechId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -187,6 +188,7 @@ impl Engine {
             fleet_missions: BTreeMap::new(),
             ai_empire: Some(ai_empire_id),
             ai_explored_stars,
+            diplomacy: BTreeMap::new(),
         };
 
         Engine { state }
@@ -536,6 +538,12 @@ impl Engine {
                 }
 
                 events.push(Event::SystemExplored { star: destination });
+
+                // Check if this exploration brings a player scout into contact with
+                // a foreign empire colony.
+                if !is_ai_fleet {
+                    self.check_contact_at_star(destination, events);
+                }
             }
         }
 
@@ -561,6 +569,18 @@ impl Engine {
                     fleet: fleet_id,
                     star: destination,
                 });
+
+                // Check if this fleet arrival brings the player into contact with a
+                // foreign empire colony at the destination.
+                let is_player_fleet = self
+                    .state
+                    .fleets
+                    .get(&fleet_id)
+                    .map(|f| f.owner == self.state.player_empire)
+                    .unwrap_or(false);
+                if is_player_fleet {
+                    self.check_contact_at_star(destination, events);
+                }
             }
         }
 
@@ -1044,6 +1064,45 @@ impl Engine {
             planet_index,
             colony: colony_id,
         });
+    }
+
+    /// Check whether arriving at `star_id` brings the player empire into first contact
+    /// with any foreign empire that has a colony there.
+    ///
+    /// Iterates colonies in `BTreeMap` (deterministic) order.  Emits at most one
+    /// `FirstContact` event per empire per call; duplicate contact (already
+    /// `Contacted`) is silently ignored.
+    fn check_contact_at_star(&mut self, star_id: StarId, events: &mut Vec<Event>) {
+        // Collect foreign empire IDs that own a colony at this star.
+        // Use sorted iteration (BTreeMap) for deterministic event ordering.
+        let foreign_empires: Vec<EmpireId> = self
+            .state
+            .colonies
+            .values()
+            .filter(|c| c.star == star_id && c.owner != self.state.player_empire)
+            .map(|c| c.owner)
+            // Deduplicate while preserving sort order
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+
+        for empire_id in foreign_empires {
+            let status = self
+                .state
+                .diplomacy
+                .get(&empire_id)
+                .copied()
+                .unwrap_or(RelationshipStatus::Unknown);
+
+            if status == RelationshipStatus::Unknown {
+                self.state
+                    .diplomacy
+                    .insert(empire_id, RelationshipStatus::Contacted);
+                events.push(Event::FirstContact {
+                    with_empire: empire_id,
+                });
+            }
+        }
     }
 }
 
@@ -4190,5 +4249,615 @@ mod tests {
         assert_eq!(BuildingType::ScienceNexus.food_bonus(10), 0);
         // Zero population edge case
         assert_eq!(BuildingType::AquacultureBay.food_bonus(0), 0);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Diplomacy tests
+    // ──────────────────────────────────────────────────────────────────
+
+    /// Empires start with no diplomacy entries (all implicitly Unknown).
+    #[test]
+    fn empires_start_unknown() {
+        let engine = Engine::new(42);
+        assert!(
+            engine.state.diplomacy.is_empty(),
+            "diplomacy map must be empty at game start"
+        );
+    }
+
+    /// RelationshipStatus defaults to Unknown when absent from the map.
+    #[test]
+    fn relationship_status_default_is_unknown() {
+        let engine = Engine::new(42);
+        let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+        let status = engine
+            .state
+            .diplomacy
+            .get(&ai_id)
+            .copied()
+            .unwrap_or(RelationshipStatus::Unknown);
+        assert_eq!(status, RelationshipStatus::Unknown);
+    }
+
+    /// Helper: build minimal state with a player colony at one star and an AI
+    /// colony at another, then return (engine, player_star_id, ai_star_id, ai_empire_id).
+    fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
+        use crate::state::{Planet, PlanetSize, SpectralClass};
+        use rand::SeedableRng;
+
+        let player_id = EmpireId(1);
+        let ai_id = EmpireId(2);
+
+        let player_star_id = StarId(1);
+        let ai_star_id = StarId(2);
+
+        let mut state = GameState {
+            seed: 0,
+            turn: 1,
+            player_empire: player_id,
+            rng: ChaCha8Rng::seed_from_u64(0),
+            event_log: Vec::new(),
+            next_colony_id: 10,
+            next_fleet_id: 10,
+            stars: BTreeMap::new(),
+            empires: BTreeMap::new(),
+            colonies: BTreeMap::new(),
+            fleets: BTreeMap::new(),
+            explored_stars: BTreeSet::new(),
+            scout_missions: BTreeMap::new(),
+            fleet_missions: BTreeMap::new(),
+            ai_empire: Some(ai_id),
+            ai_explored_stars: BTreeSet::new(),
+            diplomacy: BTreeMap::new(),
+        };
+
+        // Player star
+        state.stars.insert(
+            player_star_id,
+            crate::state::Star {
+                id: player_star_id,
+                name: "Alpha".to_string(),
+                x: 0,
+                y: 0,
+                spectral_class: SpectralClass::G,
+                planets: vec![Planet {
+                    name: "Alpha I".to_string(),
+                    size: PlanetSize::Medium,
+                    colony: Some(ColonyId(1)),
+                    habitable: true,
+                }],
+            },
+        );
+
+        // AI star — close enough to reach in 1 turn
+        state.stars.insert(
+            ai_star_id,
+            crate::state::Star {
+                id: ai_star_id,
+                name: "Beta".to_string(),
+                x: 100,
+                y: 0,
+                spectral_class: SpectralClass::K,
+                planets: vec![Planet {
+                    name: "Beta I".to_string(),
+                    size: PlanetSize::Medium,
+                    colony: Some(ColonyId(2)),
+                    habitable: true,
+                }],
+            },
+        );
+
+        // Player empire
+        state.empires.insert(
+            player_id,
+            Empire {
+                id: player_id,
+                name: "Player".to_string(),
+                credits: 100,
+                research_points: 0,
+                home_star: player_star_id,
+                research: ResearchState::default(),
+                food: 0,
+            },
+        );
+
+        // AI empire
+        state.empires.insert(
+            ai_id,
+            Empire {
+                id: ai_id,
+                name: "AI".to_string(),
+                credits: 100,
+                research_points: 0,
+                home_star: ai_star_id,
+                research: ResearchState::default(),
+                food: 0,
+            },
+        );
+
+        // Player colony
+        state.colonies.insert(
+            ColonyId(1),
+            Colony {
+                id: ColonyId(1),
+                star: player_star_id,
+                planet_index: 0,
+                owner: player_id,
+                population: 5,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+                buildings: Vec::new(),
+            },
+        );
+
+        // AI colony
+        state.colonies.insert(
+            ColonyId(2),
+            Colony {
+                id: ColonyId(2),
+                star: ai_star_id,
+                planet_index: 0,
+                owner: ai_id,
+                population: 5,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+                buildings: Vec::new(),
+            },
+        );
+
+        // Player scout fleet at player star
+        state.fleets.insert(
+            FleetId(1),
+            Fleet {
+                id: FleetId(1),
+                owner: player_id,
+                location: player_star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+            },
+        );
+
+        // Both stars explored
+        state.explored_stars.insert(player_star_id);
+        state.explored_stars.insert(ai_star_id);
+
+        let engine = Engine::from_state(state);
+        (engine, player_star_id, ai_star_id, ai_id)
+    }
+
+    /// A scout arriving at a star with a foreign colony establishes contact.
+    #[test]
+    fn scout_arrival_at_ai_colony_establishes_contact() {
+        use crate::state::SpectralClass;
+        use rand::SeedableRng;
+
+        let player_id = EmpireId(1);
+        let ai_id = EmpireId(2);
+
+        let player_star_id = StarId(1);
+        let ai_star_id = StarId(2);
+
+        let mut state = GameState {
+            seed: 0,
+            turn: 1,
+            player_empire: player_id,
+            rng: ChaCha8Rng::seed_from_u64(0),
+            event_log: Vec::new(),
+            next_colony_id: 10,
+            next_fleet_id: 10,
+            stars: BTreeMap::new(),
+            empires: BTreeMap::new(),
+            colonies: BTreeMap::new(),
+            fleets: BTreeMap::new(),
+            // Only player star explored; AI star is unknown — scout will explore it
+            explored_stars: {
+                let mut s = BTreeSet::new();
+                s.insert(player_star_id);
+                s
+            },
+            scout_missions: BTreeMap::new(),
+            fleet_missions: BTreeMap::new(),
+            ai_empire: Some(ai_id),
+            ai_explored_stars: BTreeSet::new(),
+            diplomacy: BTreeMap::new(),
+        };
+
+        // Populate stars, empires, colonies, fleet
+        state.stars.insert(
+            player_star_id,
+            crate::state::Star {
+                id: player_star_id,
+                name: "Alpha".to_string(),
+                x: 0,
+                y: 0,
+                spectral_class: SpectralClass::G,
+                planets: vec![crate::state::Planet {
+                    name: "Alpha I".to_string(),
+                    size: crate::state::PlanetSize::Medium,
+                    colony: Some(ColonyId(1)),
+                    habitable: true,
+                }],
+            },
+        );
+        state.stars.insert(
+            ai_star_id,
+            crate::state::Star {
+                id: ai_star_id,
+                name: "Beta".to_string(),
+                x: 100,
+                y: 0,
+                spectral_class: SpectralClass::K,
+                planets: vec![crate::state::Planet {
+                    name: "Beta I".to_string(),
+                    size: crate::state::PlanetSize::Medium,
+                    colony: Some(ColonyId(2)),
+                    habitable: true,
+                }],
+            },
+        );
+        state.empires.insert(
+            player_id,
+            Empire {
+                id: player_id,
+                name: "Player".to_string(),
+                credits: 100,
+                research_points: 0,
+                home_star: player_star_id,
+                research: ResearchState::default(),
+                food: 0,
+            },
+        );
+        state.empires.insert(
+            ai_id,
+            Empire {
+                id: ai_id,
+                name: "AI".to_string(),
+                credits: 100,
+                research_points: 0,
+                home_star: ai_star_id,
+                research: ResearchState::default(),
+                food: 0,
+            },
+        );
+        state.colonies.insert(
+            ColonyId(1),
+            Colony {
+                id: ColonyId(1),
+                star: player_star_id,
+                planet_index: 0,
+                owner: player_id,
+                population: 5,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+                buildings: Vec::new(),
+            },
+        );
+        state.colonies.insert(
+            ColonyId(2),
+            Colony {
+                id: ColonyId(2),
+                star: ai_star_id,
+                planet_index: 0,
+                owner: ai_id,
+                population: 5,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+                buildings: Vec::new(),
+            },
+        );
+        // Player scout at player star — will scout the AI star
+        state.fleets.insert(
+            FleetId(1),
+            Fleet {
+                id: FleetId(1),
+                owner: player_id,
+                location: player_star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+            },
+        );
+        // Put the scout in a mission with 1 turn remaining to destination = ai_star_id
+        state.scout_missions.insert(
+            FleetId(1),
+            ScoutMission {
+                fleet: FleetId(1),
+                destination: ai_star_id,
+                turns_remaining: 1,
+            },
+        );
+
+        let mut engine = Engine::from_state(state);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        // SystemExplored should fire
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::SystemExplored { star } if *star == ai_star_id)));
+
+        // FirstContact should fire for the AI empire
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::FirstContact { with_empire } if *with_empire == ai_id)),
+            "Expected FirstContact event for AI empire"
+        );
+
+        // Diplomacy state updated
+        assert_eq!(
+            engine.state.diplomacy.get(&ai_id).copied(),
+            Some(RelationshipStatus::Contacted)
+        );
+    }
+
+    /// A fleet arriving at a star with a foreign colony establishes contact.
+    #[test]
+    fn fleet_arrival_at_ai_colony_establishes_contact() {
+        let (mut engine, _player_star_id, ai_star_id, ai_id) = make_two_empire_state();
+
+        // Put fleet on a mission that completes this turn
+        engine.state.fleet_missions.insert(
+            FleetId(1),
+            FleetMission {
+                fleet: FleetId(1),
+                destination: ai_star_id,
+                turns_remaining: 1,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::FleetArrived { star, .. } if *star == ai_star_id)),
+            "Expected FleetArrived"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::FirstContact { with_empire } if *with_empire == ai_id)),
+            "Expected FirstContact"
+        );
+        assert_eq!(
+            engine.state.diplomacy.get(&ai_id).copied(),
+            Some(RelationshipStatus::Contacted)
+        );
+    }
+
+    /// Repeated contact does not duplicate the FirstContact event.
+    #[test]
+    fn repeated_contact_does_not_emit_duplicate_first_contact() {
+        let (mut engine, _player_star_id, ai_star_id, ai_id) = make_two_empire_state();
+
+        // Pre-mark as Contacted
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Contacted);
+
+        // Fleet arrives at the AI colony star again
+        engine.state.fleet_missions.insert(
+            FleetId(1),
+            FleetMission {
+                fleet: FleetId(1),
+                destination: ai_star_id,
+                turns_remaining: 1,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        let first_contact_count = events
+            .iter()
+            .filter(|e| matches!(e, Event::FirstContact { with_empire } if *with_empire == ai_id))
+            .count();
+        assert_eq!(
+            first_contact_count, 0,
+            "No duplicate FirstContact event when empire is already Contacted"
+        );
+    }
+
+    /// Contact events are emitted in deterministic (BTreeMap) order.
+    #[test]
+    fn contact_detection_is_deterministic() {
+        use crate::state::{Planet, PlanetSize, SpectralClass};
+        use rand::SeedableRng;
+
+        let player_id = EmpireId(1);
+        let ai1 = EmpireId(2);
+        let ai2 = EmpireId(3);
+        let star1 = StarId(1);
+        let target_star = StarId(2);
+
+        let mut state = GameState {
+            seed: 0,
+            turn: 1,
+            player_empire: player_id,
+            rng: ChaCha8Rng::seed_from_u64(0),
+            event_log: Vec::new(),
+            next_colony_id: 10,
+            next_fleet_id: 10,
+            stars: BTreeMap::new(),
+            empires: BTreeMap::new(),
+            colonies: BTreeMap::new(),
+            fleets: BTreeMap::new(),
+            explored_stars: {
+                let mut s = BTreeSet::new();
+                s.insert(star1);
+                s.insert(target_star);
+                s
+            },
+            scout_missions: BTreeMap::new(),
+            fleet_missions: BTreeMap::new(),
+            ai_empire: Some(ai1),
+            ai_explored_stars: BTreeSet::new(),
+            diplomacy: BTreeMap::new(),
+        };
+
+        // Two AI empires each have a colony at target_star
+        state.stars.insert(
+            star1,
+            crate::state::Star {
+                id: star1,
+                name: "Home".to_string(),
+                x: 0,
+                y: 0,
+                spectral_class: SpectralClass::G,
+                planets: vec![Planet {
+                    name: "Home I".to_string(),
+                    size: PlanetSize::Medium,
+                    colony: Some(ColonyId(1)),
+                    habitable: true,
+                }],
+            },
+        );
+        state.stars.insert(
+            target_star,
+            crate::state::Star {
+                id: target_star,
+                name: "Target".to_string(),
+                x: 100,
+                y: 0,
+                spectral_class: SpectralClass::K,
+                planets: vec![
+                    Planet {
+                        name: "Target I".to_string(),
+                        size: PlanetSize::Medium,
+                        colony: Some(ColonyId(2)),
+                        habitable: true,
+                    },
+                    Planet {
+                        name: "Target II".to_string(),
+                        size: PlanetSize::Small,
+                        colony: Some(ColonyId(3)),
+                        habitable: true,
+                    },
+                ],
+            },
+        );
+        for (eid, home) in [(player_id, star1), (ai1, target_star), (ai2, target_star)] {
+            state.empires.insert(
+                eid,
+                Empire {
+                    id: eid,
+                    name: format!("E{}", eid.0),
+                    credits: 100,
+                    research_points: 0,
+                    home_star: home,
+                    research: ResearchState::default(),
+                    food: 0,
+                },
+            );
+        }
+        state.colonies.insert(
+            ColonyId(1),
+            Colony {
+                id: ColonyId(1),
+                star: star1,
+                planet_index: 0,
+                owner: player_id,
+                population: 5,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+                buildings: Vec::new(),
+            },
+        );
+        state.colonies.insert(
+            ColonyId(2),
+            Colony {
+                id: ColonyId(2),
+                star: target_star,
+                planet_index: 0,
+                owner: ai1,
+                population: 5,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+                buildings: Vec::new(),
+            },
+        );
+        state.colonies.insert(
+            ColonyId(3),
+            Colony {
+                id: ColonyId(3),
+                star: target_star,
+                planet_index: 1,
+                owner: ai2,
+                population: 5,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+                buildings: Vec::new(),
+            },
+        );
+        state.fleets.insert(
+            FleetId(1),
+            Fleet {
+                id: FleetId(1),
+                owner: player_id,
+                location: star1,
+                ships: 1,
+                kind: FleetKind::Scout,
+            },
+        );
+        state.fleet_missions.insert(
+            FleetId(1),
+            FleetMission {
+                fleet: FleetId(1),
+                destination: target_star,
+                turns_remaining: 1,
+            },
+        );
+
+        let mut engine = Engine::from_state(state);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        let contacts: Vec<EmpireId> = events
+            .iter()
+            .filter_map(|e| match e {
+                Event::FirstContact { with_empire } => Some(*with_empire),
+                _ => None,
+            })
+            .collect();
+
+        // Both empires contacted, in ascending EmpireId order (BTreeMap iteration)
+        assert_eq!(contacts, vec![ai1, ai2]);
+    }
+
+    /// FirstContact log message contains expected text.
+    #[test]
+    fn first_contact_log_message() {
+        let event = Event::FirstContact {
+            with_empire: EmpireId(2),
+        };
+        let msg = event.to_log_message();
+        assert!(
+            msg.contains("FIRST CONTACT"),
+            "Log message should contain 'FIRST CONTACT'"
+        );
+        assert!(
+            msg.contains('2'),
+            "Log message should reference empire ID 2"
+        );
+        assert!(!event.is_error());
     }
 }

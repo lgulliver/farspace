@@ -22,6 +22,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::Galaxy => " Galaxy Map Help ",
         Screen::Colony => " Colony Help ",
         Screen::Research => " Research Help ",
+        Screen::Diplomacy => " Diplomacy Help ",
     };
 
     let bindings = match screen {
@@ -39,6 +40,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("c", "Enter colony (if colonized star selected)"),
             ("C", "Colonize selected system with idle colonizer fleet"),
             ("r", "Open research screen"),
+            ("D", "Open diplomacy screen"),
             ("S", "Dispatch scout to selected unexplored system"),
             ("M", "Move idle fleet to selected explored system"),
             ("E / T / Enter", "End turn (AI acts automatically)"),
@@ -60,6 +62,12 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("j / ↓", "Move cursor down"),
             ("k / ↑", "Move cursor up"),
             ("Enter", "Select highlighted technology"),
+            ("e / t", "End turn"),
+            (":", "Command palette (:save, :load)"),
+            ("?", "Toggle this help"),
+            ("Esc", "Return to galaxy map"),
+        ],
+        Screen::Diplomacy => vec![
             ("e / t", "End turn"),
             (":", "Command palette (:save, :load)"),
             ("?", "Toggle this help"),
@@ -144,6 +152,19 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_help(frame, area, &Screen::Research);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_help_diplomacy() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_help(frame, area, &Screen::Diplomacy);
             })
             .unwrap();
     }

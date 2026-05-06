@@ -1,6 +1,7 @@
 //! Screen types and rendering
 
 pub mod colony;
+pub mod diplomacy;
 pub mod galaxy;
 pub mod menu;
 pub mod research;
@@ -18,6 +19,7 @@ pub enum Screen {
     Galaxy,
     Colony,
     Research,
+    Diplomacy,
 }
 
 impl Screen {
@@ -44,6 +46,11 @@ impl Screen {
             Screen::Research => {
                 if let Some(state) = game_state {
                     research::render_research(frame, area, app_state, state);
+                }
+            }
+            Screen::Diplomacy => {
+                if let Some(state) = game_state {
+                    diplomacy::render_diplomacy(frame, area, app_state, state);
                 }
             }
         }

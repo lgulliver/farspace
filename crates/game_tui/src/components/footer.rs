@@ -36,6 +36,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("[?]", "Help"),
             ("[Esc]", "Back"),
         ],
+        Screen::Diplomacy => vec![("[e/t]", "End Turn"), ("[?]", "Help"), ("[Esc]", "Back")],
     };
 
     let spans: Vec<Span> = hints
@@ -115,6 +116,19 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_footer(frame, area, &Screen::Research);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_footer_diplomacy() {
+        let backend = TestBackend::new(80, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_footer(frame, area, &Screen::Diplomacy);
             })
             .unwrap();
     }

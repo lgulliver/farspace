@@ -52,6 +52,15 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // Both fields rely on serde defaults — nothing to populate explicitly.
             // Note: saves migrated from v5 will have ai_empire=None until a new game is
             // started, meaning no AI opponent will be active for existing saves.
+            migrate(SaveFile {
+                version: 6,
+                state: save.state,
+            })
+        }
+        6 => {
+            // v6 -> v7: GameState.diplomacy (BTreeMap<EmpireId, RelationshipStatus>, default empty)
+            // added.  Relies on serde default — nothing to populate explicitly.
+            // Existing saves will have diplomacy=empty (all empires start Unknown).
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -152,6 +161,16 @@ mod tests {
         assert!(migrated.state.ai_empire.is_none());
         // ai_explored_stars defaults to empty
         assert!(migrated.state.ai_explored_stars.is_empty());
+    }
+
+    #[test]
+    fn migrate_v6_to_v7_succeeds() {
+        let state = GameState::default();
+        let v6_save = SaveFile { version: 6, state };
+        let migrated = migrate(v6_save).expect("v6 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        // diplomacy defaults to empty
+        assert!(migrated.state.diplomacy.is_empty());
     }
 
     #[test]

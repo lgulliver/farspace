@@ -200,7 +200,7 @@ impl Engine {
                 .iter()
                 .filter(|b| **b == BuildingType::ScienceNexus)
                 .count() as i64;
-            let research = base_science + nexus_count * (population as i64).max(1);
+            let research = base_science + nexus_count * population as i64;
 
             // Update empire credits and lifetime research total
             if let Some(empire) = self.state.empires.get_mut(&owner) {

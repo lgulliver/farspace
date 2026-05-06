@@ -6,7 +6,7 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy};
 use crate::state::{
     all_techs, BuildItem, BuildingType, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId,
-    GameState, ResearchState, ScoutMission, StarId, TechId,
+    FleetMission, GameState, ResearchState, ScoutMission, StarId, TechId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -14,6 +14,22 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Number of turns for a scout to travel to an unexplored system
 const SCOUT_TRAVEL_TURNS: u32 = 3;
+
+/// Return the number of travel turns for a fleet moving the given squared distance.
+///
+/// Buckets (squared distance):
+/// * <= 100_000  -> 1 turn
+/// * <= 400_000  -> 2 turns
+/// * else        -> 3 turns
+fn fleet_travel_turns(squared_distance: i64) -> u32 {
+    if squared_distance <= 100_000 {
+        1
+    } else if squared_distance <= 400_000 {
+        2
+    } else {
+        3
+    }
+}
 
 /// The game engine processes commands and manages game state
 #[derive(Debug)]
@@ -109,6 +125,7 @@ impl Engine {
             next_fleet_id: 2,
             explored_stars,
             scout_missions: BTreeMap::new(),
+            fleet_missions: BTreeMap::new(),
         };
 
         Engine { state }
@@ -353,6 +370,31 @@ impl Engine {
             }
         }
 
+        // Tick fleet movement missions: decrement and resolve completed ones.
+        // Ordered by FleetId (BTreeMap) for deterministic event ordering.
+        let fleet_mission_ids: Vec<FleetId> = self.state.fleet_missions.keys().copied().collect();
+        for fleet_id in fleet_mission_ids {
+            let (destination, new_remaining) = {
+                let mission = self.state.fleet_missions.get_mut(&fleet_id).unwrap();
+                mission.turns_remaining = mission.turns_remaining.saturating_sub(1);
+                (mission.destination, mission.turns_remaining)
+            };
+
+            if new_remaining == 0 {
+                self.state.fleet_missions.remove(&fleet_id);
+
+                // Move the fleet to the destination
+                if let Some(fleet) = self.state.fleets.get_mut(&fleet_id) {
+                    fleet.location = destination;
+                }
+
+                events.push(Event::FleetArrived {
+                    fleet: fleet_id,
+                    star: destination,
+                });
+            }
+        }
+
         // Advance turn
         self.state.turn += 1;
         events.push(Event::TurnAdvanced {
@@ -420,10 +462,19 @@ impl Engine {
             return;
         }
 
-        // Block move if fleet has an active scout mission
+        // Block move if fleet is on an active scout mission
         if self.state.scout_missions.contains_key(&fleet_id) {
             events.push(Event::error(format!(
-                "Fleet {} is on a scout mission",
+                "Fleet {} is already travelling",
+                fleet_id.0
+            )));
+            return;
+        }
+
+        // Block move if fleet already has a fleet mission
+        if self.state.fleet_missions.contains_key(&fleet_id) {
+            events.push(Event::error(format!(
+                "Fleet {} is already travelling",
                 fleet_id.0
             )));
             return;
@@ -440,15 +491,53 @@ impl Engine {
             return;
         }
 
-        // Apply move
-        if let Some(fleet) = self.state.fleets.get_mut(&fleet_id) {
-            fleet.location = destination;
+        // MoveFleet requires the destination to be explored
+        if !self.state.explored_stars.contains(&destination) {
+            events.push(Event::error(format!(
+                "Star {} is not explored — use SendScout to explore it first",
+                destination.0
+            )));
+            return;
         }
 
-        events.push(Event::FleetMoved {
+        // Cannot move to the star you're already at
+        if from == destination {
+            events.push(Event::error(format!(
+                "Fleet {} is already at star {}",
+                fleet_id.0, destination.0
+            )));
+            return;
+        }
+
+        // Calculate travel time from distance bucket
+        let (src_x, src_y) = {
+            let src = self.state.stars.get(&from).unwrap();
+            (src.x, src.y)
+        };
+        let (dst_x, dst_y) = {
+            let dst = self.state.stars.get(&destination).unwrap();
+            (dst.x, dst.y)
+        };
+        let dx = (dst_x - src_x) as i64;
+        let dy = (dst_y - src_y) as i64;
+        let sq_dist = dx * dx + dy * dy;
+        let turns = fleet_travel_turns(sq_dist);
+
+        // Create the fleet mission
+        self.state.fleet_missions.insert(
+            fleet_id,
+            FleetMission {
+                fleet: fleet_id,
+                destination,
+                turns_remaining: turns,
+            },
+        );
+
+        events.push(Event::FleetDeparted {
             fleet: fleet_id,
             from,
             to: destination,
+            turns_remaining: turns,
         });
     }
 
@@ -780,29 +869,32 @@ mod tests {
         let mut engine = Engine::new(42);
         let fleet_id = FleetId(1);
 
-        // Find a different star to move to
+        // MoveFleet now requires an explored destination
         let initial_location = engine.state.fleets.get(&fleet_id).unwrap().location;
-        let destination = engine
+        let destination = *engine
             .state
-            .stars
-            .keys()
-            .find(|&id| *id != initial_location)
-            .copied()
-            .unwrap();
+            .explored_stars
+            .iter()
+            .find(|&&id| id != initial_location)
+            .expect("Need an explored star other than home");
 
         let events = engine.apply_turn(vec![Command::MoveFleet {
             fleet: fleet_id,
             destination,
         }]);
 
+        // Should emit FleetDeparted (not FleetMoved) and create a mission
         assert!(!events.iter().any(|e| e.is_error()));
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, Event::FleetMoved { fleet, from, to }
-            if *fleet == fleet_id && *from == initial_location && *to == destination)));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            Event::FleetDeparted { fleet, from, to, .. }
+            if *fleet == fleet_id && *from == initial_location && *to == destination
+        )));
 
+        // Fleet has not moved yet — the mission is pending
+        assert!(engine.state.fleet_missions.contains_key(&fleet_id));
         let fleet = engine.state.fleets.get(&fleet_id).unwrap();
-        assert_eq!(fleet.location, destination);
+        assert_eq!(fleet.location, initial_location);
     }
 
     #[test]
@@ -2236,13 +2328,15 @@ mod tests {
             destination,
         }]);
 
-        // Try to also move the fleet manually while it's on a mission
+        // Try to also move the fleet manually while it's on a scout mission.
+        // Use an explored destination so the only failure reason is the active mission.
+        let initial_location = engine.state.fleets.get(&fleet_id).unwrap().location;
         let move_dest = *engine
             .state
-            .stars
-            .keys()
-            .find(|&&id| id != destination)
-            .unwrap();
+            .explored_stars
+            .iter()
+            .find(|&&id| id != initial_location)
+            .expect("Need an explored star other than home");
         let events = engine.apply_turn(vec![Command::MoveFleet {
             fleet: fleet_id,
             destination: move_dest,
@@ -2276,5 +2370,267 @@ mod tests {
         }]);
 
         assert_eq!(evts_a, evts_b);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Fleet movement (MoveFleet / FleetMission) tests
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn move_fleet_to_unexplored_star_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let unexplored = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Unexplored star needed");
+
+        let events = engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: unexplored,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "MoveFleet to unexplored star must emit an error"
+        );
+        assert!(
+            !engine.state.fleet_missions.contains_key(&fleet_id),
+            "No mission should be created for an unexplored destination"
+        );
+    }
+
+    #[test]
+    fn move_fleet_while_travelling_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let initial_location = engine.state.fleets.get(&fleet_id).unwrap().location;
+        let mut explored_others = engine
+            .state
+            .explored_stars
+            .iter()
+            .filter(|&&id| id != initial_location);
+        let dest1 = *explored_others.next().expect("Need explored star");
+        let dest2 = *explored_others.next().unwrap_or(&dest1);
+
+        // First move succeeds
+        engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: dest1,
+        }]);
+        assert!(engine.state.fleet_missions.contains_key(&fleet_id));
+
+        // Second move while already travelling must fail
+        let events = engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: dest2,
+        }]);
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "MoveFleet while already travelling must error"
+        );
+    }
+
+    #[test]
+    fn move_fleet_decrements_each_turn_and_arrives() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let initial_location = engine.state.fleets.get(&fleet_id).unwrap().location;
+        // Pick the closest explored star so it takes 1 turn
+        let dest = *engine
+            .state
+            .explored_stars
+            .iter()
+            .filter(|&&id| id != initial_location)
+            .min_by_key(|&&id| {
+                let home = engine.state.stars.get(&initial_location).unwrap();
+                let dst = engine.state.stars.get(&id).unwrap();
+                let dx = (dst.x - home.x) as i64;
+                let dy = (dst.y - home.y) as i64;
+                dx * dx + dy * dy
+            })
+            .expect("Need at least one other explored star");
+
+        engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: dest,
+        }]);
+
+        // Fleet should still be at origin
+        assert_eq!(
+            engine.state.fleets.get(&fleet_id).unwrap().location,
+            initial_location
+        );
+        assert!(engine.state.fleet_missions.contains_key(&fleet_id));
+
+        // Advance turns until arrival (max 3 turns)
+        let mut arrived = false;
+        for _ in 0..3 {
+            let events = engine.apply_turn(vec![Command::EndTurn]);
+            if events
+                .iter()
+                .any(|e| matches!(e, Event::FleetArrived { fleet, star } if *fleet == fleet_id && *star == dest))
+            {
+                arrived = true;
+                break;
+            }
+        }
+
+        assert!(arrived, "FleetArrived event should have been emitted");
+        assert!(
+            !engine.state.fleet_missions.contains_key(&fleet_id),
+            "Mission should be removed after arrival"
+        );
+        assert_eq!(
+            engine.state.fleets.get(&fleet_id).unwrap().location,
+            dest,
+            "Fleet location must be updated on arrival"
+        );
+    }
+
+    #[test]
+    fn move_fleet_to_same_star_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+        let current_star = engine.state.fleets.get(&fleet_id).unwrap().location;
+
+        let events = engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: current_star,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "MoveFleet to current location must error"
+        );
+    }
+
+    #[test]
+    fn multiple_fleet_arrivals_are_deterministically_ordered() {
+        // Create two fleets at the home star, both moving to different explored stars.
+        // Both should arrive in the same EndTurn; their FleetArrived events must be
+        // ordered by FleetId (ascending) due to BTreeMap iteration.
+        let mut engine = Engine::new(42);
+
+        let home_star = engine.state.fleets.get(&FleetId(1)).unwrap().location;
+        let mut explored_others = engine
+            .state
+            .explored_stars
+            .iter()
+            .filter(|&&id| id != home_star)
+            .copied();
+        let dest_a = explored_others.next().expect("Need explored star A");
+        let dest_b = explored_others.next().unwrap_or(dest_a);
+
+        // Create a second fleet at home
+        let fleet_b_id = engine.state.next_fleet_id();
+        engine.state.fleets.insert(
+            fleet_b_id,
+            Fleet {
+                id: fleet_b_id,
+                owner: engine.state.player_empire,
+                location: home_star,
+                ships: 1,
+            },
+        );
+
+        // Dispatch both fleets to the same near destination to guarantee same turn arrival
+        engine.apply_turn(vec![
+            Command::MoveFleet {
+                fleet: FleetId(1),
+                destination: dest_a,
+            },
+            Command::MoveFleet {
+                fleet: fleet_b_id,
+                destination: dest_b,
+            },
+        ]);
+
+        // Both missions created
+        assert!(engine.state.fleet_missions.contains_key(&FleetId(1)));
+        assert!(engine.state.fleet_missions.contains_key(&fleet_b_id));
+
+        // Force both missions to arrive next turn
+        engine
+            .state
+            .fleet_missions
+            .get_mut(&FleetId(1))
+            .unwrap()
+            .turns_remaining = 1;
+        engine
+            .state
+            .fleet_missions
+            .get_mut(&fleet_b_id)
+            .unwrap()
+            .turns_remaining = 1;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        let arrival_fleet_ids: Vec<FleetId> = events
+            .iter()
+            .filter_map(|e| {
+                if let Event::FleetArrived { fleet, .. } = e {
+                    Some(*fleet)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(arrival_fleet_ids.len(), 2, "Both fleets should arrive");
+        assert!(
+            arrival_fleet_ids[0] < arrival_fleet_ids[1],
+            "Arrivals must be ordered by FleetId: {:?}",
+            arrival_fleet_ids
+        );
+    }
+
+    #[test]
+    fn fleet_travel_turns_buckets() {
+        // Verify the distance buckets independently
+        assert_eq!(fleet_travel_turns(0), 1);
+        assert_eq!(fleet_travel_turns(100_000), 1);
+        assert_eq!(fleet_travel_turns(100_001), 2);
+        assert_eq!(fleet_travel_turns(400_000), 2);
+        assert_eq!(fleet_travel_turns(400_001), 3);
+        assert_eq!(fleet_travel_turns(2_000_000), 3);
+    }
+
+    #[test]
+    fn scout_exploration_still_works_after_fleet_movement_added() {
+        // Regression: scout missions must still explore unexplored systems.
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let dest = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Unexplored star needed");
+
+        engine.apply_turn(vec![Command::SendScout {
+            fleet: fleet_id,
+            destination: dest,
+        }]);
+
+        for _ in 0..SCOUT_TRAVEL_TURNS {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        assert!(
+            engine.state.explored_stars.contains(&dest),
+            "Scout must still explore the system"
+        );
+        assert_eq!(
+            engine.state.fleets.get(&fleet_id).unwrap().location,
+            dest,
+            "Fleet must move to explored destination"
+        );
     }
 }

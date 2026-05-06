@@ -15,6 +15,6 @@ pub use engine::Engine;
 pub use events::Event;
 pub use state::{
     all_techs, BuildItem, BuildingType, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId,
-    GameState, Planet, PlanetSize, ResearchState, ScoutMission, SpectralClass, Star, StarId,
-    TechId, TechRecord,
+    FleetLocation, FleetMission, GameState, Planet, PlanetSize, ResearchState, ScoutMission,
+    SpectralClass, Star, StarId, TechId, TechRecord,
 };

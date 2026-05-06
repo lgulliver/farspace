@@ -13,18 +13,20 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
         }),
         1 => {
             // v1 → v2: populate explored_stars with each empire's home star.
-            // explored_stars and scout_missions default to empty via serde(default),
-            // so we just need to seed the exploration with home stars.
-            // Collect home stars first to satisfy the borrow checker (empires and
-            // explored_stars are separate fields on the same struct).
             let mut state = save.state;
             let home_stars: Vec<_> = state.empires.values().map(|e| e.home_star).collect();
             for star_id in home_stars {
                 state.explored_stars.insert(star_id);
             }
+            // Continue migrating v2 → v3
+            migrate(SaveFile { version: 2, state })
+        }
+        2 => {
+            // v2 -> v3: fleet_missions field added; defaults to empty via serde(default).
+            // Nothing to populate -- just bump the version.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
-                state,
+                state: save.state,
             })
         }
         _ => Err(SaveError::UnsupportedVersion {
@@ -57,7 +59,7 @@ mod tests {
     }
 
     #[test]
-    fn migrate_v1_to_v2_populates_explored_stars() {
+    fn migrate_v1_to_current_populates_explored_stars() {
         use game_core::{Empire, EmpireId, StarId};
 
         let mut state = GameState::default();
@@ -82,8 +84,17 @@ mod tests {
         assert_eq!(migrated.version, CURRENT_VERSION);
         assert!(
             migrated.state.explored_stars.contains(&home_star),
-            "Home star should be explored after v1→v2 migration"
+            "Home star should be explored after v1→current migration"
         );
+    }
+
+    #[test]
+    fn migrate_v2_to_v3_succeeds() {
+        let state = GameState::default();
+        let v2_save = SaveFile { version: 2, state };
+        let migrated = migrate(v2_save).expect("v2 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        assert!(migrated.state.fleet_missions.is_empty());
     }
 
     #[test]

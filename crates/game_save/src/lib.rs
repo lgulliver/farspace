@@ -379,4 +379,40 @@ mod tests {
         let mission: &ScoutMission = loaded.scout_missions.get(&FleetId(1)).unwrap();
         assert_eq!(mission.destination, dest);
     }
+
+    #[test]
+    fn save_load_preserves_active_fleet_mission() {
+        use game_core::{Command, FleetId, FleetMission};
+
+        let mut engine = Engine::new(42);
+
+        // Need an explored star other than home to move to
+        let fleet_id = FleetId(1);
+        let initial_location = engine.state.fleets.get(&fleet_id).unwrap().location;
+        let dest = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != initial_location)
+            .expect("Need explored star other than home");
+
+        engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: dest,
+        }]);
+
+        // Mission should be in-flight
+        assert!(!engine.state.fleet_missions.is_empty());
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert!(
+            !loaded.fleet_missions.is_empty(),
+            "Active fleet mission must survive save/load round-trip"
+        );
+
+        let mission: &FleetMission = loaded.fleet_missions.get(&fleet_id).unwrap();
+        assert_eq!(mission.destination, dest);
+    }
 }

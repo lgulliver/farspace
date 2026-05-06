@@ -702,4 +702,133 @@ mod tests {
             "diplomacy should default to empty from v6"
         );
     }
+
+    /// Garbled JSON that is syntactically valid but not a SaveFile returns an error.
+    #[test]
+    fn load_garbled_json_returns_error() {
+        // Valid JSON but doesn't match SaveFile schema at all
+        let garbled = r#"{"completely": "wrong", "structure": 42}"#;
+        let result = load_from_string(garbled);
+        assert!(
+            result.is_err(),
+            "Loading JSON that doesn't match SaveFile must return an error"
+        );
+    }
+
+    /// `null` as the JSON value returns an error.
+    #[test]
+    fn load_null_json_returns_error() {
+        let result = load_from_string("null");
+        assert!(result.is_err(), "Loading 'null' JSON must return an error");
+    }
+
+    /// A save file with an array at the top level returns an error.
+    #[test]
+    fn load_json_array_returns_error() {
+        let result = load_from_string("[1, 2, 3]");
+        assert!(
+            result.is_err(),
+            "Loading a JSON array instead of a SaveFile must return an error"
+        );
+    }
+
+    /// Continue playing after a save/load round trip and verify results match
+    /// playing straight through without saving.
+    #[test]
+    fn continue_play_after_save_load_is_deterministic() {
+        use game_core::Command;
+
+        let seed = 31_337u64;
+
+        // Baseline: play 3 turns, then 2 more
+        let baseline_events = {
+            let mut engine = Engine::new(seed);
+            for _ in 0..3 {
+                engine.apply_turn(vec![Command::EndTurn]);
+            }
+            let mut evts = Vec::new();
+            for _ in 0..2 {
+                evts.push(engine.apply_turn(vec![Command::EndTurn]));
+            }
+            evts
+        };
+
+        // Round-trip: play 3 turns, save, load, then play 2 more
+        let after_load_events = {
+            let mut engine = Engine::new(seed);
+            for _ in 0..3 {
+                engine.apply_turn(vec![Command::EndTurn]);
+            }
+
+            let saved = save(&engine.state).expect("save should succeed");
+            let loaded_state = load(&saved).expect("load should succeed");
+
+            let mut engine2 = Engine::from_state(loaded_state);
+            let mut evts = Vec::new();
+            for _ in 0..2 {
+                evts.push(engine2.apply_turn(vec![Command::EndTurn]));
+            }
+            evts
+        };
+
+        assert_eq!(
+            baseline_events, after_load_events,
+            "Events after save/load round-trip must match straight-through play"
+        );
+    }
+
+    /// Save/load round trip preserves the full set of buildings in each colony.
+    #[test]
+    fn save_load_preserves_colony_buildings() {
+        use game_core::{BuildItem, ColonyId, Command};
+
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // Build a ScienceNexus (cost 100) with 100% production focus
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Structure(game_core::BuildingType::ScienceNexus),
+        }]);
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+        for _ in 0..11 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let has_nexus = engine.state.colonies[&colony_id]
+            .buildings
+            .contains(&game_core::BuildingType::ScienceNexus);
+        assert!(has_nexus, "ScienceNexus must be built before saving");
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert!(
+            loaded.colonies[&colony_id]
+                .buildings
+                .contains(&game_core::BuildingType::ScienceNexus),
+            "ScienceNexus must survive save/load round-trip"
+        );
+    }
+
+    /// Saving state with no explored stars, then loading, preserves the empty set.
+    #[test]
+    fn save_load_empty_explored_stars_is_valid() {
+        let engine = Engine::new(42);
+        let mut state = engine.state.clone();
+        // Manually clear explored stars (unusual but should not corrupt the save)
+        state.explored_stars.clear();
+
+        let saved = save(&state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert!(
+            loaded.explored_stars.is_empty(),
+            "Empty explored_stars must survive save/load"
+        );
+    }
 }

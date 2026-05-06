@@ -4860,4 +4860,404 @@ mod tests {
         );
         assert!(!event.is_error());
     }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Colonize — additional invalid-command edge cases
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn colonize_out_of_bounds_planet_index_emits_error() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        let home = engine.state.empires.get(&player).unwrap().home_star;
+
+        // Choose an explored star other than home
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != home)
+            .expect("Need an explored star other than home");
+
+        // Get the number of planets at that star so we can go one past the end
+        let planet_count = engine.state.stars.get(&target).unwrap().planets.len();
+
+        // Place a colonizer at the target
+        let fleet_id = FleetId(77);
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: player,
+                location: target,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: fleet_id,
+            star: target,
+            planet_index: planet_count, // one past the end
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Colonize with out-of-bounds planet_index must emit an error"
+        );
+        // Colonizer must not be consumed on an invalid command
+        assert!(
+            engine.state.fleets.contains_key(&fleet_id),
+            "Colonizer fleet must not be removed when the command fails"
+        );
+    }
+
+    #[test]
+    fn colonize_unknown_fleet_emits_error() {
+        let mut engine = Engine::new(42);
+        let home = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: FleetId(9999),
+            star: home,
+            planet_index: 0,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Colonize with non-existent fleet must emit an error"
+        );
+    }
+
+    #[test]
+    fn colonize_fleet_on_scout_mission_emits_error() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        let home = engine.state.empires.get(&player).unwrap().home_star;
+
+        // Pick an explored star other than home for the colonizer target
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != home)
+            .expect("Need explored star other than home");
+
+        // Place a colonizer at target
+        let fleet_id = FleetId(78);
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: player,
+                location: target,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+            },
+        );
+
+        // Put it on a scout mission (busy)
+        let unexplored = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Need an unexplored star");
+        engine.state.scout_missions.insert(
+            fleet_id,
+            ScoutMission {
+                fleet: fleet_id,
+                destination: unexplored,
+                turns_remaining: 3,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: fleet_id,
+            star: target,
+            planet_index: 0,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Colonize with fleet on scout mission must emit an error"
+        );
+    }
+
+    #[test]
+    fn colonize_fleet_on_fleet_mission_emits_error() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        let home = engine.state.empires.get(&player).unwrap().home_star;
+
+        let explored: Vec<StarId> = engine
+            .state
+            .explored_stars
+            .iter()
+            .filter(|&&id| id != home)
+            .copied()
+            .collect();
+        let target = *explored
+            .first()
+            .expect("Need explored star other than home");
+
+        // Place a colonizer at home (not at target)
+        let fleet_id = FleetId(79);
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: player,
+                location: home,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+            },
+        );
+
+        // Fleet is in transit toward target
+        engine.state.fleet_missions.insert(
+            fleet_id,
+            FleetMission {
+                fleet: fleet_id,
+                destination: target,
+                turns_remaining: 2,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: fleet_id,
+            star: target,
+            planet_index: 0,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Colonize with fleet on fleet mission must emit an error"
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Longer deterministic replay
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn deterministic_replay_scout_research_multi_turn() {
+        // Run the same mixed command sequence on two identically-seeded engines and
+        // assert that final state and per-turn event sequences are identical.
+        use crate::state::TechId;
+
+        let seed = 55_555;
+
+        let run = |s: u64| {
+            let mut engine = Engine::new(s);
+            let colony_id = ColonyId(1);
+
+            // Set up colony focus
+            engine.apply_turn(vec![Command::SetColonyFocus {
+                colony: colony_id,
+                prod_pct: 50,
+                research_pct: 50,
+            }]);
+
+            // Start research
+            engine.apply_turn(vec![Command::SelectResearch { tech: TechId(1) }]);
+
+            // Find an unexplored star and dispatch a scout
+            let dest = *engine
+                .state
+                .stars
+                .keys()
+                .find(|id| !engine.state.explored_stars.contains(id))
+                .expect("Need unexplored star");
+            engine.apply_turn(vec![Command::SendScout {
+                fleet: FleetId(1),
+                destination: dest,
+            }]);
+
+            // Advance 5 turns
+            let mut all_events = Vec::new();
+            for _ in 0..5 {
+                all_events.push(engine.apply_turn(vec![Command::EndTurn]));
+            }
+
+            (engine.state, all_events)
+        };
+
+        let (state_a, events_a) = run(seed);
+        let (state_b, events_b) = run(seed);
+
+        assert_eq!(
+            events_a, events_b,
+            "Per-turn events must be identical for the same seed"
+        );
+        assert_eq!(
+            state_a, state_b,
+            "Final state must be identical for the same seed"
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Event ordering
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn turn_advanced_is_last_event_of_end_turn() {
+        let mut engine = Engine::new(42);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        // TurnAdvanced must exist and be the last event
+        let last = events
+            .last()
+            .expect("EndTurn must produce at least one event");
+        assert!(
+            matches!(last, Event::TurnAdvanced { .. }),
+            "TurnAdvanced must be the last event in an EndTurn batch; got {:?}",
+            last
+        );
+    }
+
+    #[test]
+    fn economy_summary_precedes_food_shortage_and_credit_deficit() {
+        let mut engine = Engine::new(42);
+        let empire_id = engine.state.player_empire;
+        let colony_id = ColonyId(1);
+
+        // Force food and credit deficits simultaneously
+        engine.state.empires.get_mut(&empire_id).unwrap().food = -5;
+        engine.state.empires.get_mut(&empire_id).unwrap().credits = 0;
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        // Find indices of EconomySummary, FoodShortage, CreditDeficit for the empire
+        let summary_idx = events
+            .iter()
+            .position(|e| matches!(e, Event::EconomySummary { empire, .. } if *empire == empire_id))
+            .expect("EconomySummary must be present");
+
+        let shortage_idx = events
+            .iter()
+            .position(|e| matches!(e, Event::FoodShortage { empire, .. } if *empire == empire_id))
+            .expect("FoodShortage must be present");
+
+        let deficit_idx = events
+            .iter()
+            .position(|e| matches!(e, Event::CreditDeficit { empire, .. } if *empire == empire_id))
+            .expect("CreditDeficit must be present");
+
+        assert!(
+            summary_idx < shortage_idx,
+            "EconomySummary (idx {summary_idx}) must precede FoodShortage (idx {shortage_idx})"
+        );
+        assert!(
+            summary_idx < deficit_idx,
+            "EconomySummary (idx {summary_idx}) must precede CreditDeficit (idx {deficit_idx})"
+        );
+    }
+
+    #[test]
+    fn colony_produced_precedes_economy_summary() {
+        let mut engine = Engine::new(42);
+        let empire_id = engine.state.player_empire;
+        let colony_id = ColonyId(1);
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 50,
+            research_pct: 50,
+        }]);
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        let produced_idx = events
+            .iter()
+            .position(|e| matches!(e, Event::ColonyProduced { colony, .. } if *colony == colony_id))
+            .expect("ColonyProduced must be present");
+
+        let summary_idx = events
+            .iter()
+            .position(|e| matches!(e, Event::EconomySummary { empire, .. } if *empire == empire_id))
+            .expect("EconomySummary must be present");
+
+        assert!(
+            produced_idx < summary_idx,
+            "ColonyProduced (idx {produced_idx}) must come before EconomySummary (idx {summary_idx})"
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Production edge cases
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn build_queue_advances_at_full_production_regardless_of_focus() {
+        // The build queue always accumulates at the raw `production` rate;
+        // prod_pct only controls how much of that becomes credits.
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        let production = engine.state.colonies[&colony_id].production;
+
+        // Queue a scout (cost 50), set 0% production (100% research)
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Scout,
+        }]);
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+
+        engine.apply_turn(vec![Command::EndTurn]);
+
+        // Build queue advances by `production` regardless of prod_pct
+        let colony = engine.state.colonies.get(&colony_id).unwrap();
+        assert_eq!(
+            colony.accumulated_production, production,
+            "Build queue must advance by raw production even when prod_pct = 0"
+        );
+    }
+
+    #[test]
+    fn credits_income_is_zero_when_prod_pct_is_zero() {
+        let mut engine = Engine::new(42);
+        let empire_id = engine.state.player_empire;
+        let colony_id = ColonyId(1);
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+
+        // Record credits before, subtract fleet maintenance manually to find income
+        let fleet_count = engine
+            .state
+            .fleets
+            .values()
+            .filter(|f| f.owner == empire_id)
+            .count() as i64;
+        let credits_before = engine.state.empires[&empire_id].credits;
+
+        engine.apply_turn(vec![Command::EndTurn]);
+
+        let credits_after = engine.state.empires[&empire_id].credits;
+
+        // With prod_pct=0 the only credit change should be negative maintenance
+        assert_eq!(
+            credits_after,
+            credits_before - fleet_count,
+            "Credits should only decrease by maintenance when prod_pct=0"
+        );
+    }
 }

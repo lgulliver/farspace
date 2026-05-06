@@ -1,5 +1,6 @@
 //! Screen types and rendering
 
+pub mod colony;
 pub mod galaxy;
 pub mod menu;
 
@@ -14,6 +15,7 @@ pub enum Screen {
     #[default]
     Menu,
     Galaxy,
+    Colony,
 }
 
 impl Screen {
@@ -30,6 +32,11 @@ impl Screen {
             Screen::Galaxy => {
                 if let Some(state) = game_state {
                     galaxy::render_galaxy(frame, area, app_state, state);
+                }
+            }
+            Screen::Colony => {
+                if let Some(state) = game_state {
+                    colony::render_colony(frame, area, app_state, state);
                 }
             }
         }

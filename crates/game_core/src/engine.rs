@@ -63,6 +63,7 @@ impl Engine {
                 research_pct: 50,
                 build_queue: Vec::new(),
                 accumulated_production: 0,
+                buildings: Vec::new(),
             },
         );
 
@@ -211,23 +212,33 @@ impl Engine {
                         item,
                     });
 
-                    // Create fleet if ship was built
-                    if matches!(item, BuildItem::Scout | BuildItem::Colony) {
-                        let fleet_id = self.state.next_fleet_id();
-                        let owner_id = owner;
-                        self.state.fleets.insert(
-                            fleet_id,
-                            Fleet {
-                                id: fleet_id,
-                                owner: owner_id,
+                    match item {
+                        // Create a fleet for ship items
+                        BuildItem::Scout | BuildItem::Colony => {
+                            let fleet_id = self.state.next_fleet_id();
+                            let owner_id = owner;
+                            self.state.fleets.insert(
+                                fleet_id,
+                                Fleet {
+                                    id: fleet_id,
+                                    owner: owner_id,
+                                    location: star_id,
+                                    ships: 1,
+                                },
+                            );
+                            events.push(Event::FleetCreated {
+                                fleet: fleet_id,
                                 location: star_id,
-                                ships: 1,
-                            },
-                        );
-                        events.push(Event::FleetCreated {
-                            fleet: fleet_id,
-                            location: star_id,
-                        });
+                            });
+                        }
+                        // Add permanent buildings to the colony
+                        BuildItem::Structure(bt) => {
+                            if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
+                                colony.buildings.push(bt);
+                            }
+                        }
+                        // Outpost: no extra action needed
+                        BuildItem::Outpost => {}
                     }
                 } else {
                     // Update accumulated production
@@ -401,6 +412,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::BuildingType;
 
     #[test]
     fn new_engine_creates_valid_state() {
@@ -740,6 +752,7 @@ mod tests {
                 research_pct: 50,
                 build_queue: Vec::new(),
                 accumulated_production: 0,
+                buildings: Vec::new(),
             },
         );
 
@@ -785,6 +798,7 @@ mod tests {
                 research_pct: 50,
                 build_queue: vec![BuildItem::Scout],
                 accumulated_production: 0,
+                buildings: Vec::new(),
             },
         );
 
@@ -852,6 +866,7 @@ mod tests {
                 research_pct: 50,
                 build_queue: Vec::new(),
                 accumulated_production: 0,
+                buildings: Vec::new(),
             },
         );
 
@@ -919,5 +934,158 @@ mod tests {
         }
 
         assert_eq!(engine_a.state, engine_b.state);
+    }
+
+    #[test]
+    fn queue_building_structure_is_valid() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let item = BuildItem::Structure(BuildingType::AquacultureBay);
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item,
+        }]);
+
+        assert!(!events.iter().any(|e| e.is_error()));
+        assert!(events.iter().any(
+            |e| matches!(e, Event::BuildQueued { colony, item: it } if *colony == colony_id && *it == item)
+        ));
+
+        let colony = engine.state.colonies.get(&colony_id).unwrap();
+        assert_eq!(colony.build_queue.len(), 1);
+        assert_eq!(colony.build_queue[0], item);
+    }
+
+    #[test]
+    fn building_completion_adds_to_colony_buildings() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // Queue an Aquaculture Bay (cost 60)
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Structure(BuildingType::AquacultureBay),
+        }]);
+
+        // 100% production to maximise output
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+
+        // production=10/turn, cost=60 => complete after 6 turns
+        for _ in 0..7 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let colony = engine.state.colonies.get(&colony_id).unwrap();
+        assert!(
+            colony.buildings.contains(&BuildingType::AquacultureBay),
+            "Colony should have AquacultureBay after completion"
+        );
+        assert!(
+            colony.build_queue.is_empty(),
+            "Build queue should be empty after completion"
+        );
+    }
+
+    #[test]
+    fn building_completion_does_not_create_fleet() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // Queue a Fabrication Yard (cost 80)
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Structure(BuildingType::FabricationYard),
+        }]);
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+
+        let initial_fleet_count = engine.state.fleets.len();
+
+        // production=10/turn, cost=80 => 8 turns
+        for _ in 0..9 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        // Fleet count must NOT increase for a building
+        assert_eq!(
+            engine.state.fleets.len(),
+            initial_fleet_count,
+            "Building completion must not create a fleet"
+        );
+
+        let colony = engine.state.colonies.get(&colony_id).unwrap();
+        assert!(colony.buildings.contains(&BuildingType::FabricationYard));
+    }
+
+    #[test]
+    fn multiple_buildings_accumulate_in_colony() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // Queue two buildings
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Structure(BuildingType::AquacultureBay),
+        }]);
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Structure(BuildingType::ScienceNexus),
+        }]);
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+
+        // cost: Aquaculture=60 + ScienceNexus=100 = 160 production total needed
+        // 10/turn => 16+ turns
+        for _ in 0..18 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let colony = engine.state.colonies.get(&colony_id).unwrap();
+        assert!(colony.buildings.contains(&BuildingType::AquacultureBay));
+        assert!(colony.buildings.contains(&BuildingType::ScienceNexus));
+    }
+
+    #[test]
+    fn building_completion_emits_build_completed_event() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let item = BuildItem::Structure(BuildingType::ScienceNexus);
+
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item,
+        }]);
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+
+        // cost=100, production=10/turn => 10 turns
+        let mut completed = false;
+        for _ in 0..12 {
+            let events = engine.apply_turn(vec![Command::EndTurn]);
+            if events.iter().any(|e| {
+                matches!(e, Event::BuildCompleted { colony, item: it }
+                    if *colony == colony_id && *it == item)
+            }) {
+                completed = true;
+                break;
+            }
+        }
+        assert!(completed, "BuildCompleted event should have been emitted");
     }
 }

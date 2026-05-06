@@ -14,6 +14,6 @@ pub use commands::Command;
 pub use engine::Engine;
 pub use events::Event;
 pub use state::{
-    BuildItem, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId, GameState, Planet, PlanetSize,
-    SpectralClass, Star, StarId,
+    BuildItem, BuildingType, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId, GameState, Planet,
+    PlanetSize, SpectralClass, Star, StarId,
 };

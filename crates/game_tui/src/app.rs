@@ -4,7 +4,7 @@ use crate::components::{render_help, render_palette, EventLog};
 use crate::keys::KeyMap;
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
-use game_core::{Command, Engine, StarId};
+use game_core::{BuildingType, ColonyId, Command, Engine, StarId};
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
 use std::time::Duration;
@@ -29,6 +29,10 @@ pub struct AppState {
     pub search_input: String,
     pub show_search: bool,
     pub selected_star: Option<StarId>,
+    /// Currently viewed colony (set when entering the colony screen)
+    pub selected_colony: Option<ColonyId>,
+    /// Cursor index for the build-picker on the colony screen
+    pub colony_build_cursor: usize,
     pub log: EventLog,
     pub quit: bool,
 }
@@ -197,6 +201,7 @@ impl App {
         match self.state.active {
             Screen::Menu => self.handle_menu_key(key),
             Screen::Galaxy => self.handle_galaxy_key(key),
+            Screen::Colony => self.handle_colony_key(key),
         }
     }
 
@@ -221,9 +226,107 @@ impl App {
             return;
         }
 
+        // Enter colony view with 'c'
+        if key.code == KeyCode::Char('c') {
+            self.try_enter_colony();
+            return;
+        }
+
         // End turn
         if KeyMap::is_end_turn(key) {
             self.end_turn();
+        }
+    }
+
+    fn handle_colony_key(&mut self, key: KeyEvent) {
+        match key.code {
+            // Return to galaxy map
+            KeyCode::Esc => {
+                self.state.active = Screen::Galaxy;
+                self.state.selected_colony = None;
+            }
+            // Navigate build picker
+            KeyCode::Char('j') | KeyCode::Down => {
+                let count = BuildingType::all().len();
+                self.state.colony_build_cursor = (self.state.colony_build_cursor + 1) % count;
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                let count = BuildingType::all().len();
+                self.state.colony_build_cursor =
+                    (self.state.colony_build_cursor + count.saturating_sub(1)) % count;
+            }
+            // Queue the selected building
+            KeyCode::Enter => {
+                self.queue_building();
+            }
+            // End turn from colony screen
+            _ => {
+                if KeyMap::is_end_turn(key) && key.code != KeyCode::Enter {
+                    self.end_turn();
+                }
+            }
+        }
+    }
+
+    /// Try to enter the colony screen for the selected star.
+    /// Returns true if a player colony was found and the screen transitioned.
+    fn try_enter_colony(&mut self) -> bool {
+        let engine = match &self.engine {
+            Some(e) => e,
+            None => return false,
+        };
+
+        let star_id = match self.state.selected_star {
+            Some(id) => id,
+            None => return false,
+        };
+
+        let star = match engine.state.stars.get(&star_id) {
+            Some(s) => s,
+            None => return false,
+        };
+
+        // Find the first planet at this star that has a player-owned colony
+        for planet in &star.planets {
+            if let Some(colony_id) = planet.colony {
+                if let Some(colony) = engine.state.colonies.get(&colony_id) {
+                    if colony.owner == engine.state.player_empire {
+                        self.state.selected_colony = Some(colony_id);
+                        self.state.colony_build_cursor = 0;
+                        self.state.active = Screen::Colony;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Queue the currently selected building at the active colony
+    fn queue_building(&mut self) {
+        let colony_id = match self.state.selected_colony {
+            Some(id) => id,
+            None => return,
+        };
+
+        let buildings = BuildingType::all();
+        let cursor = self.state.colony_build_cursor % buildings.len();
+        let bt = buildings[cursor];
+
+        self.pending_commands.push(Command::QueueBuild {
+            colony: colony_id,
+            item: game_core::BuildItem::Structure(bt),
+        });
+
+        let commands = std::mem::take(&mut self.pending_commands);
+        let engine = match &mut self.engine {
+            Some(e) => e,
+            None => return,
+        };
+        let events = engine.apply_turn(commands);
+        for event in events {
+            self.state.log.push(event.to_log_message());
         }
     }
 
@@ -720,5 +823,258 @@ mod tests {
         app.end_turn();
 
         terminal.draw(|frame| app.render(frame)).unwrap();
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Colony screen tests
+    // ──────────────────────────────────────────────────────────────────
+
+    /// Navigate to the colony screen from a star that has the player's colony.
+    fn goto_colony_screen(app: &mut App) -> bool {
+        // Find the home star (which holds the colony)
+        let engine = app.engine.as_ref().unwrap();
+        let player_empire = engine.state.player_empire;
+        let home_star_id = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == player_empire)
+            .map(|c| c.star);
+
+        if let Some(star_id) = home_star_id {
+            app.state.selected_star = Some(star_id);
+            app.try_enter_colony()
+        } else {
+            false
+        }
+    }
+
+    #[test]
+    fn enter_colony_from_galaxy_with_c_key() {
+        let mut app = App::new();
+        app.new_game(42);
+        assert_eq!(app.state.active, Screen::Galaxy);
+
+        let entered = goto_colony_screen(&mut app);
+        assert!(
+            entered,
+            "Should enter colony screen when colony exists at star"
+        );
+        assert_eq!(app.state.active, Screen::Colony);
+        assert!(app.state.selected_colony.is_some());
+    }
+
+    #[test]
+    fn try_enter_colony_returns_false_without_engine() {
+        let mut app = App::new();
+        assert!(!app.try_enter_colony());
+    }
+
+    #[test]
+    fn try_enter_colony_returns_false_without_selected_star() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.selected_star = None;
+        assert!(!app.try_enter_colony());
+    }
+
+    #[test]
+    fn try_enter_colony_returns_false_for_empty_star() {
+        let mut app = App::new();
+        app.new_game(42);
+        // Select a star that has no colony
+        let engine = app.engine.as_ref().unwrap();
+        let player_empire = engine.state.player_empire;
+        let empty_star = engine
+            .state
+            .stars
+            .iter()
+            .find(|(_, s)| {
+                s.planets.iter().all(|p| {
+                    p.colony.is_none_or(|cid| {
+                        engine
+                            .state
+                            .colonies
+                            .get(&cid)
+                            .is_none_or(|c| c.owner != player_empire)
+                    })
+                })
+            })
+            .map(|(id, _)| *id);
+
+        if let Some(star_id) = empty_star {
+            app.state.selected_star = Some(star_id);
+            assert!(!app.try_enter_colony());
+            assert_eq!(app.state.active, Screen::Galaxy);
+        }
+        // If every star has a colony (very unlikely with 20 stars and 1 colony) we skip
+    }
+
+    #[test]
+    fn esc_returns_to_galaxy_from_colony_screen() {
+        let mut app = App::new();
+        app.new_game(42);
+        goto_colony_screen(&mut app);
+        assert_eq!(app.state.active, Screen::Colony);
+
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.state.active, Screen::Galaxy);
+        assert!(app.state.selected_colony.is_none());
+    }
+
+    #[test]
+    fn colony_build_cursor_moves_with_j_k() {
+        let mut app = App::new();
+        app.new_game(42);
+        goto_colony_screen(&mut app);
+
+        let initial = app.state.colony_build_cursor;
+        app.handle_key(key(KeyCode::Char('j')));
+        assert_ne!(app.state.colony_build_cursor, initial);
+
+        app.handle_key(key(KeyCode::Char('k')));
+        assert_eq!(app.state.colony_build_cursor, initial);
+    }
+
+    #[test]
+    fn colony_build_cursor_wraps_around_bottom() {
+        let mut app = App::new();
+        app.new_game(42);
+        goto_colony_screen(&mut app);
+
+        let count = BuildingType::all().len();
+        // Move down past the last item
+        for _ in 0..count {
+            app.handle_key(key(KeyCode::Char('j')));
+        }
+        // Cursor should have wrapped to the start
+        assert_eq!(app.state.colony_build_cursor, 0);
+    }
+
+    #[test]
+    fn colony_build_cursor_wraps_around_top() {
+        let mut app = App::new();
+        app.new_game(42);
+        goto_colony_screen(&mut app);
+
+        // Move up from 0 should wrap to last
+        app.handle_key(key(KeyCode::Char('k')));
+        let count = BuildingType::all().len();
+        assert_eq!(app.state.colony_build_cursor, count - 1);
+    }
+
+    #[test]
+    fn enter_key_queues_building_on_colony_screen() {
+        let mut app = App::new();
+        app.new_game(42);
+        goto_colony_screen(&mut app);
+
+        let colony_id = app.state.selected_colony.unwrap();
+        let initial_queue_len = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colonies
+            .get(&colony_id)
+            .unwrap()
+            .build_queue
+            .len();
+
+        // Press Enter to queue the currently selected building
+        app.handle_key(key(KeyCode::Enter));
+
+        let new_queue_len = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colonies
+            .get(&colony_id)
+            .unwrap()
+            .build_queue
+            .len();
+
+        assert_eq!(
+            new_queue_len,
+            initial_queue_len + 1,
+            "Queue should grow by 1 after Enter"
+        );
+    }
+
+    #[test]
+    fn end_turn_works_from_colony_screen_with_e_key() {
+        let mut app = App::new();
+        app.new_game(42);
+        goto_colony_screen(&mut app);
+
+        let initial_turn = app.engine.as_ref().unwrap().state.turn;
+        app.handle_key(key(KeyCode::Char('e')));
+        assert_eq!(app.engine.as_ref().unwrap().state.turn, initial_turn + 1);
+    }
+
+    #[test]
+    fn colony_screen_renders_without_panic() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut app = App::new();
+        app.new_game(42);
+        goto_colony_screen(&mut app);
+
+        terminal.draw(|frame| app.render(frame)).unwrap();
+    }
+
+    #[test]
+    fn save_load_preserves_colony_buildings() {
+        let path = tmp_save_path("colony_buildings");
+        let mut app = App::new();
+        app.new_game(42);
+
+        // Navigate to colony and queue a building
+        goto_colony_screen(&mut app);
+        app.handle_key(key(KeyCode::Enter)); // queue first building
+        app.handle_key(key(KeyCode::Esc)); // back to galaxy
+
+        let colony_id = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colonies
+            .keys()
+            .next()
+            .copied()
+            .unwrap();
+
+        let queue_before = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colonies
+            .get(&colony_id)
+            .unwrap()
+            .build_queue
+            .len();
+
+        // Save and reload
+        app.save_game(&path).expect("save should succeed");
+        app.load_game(&path).expect("load should succeed");
+
+        let queue_after = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colonies
+            .get(&colony_id)
+            .unwrap()
+            .build_queue
+            .len();
+
+        assert_eq!(queue_before, queue_after, "Queue should survive save/load");
+
+        let _ = std::fs::remove_file(&path);
     }
 }

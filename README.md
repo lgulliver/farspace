@@ -22,6 +22,43 @@ The UI sends **Commands** to the core. The core validates, mutates state, and em
 
 ---
 
+## Install
+
+### Pre-built binaries
+
+Download the latest release for your platform from the [Releases page](https://github.com/lgulliver/farspace/releases):
+
+| Platform | File |
+|---|---|
+| Linux x86_64 | `farspace-linux-x86_64` |
+| Linux aarch64 | `farspace-linux-aarch64` |
+| macOS x86_64 | `farspace-macos-x86_64` |
+| macOS aarch64 (Apple Silicon) | `farspace-macos-aarch64` |
+| Windows x86_64 | `farspace-windows-x86_64.exe` |
+
+On Linux/macOS, make the binary executable and run it:
+
+```bash
+chmod +x farspace-linux-x86_64
+./farspace-linux-x86_64
+```
+
+### Build from source
+
+Requires [Rust](https://rustup.rs/) (stable toolchain).
+
+```bash
+git clone https://github.com/lgulliver/farspace.git
+cd farspace
+cargo build --release -p farspace
+# Linux/macOS:
+./target/release/farspace
+# Windows:
+target\release\farspace.exe
+```
+
+---
+
 ## Development
 
 ```bash

@@ -154,9 +154,8 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
                 "∞".to_string()
             };
 
-            // Progress bar
-            let bar_width = inner.width.saturating_sub(4) as usize;
-            let bar_width = bar_width.min(20);
+            // Progress bar (capped at 20 chars wide)
+            let bar_width = (inner.width.saturating_sub(4) as usize).min(20);
             let filled = if cost > 0 {
                 ((progress * bar_width as i64) / cost).min(bar_width as i64) as usize
             } else {

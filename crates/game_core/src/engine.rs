@@ -483,10 +483,12 @@ impl Engine {
             return;
         }
 
-        // Select the tech (resets progress to 0 if switching to a different tech)
+        // Select the tech; only reset progress when switching to a different tech
         if let Some(empire) = self.state.empires.get_mut(&empire_id) {
+            if empire.research.current_tech != Some(tech_id) {
+                empire.research.progress = 0;
+            }
             empire.research.current_tech = Some(tech_id);
-            empire.research.progress = 0;
         }
 
         events.push(Event::ResearchSelected { tech: tech_id });
@@ -1395,5 +1397,86 @@ mod tests {
         assert!(empire.research_points > 0);
         assert_eq!(empire.research.progress, 0);
         assert!(empire.research.current_tech.is_none());
+    }
+
+    #[test]
+    fn reselecting_same_tech_preserves_progress() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let tech_id = TechId(1);
+
+        // Set 100% research and select tech
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
+
+        // Accumulate some progress
+        engine.apply_turn(vec![Command::EndTurn]);
+        let progress_after_turn = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+        assert!(progress_after_turn > 0);
+
+        // Re-select the same tech — progress should be preserved
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
+        let progress_after_reselect = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+        assert_eq!(
+            progress_after_turn, progress_after_reselect,
+            "Re-selecting the current tech must not reset progress"
+        );
+    }
+
+    #[test]
+    fn switching_tech_resets_progress() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let tech_a = TechId(1);
+        let tech_b = TechId(2);
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_a }]);
+        engine.apply_turn(vec![Command::EndTurn]);
+
+        let progress_on_a = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+        assert!(progress_on_a > 0);
+
+        // Switch to a different tech — progress should reset
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_b }]);
+        let progress_after_switch = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+        assert_eq!(
+            progress_after_switch, 0,
+            "Switching tech must reset progress"
+        );
     }
 }

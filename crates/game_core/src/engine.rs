@@ -4877,7 +4877,7 @@ mod tests {
             .explored_stars
             .iter()
             .find(|&&id| id != home)
-            .expect("Need an explored star other than home");
+            .expect("Test setup failed: no explored star found other than home star; at least two explored stars are required");
 
         // Get the number of planets at that star so we can go one past the end
         let planet_count = engine.state.stars.get(&target).unwrap().planets.len();
@@ -4967,7 +4967,7 @@ mod tests {
             .stars
             .keys()
             .find(|id| !engine.state.explored_stars.contains(id))
-            .expect("Need an unexplored star");
+            .expect("Test setup failed: no unexplored star found; at least one unexplored star is required");
         engine.state.scout_missions.insert(
             fleet_id,
             ScoutMission {
@@ -5004,7 +5004,7 @@ mod tests {
             .collect();
         let target = *explored
             .first()
-            .expect("Need explored star other than home");
+            .expect("Test setup failed: no explored star found other than home star; at least two explored stars are required");
 
         // Place a colonizer at home (not at target)
         let fleet_id = FleetId(79);
@@ -5073,7 +5073,7 @@ mod tests {
                 .stars
                 .keys()
                 .find(|id| !engine.state.explored_stars.contains(id))
-                .expect("Need unexplored star");
+                .expect("Test setup failed: no unexplored star found; the galaxy must have at least one unexplored star");
             engine.apply_turn(vec![Command::SendScout {
                 fleet: FleetId(1),
                 destination: dest,

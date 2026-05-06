@@ -738,6 +738,8 @@ mod tests {
     fn continue_play_after_save_load_is_deterministic() {
         use game_core::Command;
 
+        // Arbitrary seed that differs from the default (42) used in most other tests,
+        // to ensure the round-trip is exercised on an independently-generated galaxy.
         let seed = 31_337u64;
 
         // Baseline: play 3 turns, then 2 more

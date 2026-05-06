@@ -5,7 +5,8 @@ use crate::deterministic::sorted_colony_ids;
 use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy};
 use crate::state::{
-    BuildItem, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId, GameState, StarId,
+    all_techs, BuildItem, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId, GameState,
+    ResearchState, StarId, TechId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -44,6 +45,7 @@ impl Engine {
                 credits: 100,
                 research_points: 0,
                 home_star: home_star_id,
+                research: ResearchState::default(),
             },
         );
 
@@ -134,6 +136,9 @@ impl Engine {
                 Command::CancelBuild { colony, index } => {
                     self.process_cancel_build(colony, index, &mut events);
                 }
+                Command::SelectResearch { tech } => {
+                    self.process_select_research(tech, &mut events);
+                }
             }
         }
 
@@ -154,6 +159,10 @@ impl Engine {
     fn process_end_turn(&mut self, events: &mut Vec<Event>) {
         // Process colonies in deterministic order
         let colony_ids = sorted_colony_ids(&self.state.colonies);
+
+        // Track per-empire research generated this turn (owner_id -> research_points)
+        let mut empire_research: std::collections::BTreeMap<EmpireId, i64> =
+            std::collections::BTreeMap::new();
 
         for colony_id in colony_ids {
             // Get colony data
@@ -183,11 +192,14 @@ impl Engine {
             let credits = (total_output * prod_pct as i64) / 100;
             let research = (total_output * research_pct as i64) / 100;
 
-            // Update empire
+            // Update empire credits and lifetime research total
             if let Some(empire) = self.state.empires.get_mut(&owner) {
                 empire.credits += credits;
                 empire.research_points += research;
             }
+
+            // Accumulate research for this empire for tech progress
+            *empire_research.entry(owner).or_insert(0) += research;
 
             events.push(Event::ColonyProduced {
                 colony: colony_id,
@@ -244,6 +256,41 @@ impl Engine {
                     // Update accumulated production
                     if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
                         colony.accumulated_production = new_accumulated;
+                    }
+                }
+            }
+        }
+
+        // Apply research progress for each empire that has a current tech
+        let techs = all_techs();
+        for (empire_id, research_gained) in &empire_research {
+            let (current_tech, current_progress) = {
+                let empire = match self.state.empires.get(empire_id) {
+                    Some(e) => e,
+                    None => continue,
+                };
+                (empire.research.current_tech, empire.research.progress)
+            };
+
+            if let Some(tech_id) = current_tech {
+                let tech_cost = match techs.iter().find(|t| t.id == tech_id) {
+                    Some(t) => t.cost,
+                    None => continue,
+                };
+
+                let new_progress = current_progress + research_gained;
+
+                if new_progress >= tech_cost {
+                    // Tech completed
+                    if let Some(empire) = self.state.empires.get_mut(empire_id) {
+                        empire.research.completed.push(tech_id);
+                        empire.research.current_tech = None;
+                        empire.research.progress = 0;
+                    }
+                    events.push(Event::ResearchCompleted { tech: tech_id });
+                } else {
+                    if let Some(empire) = self.state.empires.get_mut(empire_id) {
+                        empire.research.progress = new_progress;
                     }
                 }
             }
@@ -406,6 +453,45 @@ impl Engine {
         }
 
         events.push(Event::BuildCancelled { colony: colony_id });
+    }
+
+    fn process_select_research(&mut self, tech_id: TechId, events: &mut Vec<Event>) {
+        let empire_id = self.state.player_empire;
+
+        // Validate tech exists
+        let tech_exists = all_techs().iter().any(|t| t.id == tech_id);
+        if !tech_exists {
+            events.push(Event::error(format!("Tech {} not found", tech_id.0)));
+            return;
+        }
+
+        // Validate empire exists
+        let empire = match self.state.empires.get(&empire_id) {
+            Some(e) => e,
+            None => {
+                events.push(Event::error("Player empire not found"));
+                return;
+            }
+        };
+
+        // Validate tech not already completed
+        if empire.research.completed.contains(&tech_id) {
+            events.push(Event::error(format!(
+                "Tech {} is already completed",
+                tech_id.0
+            )));
+            return;
+        }
+
+        // Select the tech; only reset progress when switching to a different tech
+        if let Some(empire) = self.state.empires.get_mut(&empire_id) {
+            if empire.research.current_tech != Some(tech_id) {
+                empire.research.progress = 0;
+            }
+            empire.research.current_tech = Some(tech_id);
+        }
+
+        events.push(Event::ResearchSelected { tech: tech_id });
     }
 }
 
@@ -1087,5 +1173,319 @@ mod tests {
             }
         }
         assert!(completed, "BuildCompleted event should have been emitted");
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Research tests
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn select_research_valid_emits_research_selected() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let tech_id = TechId(1);
+
+        let events = engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
+
+        assert!(!events.iter().any(|e| e.is_error()));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::ResearchSelected { tech } if *tech == tech_id)));
+
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert_eq!(empire.research.current_tech, Some(tech_id));
+        assert_eq!(empire.research.progress, 0);
+    }
+
+    #[test]
+    fn select_research_unknown_tech_emits_error() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let bad_tech = TechId(999);
+
+        let events = engine.apply_turn(vec![Command::SelectResearch { tech: bad_tech }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert!(empire.research.current_tech.is_none());
+    }
+
+    #[test]
+    fn select_already_completed_tech_emits_error() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let tech_id = TechId(1);
+
+        // Manually mark as completed
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .completed
+            .push(tech_id);
+
+        let events = engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn research_progress_accumulates_on_end_turn() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let tech_id = TechId(1);
+
+        // Set 100% research focus
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+
+        // Select a tech
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
+
+        // End one turn
+        engine.apply_turn(vec![Command::EndTurn]);
+
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        // Research should have progressed
+        assert!(
+            empire.research.progress > 0,
+            "Research progress should be positive after one turn"
+        );
+        assert_eq!(empire.research.current_tech, Some(tech_id));
+    }
+
+    #[test]
+    fn research_completes_when_cost_reached() {
+        use crate::state::{all_techs, TechId};
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let tech_id = TechId(1); // Void Propulsion, cost 50
+        let tech_cost = all_techs().iter().find(|t| t.id == tech_id).unwrap().cost;
+
+        // 100% research
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
+
+        // Compute actual RP/turn from colony state (avoids coupling to starting-balance constants)
+        let rp_per_turn = {
+            let colony = engine.state.colonies.get(&colony_id).unwrap();
+            (colony.production as i64 * colony.research_pct as i64) / 100
+        };
+        let max_turns = if rp_per_turn > 0 {
+            (tech_cost / rp_per_turn) + 2
+        } else {
+            200
+        };
+
+        let mut completed = false;
+        for _ in 0..max_turns {
+            let events = engine.apply_turn(vec![Command::EndTurn]);
+            if events
+                .iter()
+                .any(|e| matches!(e, Event::ResearchCompleted { tech } if *tech == tech_id))
+            {
+                completed = true;
+                break;
+            }
+        }
+
+        assert!(completed, "ResearchCompleted event should have fired");
+
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert!(empire.research.completed.contains(&tech_id));
+        assert!(empire.research.current_tech.is_none());
+        assert_eq!(empire.research.progress, 0);
+    }
+
+    #[test]
+    fn completed_tech_cannot_be_researched_again() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let tech_id = TechId(1);
+
+        // Mark as completed
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .completed
+            .push(tech_id);
+
+        let events = engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Selecting a completed tech must emit an error"
+        );
+    }
+
+    #[test]
+    fn research_deterministic_same_seed_same_result() {
+        use crate::state::TechId;
+
+        let cmds = vec![
+            Command::SelectResearch { tech: TechId(1) },
+            Command::SetColonyFocus {
+                colony: ColonyId(1),
+                prod_pct: 0,
+                research_pct: 100,
+            },
+            Command::EndTurn,
+            Command::EndTurn,
+            Command::EndTurn,
+        ];
+
+        let mut engine_a = Engine::new(7777);
+        let mut engine_b = Engine::new(7777);
+
+        for cmd in cmds {
+            let ea = engine_a.apply_turn(vec![cmd.clone()]);
+            let eb = engine_b.apply_turn(vec![cmd]);
+            assert_eq!(ea, eb);
+        }
+
+        let empire_a = engine_a
+            .state
+            .empires
+            .get(&engine_a.state.player_empire)
+            .unwrap();
+        let empire_b = engine_b
+            .state
+            .empires
+            .get(&engine_b.state.player_empire)
+            .unwrap();
+        assert_eq!(empire_a.research, empire_b.research);
+    }
+
+    #[test]
+    fn research_no_progress_without_current_tech() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // 100% research but no tech selected
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine.apply_turn(vec![Command::EndTurn]);
+
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        // research_points (lifetime total) should increase, but research.progress stays 0
+        assert!(empire.research_points > 0);
+        assert_eq!(empire.research.progress, 0);
+        assert!(empire.research.current_tech.is_none());
+    }
+
+    #[test]
+    fn reselecting_same_tech_preserves_progress() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let tech_id = TechId(1);
+
+        // Set 100% research and select tech
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
+
+        // Accumulate some progress
+        engine.apply_turn(vec![Command::EndTurn]);
+        let progress_after_turn = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+        assert!(progress_after_turn > 0);
+
+        // Re-select the same tech — progress should be preserved
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
+        let progress_after_reselect = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+        assert_eq!(
+            progress_after_turn, progress_after_reselect,
+            "Re-selecting the current tech must not reset progress"
+        );
+    }
+
+    #[test]
+    fn switching_tech_resets_progress() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let tech_a = TechId(1);
+        let tech_b = TechId(2);
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_a }]);
+        engine.apply_turn(vec![Command::EndTurn]);
+
+        let progress_on_a = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+        assert!(progress_on_a > 0);
+
+        // Switch to a different tech — progress should reset
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_b }]);
+        let progress_after_switch = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+        assert_eq!(
+            progress_after_switch, 0,
+            "Switching tech must reset progress"
+        );
     }
 }

@@ -1,6 +1,6 @@
 //! Events emitted by the game engine
 
-use crate::state::{BuildItem, ColonyId, FleetId, StarId};
+use crate::state::{BuildItem, ColonyId, FleetId, StarId, TechId};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +32,10 @@ pub enum Event {
     },
     /// Fleet was created
     FleetCreated { fleet: FleetId, location: StarId },
+    /// A technology was selected for research
+    ResearchSelected { tech: TechId },
+    /// A technology research was completed
+    ResearchCompleted { tech: TechId },
     /// An error occurred
     Error { message: String },
 }
@@ -73,6 +77,12 @@ impl Event {
             }
             Event::FleetCreated { fleet, location } => {
                 format!("Fleet {} created at star {}", fleet.0, location.0)
+            }
+            Event::ResearchSelected { tech } => {
+                format!("Research started: tech {}", tech.0)
+            }
+            Event::ResearchCompleted { tech } => {
+                format!("Research complete: tech {}", tech.0)
             }
             Event::Error { message } => format!("Error: {}", message),
         }
@@ -129,5 +139,15 @@ mod tests {
             to: crate::state::StarId(3),
         };
         assert_eq!(event.to_log_message(), "Fleet 1 moved from 2 to 3");
+
+        let event = Event::ResearchSelected {
+            tech: crate::state::TechId(3),
+        };
+        assert_eq!(event.to_log_message(), "Research started: tech 3");
+
+        let event = Event::ResearchCompleted {
+            tech: crate::state::TechId(1),
+        };
+        assert_eq!(event.to_log_message(), "Research complete: tech 1");
     }
 }

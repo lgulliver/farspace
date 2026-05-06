@@ -192,4 +192,60 @@ mod tests {
         assert_eq!(engine.state.colonies.len(), loaded.colonies.len());
         assert_eq!(engine.state.fleets.len(), loaded.fleets.len());
     }
+
+    #[test]
+    fn save_load_preserves_research_state() {
+        use game_core::TechId;
+
+        let mut engine = Engine::new(42);
+
+        // Select a tech and run enough turns to accumulate some progress
+        engine.apply_turn(vec![game_core::Command::SetColonyFocus {
+            colony: game_core::ColonyId(1),
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine.apply_turn(vec![game_core::Command::SelectResearch { tech: TechId(2) }]);
+        engine.apply_turn(vec![game_core::Command::EndTurn]);
+
+        let original = engine.state.clone();
+        let saved = save(&original).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        let orig_empire = original.empires.get(&original.player_empire).unwrap();
+        let load_empire = loaded.empires.get(&loaded.player_empire).unwrap();
+
+        assert_eq!(
+            orig_empire.research.current_tech,
+            load_empire.research.current_tech
+        );
+        assert_eq!(orig_empire.research.progress, load_empire.research.progress);
+        assert_eq!(
+            orig_empire.research.completed,
+            load_empire.research.completed
+        );
+    }
+
+    #[test]
+    fn save_load_preserves_completed_techs() {
+        use game_core::TechId;
+
+        let mut engine = Engine::new(42);
+
+        // Manually complete a tech to verify persistence
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId(1));
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        let load_empire = loaded.empires.get(&loaded.player_empire).unwrap();
+        assert!(load_empire.research.completed.contains(&TechId(1)));
+    }
 }

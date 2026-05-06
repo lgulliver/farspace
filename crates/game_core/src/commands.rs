@@ -1,6 +1,6 @@
 //! Commands that can be issued to the game engine
 
-use crate::state::{BuildItem, ColonyId, FleetId, StarId};
+use crate::state::{BuildItem, ColonyId, FleetId, StarId, TechId};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +22,8 @@ pub enum Command {
     QueueBuild { colony: ColonyId, item: BuildItem },
     /// Cancel an item from a colony's build queue
     CancelBuild { colony: ColonyId, index: usize },
+    /// Select a technology to research
+    SelectResearch { tech: TechId },
 }
 
 #[cfg(test)]
@@ -57,6 +59,16 @@ mod tests {
             colony: ColonyId(1),
             item: BuildItem::Scout,
         };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn select_research_serialization() {
+        use crate::state::TechId;
+        let cmd = Command::SelectResearch { tech: TechId(3) };
         let json = serde_json::to_string(&cmd).unwrap();
         let parsed: Command = serde_json::from_str(&json).unwrap();
         assert_eq!(cmd, parsed);

@@ -1,0 +1,19 @@
+//! FARSPACE game core - headless game logic
+//!
+//! This crate contains the core game mechanics, state management,
+//! command processing, and event generation for FARSPACE.
+
+pub mod commands;
+pub mod deterministic;
+pub mod engine;
+pub mod events;
+pub mod galaxy;
+pub mod state;
+
+pub use commands::Command;
+pub use engine::Engine;
+pub use events::Event;
+pub use state::{
+    BuildItem, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId, GameState, Planet, PlanetSize,
+    SpectralClass, Star, StarId,
+};

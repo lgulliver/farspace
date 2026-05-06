@@ -1,0 +1,9 @@
+[package]
+name = "game_tui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+game_core = { path = "../game_core" }
+ratatui = { workspace = true }
+crossterm = { workspace = true }

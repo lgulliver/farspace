@@ -3922,24 +3922,15 @@ mod tests {
         assert!(food_after_2 > food_after_1, "Food should keep accumulating");
     }
 
-    /// If food consumed exceeds produced (forced via direct state edit), FoodShortage is emitted.
+    /// If the empire food stockpile is already negative, FoodShortage is emitted next turn.
     #[test]
     fn economy_negative_food_emits_shortage_event() {
         let mut engine = Engine::new(42);
         let empire_id = engine.state.player_empire;
 
-        // Drive food well into negative territory by pushing it very low and
-        // making the population much larger than food production capacity.
-        // population=10 → food_produced=10, food_consumed=10 → net=0 normally.
-        // Force food to -1 and then advance a turn with a 0-yield colony (0% prod).
-        // To get a shortage we raise population to ensure consumed > produced:
-        // Set population extremely high so food_consumed >> food_produced.
-        let colony_id = ColonyId(1);
-        {
-            let colony = engine.state.colonies.get_mut(&colony_id).unwrap();
-            colony.population = 100; // food_produced=100, consumed=100 → still net 0
-        }
-        // Directly set food to -1 to trigger shortage on next turn
+        // The starting colony has population=10, which produces 10 food and consumes 10 food
+        // per turn — net zero.  We force the stockpile to -1 directly so that the engine
+        // emits a FoodShortage warning on the very next turn.
         engine.state.empires.get_mut(&empire_id).unwrap().food = -1;
 
         let events = engine.apply_turn(vec![Command::EndTurn]);
@@ -3952,21 +3943,15 @@ mod tests {
         );
     }
 
-    /// When a second colony has higher population than food production, shortage fires.
+    /// FoodShortage fires each turn as long as the food balance remains negative.
     #[test]
     fn economy_shortage_fires_when_food_net_negative() {
         let mut engine = Engine::new(42);
         let empire_id = engine.state.player_empire;
 
-        // Pre-set empire food to 0 and make population enormous so consumed >> produced
-        let colony_id = ColonyId(1);
-        {
-            let colony = engine.state.colonies.get_mut(&colony_id).unwrap();
-            // food_produced = pop + bonuses = pop (no bay), food_consumed = pop → net = 0
-            // To manufacture a deficit, directly drain food to a negative value
-            colony.population = 10;
-        }
-        // Manually set food to -5 before the turn so empire is already in deficit
+        // Set the empire food stockpile to -5 so it is already in deficit.
+        // The colony's net food production is zero (food_produced = pop, consumed = pop),
+        // so the deficit persists and FoodShortage must fire again this turn.
         engine.state.empires.get_mut(&empire_id).unwrap().food = -5;
 
         let events = engine.apply_turn(vec![Command::EndTurn]);

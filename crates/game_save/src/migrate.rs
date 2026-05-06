@@ -41,6 +41,15 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
         4 => {
             // v4 -> v5: Empire.food field added (serde default = 0).
             // Nothing to populate — just bump the version.
+            migrate(SaveFile {
+                version: 5,
+                state: save.state,
+            })
+        }
+        5 => {
+            // v5 -> v6: GameState.ai_empire (Option<EmpireId>, default None) and
+            // GameState.ai_explored_stars (BTreeSet<StarId>, default empty) added.
+            // Both fields rely on serde defaults — nothing to populate explicitly.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -129,6 +138,18 @@ mod tests {
         let v4_save = SaveFile { version: 4, state };
         let migrated = migrate(v4_save).expect("v4 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn migrate_v5_to_v6_succeeds() {
+        let state = GameState::default();
+        let v5_save = SaveFile { version: 5, state };
+        let migrated = migrate(v5_save).expect("v5 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        // ai_empire defaults to None
+        assert!(migrated.state.ai_empire.is_none());
+        // ai_explored_stars defaults to empty
+        assert!(migrated.state.ai_explored_stars.is_empty());
     }
 
     #[test]

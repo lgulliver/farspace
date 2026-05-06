@@ -426,6 +426,12 @@ pub struct GameState {
     /// Active fleet movement missions keyed by fleet ID (for moving to explored stars)
     #[cfg_attr(feature = "serde", serde(default))]
     pub fleet_missions: BTreeMap<FleetId, FleetMission>,
+    /// The AI-controlled empire, if one exists
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ai_empire: Option<EmpireId>,
+    /// Stars that the AI empire has explored
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ai_explored_stars: BTreeSet<StarId>,
 }
 
 impl GameState {
@@ -483,6 +489,8 @@ impl PartialEq for GameState {
             && self.explored_stars == other.explored_stars
             && self.scout_missions == other.scout_missions
             && self.fleet_missions == other.fleet_missions
+            && self.ai_empire == other.ai_empire
+            && self.ai_explored_stars == other.ai_explored_stars
     }
 }
 
@@ -526,6 +534,8 @@ impl Default for GameState {
             explored_stars: BTreeSet::new(),
             scout_missions: BTreeMap::new(),
             fleet_missions: BTreeMap::new(),
+            ai_empire: None,
+            ai_explored_stars: BTreeSet::new(),
         }
     }
 }

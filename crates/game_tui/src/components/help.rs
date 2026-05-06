@@ -41,7 +41,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("r", "Open research screen"),
             ("S", "Dispatch scout to selected unexplored system"),
             ("M", "Move idle fleet to selected explored system"),
-            ("E / T / Enter", "End turn"),
+            ("E / T / Enter", "End turn (AI acts automatically)"),
             (":", "Command palette (:save, :load)"),
             ("/", "Search"),
             ("?", "Toggle this help"),

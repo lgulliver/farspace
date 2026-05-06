@@ -61,6 +61,15 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // v6 -> v7: GameState.diplomacy (BTreeMap<EmpireId, RelationshipStatus>, default empty)
             // added.  Relies on serde default — nothing to populate explicitly.
             // Existing saves will have diplomacy=empty (all empires start Unknown).
+            migrate(SaveFile {
+                version: 7,
+                state: save.state,
+            })
+        }
+        7 => {
+            // v7 -> v8: Fleet.strength (u32, default 1) and Fleet.integrity (u32, default 100)
+            // added for combat auto-resolve.  Both rely on serde defaults — nothing to populate
+            // explicitly.  Existing fleets will have full health and base strength on load.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -171,6 +180,32 @@ mod tests {
         assert_eq!(migrated.version, CURRENT_VERSION);
         // diplomacy defaults to empty
         assert!(migrated.state.diplomacy.is_empty());
+    }
+
+    #[test]
+    fn migrate_v7_to_v8_succeeds() {
+        use game_core::{Fleet, FleetId, FleetKind, StarId};
+        let mut state = GameState::default();
+        // Insert a fleet without strength/integrity (simulating a v7 save loaded via serde)
+        state.fleets.insert(
+            FleetId(1),
+            Fleet {
+                id: FleetId(1),
+                owner: state.player_empire,
+                location: StarId(1),
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        let v7_save = SaveFile { version: 7, state };
+        let migrated = migrate(v7_save).expect("v7 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        // Fleet should have default strength and integrity
+        let fleet = migrated.state.fleets.get(&FleetId(1)).unwrap();
+        assert_eq!(fleet.strength, 1);
+        assert_eq!(fleet.integrity, 100);
     }
 
     #[test]

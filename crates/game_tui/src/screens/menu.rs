@@ -166,8 +166,17 @@ mod tests {
             .map(|(x, y)| cell_char(&buf, x, y))
             .collect();
 
-        assert!(full.contains("[N]"), "Footer hint [N] missing from menu screen");
-        assert!(full.contains("[L]"), "Footer hint [L] missing from menu screen");
-        assert!(full.contains("[Q]"), "Footer hint [Q] missing from menu screen");
+        assert!(
+            full.contains("[N]"),
+            "Footer hint [N] missing from menu screen"
+        );
+        assert!(
+            full.contains("[L]"),
+            "Footer hint [L] missing from menu screen"
+        );
+        assert!(
+            full.contains("[Q]"),
+            "Footer hint [Q] missing from menu screen"
+        );
     }
 }

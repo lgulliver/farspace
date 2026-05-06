@@ -248,6 +248,12 @@ impl App {
             return;
         }
 
+        // Move idle fleet with 'M'
+        if key.code == KeyCode::Char('M') {
+            self.move_fleet();
+            return;
+        }
+
         // End turn
         if KeyMap::is_end_turn(key) {
             self.end_turn();
@@ -556,6 +562,61 @@ impl App {
         };
 
         self.pending_commands.push(Command::SendScout {
+            fleet: fleet_id,
+            destination: star_id,
+        });
+
+        let commands = std::mem::take(&mut self.pending_commands);
+        let engine = match &mut self.engine {
+            Some(e) => e,
+            None => return,
+        };
+        let events = engine.apply_turn(commands);
+        for event in events {
+            self.state.log.push(event.to_log_message());
+        }
+    }
+
+    /// Move the first idle player fleet to the currently selected (explored) star system.
+    /// Logs an error if no idle fleet is available or the destination is not explored.
+    fn move_fleet(&mut self) {
+        let star_id = match self.state.selected_star {
+            Some(id) => id,
+            None => {
+                self.state.log.push("No star selected.".to_string());
+                return;
+            }
+        };
+
+        // Find the first idle player fleet (no scout mission, no fleet mission)
+        let fleet_id: Option<FleetId> = {
+            let engine = match &self.engine {
+                Some(e) => e,
+                None => return,
+            };
+            engine
+                .state
+                .fleets
+                .values()
+                .find(|f| {
+                    f.owner == engine.state.player_empire
+                        && !engine.state.scout_missions.contains_key(&f.id)
+                        && !engine.state.fleet_missions.contains_key(&f.id)
+                })
+                .map(|f| f.id)
+        };
+
+        let fleet_id = match fleet_id {
+            Some(id) => id,
+            None => {
+                self.state
+                    .log
+                    .push("No idle fleet available to move.".to_string());
+                return;
+            }
+        };
+
+        self.pending_commands.push(Command::MoveFleet {
             fleet: fleet_id,
             destination: star_id,
         });
@@ -1520,5 +1581,119 @@ mod tests {
             app.state.log.len() > before,
             "Should log 'no scout available'"
         );
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Fleet movement (M key) tests
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn m_key_dispatches_move_fleet() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        // Select an explored star that is not the fleet's home
+        let engine = app.engine.as_ref().unwrap();
+        let fleet_id = game_core::FleetId(1);
+        let initial_location = engine.state.fleets.get(&fleet_id).unwrap().location;
+        let dest = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != initial_location)
+            .expect("Need explored star other than home");
+        app.state.selected_star = Some(dest);
+
+        let before_log_len = app.state.log.len();
+        app.handle_key(key(KeyCode::Char('M')));
+
+        // A fleet mission should have been created
+        let mission_count = app.engine.as_ref().unwrap().state.fleet_missions.len();
+        assert!(
+            mission_count > 0,
+            "Fleet mission should be created after M key"
+        );
+        // Log should have grown
+        assert!(app.state.log.len() > before_log_len);
+    }
+
+    #[test]
+    fn move_fleet_without_engine_is_noop() {
+        let mut app = App::new();
+        // No game started
+        app.move_fleet();
+        assert!(app.engine.is_none());
+    }
+
+    #[test]
+    fn move_fleet_without_selection_logs_error() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.selected_star = None;
+        let before = app.state.log.len();
+        app.move_fleet();
+        assert!(app.state.log.len() > before);
+    }
+
+    #[test]
+    fn move_fleet_when_no_idle_fleet_logs_error() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        // Put all fleets on scout missions
+        let engine = app.engine.as_mut().unwrap();
+        let dest = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Unexplored star needed");
+        use game_core::{FleetId, ScoutMission};
+        engine.state.scout_missions.insert(
+            FleetId(1),
+            ScoutMission {
+                fleet: FleetId(1),
+                destination: dest,
+                turns_remaining: 3,
+            },
+        );
+
+        let explored = *engine
+            .state
+            .explored_stars
+            .iter()
+            .next()
+            .expect("Need explored star");
+        app.state.selected_star = Some(explored);
+
+        let before = app.state.log.len();
+        app.move_fleet();
+        assert!(app.state.log.len() > before, "Should log no idle fleet");
+    }
+
+    #[test]
+    fn move_fleet_to_explored_star_creates_mission_and_logs() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let engine = app.engine.as_ref().unwrap();
+        let fleet_id = game_core::FleetId(1);
+        let initial = engine.state.fleets.get(&fleet_id).unwrap().location;
+        let dest = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != initial)
+            .expect("Need explored star other than home");
+        app.state.selected_star = Some(dest);
+        let before = app.state.log.len();
+        app.move_fleet();
+
+        let engine = app.engine.as_ref().unwrap();
+        assert!(
+            engine.state.fleet_missions.contains_key(&fleet_id),
+            "Fleet mission should be created"
+        );
+        assert!(app.state.log.len() > before, "Log should grow");
     }
 }

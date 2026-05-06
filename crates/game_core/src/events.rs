@@ -53,6 +53,15 @@ pub enum Event {
     },
     /// A star system has been explored by a scout
     SystemExplored { star: StarId },
+    /// A fleet has departed toward an explored system (multi-turn movement)
+    FleetDeparted {
+        fleet: FleetId,
+        from: StarId,
+        to: StarId,
+        turns_remaining: u32,
+    },
+    /// A fleet has arrived at its destination
+    FleetArrived { fleet: FleetId, star: StarId },
     /// An error occurred
     Error { message: String },
 }
@@ -127,6 +136,20 @@ impl Event {
             }
             Event::SystemExplored { star } => {
                 format!("System {} explored", star.0)
+            }
+            Event::FleetDeparted {
+                fleet,
+                from,
+                to,
+                turns_remaining,
+            } => {
+                format!(
+                    "Fleet {} departed from {} toward {} ({} turns)",
+                    fleet.0, from.0, to.0, turns_remaining
+                )
+            }
+            Event::FleetArrived { fleet, star } => {
+                format!("Fleet {} arrived at system {}", fleet.0, star.0)
             }
             Event::Error { message } => format!("Error: {}", message),
         }
@@ -266,6 +289,57 @@ mod tests {
     fn system_explored_serialization() {
         let event = Event::SystemExplored {
             star: crate::state::StarId(7),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, parsed);
+    }
+
+    #[test]
+    fn fleet_departed_log_message() {
+        let event = Event::FleetDeparted {
+            fleet: crate::state::FleetId(2),
+            from: crate::state::StarId(3),
+            to: crate::state::StarId(7),
+            turns_remaining: 2,
+        };
+        assert_eq!(
+            event.to_log_message(),
+            "Fleet 2 departed from 3 toward 7 (2 turns)"
+        );
+        assert!(!event.is_error());
+    }
+
+    #[test]
+    fn fleet_arrived_log_message() {
+        let event = Event::FleetArrived {
+            fleet: crate::state::FleetId(4),
+            star: crate::state::StarId(9),
+        };
+        assert_eq!(event.to_log_message(), "Fleet 4 arrived at system 9");
+        assert!(!event.is_error());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn fleet_departed_serialization() {
+        let event = Event::FleetDeparted {
+            fleet: crate::state::FleetId(1),
+            from: crate::state::StarId(2),
+            to: crate::state::StarId(5),
+            turns_remaining: 2,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, parsed);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn fleet_arrived_serialization() {
+        let event = Event::FleetArrived {
+            fleet: crate::state::FleetId(3),
+            star: crate::state::StarId(8),
         };
         let json = serde_json::to_string(&event).unwrap();
         let parsed: Event = serde_json::from_str(&json).unwrap();

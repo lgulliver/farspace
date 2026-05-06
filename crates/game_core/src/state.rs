@@ -331,6 +331,30 @@ pub struct ScoutMission {
     pub turns_remaining: u32,
 }
 
+/// A general fleet movement mission heading toward an already-explored system
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct FleetMission {
+    /// The fleet executing this mission
+    pub fleet: FleetId,
+    /// Target star system (must already be explored)
+    pub destination: StarId,
+    /// Turns remaining until the fleet arrives
+    pub turns_remaining: u32,
+}
+
+/// Where a fleet currently is or is headed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FleetLocation {
+    /// Fleet is present at this star system
+    AtStar(StarId),
+    /// Fleet is en route to a destination
+    Travelling {
+        destination: StarId,
+        turns_remaining: u32,
+    },
+}
+
 /// Complete game state
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -350,9 +374,12 @@ pub struct GameState {
     /// Stars that have been explored by the player
     #[cfg_attr(feature = "serde", serde(default))]
     pub explored_stars: BTreeSet<StarId>,
-    /// Active scout missions keyed by fleet ID
+    /// Active scout missions keyed by fleet ID (for exploring unexplored stars)
     #[cfg_attr(feature = "serde", serde(default))]
     pub scout_missions: BTreeMap<FleetId, ScoutMission>,
+    /// Active fleet movement missions keyed by fleet ID (for moving to explored stars)
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub fleet_missions: BTreeMap<FleetId, FleetMission>,
 }
 
 impl GameState {
@@ -368,6 +395,30 @@ impl GameState {
         let id = FleetId(self.next_fleet_id);
         self.next_fleet_id += 1;
         id
+    }
+
+    /// Compute the effective location of a fleet, accounting for active missions.
+    ///
+    /// Returns `None` if the fleet does not exist.
+    pub fn fleet_location(&self, fleet_id: FleetId) -> Option<FleetLocation> {
+        // Fleet mission takes priority (to explored stars)
+        if let Some(mission) = self.fleet_missions.get(&fleet_id) {
+            return Some(FleetLocation::Travelling {
+                destination: mission.destination,
+                turns_remaining: mission.turns_remaining,
+            });
+        }
+        // Scout mission (to unexplored stars)
+        if let Some(mission) = self.scout_missions.get(&fleet_id) {
+            return Some(FleetLocation::Travelling {
+                destination: mission.destination,
+                turns_remaining: mission.turns_remaining,
+            });
+        }
+        // At rest
+        self.fleets
+            .get(&fleet_id)
+            .map(|f| FleetLocation::AtStar(f.location))
     }
 }
 
@@ -385,6 +436,7 @@ impl PartialEq for GameState {
             && self.next_fleet_id == other.next_fleet_id
             && self.explored_stars == other.explored_stars
             && self.scout_missions == other.scout_missions
+            && self.fleet_missions == other.fleet_missions
     }
 }
 
@@ -427,6 +479,7 @@ impl Default for GameState {
             next_fleet_id: 1,
             explored_stars: BTreeSet::new(),
             scout_missions: BTreeMap::new(),
+            fleet_missions: BTreeMap::new(),
         }
     }
 }
@@ -681,5 +734,128 @@ mod tests {
             },
         );
         assert_ne!(state_a, state_b);
+    }
+
+    #[test]
+    fn game_state_partial_eq_considers_fleet_missions() {
+        let mut state_a = GameState::default();
+        let state_b = GameState::default();
+        assert_eq!(state_a, state_b);
+
+        state_a.fleet_missions.insert(
+            FleetId(1),
+            FleetMission {
+                fleet: FleetId(1),
+                destination: StarId(2),
+                turns_remaining: 2,
+            },
+        );
+        assert_ne!(state_a, state_b);
+    }
+
+    #[test]
+    fn fleet_mission_fields() {
+        let mission = FleetMission {
+            fleet: FleetId(3),
+            destination: StarId(7),
+            turns_remaining: 2,
+        };
+        assert_eq!(mission.fleet, FleetId(3));
+        assert_eq!(mission.destination, StarId(7));
+        assert_eq!(mission.turns_remaining, 2);
+    }
+
+    #[test]
+    fn fleet_location_at_star() {
+        let mut state = GameState::default();
+        state.fleets.insert(
+            FleetId(1),
+            Fleet {
+                id: FleetId(1),
+                owner: EmpireId(1),
+                location: StarId(5),
+                ships: 1,
+            },
+        );
+        match state.fleet_location(FleetId(1)) {
+            Some(FleetLocation::AtStar(id)) => assert_eq!(id, StarId(5)),
+            other => panic!("Expected AtStar, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fleet_location_travelling_via_fleet_mission() {
+        let mut state = GameState::default();
+        state.fleets.insert(
+            FleetId(1),
+            Fleet {
+                id: FleetId(1),
+                owner: EmpireId(1),
+                location: StarId(5),
+                ships: 1,
+            },
+        );
+        state.fleet_missions.insert(
+            FleetId(1),
+            FleetMission {
+                fleet: FleetId(1),
+                destination: StarId(9),
+                turns_remaining: 2,
+            },
+        );
+        match state.fleet_location(FleetId(1)) {
+            Some(FleetLocation::Travelling {
+                destination,
+                turns_remaining,
+            }) => {
+                assert_eq!(destination, StarId(9));
+                assert_eq!(turns_remaining, 2);
+            }
+            other => panic!("Expected Travelling, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fleet_location_travelling_via_scout_mission() {
+        let mut state = GameState::default();
+        state.fleets.insert(
+            FleetId(1),
+            Fleet {
+                id: FleetId(1),
+                owner: EmpireId(1),
+                location: StarId(5),
+                ships: 1,
+            },
+        );
+        state.scout_missions.insert(
+            FleetId(1),
+            ScoutMission {
+                fleet: FleetId(1),
+                destination: StarId(11),
+                turns_remaining: 3,
+            },
+        );
+        match state.fleet_location(FleetId(1)) {
+            Some(FleetLocation::Travelling {
+                destination,
+                turns_remaining,
+            }) => {
+                assert_eq!(destination, StarId(11));
+                assert_eq!(turns_remaining, 3);
+            }
+            other => panic!("Expected Travelling, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fleet_location_none_for_missing_fleet() {
+        let state = GameState::default();
+        assert!(state.fleet_location(FleetId(999)).is_none());
+    }
+
+    #[test]
+    fn game_state_default_has_empty_fleet_missions() {
+        let state = GameState::default();
+        assert!(state.fleet_missions.is_empty());
     }
 }

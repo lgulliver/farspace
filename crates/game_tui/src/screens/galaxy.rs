@@ -87,6 +87,13 @@ fn render_star_map(
         .map(|m| m.destination)
         .collect();
 
+    // Collect stars that have an active fleet mission en route (by destination)
+    let fleet_destinations: std::collections::BTreeSet<StarId> = game_state
+        .fleet_missions
+        .values()
+        .map(|m| m.destination)
+        .collect();
+
     // Scale stars to fit the map area
     // Stars are in range -500..500, map to 0..map_width/height
     for star in game_state.stars.values() {
@@ -104,6 +111,7 @@ fn render_star_map(
         let is_selected = selected_star == Some(star.id);
         let is_explored = game_state.explored_stars.contains(&star.id);
         let scout_en_route = scout_destinations.contains(&star.id);
+        let fleet_en_route = fleet_destinations.contains(&star.id);
 
         let (render_char, style) = if is_selected {
             ('@', Theme::highlight_style())
@@ -113,6 +121,14 @@ fn render_star_map(
                 '+',
                 Style::default()
                     .fg(ratatui::style::Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else if fleet_en_route {
+            // Fleet is heading here
+            (
+                '~',
+                Style::default()
+                    .fg(ratatui::style::Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             )
         } else if is_explored {
@@ -234,6 +250,67 @@ fn render_star_details(
         ]));
     }
 
+    // Fleets present at this star
+    let fleets_here: Vec<_> = game_state
+        .fleets
+        .values()
+        .filter(|f| {
+            f.location == star.id
+                && !game_state.fleet_missions.contains_key(&f.id)
+                && !game_state.scout_missions.contains_key(&f.id)
+        })
+        .collect();
+
+    // Fleets en route to this star
+    let fleets_en_route: Vec<_> = game_state
+        .fleet_missions
+        .values()
+        .filter(|m| m.destination == star.id)
+        .collect();
+    let scouts_en_route: Vec<_> = game_state
+        .scout_missions
+        .values()
+        .filter(|m| m.destination == star.id)
+        .collect();
+
+    if !fleets_here.is_empty() || !fleets_en_route.is_empty() || !scouts_en_route.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("Fleets:", Theme::title_style())));
+        for fleet in &fleets_here {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!("Fleet {} (idle)", fleet.id.0),
+                    Theme::accent_style(),
+                ),
+            ]));
+        }
+        for mission in &fleets_en_route {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!(
+                        "Fleet {} en route ({} turn(s))",
+                        mission.fleet.0, mission.turns_remaining
+                    ),
+                    Style::default().fg(ratatui::style::Color::Cyan),
+                ),
+            ]));
+        }
+        for mission in &scouts_en_route {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!(
+                        "Scout {} en route ({} turn(s))",
+                        mission.fleet.0, mission.turns_remaining
+                    ),
+                    Style::default().fg(ratatui::style::Color::Yellow),
+                ),
+            ]));
+        }
+    }
+
     let paragraph = Paragraph::new(lines).style(Theme::default_style());
     frame.render_widget(paragraph, inner);
 }
@@ -330,6 +407,65 @@ mod tests {
 
         let app_state = AppState {
             selected_star: Some(dest),
+            ..Default::default()
+        };
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_galaxy(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn galaxy_screen_with_fleet_mission_en_route() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut engine = Engine::new(42);
+        use game_core::{Command, FleetId};
+
+        // Move to an explored star
+        let fleet_id = FleetId(1);
+        let initial = engine.state.fleets.get(&fleet_id).unwrap().location;
+        let dest = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != initial)
+            .expect("Need explored star other than home");
+
+        engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: dest,
+        }]);
+
+        let app_state = AppState {
+            selected_star: Some(dest),
+            ..Default::default()
+        };
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_galaxy(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn galaxy_screen_with_idle_fleet_at_system() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let engine = Engine::new(42);
+        // Select the home star which has the initial fleet
+        let fleet_id = game_core::FleetId(1);
+        let home_star = engine.state.fleets.get(&fleet_id).unwrap().location;
+
+        let app_state = AppState {
+            selected_star: Some(home_star),
             ..Default::default()
         };
 

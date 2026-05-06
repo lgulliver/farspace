@@ -1020,38 +1020,57 @@ mod tests {
 
     #[test]
     fn ai_colonize_is_deterministic_across_identical_seeds() {
+        // Seed 42 is chosen because it reliably produces at least one AI-explored
+        // star (other than AI home) with a free habitable planet.  We place an
+        // idle colonizer there so colonization is guaranteed to happen, making the
+        // test non-vacuous.  Both runs must produce identical events AND both must
+        // contain an AiColonized event.
         let setup = |seed: u64| {
             let mut engine = Engine::new(seed);
             let ai = engine.state.ai_empire.expect("AI must exist");
             let ai_home = engine.state.empires[&ai].home_star;
 
-            // Find the first AI-explored star with a free habitable planet
-            let target = engine.state.ai_explored_stars.iter().copied().find(|&sid| {
-                sid != ai_home
-                    && engine.state.stars.get(&sid).is_some_and(|s| {
-                        s.planets.iter().any(|p| p.habitable && p.colony.is_none())
-                    })
-            });
+            // Find the first AI-explored star with a free habitable planet —
+            // expect this to succeed for seed 42; panic with a clear message
+            // if the galaxy is unexpectedly too small.
+            let target_star = engine
+                .state
+                .ai_explored_stars
+                .iter()
+                .copied()
+                .find(|&sid| {
+                    sid != ai_home
+                        && engine.state.stars.get(&sid).is_some_and(|s| {
+                            s.planets.iter().any(|p| p.habitable && p.colony.is_none())
+                        })
+                })
+                .expect("Seed 42 must have an AI-explored star with a free habitable planet");
 
-            if let Some(target_star) = target {
-                let colonizer_id = crate::state::FleetId(55);
-                engine.state.fleets.insert(
-                    colonizer_id,
-                    crate::state::Fleet {
-                        id: colonizer_id,
-                        owner: ai,
-                        location: target_star,
-                        ships: 1,
-                        kind: FleetKind::Colonizer,
-                    },
-                );
-            }
+            let colonizer_id = crate::state::FleetId(55);
+            engine.state.fleets.insert(
+                colonizer_id,
+                crate::state::Fleet {
+                    id: colonizer_id,
+                    owner: ai,
+                    location: target_star,
+                    ships: 1,
+                    kind: FleetKind::Colonizer,
+                },
+            );
 
             engine.apply_turn(vec![crate::commands::Command::EndTurn])
         };
 
         let events_a = setup(42);
         let events_b = setup(42);
+
+        // Both runs must contain an AiColonized event — test is non-vacuous
+        assert!(
+            events_a
+                .iter()
+                .any(|e| matches!(e, Event::AiColonized { .. })),
+            "setup must actually trigger colonization (seed 42 must colonize)"
+        );
 
         assert_eq!(
             events_a, events_b,

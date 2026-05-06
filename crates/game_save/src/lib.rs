@@ -657,4 +657,49 @@ mod tests {
             "ai_explored_stars should default to empty from v5"
         );
     }
+
+    /// Save/load round-trip preserves diplomacy contact state.
+    #[test]
+    fn save_load_preserves_diplomacy_contact_state() {
+        use game_core::RelationshipStatus;
+
+        let mut engine = Engine::new(42);
+        let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+
+        // Manually set contact
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Contacted);
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert_eq!(
+            loaded.diplomacy.get(&ai_id).copied(),
+            Some(RelationshipStatus::Contacted),
+            "Diplomacy contact status must survive save/load"
+        );
+    }
+
+    /// v6 saves (without diplomacy field) load correctly with diplomacy defaulting to empty.
+    #[test]
+    fn load_v6_save_defaults_diplomacy_to_empty() {
+        let engine = Engine::new(42);
+        let saved = save_to_string(&engine.state).expect("save should succeed");
+
+        // Patch version down to 6 and strip the diplomacy field
+        let mut json: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        json["version"] = serde_json::json!(6);
+        if let Some(state) = json["state"].as_object_mut() {
+            state.remove("diplomacy");
+        }
+        let patched = serde_json::to_string(&json).unwrap();
+
+        let loaded = load_from_string(&patched).expect("v6 migration should succeed");
+        assert!(
+            loaded.diplomacy.is_empty(),
+            "diplomacy should default to empty from v6"
+        );
+    }
 }

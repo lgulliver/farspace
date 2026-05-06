@@ -401,6 +401,16 @@ pub enum FleetLocation {
     },
 }
 
+/// Diplomatic relationship status between the player empire and another empire
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum RelationshipStatus {
+    /// The empires have never made contact
+    Unknown,
+    /// The empires have established first contact
+    Contacted,
+}
+
 /// Complete game state
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -432,6 +442,10 @@ pub struct GameState {
     /// Stars that the AI empire has explored
     #[cfg_attr(feature = "serde", serde(default))]
     pub ai_explored_stars: BTreeSet<StarId>,
+    /// Diplomatic relationship status between the player empire and each other empire.
+    /// Empires not present in this map are implicitly `Unknown`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub diplomacy: BTreeMap<EmpireId, RelationshipStatus>,
 }
 
 impl GameState {
@@ -491,6 +505,7 @@ impl PartialEq for GameState {
             && self.fleet_missions == other.fleet_missions
             && self.ai_empire == other.ai_empire
             && self.ai_explored_stars == other.ai_explored_stars
+            && self.diplomacy == other.diplomacy
     }
 }
 
@@ -536,6 +551,7 @@ impl Default for GameState {
             fleet_missions: BTreeMap::new(),
             ai_empire: None,
             ai_explored_stars: BTreeSet::new(),
+            diplomacy: BTreeMap::new(),
         }
     }
 }

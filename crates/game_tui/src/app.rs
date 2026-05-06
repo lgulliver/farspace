@@ -207,6 +207,7 @@ impl App {
             Screen::Galaxy => self.handle_galaxy_key(key),
             Screen::Colony => self.handle_colony_key(key),
             Screen::Research => self.handle_research_key(key),
+            Screen::Diplomacy => self.handle_diplomacy_key(key),
         }
     }
 
@@ -247,6 +248,12 @@ impl App {
         if key.code == KeyCode::Char('r') {
             self.state.active = Screen::Research;
             self.state.research_cursor = 0;
+            return;
+        }
+
+        // Open diplomacy screen with 'D'
+        if key.code == KeyCode::Char('D') {
+            self.state.active = Screen::Diplomacy;
             return;
         }
 
@@ -360,6 +367,21 @@ impl App {
             // End turn from research screen (excluding Enter, which selects tech)
             _ => {
                 if KeyMap::is_end_turn(key) && key.code != KeyCode::Enter {
+                    self.end_turn();
+                }
+            }
+        }
+    }
+
+    fn handle_diplomacy_key(&mut self, key: KeyEvent) {
+        match key.code {
+            // Return to galaxy map
+            KeyCode::Esc => {
+                self.state.active = Screen::Galaxy;
+            }
+            // End turn from diplomacy screen
+            _ => {
+                if KeyMap::is_end_turn(key) {
                     self.end_turn();
                 }
             }

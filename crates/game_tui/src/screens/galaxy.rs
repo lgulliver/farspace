@@ -250,15 +250,36 @@ fn render_star_details(
     ];
 
     for planet in &star.planets {
+        // For foreign colonies, compute diplomatic contact status once and reuse for
+        // both the label text and the rendering style.
+        let foreign_is_contacted: Option<bool> = planet.colony.and_then(|cid| {
+            let colony = game_state.colonies.get(&cid)?;
+            if colony.owner == game_state.player_empire {
+                return None; // player's own — not a foreign colony
+            }
+            Some(
+                game_state
+                    .diplomacy
+                    .get(&colony.owner)
+                    .copied()
+                    .unwrap_or(game_core::RelationshipStatus::Unknown)
+                    == game_core::RelationshipStatus::Contacted,
+            )
+        });
+
         let colony_info = match &planet.colony {
             Some(colony_id) => {
                 if let Some(colony) = game_state.colonies.get(colony_id) {
                     if colony.owner == game_state.player_empire {
                         format!(" [Colony - Pop: {}]", colony.population)
-                    } else if Some(colony.owner) == game_state.ai_empire {
-                        format!(" [AI Colony - Pop: {}]", colony.population)
+                    } else if foreign_is_contacted == Some(true) {
+                        if let Some(empire) = game_state.empires.get(&colony.owner) {
+                            format!(" [{} Colony - Pop: {}]", empire.name, colony.population)
+                        } else {
+                            format!(" [Foreign Colony - Pop: {}]", colony.population)
+                        }
                     } else {
-                        format!(" [Foreign Colony - Pop: {}]", colony.population)
+                        format!(" [Unknown Colony - Pop: {}]", colony.population)
                     }
                 } else {
                     String::new()
@@ -273,11 +294,11 @@ fn render_star_details(
                 if let Some(colony) = game_state.colonies.get(colony_id) {
                     if colony.owner == game_state.player_empire {
                         Theme::accent_style()
-                    } else if Some(colony.owner) == game_state.ai_empire {
-                        // AI colony — yellow
+                    } else if foreign_is_contacted == Some(true) {
+                        // Contacted empire — yellow
                         ratatui::style::Style::default().fg(ratatui::style::Color::Yellow)
                     } else {
-                        // Foreign (unknown) colony — magenta
+                        // Unknown foreign colony — magenta
                         ratatui::style::Style::default().fg(ratatui::style::Color::Magenta)
                     }
                 } else {

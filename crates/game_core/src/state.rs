@@ -39,9 +39,11 @@ pub struct TechRecord {
     pub cost: i64,
 }
 
-/// All researchable technologies available in the game
-pub fn all_techs() -> Vec<TechRecord> {
-    vec![
+/// All researchable technologies available in the game.
+///
+/// Returns a static slice — no heap allocation on every call.
+pub fn all_techs() -> &'static [TechRecord] {
+    &[
         TechRecord {
             id: TechId(1),
             name: "Void Propulsion",

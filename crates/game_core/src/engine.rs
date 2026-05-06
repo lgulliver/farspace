@@ -1288,10 +1288,19 @@ mod tests {
         }]);
         engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
 
-        // Run turns until tech is complete (colony produces 10/turn in research)
-        let turns_needed = (tech_cost / 10) + 2;
+        // Compute actual RP/turn from colony state (avoids coupling to starting-balance constants)
+        let rp_per_turn = {
+            let colony = engine.state.colonies.get(&colony_id).unwrap();
+            (colony.production as i64 * colony.research_pct as i64) / 100
+        };
+        let max_turns = if rp_per_turn > 0 {
+            (tech_cost / rp_per_turn) + 2
+        } else {
+            200
+        };
+
         let mut completed = false;
-        for _ in 0..turns_needed {
+        for _ in 0..max_turns {
             let events = engine.apply_turn(vec![Command::EndTurn]);
             if events
                 .iter()

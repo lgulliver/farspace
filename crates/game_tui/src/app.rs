@@ -321,31 +321,13 @@ impl App {
             }
             // Navigate tech list
             KeyCode::Char('j') | KeyCode::Down => {
-                let engine = match &self.engine {
-                    Some(e) => e,
-                    None => return,
-                };
-                let empire = engine.state.empires.get(&engine.state.player_empire);
-                let completed = empire.map(|e| &e.research.completed);
-                let count = all_techs()
-                    .iter()
-                    .filter(|t| completed.map(|c| !c.contains(&t.id)).unwrap_or(true))
-                    .count();
+                let count = self.available_tech_count();
                 if count > 0 {
                     self.state.research_cursor = (self.state.research_cursor + 1) % count;
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                let engine = match &self.engine {
-                    Some(e) => e,
-                    None => return,
-                };
-                let empire = engine.state.empires.get(&engine.state.player_empire);
-                let completed = empire.map(|e| &e.research.completed);
-                let count = all_techs()
-                    .iter()
-                    .filter(|t| completed.map(|c| !c.contains(&t.id)).unwrap_or(true))
-                    .count();
+                let count = self.available_tech_count();
                 if count > 0 {
                     self.state.research_cursor =
                         (self.state.research_cursor + count.saturating_sub(1)) % count;
@@ -362,6 +344,23 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Returns the number of technologies available (not yet completed) for the player empire.
+    fn available_tech_count(&self) -> usize {
+        let engine = match &self.engine {
+            Some(e) => e,
+            None => return 0,
+        };
+        let completed = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .map(|e| &e.research.completed);
+        all_techs()
+            .iter()
+            .filter(|t| completed.map(|c| !c.contains(&t.id)).unwrap_or(true))
+            .count()
     }
 
     /// Select the highlighted technology for research

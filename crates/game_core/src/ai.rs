@@ -596,6 +596,8 @@ mod tests {
                 location: engine.state.empires[&ai].home_star,
                 ships: 1,
                 kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -722,6 +724,8 @@ mod tests {
                 location: unexplored,
                 ships: 1,
                 kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -780,6 +784,8 @@ mod tests {
                 location: target,
                 ships: 1,
                 kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -844,6 +850,8 @@ mod tests {
                 location: ai_home,
                 ships: 1,
                 kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
             },
         );
 

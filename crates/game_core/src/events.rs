@@ -122,6 +122,31 @@ pub enum Event {
         /// The empire that the player has made first contact with
         with_empire: EmpireId,
     },
+    /// Combat was auto-resolved between two hostile fleets at a star system
+    CombatResolved {
+        /// The star system where combat occurred
+        star: StarId,
+        /// The first fleet involved in combat
+        fleet_a: FleetId,
+        /// Owner empire of fleet_a
+        empire_a: EmpireId,
+        /// The second fleet involved in combat
+        fleet_b: FleetId,
+        /// Owner empire of fleet_b
+        empire_b: EmpireId,
+        /// Combat strength of fleet_a
+        strength_a: u32,
+        /// Combat strength of fleet_b
+        strength_b: u32,
+        /// Integrity remaining for fleet_a after combat (0 = destroyed)
+        integrity_a_remaining: u32,
+        /// Integrity remaining for fleet_b after combat (0 = destroyed)
+        integrity_b_remaining: u32,
+        /// Whether fleet_a was destroyed
+        fleet_a_destroyed: bool,
+        /// Whether fleet_b was destroyed
+        fleet_b_destroyed: bool,
+    },
 }
 
 impl Event {
@@ -286,6 +311,40 @@ impl Event {
                 format!(
                     "FIRST CONTACT: Diplomatic contact established with Empire {}",
                     with_empire.0
+                )
+            }
+            Event::CombatResolved {
+                star,
+                fleet_a,
+                empire_a,
+                fleet_b,
+                empire_b,
+                strength_a,
+                strength_b,
+                integrity_a_remaining,
+                integrity_b_remaining,
+                fleet_a_destroyed,
+                fleet_b_destroyed,
+            } => {
+                let result = match (fleet_a_destroyed, fleet_b_destroyed) {
+                    (true, true) => "both fleets destroyed".to_string(),
+                    (true, false) => format!(
+                        "Fleet {} (Empire {}) destroyed; Fleet {} (Empire {}) survives at {}% integrity",
+                        fleet_a.0, empire_a.0, fleet_b.0, empire_b.0, integrity_b_remaining
+                    ),
+                    (false, true) => format!(
+                        "Fleet {} (Empire {}) survives at {}% integrity; Fleet {} (Empire {}) destroyed",
+                        fleet_a.0, empire_a.0, integrity_a_remaining, fleet_b.0, empire_b.0
+                    ),
+                    (false, false) => format!(
+                        "Fleet {} (Empire {}) at {}% integrity; Fleet {} (Empire {}) at {}% integrity",
+                        fleet_a.0, empire_a.0, integrity_a_remaining,
+                        fleet_b.0, empire_b.0, integrity_b_remaining
+                    ),
+                };
+                format!(
+                    "COMBAT at system {}: Fleet {} (Str:{}) vs Fleet {} (Str:{}) — {}",
+                    star.0, fleet_a.0, strength_a, fleet_b.0, strength_b, result
                 )
             }
         }
@@ -557,6 +616,45 @@ mod tests {
         let event = Event::CreditDeficit {
             empire: crate::state::EmpireId(2),
             deficit: 4,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, parsed);
+    }
+
+    #[test]
+    fn combat_resolved_is_not_error() {
+        let event = Event::CombatResolved {
+            star: crate::state::StarId(1),
+            fleet_a: crate::state::FleetId(1),
+            empire_a: crate::state::EmpireId(1),
+            fleet_b: crate::state::FleetId(2),
+            empire_b: crate::state::EmpireId(2),
+            strength_a: 10,
+            strength_b: 10,
+            integrity_a_remaining: 0,
+            integrity_b_remaining: 0,
+            fleet_a_destroyed: true,
+            fleet_b_destroyed: true,
+        };
+        assert!(!event.is_error());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn combat_resolved_serialization() {
+        let event = Event::CombatResolved {
+            star: crate::state::StarId(3),
+            fleet_a: crate::state::FleetId(1),
+            empire_a: crate::state::EmpireId(1),
+            fleet_b: crate::state::FleetId(2),
+            empire_b: crate::state::EmpireId(2),
+            strength_a: 20,
+            strength_b: 10,
+            integrity_a_remaining: 50,
+            integrity_b_remaining: 0,
+            fleet_a_destroyed: false,
+            fleet_b_destroyed: true,
         };
         let json = serde_json::to_string(&event).unwrap();
         let parsed: Event = serde_json::from_str(&json).unwrap();

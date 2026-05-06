@@ -702,4 +702,72 @@ mod tests {
             "diplomacy should default to empty from v6"
         );
     }
+
+    /// Save/load round-trip preserves damaged fleet state (combat damage persists).
+    #[test]
+    fn save_load_preserves_damaged_fleet() {
+        use game_core::{Fleet, FleetId, FleetKind};
+
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        let star_id = engine.state.empires.get(&player).unwrap().home_star;
+
+        // Insert a fleet with reduced integrity (simulating post-combat damage)
+        let damaged_fid = FleetId(50);
+        engine.state.fleets.insert(
+            damaged_fid,
+            Fleet {
+                id: damaged_fid,
+                owner: player,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 5,
+                integrity: 42, // damaged
+            },
+        );
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        let fleet = loaded
+            .fleets
+            .get(&damaged_fid)
+            .expect("Damaged fleet must be present after load");
+        assert_eq!(
+            fleet.integrity, 42,
+            "Fleet integrity must survive save/load"
+        );
+        assert_eq!(fleet.strength, 5, "Fleet strength must survive save/load");
+    }
+
+    /// v7 saves (without strength/integrity fields) load correctly using serde defaults.
+    #[test]
+    fn load_v7_save_defaults_strength_and_integrity() {
+        let engine = Engine::new(42);
+        let saved = save_to_string(&engine.state).expect("save should succeed");
+
+        // Patch version down to 7 and strip strength/integrity from all fleets
+        let mut json: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        json["version"] = serde_json::json!(7);
+        if let Some(fleets) = json["state"]["fleets"].as_object_mut() {
+            for fleet in fleets.values_mut() {
+                if let Some(obj) = fleet.as_object_mut() {
+                    obj.remove("strength");
+                    obj.remove("integrity");
+                }
+            }
+        }
+        let patched = serde_json::to_string(&json).unwrap();
+
+        let loaded = load_from_string(&patched).expect("v7 migration should succeed");
+        // All fleets should have default strength=1 and integrity=100
+        for fleet in loaded.fleets.values() {
+            assert_eq!(fleet.strength, 1, "Fleet strength should default to 1");
+            assert_eq!(
+                fleet.integrity, 100,
+                "Fleet integrity should default to 100"
+            );
+        }
+    }
 }

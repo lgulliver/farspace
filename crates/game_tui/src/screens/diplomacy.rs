@@ -58,7 +58,6 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
     ];
 
     // Iterate all empires except the player empire, in BTreeMap order (deterministic).
-    let mut any_contact = false;
     for (empire_id, empire) in &game_state.empires {
         if *empire_id == game_state.player_empire {
             continue;
@@ -72,7 +71,6 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
 
         match status {
             RelationshipStatus::Contacted => {
-                any_contact = true;
                 lines.push(Line::from(vec![
                     Span::styled("● ", Theme::accent_style()),
                     Span::styled(empire.name.clone(), Theme::title_style()),
@@ -91,13 +89,12 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
         }
     }
 
-    if !any_contact
-        && game_state
-            .empires
-            .keys()
-            .filter(|&&id| id != game_state.player_empire)
-            .count()
-            == 0
+    if game_state
+        .empires
+        .keys()
+        .filter(|&&id| id != game_state.player_empire)
+        .count()
+        == 0
     {
         lines.push(Line::from(vec![Span::styled(
             "No other empires in this galaxy.",

@@ -4,7 +4,7 @@ use crate::components::{render_help, render_palette, EventLog};
 use crate::keys::KeyMap;
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
-use game_core::{BuildingType, ColonyId, Command, Engine, StarId};
+use game_core::{all_techs, BuildingType, ColonyId, Command, Engine, StarId, TechId};
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
 use std::time::Duration;
@@ -33,6 +33,8 @@ pub struct AppState {
     pub selected_colony: Option<ColonyId>,
     /// Cursor index for the build-picker on the colony screen
     pub colony_build_cursor: usize,
+    /// Cursor index for the tech list on the research screen
+    pub research_cursor: usize,
     pub log: EventLog,
     pub quit: bool,
 }
@@ -202,6 +204,7 @@ impl App {
             Screen::Menu => self.handle_menu_key(key),
             Screen::Galaxy => self.handle_galaxy_key(key),
             Screen::Colony => self.handle_colony_key(key),
+            Screen::Research => self.handle_research_key(key),
         }
     }
 
@@ -229,6 +232,13 @@ impl App {
         // Enter colony view with 'c'
         if key.code == KeyCode::Char('c') {
             self.try_enter_colony();
+            return;
+        }
+
+        // Open research screen with 'r'
+        if key.code == KeyCode::Char('r') {
+            self.state.active = Screen::Research;
+            self.state.research_cursor = 0;
             return;
         }
 
@@ -301,6 +311,99 @@ impl App {
         }
 
         false
+    }
+
+    fn handle_research_key(&mut self, key: KeyEvent) {
+        match key.code {
+            // Return to galaxy map
+            KeyCode::Esc => {
+                self.state.active = Screen::Galaxy;
+            }
+            // Navigate tech list
+            KeyCode::Char('j') | KeyCode::Down => {
+                let engine = match &self.engine {
+                    Some(e) => e,
+                    None => return,
+                };
+                let empire = engine.state.empires.get(&engine.state.player_empire);
+                let completed = empire.map(|e| &e.research.completed);
+                let count = all_techs()
+                    .iter()
+                    .filter(|t| completed.map(|c| !c.contains(&t.id)).unwrap_or(true))
+                    .count();
+                if count > 0 {
+                    self.state.research_cursor = (self.state.research_cursor + 1) % count;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                let engine = match &self.engine {
+                    Some(e) => e,
+                    None => return,
+                };
+                let empire = engine.state.empires.get(&engine.state.player_empire);
+                let completed = empire.map(|e| &e.research.completed);
+                let count = all_techs()
+                    .iter()
+                    .filter(|t| completed.map(|c| !c.contains(&t.id)).unwrap_or(true))
+                    .count();
+                if count > 0 {
+                    self.state.research_cursor =
+                        (self.state.research_cursor + count.saturating_sub(1)) % count;
+                }
+            }
+            // Select the highlighted tech for research
+            KeyCode::Enter => {
+                self.select_research_tech();
+            }
+            // End turn from research screen (excluding Enter, which selects tech)
+            _ => {
+                if KeyMap::is_end_turn(key) && key.code != KeyCode::Enter {
+                    self.end_turn();
+                }
+            }
+        }
+    }
+
+    /// Select the highlighted technology for research
+    fn select_research_tech(&mut self) {
+        // Collect the tech_id first using a scoped borrow
+        let tech_id: TechId = {
+            let engine = match &self.engine {
+                Some(e) => e,
+                None => return,
+            };
+
+            let empire = match engine.state.empires.get(&engine.state.player_empire) {
+                Some(e) => e,
+                None => return,
+            };
+
+            let all = all_techs();
+            let available: Vec<_> = all
+                .iter()
+                .filter(|t| !empire.research.completed.contains(&t.id))
+                .collect();
+
+            if available.is_empty() {
+                return;
+            }
+
+            let cursor = self.state.research_cursor % available.len();
+            available[cursor].id
+        };
+
+        self.pending_commands
+            .push(Command::SelectResearch { tech: tech_id });
+
+        let commands = std::mem::take(&mut self.pending_commands);
+        let engine = match &mut self.engine {
+            Some(e) => e,
+            None => return,
+        };
+        let events = engine.apply_turn(commands);
+        for event in events {
+            self.state.log.push(event.to_log_message());
+        }
     }
 
     /// Queue the currently selected building at the active colony
@@ -1097,6 +1200,150 @@ mod tests {
         assert_eq!(
             buildings_before, buildings_after,
             "Colony buildings should survive save/load"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Research screen tests
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn r_key_opens_research_screen() {
+        let mut app = App::new();
+        app.new_game(42);
+        assert_eq!(app.state.active, Screen::Galaxy);
+
+        app.handle_key(key(KeyCode::Char('r')));
+
+        assert_eq!(app.state.active, Screen::Research);
+        assert_eq!(app.state.research_cursor, 0);
+    }
+
+    #[test]
+    fn esc_closes_research_screen() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::Research;
+
+        app.handle_key(key(KeyCode::Esc));
+
+        assert_eq!(app.state.active, Screen::Galaxy);
+    }
+
+    #[test]
+    fn research_cursor_wraps_on_j() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::Research;
+        app.state.research_cursor = 0;
+
+        // j increments cursor; just verify no panic and cursor stays in bounds
+        app.handle_key(key(KeyCode::Char('j')));
+        let techs_len = game_core::all_techs().len();
+        assert!(app.state.research_cursor < techs_len);
+    }
+
+    #[test]
+    fn research_cursor_wraps_on_k() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::Research;
+        app.state.research_cursor = 0;
+
+        // k at position 0 should wrap to last
+        app.handle_key(key(KeyCode::Char('k')));
+        // cursor should now point to last tech (5 for 6 techs with index 0..5)
+        let techs_len = game_core::all_techs().len();
+        assert!(app.state.research_cursor < techs_len);
+    }
+
+    #[test]
+    fn enter_selects_research_tech() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::Research;
+        app.state.research_cursor = 0;
+
+        app.handle_key(key(KeyCode::Enter));
+
+        // Check that a tech is now selected in the engine
+        let empire = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .empires
+            .get(&app.engine.as_ref().unwrap().state.player_empire)
+            .unwrap();
+        assert!(empire.research.current_tech.is_some());
+    }
+
+    #[test]
+    fn end_turn_works_from_research_screen_with_t_key() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::Research;
+        let initial_turn = app.engine.as_ref().unwrap().state.turn;
+
+        app.handle_key(key(KeyCode::Char('t')));
+
+        assert_eq!(app.engine.as_ref().unwrap().state.turn, initial_turn + 1);
+    }
+
+    #[test]
+    fn research_screen_renders_via_app() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::Research;
+
+        terminal.draw(|frame| app.render(frame)).unwrap();
+    }
+
+    #[test]
+    fn research_state_persists_through_save_load() {
+        let path = tmp_save_path("research_persist");
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::Research;
+        app.state.research_cursor = 0;
+
+        // Select tech and end a turn
+        app.handle_key(key(KeyCode::Enter));
+        app.handle_key(key(KeyCode::Char('t')));
+
+        let progress_before = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .empires
+            .get(&app.engine.as_ref().unwrap().state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+
+        app.save_game(&path).expect("save should succeed");
+        app.load_game(&path).expect("load should succeed");
+
+        let progress_after = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .empires
+            .get(&app.engine.as_ref().unwrap().state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+
+        assert_eq!(
+            progress_before, progress_after,
+            "Research progress must survive save/load"
         );
 
         let _ = std::fs::remove_file(&path);

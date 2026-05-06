@@ -21,6 +21,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::Menu => " Main Menu Help ",
         Screen::Galaxy => " Galaxy Map Help ",
         Screen::Colony => " Colony Help ",
+        Screen::Research => " Research Help ",
     };
 
     let bindings = match screen {
@@ -36,6 +37,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("k / ↑", "Move selection up"),
             ("l / →", "Move selection right"),
             ("c", "Enter colony (if colonized star selected)"),
+            ("r", "Open research screen"),
             ("E / T / Enter", "End turn"),
             (":", "Command palette (:save, :load)"),
             ("/", "Search"),
@@ -46,6 +48,15 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("j / ↓", "Move cursor down in build picker"),
             ("k / ↑", "Move cursor up in build picker"),
             ("Enter", "Queue selected building"),
+            ("e / t", "End turn"),
+            (":", "Command palette (:save, :load)"),
+            ("?", "Toggle this help"),
+            ("Esc", "Return to galaxy map"),
+        ],
+        Screen::Research => vec![
+            ("j / ↓", "Move cursor down"),
+            ("k / ↑", "Move cursor up"),
+            ("Enter", "Select highlighted technology"),
             ("e / t", "End turn"),
             (":", "Command palette (:save, :load)"),
             ("?", "Toggle this help"),
@@ -117,6 +128,19 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_help(frame, area, &Screen::Colony);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_help_research() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_help(frame, area, &Screen::Research);
             })
             .unwrap();
     }

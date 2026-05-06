@@ -25,6 +25,75 @@ pub struct ColonyId(pub u64);
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct FleetId(pub u64);
 
+/// Unique identifier for a technology
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct TechId(pub u32);
+
+/// Static record describing a researchable technology
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TechRecord {
+    pub id: TechId,
+    pub name: &'static str,
+    pub description: &'static str,
+    pub cost: i64,
+}
+
+/// All researchable technologies available in the game
+pub fn all_techs() -> Vec<TechRecord> {
+    vec![
+        TechRecord {
+            id: TechId(1),
+            name: "Void Propulsion",
+            description: "Efficient sublight drives harnessing vacuum energy gradients.",
+            cost: 50,
+        },
+        TechRecord {
+            id: TechId(2),
+            name: "Habitat Seeding",
+            description: "Rapid colony establishment protocols for marginal worlds.",
+            cost: 80,
+        },
+        TechRecord {
+            id: TechId(3),
+            name: "Neutrino Sensors",
+            description:
+                "Deep-penetrating sensor arrays that detect matter through interference patterns.",
+            cost: 60,
+        },
+        TechRecord {
+            id: TechId(4),
+            name: "Kinetic Barriers",
+            description: "Directed kinetic deflection fields for hull protection.",
+            cost: 100,
+        },
+        TechRecord {
+            id: TechId(5),
+            name: "Lattice Processing",
+            description: "Crystalline processor arrays with massively parallel throughput.",
+            cost: 120,
+        },
+        TechRecord {
+            id: TechId(6),
+            name: "Drift Mapping",
+            description: "Predictive navigation charts derived from gravitational drift analysis.",
+            cost: 90,
+        },
+    ]
+}
+
+/// Per-empire research progress tracking
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ResearchState {
+    /// The technology currently being researched, if any
+    pub current_tech: Option<TechId>,
+    /// Research points accumulated toward `current_tech`
+    pub progress: i64,
+    /// Technologies that have already been completed
+    pub completed: Vec<TechId>,
+}
+
 /// Spectral classification of a star
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -131,6 +200,9 @@ pub struct Empire {
     pub credits: i64,
     pub research_points: i64,
     pub home_star: StarId,
+    /// Research progress for this empire
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub research: ResearchState,
 }
 
 /// Permanent buildings that can be constructed at a colony
@@ -477,5 +549,67 @@ mod tests {
             ..GameState::default()
         };
         assert_ne!(state_a, state_c);
+    }
+
+    #[test]
+    fn tech_id_ordering() {
+        let t1 = TechId(1);
+        let t2 = TechId(2);
+        assert!(t1 < t2);
+    }
+
+    #[test]
+    fn all_techs_returns_six_entries() {
+        let techs = all_techs();
+        assert_eq!(techs.len(), 6);
+    }
+
+    #[test]
+    fn all_techs_have_unique_ids() {
+        let techs = all_techs();
+        let mut ids: Vec<TechId> = techs.iter().map(|t| t.id).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), techs.len(), "Tech IDs must be unique");
+    }
+
+    #[test]
+    fn all_techs_have_positive_costs() {
+        for tech in all_techs() {
+            assert!(tech.cost > 0, "Tech {} must have positive cost", tech.name);
+        }
+    }
+
+    #[test]
+    fn all_techs_have_non_empty_names_and_descriptions() {
+        for tech in all_techs() {
+            assert!(!tech.name.is_empty());
+            assert!(!tech.description.is_empty());
+        }
+    }
+
+    #[test]
+    fn research_state_default_is_empty() {
+        let rs = ResearchState::default();
+        assert!(rs.current_tech.is_none());
+        assert_eq!(rs.progress, 0);
+        assert!(rs.completed.is_empty());
+    }
+
+    #[test]
+    fn empire_research_defaults_to_empty() {
+        let state = GameState::default();
+        // Default state has no empires, but we can construct one directly
+        let empire = Empire {
+            id: EmpireId(1),
+            name: "Test".to_string(),
+            credits: 0,
+            research_points: 0,
+            home_star: StarId(1),
+            research: ResearchState::default(),
+        };
+        assert!(empire.research.current_tech.is_none());
+        assert!(empire.research.completed.is_empty());
+        let _ = state;
     }
 }

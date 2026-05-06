@@ -16,6 +16,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::Galaxy => vec![
             ("[hjkl/←↓↑→]", "Move"),
             ("[c]", "Colony"),
+            ("[r]", "Research"),
             ("[E/T/Enter]", "End Turn"),
             ("[?]", "Help"),
             ("[:]", "Command"),
@@ -24,6 +25,13 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::Colony => vec![
             ("[j/k]", "Select"),
             ("[Enter]", "Queue"),
+            ("[e/t]", "End Turn"),
+            ("[?]", "Help"),
+            ("[Esc]", "Back"),
+        ],
+        Screen::Research => vec![
+            ("[j/k]", "Navigate"),
+            ("[Enter]", "Select Tech"),
             ("[e/t]", "End Turn"),
             ("[?]", "Help"),
             ("[Esc]", "Back"),
@@ -94,6 +102,19 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_footer(frame, area, &Screen::Colony);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_footer_research() {
+        let backend = TestBackend::new(80, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_footer(frame, area, &Screen::Research);
             })
             .unwrap();
     }

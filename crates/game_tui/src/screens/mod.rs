@@ -3,6 +3,7 @@
 pub mod colony;
 pub mod galaxy;
 pub mod menu;
+pub mod research;
 
 use ratatui::{layout::Rect, Frame};
 
@@ -16,6 +17,7 @@ pub enum Screen {
     Menu,
     Galaxy,
     Colony,
+    Research,
 }
 
 impl Screen {
@@ -37,6 +39,11 @@ impl Screen {
             Screen::Colony => {
                 if let Some(state) = game_state {
                     colony::render_colony(frame, area, app_state, state);
+                }
+            }
+            Screen::Research => {
+                if let Some(state) = game_state {
+                    research::render_research(frame, area, app_state, state);
                 }
             }
         }

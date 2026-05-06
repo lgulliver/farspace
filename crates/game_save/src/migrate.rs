@@ -23,7 +23,16 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
         }
         2 => {
             // v2 -> v3: fleet_missions field added; defaults to empty via serde(default).
-            // Nothing to populate -- just bump the version.
+            // Nothing to populate -- just bump the version and continue.
+            migrate(SaveFile {
+                version: 3,
+                state: save.state,
+            })
+        }
+        3 => {
+            // v3 -> v4: FleetKind added to Fleet (serde default = Scout) and
+            // habitable added to Planet (serde default = true).
+            // Nothing to populate — just bump the version.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -95,6 +104,14 @@ mod tests {
         let migrated = migrate(v2_save).expect("v2 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
         assert!(migrated.state.fleet_missions.is_empty());
+    }
+
+    #[test]
+    fn migrate_v3_to_v4_succeeds() {
+        let state = GameState::default();
+        let v3_save = SaveFile { version: 3, state };
+        let migrated = migrate(v3_save).expect("v3 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
     }
 
     #[test]

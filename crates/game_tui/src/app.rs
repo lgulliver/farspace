@@ -4,7 +4,9 @@ use crate::components::{render_help, render_palette, EventLog};
 use crate::keys::KeyMap;
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
-use game_core::{all_techs, BuildingType, ColonyId, Command, Engine, FleetId, StarId, TechId};
+use game_core::{
+    all_techs, BuildingType, ColonyId, Command, Engine, FleetId, FleetKind, StarId, TechId,
+};
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
 use std::time::Duration;
@@ -232,6 +234,12 @@ impl App {
         // Enter colony view with 'c'
         if key.code == KeyCode::Char('c') {
             self.try_enter_colony();
+            return;
+        }
+
+        // Colonize selected system with 'C'
+        if key.code == KeyCode::Char('C') {
+            self.colonize_selected_system();
             return;
         }
 
@@ -534,7 +542,7 @@ impl App {
             }
         };
 
-        // Find the first player-owned fleet that is not on an active scout mission
+        // Find the first player-owned fleet that is not on an active mission
         let fleet_id: Option<FleetId> = {
             let engine = match &self.engine {
                 Some(e) => e,
@@ -547,6 +555,7 @@ impl App {
                 .find(|f| {
                     f.owner == engine.state.player_empire
                         && !engine.state.scout_missions.contains_key(&f.id)
+                        && !engine.state.fleet_missions.contains_key(&f.id)
                 })
                 .map(|f| f.id)
         };
@@ -619,6 +628,91 @@ impl App {
         self.pending_commands.push(Command::MoveFleet {
             fleet: fleet_id,
             destination: star_id,
+        });
+
+        let commands = std::mem::take(&mut self.pending_commands);
+        let engine = match &mut self.engine {
+            Some(e) => e,
+            None => return,
+        };
+        let events = engine.apply_turn(commands);
+        for event in events {
+            self.state.log.push(event.to_log_message());
+        }
+    }
+
+    /// Colonize the first available habitable unowned planet at the selected star system
+    /// using an idle colonizer fleet present at that system.
+    fn colonize_selected_system(&mut self) {
+        let star_id = match self.state.selected_star {
+            Some(id) => id,
+            None => {
+                self.state.log.push("No star selected.".to_string());
+                return;
+            }
+        };
+
+        // Find the first idle colonizer fleet at the selected star
+        let fleet_id: Option<FleetId> = {
+            let engine = match &self.engine {
+                Some(e) => e,
+                None => return,
+            };
+            engine
+                .state
+                .fleets
+                .values()
+                .find(|f| {
+                    f.owner == engine.state.player_empire
+                        && f.location == star_id
+                        && f.kind == FleetKind::Colonizer
+                        && !engine.state.scout_missions.contains_key(&f.id)
+                        && !engine.state.fleet_missions.contains_key(&f.id)
+                })
+                .map(|f| f.id)
+        };
+
+        let fleet_id = match fleet_id {
+            Some(id) => id,
+            None => {
+                self.state
+                    .log
+                    .push("No idle colonizer fleet present at selected system.".to_string());
+                return;
+            }
+        };
+
+        // Find the first habitable uncolonized planet at this star
+        let planet_index: Option<usize> = {
+            let engine = match &self.engine {
+                Some(e) => e,
+                None => return,
+            };
+            let star = match engine.state.stars.get(&star_id) {
+                Some(s) => s,
+                None => return,
+            };
+            star.planets
+                .iter()
+                .enumerate()
+                .find(|(_, p)| p.habitable && p.colony.is_none())
+                .map(|(i, _)| i)
+        };
+
+        let planet_index = match planet_index {
+            Some(i) => i,
+            None => {
+                self.state
+                    .log
+                    .push("No colonizable planet available at selected system.".to_string());
+                return;
+            }
+        };
+
+        self.pending_commands.push(Command::Colonize {
+            fleet: fleet_id,
+            star: star_id,
+            planet_index,
         });
 
         let commands = std::mem::take(&mut self.pending_commands);
@@ -1695,5 +1789,169 @@ mod tests {
             "Fleet mission should be created"
         );
         assert!(app.state.log.len() > before, "Log should grow");
+    }
+
+    #[test]
+    fn colonize_key_without_colonizer_logs_error() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        // No colonizer fleet exists at game start
+        let engine = app.engine.as_ref().unwrap();
+        let star = *engine.state.explored_stars.iter().next().unwrap();
+        app.state.selected_star = Some(star);
+
+        let before = app.state.log.len();
+        app.handle_key(key(KeyCode::Char('C')));
+        assert!(
+            app.state.log.len() > before,
+            "Should log error when no colonizer available"
+        );
+    }
+
+    #[test]
+    fn colonize_without_engine_is_noop() {
+        let mut app = App::new();
+        // No game started
+        app.colonize_selected_system();
+        assert!(app.engine.is_none());
+    }
+
+    #[test]
+    fn colonize_without_selection_logs_error() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.selected_star = None;
+        let before = app.state.log.len();
+        app.colonize_selected_system();
+        assert!(app.state.log.len() > before);
+    }
+
+    #[test]
+    fn colonize_key_with_colonizer_succeeds() {
+        use game_core::{Command, FleetKind};
+
+        let mut app = App::new();
+        app.new_game(42);
+
+        // Build a colonizer fleet via the engine directly
+        let colony_id = game_core::ColonyId(1);
+        app.engine.as_mut().unwrap().apply_turn(vec![
+            Command::QueueBuild {
+                colony: colony_id,
+                item: game_core::BuildItem::Colony,
+            },
+            Command::SetColonyFocus {
+                colony: colony_id,
+                prod_pct: 100,
+                research_pct: 0,
+            },
+        ]);
+        for _ in 0..21 {
+            app.engine
+                .as_mut()
+                .unwrap()
+                .apply_turn(vec![Command::EndTurn]);
+        }
+
+        let engine = app.engine.as_ref().unwrap();
+        let colonizer_id = engine
+            .state
+            .fleets
+            .values()
+            .find(|f| f.kind == FleetKind::Colonizer)
+            .map(|f| f.id)
+            .expect("Colonizer must exist");
+
+        let home = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != home)
+            .expect("Need explored star");
+
+        // Move colonizer to target
+        app.engine
+            .as_mut()
+            .unwrap()
+            .apply_turn(vec![Command::MoveFleet {
+                fleet: colonizer_id,
+                destination: target,
+            }]);
+        for _ in 0..4 {
+            app.engine
+                .as_mut()
+                .unwrap()
+                .apply_turn(vec![Command::EndTurn]);
+        }
+
+        // Verify colonizer is at target
+        let engine = app.engine.as_ref().unwrap();
+        assert_eq!(
+            engine.state.fleets.get(&colonizer_id).unwrap().location,
+            target
+        );
+
+        let colonies_before = engine.state.colonies.len();
+
+        // Select target star and press C
+        app.state.selected_star = Some(target);
+        app.handle_key(key(KeyCode::Char('C')));
+
+        let engine = app.engine.as_ref().unwrap();
+        assert_eq!(
+            engine.state.colonies.len(),
+            colonies_before + 1,
+            "Colonization should create a new colony"
+        );
+        assert!(
+            !engine.state.fleets.contains_key(&colonizer_id),
+            "Colonizer should be consumed"
+        );
+    }
+
+    #[test]
+    fn galaxy_renders_with_colonizer_fleet_present() {
+        use game_core::FleetKind;
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut engine = game_core::Engine::new(42);
+
+        // Add a colonizer fleet at the home star
+        let player = engine.state.player_empire;
+        let home = engine.state.empires.get(&player).unwrap().home_star;
+        let fleet_id = game_core::FleetId(50);
+        engine.state.fleets.insert(
+            fleet_id,
+            game_core::Fleet {
+                id: fleet_id,
+                owner: player,
+                location: home,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+            },
+        );
+
+        let app_state = crate::AppState {
+            selected_star: Some(home),
+            ..Default::default()
+        };
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                crate::screens::galaxy::render_galaxy(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
     }
 }

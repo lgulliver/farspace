@@ -6,7 +6,7 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy};
 use crate::state::{
     all_techs, BuildItem, BuildingType, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId,
-    FleetMission, GameState, ResearchState, ScoutMission, StarId, TechId,
+    FleetKind, FleetMission, GameState, ResearchState, ScoutMission, StarId, TechId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -105,6 +105,7 @@ impl Engine {
                 owner: player_empire_id,
                 location: home_star_id,
                 ships: 1,
+                kind: FleetKind::Scout,
             },
         );
 
@@ -166,6 +167,13 @@ impl Engine {
                 }
                 Command::SendScout { fleet, destination } => {
                     self.process_send_scout(fleet, destination, &mut events);
+                }
+                Command::Colonize {
+                    fleet,
+                    star,
+                    planet_index,
+                } => {
+                    self.process_colonize(fleet, star, planet_index, &mut events);
                 }
             }
         }
@@ -267,6 +275,11 @@ impl Engine {
                         BuildItem::Scout | BuildItem::Colony => {
                             let fleet_id = self.state.next_fleet_id();
                             let owner_id = owner;
+                            let fleet_kind = if item == BuildItem::Colony {
+                                FleetKind::Colonizer
+                            } else {
+                                FleetKind::Scout
+                            };
                             self.state.fleets.insert(
                                 fleet_id,
                                 Fleet {
@@ -274,6 +287,7 @@ impl Engine {
                                     owner: owner_id,
                                     location: star_id,
                                     ships: 1,
+                                    kind: fleet_kind,
                                 },
                             );
                             events.push(Event::FleetCreated {
@@ -683,6 +697,15 @@ impl Engine {
             return;
         }
 
+        // Block if fleet already has a fleet movement mission
+        if self.state.fleet_missions.contains_key(&fleet_id) {
+            events.push(Event::error(format!(
+                "Fleet {} is already travelling",
+                fleet_id.0
+            )));
+            return;
+        }
+
         // Validate destination star exists
         if !self.state.stars.contains_key(&destination) {
             events.push(Event::error(format!(
@@ -715,6 +738,148 @@ impl Engine {
             fleet: fleet_id,
             destination,
             turns_remaining: SCOUT_TRAVEL_TURNS,
+        });
+    }
+
+    fn process_colonize(
+        &mut self,
+        fleet_id: FleetId,
+        star_id: StarId,
+        planet_index: usize,
+        events: &mut Vec<Event>,
+    ) {
+        // Validate fleet exists
+        let fleet = match self.state.fleets.get(&fleet_id) {
+            Some(f) => f,
+            None => {
+                events.push(Event::error(format!("Fleet {} not found", fleet_id.0)));
+                return;
+            }
+        };
+
+        // Validate owner
+        if fleet.owner != self.state.player_empire {
+            events.push(Event::error("Fleet not owned by player"));
+            return;
+        }
+
+        // Validate fleet is a colonizer
+        if fleet.kind != FleetKind::Colonizer {
+            events.push(Event::error(format!(
+                "Fleet {} is not a colonizer fleet",
+                fleet_id.0
+            )));
+            return;
+        }
+
+        // Validate fleet is idle (not on any mission)
+        if self.state.scout_missions.contains_key(&fleet_id) {
+            events.push(Event::error(format!(
+                "Fleet {} is already travelling",
+                fleet_id.0
+            )));
+            return;
+        }
+        if self.state.fleet_missions.contains_key(&fleet_id) {
+            events.push(Event::error(format!(
+                "Fleet {} is already travelling",
+                fleet_id.0
+            )));
+            return;
+        }
+
+        // Validate fleet is at the target star
+        if fleet.location != star_id {
+            events.push(Event::error(format!(
+                "Fleet {} is not at star {}",
+                fleet_id.0, star_id.0
+            )));
+            return;
+        }
+
+        // Validate star is explored
+        if !self.state.explored_stars.contains(&star_id) {
+            events.push(Event::error(format!("Star {} is not explored", star_id.0)));
+            return;
+        }
+
+        // Validate star exists and get planet info
+        let (planet_habitable, planet_colony) = {
+            let star = match self.state.stars.get(&star_id) {
+                Some(s) => s,
+                None => {
+                    events.push(Event::error(format!("Star {} not found", star_id.0)));
+                    return;
+                }
+            };
+
+            if planet_index >= star.planets.len() {
+                events.push(Event::error(format!(
+                    "Planet index {} out of bounds for star {}",
+                    planet_index, star_id.0
+                )));
+                return;
+            }
+
+            let planet = &star.planets[planet_index];
+            (planet.habitable, planet.colony)
+        };
+
+        // Validate planet is habitable
+        if !planet_habitable {
+            events.push(Event::error(format!(
+                "Planet {} at star {} is not habitable",
+                planet_index, star_id.0
+            )));
+            return;
+        }
+
+        // Validate planet is not already colonized
+        if planet_colony.is_some() {
+            events.push(Event::error(format!(
+                "Planet {} at star {} is already colonized",
+                planet_index, star_id.0
+            )));
+            return;
+        }
+
+        // All checks pass — create the colony
+        let empire_id = self.state.player_empire;
+        let colony_id = self.state.next_colony_id();
+
+        let new_colony = Colony {
+            id: colony_id,
+            star: star_id,
+            planet_index,
+            owner: empire_id,
+            population: 1,
+            production: 5,
+            prod_pct: 50,
+            research_pct: 50,
+            build_queue: Vec::new(),
+            accumulated_production: 0,
+            buildings: Vec::new(),
+        };
+        self.state.colonies.insert(colony_id, new_colony);
+
+        // Update the planet's colony reference
+        if let Some(star) = self.state.stars.get_mut(&star_id) {
+            if let Some(planet) = star.planets.get_mut(planet_index) {
+                planet.colony = Some(colony_id);
+            }
+        }
+
+        // Consume the colonizer fleet
+        self.state.fleets.remove(&fleet_id);
+        self.state.scout_missions.remove(&fleet_id);
+        self.state.fleet_missions.remove(&fleet_id);
+
+        events.push(Event::ColonizationCompleted {
+            empire: empire_id,
+            fleet: fleet_id,
+            star: star_id,
+            planet_index,
+            colony: colony_id,
         });
     }
 }
@@ -1053,6 +1218,7 @@ mod tests {
                 owner: other_empire,
                 location,
                 ships: 1,
+                kind: FleetKind::Scout,
             },
         );
 
@@ -2536,6 +2702,7 @@ mod tests {
                 owner: engine.state.player_empire,
                 location: home_star,
                 ships: 1,
+                kind: FleetKind::Scout,
             },
         );
 
@@ -2631,6 +2798,838 @@ mod tests {
             engine.state.fleets.get(&fleet_id).unwrap().location,
             dest,
             "Fleet must move to explored destination"
+        );
+    }
+
+    // --- Missing fleet negative tests ---
+
+    #[test]
+    fn move_fleet_unexplored_destination_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let unexplored = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Need an unexplored star");
+
+        let events = engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: unexplored,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "MoveFleet to unexplored star must emit an error"
+        );
+    }
+
+    #[test]
+    fn move_fleet_already_at_destination_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+        let location = engine.state.fleets.get(&fleet_id).unwrap().location;
+
+        let events = engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: location,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "MoveFleet to current location must emit an error"
+        );
+    }
+
+    #[test]
+    fn move_fleet_busy_scout_mission_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        // Send the fleet on a scout mission first
+        let unexplored = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Need an unexplored star");
+        engine.apply_turn(vec![Command::SendScout {
+            fleet: fleet_id,
+            destination: unexplored,
+        }]);
+
+        // Now try to move the same fleet
+        let explored = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != engine.state.fleets.get(&fleet_id).unwrap().location)
+            .expect("Need an explored star other than home");
+
+        let events = engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: explored,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "MoveFleet on a fleet with active scout mission must emit an error"
+        );
+    }
+
+    #[test]
+    fn move_fleet_busy_fleet_mission_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+        let home = engine.state.fleets.get(&fleet_id).unwrap().location;
+
+        let explored_dest = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != home)
+            .expect("Need an explored star other than home");
+
+        // Dispatch the fleet on a move mission
+        engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: explored_dest,
+        }]);
+
+        // Try to dispatch again immediately
+        let events = engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: explored_dest,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "MoveFleet on a fleet already on a fleet mission must emit an error"
+        );
+    }
+
+    #[test]
+    fn send_scout_busy_fleet_mission_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+        let home = engine.state.fleets.get(&fleet_id).unwrap().location;
+
+        // First move the fleet to an explored destination
+        let explored_dest = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != home)
+            .expect("Need an explored star other than home");
+        engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: explored_dest,
+        }]);
+
+        // Now try to send it as a scout too
+        let unexplored = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Need an unexplored star");
+
+        let events = engine.apply_turn(vec![Command::SendScout {
+            fleet: fleet_id,
+            destination: unexplored,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "SendScout on a fleet already on a fleet mission must emit an error"
+        );
+    }
+
+    // --- Colonization tests ---
+
+    #[test]
+    fn colonize_valid_explored_habitable_unowned_planet() {
+        let mut engine = Engine::new(42);
+
+        // Build a colonizer at home
+        let home = engine.state.fleets.get(&FleetId(1)).unwrap().location;
+
+        // Queue Colony ship at home colony
+        let colony_id = ColonyId(1);
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Colony,
+        }]);
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+
+        // Run turns to build (production=10, cost=200 → 20 turns)
+        for _ in 0..21 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        // Find the colonizer fleet
+        let colonizer_id = engine
+            .state
+            .fleets
+            .values()
+            .find(|f| f.kind == FleetKind::Colonizer && f.owner == engine.state.player_empire)
+            .map(|f| f.id)
+            .expect("Colonizer fleet should exist after build");
+
+        // Move colonizer to a different explored system
+        let target_star = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != home)
+            .expect("Need an explored star other than home");
+
+        engine.apply_turn(vec![Command::MoveFleet {
+            fleet: colonizer_id,
+            destination: target_star,
+        }]);
+
+        // Wait until colonizer arrives
+        for _ in 0..4 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        assert_eq!(
+            engine.state.fleets.get(&colonizer_id).unwrap().location,
+            target_star,
+            "Colonizer must be at target star"
+        );
+
+        // Find first habitable unowned planet
+        let planet_index = engine
+            .state
+            .stars
+            .get(&target_star)
+            .unwrap()
+            .planets
+            .iter()
+            .enumerate()
+            .find(|(_, p)| p.habitable && p.colony.is_none())
+            .map(|(i, _)| i)
+            .expect("Target star must have a habitable unowned planet");
+
+        let colonies_before = engine.state.colonies.len();
+        let fleets_before = engine.state.fleets.len();
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: colonizer_id,
+            star: target_star,
+            planet_index,
+        }]);
+
+        // No errors
+        assert!(
+            !events.iter().any(|e| e.is_error()),
+            "Colonize should not emit an error"
+        );
+
+        // ColonizationCompleted emitted
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::ColonizationCompleted { star, .. } if *star == target_star
+            )),
+            "ColonizationCompleted event should be emitted"
+        );
+
+        // Colony was created
+        assert_eq!(
+            engine.state.colonies.len(),
+            colonies_before + 1,
+            "A new colony should have been created"
+        );
+
+        // Colonizer fleet was consumed
+        assert_eq!(
+            engine.state.fleets.len(),
+            fleets_before - 1,
+            "Colonizer fleet should be consumed"
+        );
+        assert!(
+            !engine.state.fleets.contains_key(&colonizer_id),
+            "Colonizer fleet should be removed"
+        );
+
+        // New colony is owned by player
+        let new_colony = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.star == target_star)
+            .expect("Colony must exist at target star");
+        assert_eq!(new_colony.owner, engine.state.player_empire);
+        assert_eq!(new_colony.planet_index, planet_index);
+
+        // Planet references the colony
+        let planet = &engine.state.stars.get(&target_star).unwrap().planets[planet_index];
+        assert!(planet.colony.is_some(), "Planet must reference the colony");
+    }
+
+    #[test]
+    fn cannot_colonize_unexplored_system() {
+        let mut engine = Engine::new(42);
+
+        // Manually place a colonizer at an unexplored star
+        let unexplored = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Need an unexplored star");
+
+        let fleet_id = FleetId(99);
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: engine.state.player_empire,
+                location: unexplored,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: fleet_id,
+            star: unexplored,
+            planet_index: 0,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Colonize to unexplored system must emit an error"
+        );
+    }
+
+    #[test]
+    fn cannot_colonize_already_owned_planet() {
+        let mut engine = Engine::new(42);
+
+        // The home star already has a colony at planet_index 0
+        let home_star_id = engine.state.player_empire;
+        let home = {
+            let empire = engine
+                .state
+                .empires
+                .get(&engine.state.player_empire)
+                .unwrap();
+            empire.home_star
+        };
+
+        let fleet_id = FleetId(99);
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: engine.state.player_empire,
+                location: home,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+            },
+        );
+        let _ = home_star_id; // suppress warning
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: fleet_id,
+            star: home,
+            planet_index: 0, // Already has a colony
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Colonize already-owned planet must emit an error"
+        );
+    }
+
+    #[test]
+    fn cannot_colonize_uninhabitable_planet() {
+        let mut engine = Engine::new(42);
+
+        let home = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
+
+        // Pick an explored star that's not the home star
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != home)
+            .expect("Need an explored star other than home");
+
+        // Mark all its planets as uninhabitable
+        if let Some(star) = engine.state.stars.get_mut(&target) {
+            for planet in star.planets.iter_mut() {
+                planet.habitable = false;
+                planet.colony = None;
+            }
+        }
+
+        let fleet_id = FleetId(99);
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: engine.state.player_empire,
+                location: target,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: fleet_id,
+            star: target,
+            planet_index: 0,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Colonize uninhabitable planet must emit an error"
+        );
+    }
+
+    #[test]
+    fn cannot_colonize_without_colonizer_fleet() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1); // Initial fleet is Scout kind
+        let home = engine.state.fleets.get(&fleet_id).unwrap().location;
+
+        let planet_index = engine
+            .state
+            .stars
+            .get(&home)
+            .unwrap()
+            .planets
+            .iter()
+            .enumerate()
+            .find(|(_, p)| p.habitable && p.colony.is_none())
+            .map(|(i, _)| i);
+
+        // The scout fleet should be rejected even if at a valid planet
+        // (use home star since it's explored and has habitable planets after index 0 potentially)
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: fleet_id,
+            star: home,
+            planet_index: planet_index.unwrap_or(0),
+        }]);
+
+        // Either error because not a colonizer, or error because planet already colonized
+        // In both cases an error must be emitted
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Colonize with non-colonizer fleet must emit an error"
+        );
+    }
+
+    #[test]
+    fn cannot_colonize_with_non_colonizer_fleet_explicit() {
+        let mut engine = Engine::new(42);
+
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| {
+                let home = engine
+                    .state
+                    .empires
+                    .get(&engine.state.player_empire)
+                    .unwrap()
+                    .home_star;
+                id != home
+            })
+            .expect("Need an explored star other than home");
+
+        // Place a Scout fleet at the target
+        let fleet_id = FleetId(98);
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: engine.state.player_empire,
+                location: target,
+                ships: 1,
+                kind: FleetKind::Scout, // Not a colonizer
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: fleet_id,
+            star: target,
+            planet_index: 0,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Colonize with Scout fleet must emit an error"
+        );
+        assert!(
+            events.iter().any(
+                |e| matches!(e, Event::Error { message } if message.contains("not a colonizer"))
+            ),
+            "Error message should mention 'not a colonizer'"
+        );
+    }
+
+    #[test]
+    fn colonizer_consumed_deterministically() {
+        // Same seed + same commands must produce identical fleet IDs and colony IDs
+        let setup = |seed: u64| {
+            let mut engine = Engine::new(seed);
+            let colony_id = ColonyId(1);
+            engine.apply_turn(vec![Command::QueueBuild {
+                colony: colony_id,
+                item: BuildItem::Colony,
+            }]);
+            engine.apply_turn(vec![Command::SetColonyFocus {
+                colony: colony_id,
+                prod_pct: 100,
+                research_pct: 0,
+            }]);
+            for _ in 0..21 {
+                engine.apply_turn(vec![Command::EndTurn]);
+            }
+
+            let colonizer_id = engine
+                .state
+                .fleets
+                .values()
+                .find(|f| f.kind == FleetKind::Colonizer)
+                .map(|f| f.id)
+                .expect("Colonizer must exist");
+
+            let home = engine
+                .state
+                .empires
+                .get(&engine.state.player_empire)
+                .unwrap()
+                .home_star;
+            let target = *engine
+                .state
+                .explored_stars
+                .iter()
+                .find(|&&id| id != home)
+                .expect("Need explored star");
+
+            engine.apply_turn(vec![Command::MoveFleet {
+                fleet: colonizer_id,
+                destination: target,
+            }]);
+            for _ in 0..4 {
+                engine.apply_turn(vec![Command::EndTurn]);
+            }
+
+            let planet_idx = engine
+                .state
+                .stars
+                .get(&target)
+                .unwrap()
+                .planets
+                .iter()
+                .enumerate()
+                .find(|(_, p)| p.habitable && p.colony.is_none())
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+
+            let events = engine.apply_turn(vec![Command::Colonize {
+                fleet: colonizer_id,
+                star: target,
+                planet_index: planet_idx,
+            }]);
+
+            (engine, events)
+        };
+
+        let (engine_a, events_a) = setup(777);
+        let (engine_b, events_b) = setup(777);
+
+        assert_eq!(events_a, events_b, "Same seed must produce same events");
+        assert_eq!(engine_a.state.colonies.len(), engine_b.state.colonies.len());
+        assert_eq!(engine_a.state.fleets.len(), engine_b.state.fleets.len());
+    }
+
+    #[test]
+    fn new_colony_participates_in_next_turn_production() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // Build a colonizer
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Colony,
+        }]);
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+        for _ in 0..21 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let colonizer_id = engine
+            .state
+            .fleets
+            .values()
+            .find(|f| f.kind == FleetKind::Colonizer)
+            .map(|f| f.id)
+            .expect("Colonizer must exist");
+
+        let home = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != home)
+            .expect("Need explored star");
+
+        engine.apply_turn(vec![Command::MoveFleet {
+            fleet: colonizer_id,
+            destination: target,
+        }]);
+        for _ in 0..4 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let planet_idx = engine
+            .state
+            .stars
+            .get(&target)
+            .unwrap()
+            .planets
+            .iter()
+            .enumerate()
+            .find(|(_, p)| p.habitable && p.colony.is_none())
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+
+        // Colonize
+        engine.apply_turn(vec![Command::Colonize {
+            fleet: colonizer_id,
+            star: target,
+            planet_index: planet_idx,
+        }]);
+
+        let new_colony_id = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.star == target)
+            .map(|c| c.id)
+            .expect("New colony must exist");
+
+        // End turn — new colony should produce
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        assert!(
+            events.iter().any(
+                |e| matches!(e, Event::ColonyProduced { colony, .. } if *colony == new_colony_id)
+            ),
+            "New colony must participate in next turn production"
+        );
+    }
+
+    #[test]
+    fn colonize_event_ordering_is_deterministic() {
+        // Two colonizers at two different explored stars — the one with lower FleetId
+        // should produce ColonizationCompleted before the other.
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        let home = engine.state.empires.get(&player).unwrap().home_star;
+
+        let explored: Vec<StarId> = engine
+            .state
+            .explored_stars
+            .iter()
+            .filter(|&&id| id != home)
+            .copied()
+            .collect();
+
+        if explored.len() < 2 {
+            // Not enough explored stars — skip test
+            return;
+        }
+
+        let star_a = explored[0];
+        let star_b = explored[1];
+
+        let col_a = FleetId(91);
+        let col_b = FleetId(92);
+
+        // Place two colonizer fleets at different explored stars
+        for (fid, star) in [(col_a, star_a), (col_b, star_b)] {
+            // Ensure the star has a habitable unowned planet
+            if let Some(star_data) = engine.state.stars.get_mut(&star) {
+                if let Some(planet) = star_data.planets.get_mut(0) {
+                    planet.habitable = true;
+                    planet.colony = None;
+                }
+            }
+            engine.state.fleets.insert(
+                fid,
+                Fleet {
+                    id: fid,
+                    owner: player,
+                    location: star,
+                    ships: 1,
+                    kind: FleetKind::Colonizer,
+                },
+            );
+        }
+
+        let events = engine.apply_turn(vec![
+            Command::Colonize {
+                fleet: col_a,
+                star: star_a,
+                planet_index: 0,
+            },
+            Command::Colonize {
+                fleet: col_b,
+                star: star_b,
+                planet_index: 0,
+            },
+        ]);
+
+        // Both should succeed
+        let completed: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, Event::ColonizationCompleted { .. }))
+            .collect();
+        assert_eq!(completed.len(), 2, "Both colonizations should complete");
+
+        // Order matches command order (col_a before col_b)
+        if let (
+            Event::ColonizationCompleted { fleet: f1, .. },
+            Event::ColonizationCompleted { fleet: f2, .. },
+        ) = (completed[0], completed[1])
+        {
+            assert_eq!(*f1, col_a, "First event should be from col_a");
+            assert_eq!(*f2, col_b, "Second event should be from col_b");
+        }
+    }
+
+    #[test]
+    fn cannot_colonize_fleet_not_at_star() {
+        let mut engine = Engine::new(42);
+
+        let home = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
+        let other_star = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != home)
+            .expect("Need explored star");
+
+        // Place colonizer at home, but try to colonize other_star
+        let fleet_id = FleetId(99);
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: engine.state.player_empire,
+                location: home,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: fleet_id,
+            star: other_star,
+            planet_index: 0,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Colonize when fleet is not at target star must emit an error"
+        );
+    }
+
+    #[test]
+    fn build_completion_colony_ship_creates_colonizer_fleet() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Colony,
+        }]);
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+
+        for _ in 0..21 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let colonizer = engine
+            .state
+            .fleets
+            .values()
+            .find(|f| f.kind == FleetKind::Colonizer && f.owner == engine.state.player_empire);
+
+        assert!(
+            colonizer.is_some(),
+            "Completing Colony builditem must create a Colonizer fleet"
+        );
+    }
+
+    #[test]
+    fn build_scout_creates_scout_fleet() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Scout,
+        }]);
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+
+        for _ in 0..6 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let scout = engine
+            .state
+            .fleets
+            .values()
+            .filter(|f| f.owner == engine.state.player_empire)
+            .find(|f| f.kind == FleetKind::Scout && f.id != FleetId(1));
+
+        assert!(
+            scout.is_some(),
+            "Completing Scout builditem must create a Scout fleet"
         );
     }
 }

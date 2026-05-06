@@ -179,6 +179,14 @@ pub struct Planet {
     pub name: String,
     pub size: PlanetSize,
     pub colony: Option<ColonyId>,
+    /// Whether this planet can support a colony
+    #[cfg_attr(feature = "serde", serde(default = "default_true"))]
+    pub habitable: bool,
+}
+
+#[cfg(feature = "serde")]
+fn default_true() -> bool {
+    true
 }
 
 /// A star system in the galaxy
@@ -309,6 +317,17 @@ pub struct Colony {
     pub buildings: Vec<BuildingType>,
 }
 
+/// The role of a fleet
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum FleetKind {
+    /// General-purpose scout/exploration fleet
+    #[default]
+    Scout,
+    /// Colony ship — consumed when founding a new colony
+    Colonizer,
+}
+
 /// A fleet of ships
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -317,6 +336,9 @@ pub struct Fleet {
     pub owner: EmpireId,
     pub location: StarId,
     pub ships: u32,
+    /// Role of this fleet
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub kind: FleetKind,
 }
 
 /// An in-flight scout mission heading toward an unexplored system
@@ -775,6 +797,7 @@ mod tests {
                 owner: EmpireId(1),
                 location: StarId(5),
                 ships: 1,
+                kind: FleetKind::Scout,
             },
         );
         match state.fleet_location(FleetId(1)) {
@@ -793,6 +816,7 @@ mod tests {
                 owner: EmpireId(1),
                 location: StarId(5),
                 ships: 1,
+                kind: FleetKind::Scout,
             },
         );
         state.fleet_missions.insert(
@@ -825,6 +849,7 @@ mod tests {
                 owner: EmpireId(1),
                 location: StarId(5),
                 ships: 1,
+                kind: FleetKind::Scout,
             },
         );
         state.scout_missions.insert(

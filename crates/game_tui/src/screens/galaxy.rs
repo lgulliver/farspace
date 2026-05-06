@@ -239,7 +239,8 @@ fn render_star_details(
                     String::new()
                 }
             }
-            None => String::new(),
+            None if planet.habitable => " [Habitable]".to_string(),
+            None => " [Uninhabitable]".to_string(),
         };
 
         lines.push(Line::from(vec![
@@ -277,12 +278,14 @@ fn render_star_details(
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled("Fleets:", Theme::title_style())));
         for fleet in &fleets_here {
+            let label = if fleet.kind == game_core::FleetKind::Colonizer {
+                format!("Colonizer {} (idle)", fleet.id.0)
+            } else {
+                format!("Fleet {} (idle)", fleet.id.0)
+            };
             lines.push(Line::from(vec![
                 Span::raw("  "),
-                Span::styled(
-                    format!("Fleet {} (idle)", fleet.id.0),
-                    Theme::accent_style(),
-                ),
+                Span::styled(label, Theme::accent_style()),
             ]));
         }
         for mission in &fleets_en_route {
@@ -309,6 +312,25 @@ fn render_star_details(
                 ),
             ]));
         }
+    }
+
+    // Show colonize hint if a colonizer is present and there's a habitable unowned planet
+    let colonizer_present = game_state.fleets.values().any(|f| {
+        f.location == star.id
+            && f.kind == game_core::FleetKind::Colonizer
+            && !game_state.fleet_missions.contains_key(&f.id)
+            && !game_state.scout_missions.contains_key(&f.id)
+    });
+    let has_colonizable = star
+        .planets
+        .iter()
+        .any(|p| p.habitable && p.colony.is_none());
+    if colonizer_present && has_colonizable {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![Span::styled(
+            "Press C to colonize.",
+            Theme::accent_style(),
+        )]));
     }
 
     let paragraph = Paragraph::new(lines).style(Theme::default_style());

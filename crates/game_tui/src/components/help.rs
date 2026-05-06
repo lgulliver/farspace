@@ -10,9 +10,17 @@ use ratatui::{
     Frame,
 };
 
+/// A help binding entry: either a key→description pair or a section separator.
+enum HelpEntry {
+    /// A section header label
+    Section(&'static str),
+    /// A key binding (key text, description)
+    Binding(&'static str, &'static str),
+}
+
 /// Render the help overlay
 pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
-    let popup_area = centered_rect(60, 70, area);
+    let popup_area = centered_rect(65, 75, area);
 
     // Clear the background
     frame.render_widget(Clear, popup_area);
@@ -25,64 +33,85 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::Diplomacy => " Diplomacy Help ",
     };
 
-    let bindings = match screen {
+    let entries: Vec<HelpEntry> = match screen {
         Screen::Menu => vec![
-            ("N", "Start a new game"),
-            ("L", "Load a saved game"),
-            ("Q", "Quit the game"),
-            ("?", "Toggle this help"),
+            HelpEntry::Section("Actions"),
+            HelpEntry::Binding("N", "Start a new game"),
+            HelpEntry::Binding("L", "Load a saved game"),
+            HelpEntry::Binding("Q", "Quit the game"),
+            HelpEntry::Section("Global"),
+            HelpEntry::Binding("?", "Toggle this help"),
         ],
         Screen::Galaxy => vec![
-            ("h / ←", "Move selection left"),
-            ("j / ↓", "Move selection down"),
-            ("k / ↑", "Move selection up"),
-            ("l / →", "Move selection right"),
-            ("c", "Enter colony (if colonized star selected)"),
-            ("C", "Colonize selected system with idle colonizer fleet"),
-            ("r", "Open research screen"),
-            ("D", "Open diplomacy screen"),
-            ("S", "Dispatch scout to selected unexplored system"),
-            ("M", "Move idle fleet to selected explored system"),
-            ("E / T / Enter", "End turn (AI acts automatically)"),
-            (":", "Command palette (:save, :load)"),
-            ("/", "Search"),
-            ("?", "Toggle this help"),
-            ("Q", "Quit"),
+            HelpEntry::Section("Navigation"),
+            HelpEntry::Binding("h / ←", "Move selection left"),
+            HelpEntry::Binding("j / ↓", "Move selection down"),
+            HelpEntry::Binding("k / ↑", "Move selection up"),
+            HelpEntry::Binding("l / →", "Move selection right"),
+            HelpEntry::Section("Actions"),
+            HelpEntry::Binding("c", "Enter colony (if colonized star selected)"),
+            HelpEntry::Binding("C", "Colonize selected system with idle colonizer"),
+            HelpEntry::Binding("r", "Open research screen"),
+            HelpEntry::Binding("D", "Open diplomacy screen"),
+            HelpEntry::Binding("S", "Dispatch scout to selected unexplored system"),
+            HelpEntry::Binding("M", "Move idle fleet to selected explored system"),
+            HelpEntry::Binding("E / T / Enter", "End turn (AI acts automatically)"),
+            HelpEntry::Section("Global"),
+            HelpEntry::Binding(":", "Command palette  (:save · :load)"),
+            HelpEntry::Binding("/", "Search"),
+            HelpEntry::Binding("?", "Toggle this help"),
+            HelpEntry::Binding("Q", "Quit"),
         ],
         Screen::Colony => vec![
-            ("j / ↓", "Move cursor down in build picker"),
-            ("k / ↑", "Move cursor up in build picker"),
-            ("Enter", "Queue selected building"),
-            ("e / t", "End turn"),
-            (":", "Command palette (:save, :load)"),
-            ("?", "Toggle this help"),
-            ("Esc", "Return to galaxy map"),
+            HelpEntry::Section("Navigation"),
+            HelpEntry::Binding("j / ↓", "Move cursor down in build picker"),
+            HelpEntry::Binding("k / ↑", "Move cursor up in build picker"),
+            HelpEntry::Section("Actions"),
+            HelpEntry::Binding("Enter", "Queue selected building"),
+            HelpEntry::Binding("e / t", "End turn"),
+            HelpEntry::Section("Global"),
+            HelpEntry::Binding(":", "Command palette  (:save · :load)"),
+            HelpEntry::Binding("?", "Toggle this help"),
+            HelpEntry::Binding("Esc", "Return to galaxy map"),
         ],
         Screen::Research => vec![
-            ("j / ↓", "Move cursor down"),
-            ("k / ↑", "Move cursor up"),
-            ("Enter", "Select highlighted technology"),
-            ("e / t", "End turn"),
-            (":", "Command palette (:save, :load)"),
-            ("?", "Toggle this help"),
-            ("Esc", "Return to galaxy map"),
+            HelpEntry::Section("Navigation"),
+            HelpEntry::Binding("j / ↓", "Move cursor down"),
+            HelpEntry::Binding("k / ↑", "Move cursor up"),
+            HelpEntry::Section("Actions"),
+            HelpEntry::Binding("Enter", "Select highlighted technology"),
+            HelpEntry::Binding("e / t", "End turn"),
+            HelpEntry::Section("Global"),
+            HelpEntry::Binding(":", "Command palette  (:save · :load)"),
+            HelpEntry::Binding("?", "Toggle this help"),
+            HelpEntry::Binding("Esc", "Return to galaxy map"),
         ],
         Screen::Diplomacy => vec![
-            ("e / t / Enter", "End turn"),
-            (":", "Command palette (:save, :load)"),
-            ("?", "Toggle this help"),
-            ("Esc", "Return to galaxy map"),
+            HelpEntry::Section("Actions"),
+            HelpEntry::Binding("e / t / Enter", "End turn"),
+            HelpEntry::Section("Global"),
+            HelpEntry::Binding(":", "Command palette  (:save · :load)"),
+            HelpEntry::Binding("?", "Toggle this help"),
+            HelpEntry::Binding("Esc", "Return to galaxy map"),
         ],
     };
 
-    let lines: Vec<Line> = bindings
+    let lines: Vec<Line> = entries
         .iter()
-        .map(|(key, desc)| {
-            Line::from(vec![
-                Span::styled(format!("{:>12}", key), Theme::title_style()),
+        .map(|entry| match entry {
+            HelpEntry::Section(label) => Line::from(vec![
+                Span::raw(" "),
+                Span::styled(*label, Theme::accent_style()),
+                Span::styled(
+                    " ─────────────────────────────────────",
+                    Theme::dim_border_style(),
+                ),
+            ]),
+            HelpEntry::Binding(key, desc) => Line::from(vec![
+                Span::styled(format!("{:>14}", key), Theme::title_style()),
                 Span::raw("  "),
                 Span::styled(*desc, Theme::default_style()),
-            ])
+            ]),
         })
         .collect();
 
@@ -165,6 +194,20 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_help(frame, area, &Screen::Diplomacy);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_help_tiny_terminal_does_not_panic() {
+        // Ensure centered_rect clamps gracefully on tiny areas
+        let backend = TestBackend::new(20, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_help(frame, area, &Screen::Galaxy);
             })
             .unwrap();
     }

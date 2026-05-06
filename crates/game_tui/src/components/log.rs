@@ -3,6 +3,7 @@
 use crate::theme::Theme;
 use ratatui::{
     layout::Rect,
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -60,6 +61,47 @@ impl EventLog {
     }
 }
 
+/// Categorise a log entry and return an appropriate style.
+///
+/// Priority order (first match wins):
+/// 1. `Error:` prefix → error (red)
+/// 2. Turn / game-start keywords → accent (cyan)
+/// 3. Research keywords → success (green)
+/// 4. Colony / coloniz keywords → accent (cyan)
+/// 5. Scout keywords → yellow
+/// 6. Fleet / ship keywords → light-blue
+/// 7. Diplomacy / contact keywords → yellow
+/// 8. Everything else → muted (dark-gray)
+fn log_entry_style(entry: &str) -> Style {
+    let lower = entry.to_ascii_lowercase();
+    if lower.starts_with("error:") {
+        Theme::error_style()
+    } else if lower.starts_with("turn ")
+        || lower.starts_with("game started")
+        || lower.starts_with("game saved")
+        || lower.starts_with("game loaded")
+    {
+        Theme::accent_style()
+    } else if lower.contains("research") || lower.contains("technology") || lower.contains("tech ")
+    {
+        Theme::success_style()
+    } else if lower.contains("colon") {
+        Theme::accent_style()
+    } else if lower.contains("scout") || lower.contains("explored") {
+        Style::default().fg(ratatui::style::Color::Yellow)
+    } else if lower.contains("fleet")
+        || lower.contains("ship")
+        || lower.contains("depart")
+        || lower.contains("arriv")
+    {
+        Style::default().fg(ratatui::style::Color::LightBlue)
+    } else if lower.contains("contact") || lower.contains("diplomacy") || lower.contains("empire") {
+        Style::default().fg(ratatui::style::Color::LightMagenta)
+    } else {
+        Theme::muted_style()
+    }
+}
+
 /// Render the event log
 pub fn render_log(frame: &mut Frame, area: Rect, log: &EventLog) {
     let visible_lines = (area.height.saturating_sub(2)) as usize;
@@ -67,14 +109,7 @@ pub fn render_log(frame: &mut Frame, area: Rect, log: &EventLog) {
 
     let lines: Vec<Line> = entries
         .iter()
-        .map(|entry| {
-            let style = if entry.starts_with("Error:") {
-                Theme::error_style()
-            } else {
-                Theme::muted_style()
-            };
-            Line::from(Span::styled(entry.clone(), style))
-        })
+        .map(|entry| Line::from(Span::styled(entry.clone(), log_entry_style(entry))))
         .collect();
 
     let paragraph = Paragraph::new(lines)
@@ -134,6 +169,78 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_log(frame, area, &log);
+            })
+            .unwrap();
+    }
+
+    // --- log_entry_style categorisation ---
+
+    #[test]
+    fn error_prefix_uses_error_style() {
+        let style = log_entry_style("Error: bad thing happened");
+        assert_eq!(style.fg, Theme::error_style().fg);
+    }
+
+    #[test]
+    fn turn_prefix_uses_accent_style() {
+        let style = log_entry_style("Turn 5 begins.");
+        assert_eq!(style.fg, Theme::accent_style().fg);
+    }
+
+    #[test]
+    fn research_keyword_uses_success_style() {
+        let style = log_entry_style("Research complete: Propulsion I");
+        assert_eq!(style.fg, Theme::success_style().fg);
+    }
+
+    #[test]
+    fn colony_keyword_uses_accent_style() {
+        let style = log_entry_style("Colony founded on Kerenthis III");
+        assert_eq!(style.fg, Theme::accent_style().fg);
+    }
+
+    #[test]
+    fn scout_keyword_uses_yellow() {
+        let style = log_entry_style("Scout arrived at Velara");
+        assert_eq!(style.fg, Some(ratatui::style::Color::Yellow));
+    }
+
+    #[test]
+    fn fleet_keyword_uses_light_blue() {
+        let style = log_entry_style("Fleet 2 departed home system");
+        assert_eq!(style.fg, Some(ratatui::style::Color::LightBlue));
+    }
+
+    #[test]
+    fn unknown_entry_uses_muted_style() {
+        let style = log_entry_style("Some unrecognised event happened");
+        assert_eq!(style.fg, Theme::muted_style().fg);
+    }
+
+    #[test]
+    fn game_saved_uses_accent_style() {
+        let style = log_entry_style("Game saved.");
+        assert_eq!(style.fg, Theme::accent_style().fg);
+    }
+
+    #[test]
+    fn render_log_all_categories_no_panic() {
+        let backend = TestBackend::new(60, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut log = EventLog::new();
+        log.push("Error: something".to_string());
+        log.push("Turn 3 begins".to_string());
+        log.push("Research complete".to_string());
+        log.push("Colony founded".to_string());
+        log.push("Scout mission launched".to_string());
+        log.push("Fleet 1 arrived".to_string());
+        log.push("First contact with empire".to_string());
+        log.push("Some other message".to_string());
+
+        terminal
+            .draw(|frame| {
+                render_log(frame, frame.area(), &log);
             })
             .unwrap();
     }

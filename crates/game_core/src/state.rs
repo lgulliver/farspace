@@ -133,6 +133,56 @@ pub struct Empire {
     pub home_star: StarId,
 }
 
+/// Permanent buildings that can be constructed at a colony
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum BuildingType {
+    /// Increases food production and supports a larger population
+    AquacultureBay,
+    /// Boosts industrial output and production speed
+    FabricationYard,
+    /// Accelerates research and technological advancement
+    ScienceNexus,
+}
+
+impl BuildingType {
+    /// All available building types
+    pub fn all() -> &'static [BuildingType] {
+        &[
+            BuildingType::AquacultureBay,
+            BuildingType::FabricationYard,
+            BuildingType::ScienceNexus,
+        ]
+    }
+
+    /// Display name for this building
+    pub fn name(&self) -> &'static str {
+        match self {
+            BuildingType::AquacultureBay => "Aquaculture Bay",
+            BuildingType::FabricationYard => "Fabrication Yard",
+            BuildingType::ScienceNexus => "Science Nexus",
+        }
+    }
+
+    /// Short description of what this building does
+    pub fn description(&self) -> &'static str {
+        match self {
+            BuildingType::AquacultureBay => "Increases food and population capacity",
+            BuildingType::FabricationYard => "Increases industrial output",
+            BuildingType::ScienceNexus => "Increases research output",
+        }
+    }
+
+    /// Production cost to construct this building
+    pub fn cost(&self) -> u64 {
+        match self {
+            BuildingType::AquacultureBay => 60,
+            BuildingType::FabricationYard => 80,
+            BuildingType::ScienceNexus => 100,
+        }
+    }
+}
+
 /// Items that can be built at a colony
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -140,6 +190,8 @@ pub enum BuildItem {
     Scout,
     Colony,
     Outpost,
+    /// A permanent structure to be built on the colony
+    Structure(BuildingType),
 }
 
 impl BuildItem {
@@ -149,6 +201,7 @@ impl BuildItem {
             BuildItem::Scout => 50,
             BuildItem::Colony => 200,
             BuildItem::Outpost => 100,
+            BuildItem::Structure(bt) => bt.cost(),
         }
     }
 
@@ -158,6 +211,7 @@ impl BuildItem {
             BuildItem::Scout => "Scout",
             BuildItem::Colony => "Colony Ship",
             BuildItem::Outpost => "Outpost",
+            BuildItem::Structure(bt) => bt.name(),
         }
     }
 }
@@ -176,6 +230,9 @@ pub struct Colony {
     pub research_pct: u8,
     pub build_queue: Vec<BuildItem>,
     pub accumulated_production: u64,
+    /// Completed permanent buildings at this colony
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub buildings: Vec<BuildingType>,
 }
 
 /// A fleet of ships
@@ -301,6 +358,15 @@ mod tests {
         assert_eq!(BuildItem::Scout.cost(), 50);
         assert_eq!(BuildItem::Colony.cost(), 200);
         assert_eq!(BuildItem::Outpost.cost(), 100);
+        assert_eq!(
+            BuildItem::Structure(BuildingType::AquacultureBay).cost(),
+            60
+        );
+        assert_eq!(
+            BuildItem::Structure(BuildingType::FabricationYard).cost(),
+            80
+        );
+        assert_eq!(BuildItem::Structure(BuildingType::ScienceNexus).cost(), 100);
     }
 
     #[test]
@@ -362,6 +428,42 @@ mod tests {
         assert_eq!(BuildItem::Scout.name(), "Scout");
         assert_eq!(BuildItem::Colony.name(), "Colony Ship");
         assert_eq!(BuildItem::Outpost.name(), "Outpost");
+        assert_eq!(
+            BuildItem::Structure(BuildingType::AquacultureBay).name(),
+            "Aquaculture Bay"
+        );
+        assert_eq!(
+            BuildItem::Structure(BuildingType::FabricationYard).name(),
+            "Fabrication Yard"
+        );
+        assert_eq!(
+            BuildItem::Structure(BuildingType::ScienceNexus).name(),
+            "Science Nexus"
+        );
+    }
+
+    #[test]
+    fn building_type_all_contains_three_variants() {
+        let all = BuildingType::all();
+        assert_eq!(all.len(), 3);
+        assert!(all.contains(&BuildingType::AquacultureBay));
+        assert!(all.contains(&BuildingType::FabricationYard));
+        assert!(all.contains(&BuildingType::ScienceNexus));
+    }
+
+    #[test]
+    fn building_type_names_and_descriptions_are_non_empty() {
+        for bt in BuildingType::all() {
+            assert!(!bt.name().is_empty());
+            assert!(!bt.description().is_empty());
+        }
+    }
+
+    #[test]
+    fn building_type_costs_are_positive() {
+        for bt in BuildingType::all() {
+            assert!(bt.cost() > 0);
+        }
     }
 
     #[test]

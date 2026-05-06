@@ -20,6 +20,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
     let title = match screen {
         Screen::Menu => " Main Menu Help ",
         Screen::Galaxy => " Galaxy Map Help ",
+        Screen::Colony => " Colony Help ",
     };
 
     let bindings = match screen {
@@ -34,11 +35,21 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("j / ↓", "Move selection down"),
             ("k / ↑", "Move selection up"),
             ("l / →", "Move selection right"),
-            ("E / Enter / T", "End turn"),
+            ("c", "Enter colony (if colonized star selected)"),
+            ("E / T / Enter", "End turn"),
             (":", "Command palette (:save, :load)"),
             ("/", "Search"),
             ("?", "Toggle this help"),
             ("Q", "Quit"),
+        ],
+        Screen::Colony => vec![
+            ("j / ↓", "Move cursor down in build picker"),
+            ("k / ↑", "Move cursor up in build picker"),
+            ("Enter", "Queue selected building"),
+            ("e / t", "End turn"),
+            (":", "Command palette (:save, :load)"),
+            ("?", "Toggle this help"),
+            ("Esc", "Return to galaxy map"),
         ],
     };
 
@@ -93,6 +104,19 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_help(frame, area, &Screen::Galaxy);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_help_colony() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_help(frame, area, &Screen::Colony);
             })
             .unwrap();
     }

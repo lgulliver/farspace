@@ -248,4 +248,59 @@ mod tests {
         let load_empire = loaded.empires.get(&loaded.player_empire).unwrap();
         assert!(load_empire.research.completed.contains(&TechId(1)));
     }
+
+    #[test]
+    fn save_load_preserves_research_overflow() {
+        use game_core::{ColonyId, Command, TechId};
+
+        let mut engine = Engine::new(42);
+
+        // Use research_pct=70 → 7 rp/turn; TechId(1) cost=50.
+        // Completes on turn 8 (7*8=56 ≥ 50) with overflow = 6.
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: ColonyId(1),
+            prod_pct: 30,
+            research_pct: 70,
+        }]);
+        engine.apply_turn(vec![Command::SelectResearch { tech: TechId(1) }]);
+
+        // Run 9 turns — enough to complete and leave overflow unchanged
+        for _ in 0..9 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let original_empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .clone();
+        assert!(
+            original_empire.research.completed.contains(&TechId(1)),
+            "tech must be completed before saving overflow"
+        );
+        assert!(
+            original_empire.research.current_tech.is_none(),
+            "no active tech expected after completion"
+        );
+        let overflow = original_empire.research.progress;
+        assert!(overflow > 0, "overflow must be positive for this test");
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        let loaded_empire = loaded.empires.get(&loaded.player_empire).unwrap();
+        assert_eq!(
+            loaded_empire.research.progress, overflow,
+            "overflow in research.progress must survive save/load"
+        );
+        assert_eq!(
+            loaded_empire.research.current_tech, original_empire.research.current_tech,
+            "current_tech must survive save/load"
+        );
+        assert_eq!(
+            loaded_empire.research.completed, original_empire.research.completed,
+            "completed techs must survive save/load"
+        );
+    }
 }

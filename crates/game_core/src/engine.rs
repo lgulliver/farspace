@@ -5,8 +5,8 @@ use crate::deterministic::sorted_colony_ids;
 use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy};
 use crate::state::{
-    all_techs, BuildItem, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId, GameState,
-    ResearchState, StarId, TechId,
+    all_techs, BuildItem, BuildingType, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId,
+    GameState, ResearchState, StarId, TechId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -174,6 +174,8 @@ impl Engine {
                 star_id,
                 build_queue_front,
                 accumulated,
+                population,
+                buildings,
             ) = {
                 let colony = self.state.colonies.get(&colony_id).unwrap();
                 (
@@ -184,13 +186,21 @@ impl Engine {
                     colony.star,
                     colony.build_queue.first().copied(),
                     colony.accumulated_production,
+                    colony.population,
+                    colony.buildings.clone(),
                 )
             };
 
             // Calculate output
             let total_output = production as i64;
             let credits = (total_output * prod_pct as i64) / 100;
-            let research = (total_output * research_pct as i64) / 100;
+            // Base science from production focus, plus ScienceNexus bonus (population per nexus)
+            let base_science = (total_output * research_pct as i64) / 100;
+            let nexus_count = buildings
+                .iter()
+                .filter(|b| **b == BuildingType::ScienceNexus)
+                .count() as i64;
+            let research = base_science + nexus_count * (population as i64).max(1);
 
             // Update empire credits and lifetime research total
             if let Some(empire) = self.state.empires.get_mut(&owner) {
@@ -264,6 +274,12 @@ impl Engine {
         // Apply research progress for each empire that has a current tech
         let techs = all_techs();
         for (empire_id, research_gained) in &empire_research {
+            // Emit science-generated event for this empire
+            events.push(Event::ScienceGenerated {
+                empire: *empire_id,
+                amount: *research_gained,
+            });
+
             let (current_tech, current_progress) = {
                 let empire = match self.state.empires.get(empire_id) {
                     Some(e) => e,
@@ -281,17 +297,24 @@ impl Engine {
                 let new_progress = current_progress + research_gained;
 
                 if new_progress >= tech_cost {
-                    // Tech completed
+                    // Tech completed — overflow is preserved in progress for the next tech
+                    let overflow = new_progress - tech_cost;
                     if let Some(empire) = self.state.empires.get_mut(empire_id) {
                         empire.research.completed.push(tech_id);
                         empire.research.current_tech = None;
-                        empire.research.progress = 0;
+                        empire.research.progress = overflow;
                     }
                     events.push(Event::ResearchCompleted { tech: tech_id });
                 } else {
                     if let Some(empire) = self.state.empires.get_mut(empire_id) {
                         empire.research.progress = new_progress;
                     }
+                    events.push(Event::ResearchProgress {
+                        tech: tech_id,
+                        gained: *research_gained,
+                        total: new_progress,
+                        cost: tech_cost,
+                    });
                 }
             }
         }
@@ -483,10 +506,14 @@ impl Engine {
             return;
         }
 
-        // Select the tech; only reset progress when switching to a different tech
+        // Select the tech; only reset progress when switching FROM a different active tech.
+        // If current_tech is None (no research or just completed with overflow), preserve
+        // progress so the overflow carries into the newly selected technology.
         if let Some(empire) = self.state.empires.get_mut(&empire_id) {
-            if empire.research.current_tech != Some(tech_id) {
-                empire.research.progress = 0;
+            if let Some(active_tech) = empire.research.current_tech {
+                if active_tech != tech_id {
+                    empire.research.progress = 0;
+                }
             }
             empire.research.current_tech = Some(tech_id);
         }
@@ -1486,6 +1513,354 @@ mod tests {
         assert_eq!(
             progress_after_switch, 0,
             "Switching tech must reset progress"
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Overflow / science-pool tests
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn overflow_science_carries_to_next_research() {
+        use crate::state::{all_techs, TechId};
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // Use research_pct=70 → rp = (10 * 70) / 100 = 7 rp/turn.
+        // TechId(1) = Void Propulsion, cost 50.
+        // 50 / 7 = 7.14... → completes on turn 8 with 7*8=56 → overflow = 6.
+        let tech_a = TechId(1); // cost 50
+        let tech_b = TechId(2); // Habitat Seeding, cost 80
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 30,
+            research_pct: 70,
+        }]);
+
+        let rp_per_turn = {
+            let colony = engine.state.colonies.get(&colony_id).unwrap();
+            (colony.production as i64 * colony.research_pct as i64) / 100
+        };
+        assert!(rp_per_turn > 0);
+
+        let tech_a_cost = all_techs().iter().find(|t| t.id == tech_a).unwrap().cost;
+        // Find the turn on which the tech completes and compute the expected overflow
+        let completion_turn_rp = {
+            let mut acc = 0i64;
+            loop {
+                acc += rp_per_turn;
+                if acc >= tech_a_cost {
+                    break acc;
+                }
+            }
+        };
+        let expected_overflow = completion_turn_rp - tech_a_cost;
+        assert!(
+            expected_overflow > 0,
+            "test requires non-zero overflow with rp={} cost={}; got {}",
+            rp_per_turn,
+            tech_a_cost,
+            expected_overflow
+        );
+
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_a }]);
+
+        // Run until tech_a completes (a few extra turns are fine — no active tech after)
+        let max_turns = tech_a_cost / rp_per_turn + 2;
+        for _ in 0..max_turns {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert!(
+            empire.research.completed.contains(&tech_a),
+            "tech_a should be completed"
+        );
+        assert!(
+            empire.research.current_tech.is_none(),
+            "current_tech should be None after completion"
+        );
+        assert_eq!(
+            empire.research.progress, expected_overflow,
+            "overflow ({} rp) must be preserved in progress",
+            expected_overflow
+        );
+
+        // Select tech B — overflow should carry over as a head start
+        let overflow = empire.research.progress;
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_b }]);
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert_eq!(
+            empire.research.current_tech,
+            Some(tech_b),
+            "tech_b should now be active"
+        );
+        assert_eq!(
+            empire.research.progress, overflow,
+            "overflow should carry into tech_b progress"
+        );
+    }
+
+    #[test]
+    fn overflow_is_zero_when_tech_completes_exactly() {
+        use crate::state::{all_techs, TechId};
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // TechId(1) cost=50, rp=10/turn → exactly 5 turns → overflow 0
+        let tech_id = TechId(1);
+        let tech_cost = all_techs().iter().find(|t| t.id == tech_id).unwrap().cost;
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
+
+        let rp_per_turn = {
+            let colony = engine.state.colonies.get(&colony_id).unwrap();
+            (colony.production as i64 * colony.research_pct as i64) / 100
+        };
+        // Run the exact number of turns needed (no extra)
+        let turns_exact = tech_cost / rp_per_turn;
+        assert_eq!(
+            turns_exact * rp_per_turn,
+            tech_cost,
+            "test expects exact completion"
+        );
+
+        for _ in 0..turns_exact {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert!(empire.research.completed.contains(&tech_id));
+        assert_eq!(
+            empire.research.progress, 0,
+            "overflow must be 0 for exact completion"
+        );
+    }
+
+    #[test]
+    fn overflow_carry_is_deterministic() {
+        use crate::state::TechId;
+
+        let cmds = vec![
+            Command::SetColonyFocus {
+                colony: ColonyId(1),
+                prod_pct: 0,
+                research_pct: 100,
+            },
+            Command::SelectResearch { tech: TechId(1) },
+            Command::EndTurn,
+            Command::EndTurn,
+            Command::EndTurn,
+            Command::EndTurn,
+            Command::EndTurn,
+            Command::EndTurn, // extra turn to produce overflow on TechId(1) cost 50
+        ];
+
+        let mut engine_a = Engine::new(1234);
+        let mut engine_b = Engine::new(1234);
+
+        for cmd in &cmds {
+            engine_a.apply_turn(vec![cmd.clone()]);
+            engine_b.apply_turn(vec![cmd.clone()]);
+        }
+
+        let empire_a = engine_a
+            .state
+            .empires
+            .get(&engine_a.state.player_empire)
+            .unwrap();
+        let empire_b = engine_b
+            .state
+            .empires
+            .get(&engine_b.state.player_empire)
+            .unwrap();
+        assert_eq!(
+            empire_a.research.progress, empire_b.research.progress,
+            "overflow must be identical across identical seeds"
+        );
+    }
+
+    #[test]
+    fn selecting_tech_after_completion_preserves_overflow() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let tech_a = TechId(1); // cost 50
+        let tech_b = TechId(2); // cost 80
+
+        // research_pct=70 → 7 rp/turn; cost-50 tech completes on turn 8 with overflow 6
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 30,
+            research_pct: 70,
+        }]);
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_a }]);
+
+        // Run 9 turns — enough to complete cost-50 at 7 rp/turn (completes turn 8)
+        for _ in 0..9 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let overflow = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+        assert!(
+            overflow > 0,
+            "should have overflow after completing cost-50 tech at 7 rp/turn"
+        );
+
+        // Select next tech — overflow should carry over
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_b }]);
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert_eq!(
+            empire.research.progress, overflow,
+            "overflow must be preserved when selecting tech after completion"
+        );
+    }
+
+    #[test]
+    fn science_nexus_increases_research_output() {
+        use crate::state::BuildingType;
+
+        let colony_id = ColonyId(1);
+
+        // Engine A: no buildings
+        let mut engine_a = Engine::new(42);
+        engine_a.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine_a.apply_turn(vec![Command::SelectResearch { tech: TechId(5) }]); // cost 120
+        engine_a.apply_turn(vec![Command::EndTurn]);
+        let progress_no_nexus = engine_a
+            .state
+            .empires
+            .get(&engine_a.state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+
+        // Engine B: manually add a ScienceNexus building
+        let mut engine_b = Engine::new(42);
+        engine_b
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .buildings
+            .push(BuildingType::ScienceNexus);
+        engine_b.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine_b.apply_turn(vec![Command::SelectResearch { tech: TechId(5) }]);
+        engine_b.apply_turn(vec![Command::EndTurn]);
+        let progress_with_nexus = engine_b
+            .state
+            .empires
+            .get(&engine_b.state.player_empire)
+            .unwrap()
+            .research
+            .progress;
+
+        assert!(
+            progress_with_nexus > progress_no_nexus,
+            "ScienceNexus must increase research output: {} <= {}",
+            progress_with_nexus,
+            progress_no_nexus
+        );
+    }
+
+    #[test]
+    fn science_generated_event_emitted_each_end_turn() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::ScienceGenerated { .. })),
+            "ScienceGenerated event must be emitted each turn science is produced"
+        );
+    }
+
+    #[test]
+    fn research_progress_event_emitted_when_research_active() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let tech_id = TechId(5); // cost 120 — won't complete in one turn
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::ResearchProgress { tech, .. } if *tech == tech_id
+            )),
+            "ResearchProgress event must be emitted when a tech is actively researched"
+        );
+    }
+
+    #[test]
+    fn no_research_progress_event_when_no_active_tech() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+
+        // No tech selected
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::ResearchProgress { .. })),
+            "ResearchProgress must not be emitted when no tech is active"
         );
     }
 }

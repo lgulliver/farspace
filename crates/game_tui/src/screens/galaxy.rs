@@ -273,9 +273,12 @@ fn render_star_details(
                 if let Some(colony) = game_state.colonies.get(colony_id) {
                     if colony.owner == game_state.player_empire {
                         Theme::accent_style()
-                    } else {
-                        // AI colony — yellow to distinguish from player colonies
+                    } else if Some(colony.owner) == game_state.ai_empire {
+                        // AI colony — yellow
                         ratatui::style::Style::default().fg(ratatui::style::Color::Yellow)
+                    } else {
+                        // Foreign (unknown) colony — magenta
+                        ratatui::style::Style::default().fg(ratatui::style::Color::Magenta)
                     }
                 } else {
                     Theme::accent_style()

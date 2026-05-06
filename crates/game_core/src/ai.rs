@@ -7,14 +7,12 @@
 //! 3. Dispatch the first idle scout to the nearest unexplored star
 //! 4. Colonize with any idle colonizer at an AI-explored star
 
+use crate::engine::SCOUT_TRAVEL_TURNS;
 use crate::events::Event;
 use crate::state::{
     all_techs, BuildItem, BuildingType, Colony, ColonyId, EmpireId, FleetId, FleetKind, GameState,
     ScoutMission, StarId, TechId,
 };
-
-/// Turns a scout takes to reach an unexplored system (mirrors engine constant).
-const SCOUT_TRAVEL_TURNS: u32 = 3;
 
 /// Run one AI decision pass for the given empire.
 ///
@@ -754,20 +752,23 @@ mod tests {
         let mut engine = Engine::new(42);
         let ai = ai_id(&engine);
 
-        // Find an explored AI star that is not the home star and has a free habitable planet
+        // Find an explored AI star that is not the home star and has a free habitable planet.
+        // For seed 42 the AI starts with its home + 3 nearest neighbours explored; all
+        // generated planets are habitable with no colonies (except AI home planet 0), so
+        // at least one valid target must always exist.
         let ai_home = engine.state.empires[&ai].home_star;
-        let target =
-            engine.state.ai_explored_stars.iter().copied().find(|&sid| {
+        let target = engine
+            .state
+            .ai_explored_stars
+            .iter()
+            .copied()
+            .find(|&sid| {
                 sid != ai_home
                     && engine.state.stars.get(&sid).is_some_and(|s| {
                         s.planets.iter().any(|p| p.habitable && p.colony.is_none())
                     })
-            });
-
-        let target = match target {
-            Some(t) => t,
-            None => return, // No valid target — test is not applicable for this seed
-        };
+            })
+            .expect("Seed 42 must have an AI-explored star with a free habitable planet");
 
         // Place a colonizer there
         let colonizer_id = crate::state::FleetId(50);
@@ -822,8 +823,17 @@ mod tests {
         let mut engine = Engine::new(42);
         let ai = ai_id(&engine);
 
-        // Use AI home star (already has a colony at planet 0)
+        // Use AI home star (already has a colony at planet 0).
+        // Explicitly mark all other planets at this star as uninhabitable so the
+        // test is always deterministic regardless of planet count.
         let ai_home = engine.state.empires[&ai].home_star;
+        if let Some(star) = engine.state.stars.get_mut(&ai_home) {
+            for (i, planet) in star.planets.iter_mut().enumerate() {
+                if i != 0 {
+                    planet.habitable = false;
+                }
+            }
+        }
 
         let colonizer_id = crate::state::FleetId(50);
         engine.state.fleets.insert(
@@ -836,18 +846,6 @@ mod tests {
                 kind: FleetKind::Colonizer,
             },
         );
-
-        // Check whether all planets at AI home are colonized
-        let all_colonized = engine
-            .state
-            .stars
-            .get(&ai_home)
-            .is_none_or(|s| s.planets.iter().all(|p| !p.habitable || p.colony.is_some()));
-
-        if !all_colonized {
-            // AI home has a free planet — skip this test (it would successfully colonize)
-            return;
-        }
 
         let colonies_before = engine
             .state
@@ -867,7 +865,7 @@ mod tests {
 
         assert_eq!(
             colonies_before, colonies_after,
-            "AI must not colonize when all planets are occupied"
+            "AI must not colonize when all habitable planets are occupied"
         );
     }
 
@@ -923,6 +921,7 @@ mod tests {
     // Save / load round-trip
     // -----------------------------------------------------------------------
 
+    #[cfg(feature = "serde")]
     #[test]
     fn save_load_preserves_ai_empire_state() {
         let mut engine = Engine::new(42);
@@ -960,6 +959,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn save_load_preserves_ai_colonies() {
         let engine = Engine::new(42);

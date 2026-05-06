@@ -13,7 +13,7 @@ use rand_chacha::ChaCha8Rng;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Number of turns for a scout to travel to an unexplored system
-const SCOUT_TRAVEL_TURNS: u32 = 3;
+pub(crate) const SCOUT_TRAVEL_TURNS: u32 = 3;
 
 /// Return the number of travel turns for a fleet moving the given squared distance.
 ///
@@ -1083,13 +1083,14 @@ fn initial_explored_stars(stars: &[crate::state::Star], home_id: StarId) -> BTre
 
 /// Find the AI home star: the habitable star farthest from the player's home.
 ///
+/// A star qualifies only if it has at least one habitable planet.
 /// Tie-breaking is by descending StarId so the choice is fully deterministic.
 fn find_ai_home_star(stars: &[crate::state::Star], player_home: StarId) -> Option<StarId> {
     let player_star = stars.iter().find(|s| s.id == player_home)?;
 
     stars
         .iter()
-        .filter(|s| s.id != player_home && !s.planets.is_empty())
+        .filter(|s| s.id != player_home && s.planets.iter().any(|p| p.habitable))
         .max_by_key(|s| {
             let dx = (s.x - player_star.x) as i64;
             let dy = (s.y - player_star.y) as i64;

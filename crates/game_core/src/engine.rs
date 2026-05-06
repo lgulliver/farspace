@@ -6,11 +6,14 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy};
 use crate::state::{
     all_techs, BuildItem, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId, GameState,
-    ResearchState, StarId, TechId,
+    ResearchState, ScoutMission, StarId, TechId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Number of turns for a scout to travel to an unexplored system
+const SCOUT_TRAVEL_TURNS: u32 = 3;
 
 /// The game engine processes commands and manages game state
 #[derive(Debug)]
@@ -89,6 +92,9 @@ impl Engine {
             },
         );
 
+        // Determine initially explored stars: home system + 3 nearest neighbours
+        let explored_stars = initial_explored_stars(&stars_vec, home_star_id);
+
         let state = GameState {
             seed,
             turn: 1,
@@ -101,6 +107,8 @@ impl Engine {
             event_log: Vec::new(),
             next_colony_id: 2,
             next_fleet_id: 2,
+            explored_stars,
+            scout_missions: BTreeMap::new(),
         };
 
         Engine { state }
@@ -138,6 +146,9 @@ impl Engine {
                 }
                 Command::SelectResearch { tech } => {
                     self.process_select_research(tech, &mut events);
+                }
+                Command::SendScout { fleet, destination } => {
+                    self.process_send_scout(fleet, destination, &mut events);
                 }
             }
         }
@@ -296,6 +307,28 @@ impl Engine {
             }
         }
 
+        // Tick scout missions: decrement and resolve completed ones
+        let mission_fleet_ids: Vec<FleetId> = self.state.scout_missions.keys().copied().collect();
+        for fleet_id in mission_fleet_ids {
+            let (destination, new_remaining) = {
+                let mission = self.state.scout_missions.get_mut(&fleet_id).unwrap();
+                mission.turns_remaining = mission.turns_remaining.saturating_sub(1);
+                (mission.destination, mission.turns_remaining)
+            };
+
+            if new_remaining == 0 {
+                self.state.scout_missions.remove(&fleet_id);
+                self.state.explored_stars.insert(destination);
+
+                // Move the fleet to the destination
+                if let Some(fleet) = self.state.fleets.get_mut(&fleet_id) {
+                    fleet.location = destination;
+                }
+
+                events.push(Event::SystemExplored { star: destination });
+            }
+        }
+
         // Advance turn
         self.state.turn += 1;
         events.push(Event::TurnAdvanced {
@@ -360,6 +393,15 @@ impl Engine {
         // Validate owner
         if fleet.owner != self.state.player_empire {
             events.push(Event::error("Fleet not owned by player"));
+            return;
+        }
+
+        // Block move if fleet has an active scout mission
+        if self.state.scout_missions.contains_key(&fleet_id) {
+            events.push(Event::error(format!(
+                "Fleet {} is on a scout mission",
+                fleet_id.0
+            )));
             return;
         }
 
@@ -493,6 +535,105 @@ impl Engine {
 
         events.push(Event::ResearchSelected { tech: tech_id });
     }
+
+    fn process_send_scout(
+        &mut self,
+        fleet_id: FleetId,
+        destination: StarId,
+        events: &mut Vec<Event>,
+    ) {
+        // Validate fleet exists
+        let fleet = match self.state.fleets.get(&fleet_id) {
+            Some(f) => f,
+            None => {
+                events.push(Event::error(format!("Fleet {} not found", fleet_id.0)));
+                return;
+            }
+        };
+
+        // Validate owner
+        if fleet.owner != self.state.player_empire {
+            events.push(Event::error("Fleet not owned by player"));
+            return;
+        }
+
+        // Validate fleet is not already on a mission
+        if self.state.scout_missions.contains_key(&fleet_id) {
+            events.push(Event::error(format!(
+                "Fleet {} is already on a scout mission",
+                fleet_id.0
+            )));
+            return;
+        }
+
+        // Validate destination star exists
+        if !self.state.stars.contains_key(&destination) {
+            events.push(Event::error(format!(
+                "Destination star {} not found",
+                destination.0
+            )));
+            return;
+        }
+
+        // Validate destination is not already explored
+        if self.state.explored_stars.contains(&destination) {
+            events.push(Event::error(format!(
+                "Star {} is already explored",
+                destination.0
+            )));
+            return;
+        }
+
+        // Create the scout mission
+        self.state.scout_missions.insert(
+            fleet_id,
+            ScoutMission {
+                fleet: fleet_id,
+                destination,
+                turns_remaining: SCOUT_TRAVEL_TURNS,
+            },
+        );
+
+        events.push(Event::ScoutDispatched {
+            fleet: fleet_id,
+            destination,
+            turns_remaining: SCOUT_TRAVEL_TURNS,
+        });
+    }
+}
+
+/// Compute the set of initially explored stars: home star + up to 3 nearest neighbours.
+///
+/// Distances are compared by squared Euclidean distance to remain deterministic
+/// (no floating-point arithmetic).
+fn initial_explored_stars(stars: &[crate::state::Star], home_id: StarId) -> BTreeSet<StarId> {
+    let mut explored = BTreeSet::new();
+    explored.insert(home_id);
+
+    let home = match stars.iter().find(|s| s.id == home_id) {
+        Some(s) => s,
+        None => return explored,
+    };
+
+    // Sort all other stars by squared distance to home
+    let mut neighbours: Vec<(i64, StarId)> = stars
+        .iter()
+        .filter(|s| s.id != home_id)
+        .map(|s| {
+            let dx = (s.x - home.x) as i64;
+            let dy = (s.y - home.y) as i64;
+            (dx * dx + dy * dy, s.id)
+        })
+        .collect();
+
+    // Sort by distance, then by StarId for tie-breaking determinism
+    neighbours.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+
+    for (_, star_id) in neighbours.into_iter().take(3) {
+        explored.insert(star_id);
+    }
+
+    explored
 }
 
 #[cfg(test)]
@@ -1487,5 +1628,279 @@ mod tests {
             progress_after_switch, 0,
             "Switching tech must reset progress"
         );
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Exploration / scout tests
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn initial_explored_stars_includes_home_star() {
+        let engine = Engine::new(42);
+        let home_star_id = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
+        assert!(
+            engine.state.explored_stars.contains(&home_star_id),
+            "Home star must be explored at game start"
+        );
+    }
+
+    #[test]
+    fn initial_explored_stars_count_is_deterministic() {
+        let engine_a = Engine::new(42);
+        let engine_b = Engine::new(42);
+        assert_eq!(engine_a.state.explored_stars, engine_b.state.explored_stars);
+    }
+
+    #[test]
+    fn initial_explored_stars_different_seeds_may_differ() {
+        let engine_a = Engine::new(1);
+        let engine_b = Engine::new(2);
+        // The explored sets may or may not overlap but should each be non-empty
+        assert!(!engine_a.state.explored_stars.is_empty());
+        assert!(!engine_b.state.explored_stars.is_empty());
+    }
+
+    #[test]
+    fn initial_explored_stars_up_to_four_stars() {
+        let engine = Engine::new(42);
+        // Home + up to 3 neighbours = at most 4 (and at least 1)
+        assert!(!engine.state.explored_stars.is_empty());
+        assert!(engine.state.explored_stars.len() <= 4);
+    }
+
+    #[test]
+    fn send_scout_to_unexplored_star_succeeds() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let destination = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("There should be unexplored stars");
+
+        let events = engine.apply_turn(vec![Command::SendScout {
+            fleet: fleet_id,
+            destination,
+        }]);
+
+        assert!(
+            !events.iter().any(|e| e.is_error()),
+            "SendScout to unexplored star should not error"
+        );
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::ScoutDispatched { fleet, destination: dest, .. }
+                if *fleet == fleet_id && *dest == destination
+            )),
+            "ScoutDispatched event expected"
+        );
+        assert!(
+            engine.state.scout_missions.contains_key(&fleet_id),
+            "Scout mission should be registered"
+        );
+    }
+
+    #[test]
+    fn send_scout_to_explored_star_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let already_explored = *engine.state.explored_stars.iter().next().unwrap();
+
+        let events = engine.apply_turn(vec![Command::SendScout {
+            fleet: fleet_id,
+            destination: already_explored,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "SendScout to an already-explored star must emit an error"
+        );
+        assert!(
+            !engine.state.scout_missions.contains_key(&fleet_id),
+            "No mission should be created for an already-explored star"
+        );
+    }
+
+    #[test]
+    fn send_scout_unknown_fleet_emits_error() {
+        let mut engine = Engine::new(42);
+        let bad_fleet = FleetId(999);
+
+        let destination = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Unexplored star needed");
+
+        let events = engine.apply_turn(vec![Command::SendScout {
+            fleet: bad_fleet,
+            destination,
+        }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn send_scout_unknown_destination_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+        let bad_dest = StarId(9999);
+
+        let events = engine.apply_turn(vec![Command::SendScout {
+            fleet: fleet_id,
+            destination: bad_dest,
+        }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn send_scout_when_fleet_already_on_mission_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let mut unexplored = engine
+            .state
+            .stars
+            .keys()
+            .filter(|id| !engine.state.explored_stars.contains(id));
+        let dest1 = *unexplored.next().expect("Need two unexplored stars");
+        let dest2 = *unexplored.next().expect("Need two unexplored stars");
+
+        // First dispatch succeeds
+        engine.apply_turn(vec![Command::SendScout {
+            fleet: fleet_id,
+            destination: dest1,
+        }]);
+
+        // Second dispatch with same fleet should fail
+        let events = engine.apply_turn(vec![Command::SendScout {
+            fleet: fleet_id,
+            destination: dest2,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Dispatching scout already on a mission must error"
+        );
+    }
+
+    #[test]
+    fn scout_arrives_after_travel_turns_and_explores_system() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let destination = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Unexplored star needed");
+
+        engine.apply_turn(vec![Command::SendScout {
+            fleet: fleet_id,
+            destination,
+        }]);
+
+        assert!(!engine.state.explored_stars.contains(&destination));
+
+        // Advance turns until the scout should arrive
+        let mut explored_event_seen = false;
+        for _ in 0..SCOUT_TRAVEL_TURNS {
+            let events = engine.apply_turn(vec![Command::EndTurn]);
+            if events
+                .iter()
+                .any(|e| matches!(e, Event::SystemExplored { star } if *star == destination))
+            {
+                explored_event_seen = true;
+            }
+        }
+
+        assert!(
+            explored_event_seen,
+            "SystemExplored event must fire after SCOUT_TRAVEL_TURNS"
+        );
+        assert!(
+            engine.state.explored_stars.contains(&destination),
+            "Destination should now be explored"
+        );
+        assert!(
+            !engine.state.scout_missions.contains_key(&fleet_id),
+            "Scout mission should be removed after completion"
+        );
+        // Fleet should have moved to destination
+        assert_eq!(
+            engine.state.fleets.get(&fleet_id).unwrap().location,
+            destination
+        );
+    }
+
+    #[test]
+    fn move_fleet_on_scout_mission_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let destination = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Unexplored star needed");
+
+        engine.apply_turn(vec![Command::SendScout {
+            fleet: fleet_id,
+            destination,
+        }]);
+
+        // Try to also move the fleet manually while it's on a mission
+        let move_dest = *engine
+            .state
+            .stars
+            .keys()
+            .find(|&&id| id != destination)
+            .unwrap();
+        let events = engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination: move_dest,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "MoveFleet while on scout mission must error"
+        );
+    }
+
+    #[test]
+    fn scout_dispatch_event_ordering_is_deterministic() {
+        let mut engine_a = Engine::new(123);
+        let mut engine_b = Engine::new(123);
+
+        let dest = *engine_a
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine_a.state.explored_stars.contains(id))
+            .unwrap();
+
+        let evts_a = engine_a.apply_turn(vec![Command::SendScout {
+            fleet: FleetId(1),
+            destination: dest,
+        }]);
+        let evts_b = engine_b.apply_turn(vec![Command::SendScout {
+            fleet: FleetId(1),
+            destination: dest,
+        }]);
+
+        assert_eq!(evts_a, evts_b);
     }
 }

@@ -248,4 +248,80 @@ mod tests {
         let load_empire = loaded.empires.get(&loaded.player_empire).unwrap();
         assert!(load_empire.research.completed.contains(&TechId(1)));
     }
+
+    #[test]
+    fn save_load_preserves_explored_stars() {
+        use game_core::{Command, FleetId};
+
+        let mut engine = Engine::new(42);
+
+        // Find an unexplored star and dispatch a scout, then advance turns until it arrives
+        let dest = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("There should be unexplored stars");
+
+        engine.apply_turn(vec![Command::SendScout {
+            fleet: FleetId(1),
+            destination: dest,
+        }]);
+
+        // Advance enough turns for the scout to arrive (SCOUT_TRAVEL_TURNS = 3)
+        for _ in 0..3 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        assert!(
+            engine.state.explored_stars.contains(&dest),
+            "Star should be explored before saving"
+        );
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert!(
+            loaded.explored_stars.contains(&dest),
+            "Explored stars must survive save/load round-trip"
+        );
+        assert_eq!(
+            engine.state.explored_stars.len(),
+            loaded.explored_stars.len(),
+            "explored_stars count must match after round-trip"
+        );
+    }
+
+    #[test]
+    fn save_load_preserves_active_scout_mission() {
+        use game_core::{Command, FleetId, ScoutMission};
+
+        let mut engine = Engine::new(42);
+
+        let dest = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Unexplored star needed");
+
+        engine.apply_turn(vec![Command::SendScout {
+            fleet: FleetId(1),
+            destination: dest,
+        }]);
+
+        // Don't advance turns — mission should still be active
+        assert!(!engine.state.scout_missions.is_empty());
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert!(
+            !loaded.scout_missions.is_empty(),
+            "Active scout mission must survive save/load round-trip"
+        );
+
+        let mission: &ScoutMission = loaded.scout_missions.get(&FleetId(1)).unwrap();
+        assert_eq!(mission.destination, dest);
+    }
 }

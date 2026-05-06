@@ -4,7 +4,7 @@ use crate::components::{render_help, render_palette, EventLog};
 use crate::keys::KeyMap;
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
-use game_core::{all_techs, BuildingType, ColonyId, Command, Engine, StarId, TechId};
+use game_core::{all_techs, BuildingType, ColonyId, Command, Engine, FleetId, StarId, TechId};
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
 use std::time::Duration;
@@ -239,6 +239,12 @@ impl App {
         if key.code == KeyCode::Char('r') {
             self.state.active = Screen::Research;
             self.state.research_cursor = 0;
+            return;
+        }
+
+        // Dispatch scout with 'S'
+        if key.code == KeyCode::Char('S') {
+            self.dispatch_scout();
             return;
         }
 
@@ -506,6 +512,60 @@ impl App {
         let events = engine.apply_turn(commands);
 
         // Add events to log
+        for event in events {
+            self.state.log.push(event.to_log_message());
+        }
+    }
+
+    /// Dispatch an available scout fleet to the currently selected star system.
+    /// Logs an error if no fleet is available or the destination is already explored.
+    fn dispatch_scout(&mut self) {
+        let star_id = match self.state.selected_star {
+            Some(id) => id,
+            None => {
+                self.state.log.push("No star selected.".to_string());
+                return;
+            }
+        };
+
+        // Find the first player-owned fleet that is not on an active scout mission
+        let fleet_id: Option<FleetId> = {
+            let engine = match &self.engine {
+                Some(e) => e,
+                None => return,
+            };
+            engine
+                .state
+                .fleets
+                .values()
+                .find(|f| {
+                    f.owner == engine.state.player_empire
+                        && !engine.state.scout_missions.contains_key(&f.id)
+                })
+                .map(|f| f.id)
+        };
+
+        let fleet_id = match fleet_id {
+            Some(id) => id,
+            None => {
+                self.state
+                    .log
+                    .push("No scout available to dispatch.".to_string());
+                return;
+            }
+        };
+
+        self.pending_commands.push(Command::SendScout {
+            fleet: fleet_id,
+            destination: star_id,
+        });
+
+        let commands = std::mem::take(&mut self.pending_commands);
+        let engine = match &mut self.engine {
+            Some(e) => e,
+            None => return,
+        };
+        let events = engine.apply_turn(commands);
         for event in events {
             self.state.log.push(event.to_log_message());
         }
@@ -1346,5 +1406,120 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Scout dispatch TUI tests
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn s_key_dispatches_scout_to_unexplored_star() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        // Select an unexplored star
+        let engine = app.engine.as_ref().unwrap();
+        let unexplored = engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .copied();
+
+        if let Some(star_id) = unexplored {
+            app.state.selected_star = Some(star_id);
+            let before = app.state.log.len();
+
+            app.handle_key(key(KeyCode::Char('S')));
+
+            // A log entry should have been added (ScoutDispatched message)
+            assert!(
+                app.state.log.len() > before,
+                "Scout dispatch should add a log entry"
+            );
+
+            let has_mission = app
+                .engine
+                .as_ref()
+                .unwrap()
+                .state
+                .scout_missions
+                .values()
+                .any(|m| m.destination == star_id);
+            assert!(has_mission, "Scout mission should be active after S key");
+        }
+        // If every star is initially explored (very unlikely) we skip
+    }
+
+    #[test]
+    fn dispatch_scout_without_engine_does_nothing() {
+        let mut app = App::new();
+        // dispatch_scout with no engine should be a no-op (no panic)
+        app.dispatch_scout();
+        assert!(app.engine.is_none());
+    }
+
+    #[test]
+    fn dispatch_scout_without_star_selection_logs_message() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.selected_star = None;
+
+        let before = app.state.log.len();
+        app.dispatch_scout();
+        assert!(app.state.log.len() > before, "Should log a message");
+    }
+
+    #[test]
+    fn dispatch_scout_to_explored_star_logs_error() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        // Select an already-explored star
+        let explored_star = *app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .explored_stars
+            .iter()
+            .next()
+            .unwrap();
+        app.state.selected_star = Some(explored_star);
+
+        let before = app.state.log.len();
+        app.dispatch_scout();
+        assert!(
+            app.state.log.len() > before,
+            "Error should be logged for explored target"
+        );
+    }
+
+    #[test]
+    fn dispatch_scout_when_no_fleet_available_logs_message() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let engine = app.engine.as_mut().unwrap();
+
+        // Remove all fleets so none are available
+        engine.state.fleets.clear();
+
+        let unexplored = engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .copied();
+
+        if let Some(star_id) = unexplored {
+            app.state.selected_star = Some(star_id);
+            let before = app.state.log.len();
+            app.dispatch_scout();
+            assert!(
+                app.state.log.len() > before,
+                "Should log 'no scout available'"
+            );
+        }
     }
 }

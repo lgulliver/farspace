@@ -36,6 +36,14 @@ pub enum Event {
     ResearchSelected { tech: TechId },
     /// A technology research was completed
     ResearchCompleted { tech: TechId },
+    /// A scout fleet has been dispatched toward an unexplored system
+    ScoutDispatched {
+        fleet: FleetId,
+        destination: StarId,
+        turns_remaining: u32,
+    },
+    /// A star system has been explored by a scout
+    SystemExplored { star: StarId },
     /// An error occurred
     Error { message: String },
 }
@@ -83,6 +91,19 @@ impl Event {
             }
             Event::ResearchCompleted { tech } => {
                 format!("Research complete: tech {}", tech.0)
+            }
+            Event::ScoutDispatched {
+                fleet,
+                destination,
+                turns_remaining,
+            } => {
+                format!(
+                    "Scout {} dispatched to system {} ({} turns)",
+                    fleet.0, destination.0, turns_remaining
+                )
+            }
+            Event::SystemExplored { star } => {
+                format!("System {} explored", star.0)
             }
             Event::Error { message } => format!("Error: {}", message),
         }
@@ -149,5 +170,62 @@ mod tests {
             tech: crate::state::TechId(1),
         };
         assert_eq!(event.to_log_message(), "Research complete: tech 1");
+
+        let event = Event::ScoutDispatched {
+            fleet: crate::state::FleetId(2),
+            destination: crate::state::StarId(9),
+            turns_remaining: 3,
+        };
+        assert_eq!(
+            event.to_log_message(),
+            "Scout 2 dispatched to system 9 (3 turns)"
+        );
+
+        let event = Event::SystemExplored {
+            star: crate::state::StarId(9),
+        };
+        assert_eq!(event.to_log_message(), "System 9 explored");
+    }
+
+    #[test]
+    fn scout_dispatched_is_not_error() {
+        let event = Event::ScoutDispatched {
+            fleet: crate::state::FleetId(1),
+            destination: crate::state::StarId(5),
+            turns_remaining: 3,
+        };
+        assert!(!event.is_error());
+    }
+
+    #[test]
+    fn system_explored_is_not_error() {
+        let event = Event::SystemExplored {
+            star: crate::state::StarId(5),
+        };
+        assert!(!event.is_error());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn scout_dispatched_serialization() {
+        let event = Event::ScoutDispatched {
+            fleet: crate::state::FleetId(1),
+            destination: crate::state::StarId(5),
+            turns_remaining: 3,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, parsed);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn system_explored_serialization() {
+        let event = Event::SystemExplored {
+            star: crate::state::StarId(7),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, parsed);
     }
 }

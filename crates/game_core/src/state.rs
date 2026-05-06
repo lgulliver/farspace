@@ -3,7 +3,7 @@
 use rand_chacha::ChaCha8Rng;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Unique identifier for a star system
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -319,6 +319,18 @@ pub struct Fleet {
     pub ships: u32,
 }
 
+/// An in-flight scout mission heading toward an unexplored system
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ScoutMission {
+    /// The fleet executing this mission
+    pub fleet: FleetId,
+    /// Target star system to explore
+    pub destination: StarId,
+    /// Turns remaining until the scout arrives
+    pub turns_remaining: u32,
+}
+
 /// Complete game state
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -335,6 +347,12 @@ pub struct GameState {
     pub event_log: Vec<String>,
     pub next_colony_id: u64,
     pub next_fleet_id: u64,
+    /// Stars that have been explored by the player
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub explored_stars: BTreeSet<StarId>,
+    /// Active scout missions keyed by fleet ID
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub scout_missions: BTreeMap<FleetId, ScoutMission>,
 }
 
 impl GameState {
@@ -365,6 +383,8 @@ impl PartialEq for GameState {
             && self.event_log == other.event_log
             && self.next_colony_id == other.next_colony_id
             && self.next_fleet_id == other.next_fleet_id
+            && self.explored_stars == other.explored_stars
+            && self.scout_missions == other.scout_missions
     }
 }
 
@@ -405,6 +425,8 @@ impl Default for GameState {
             event_log: Vec::new(),
             next_colony_id: 1,
             next_fleet_id: 1,
+            explored_stars: BTreeSet::new(),
+            scout_missions: BTreeMap::new(),
         }
     }
 }
@@ -613,5 +635,51 @@ mod tests {
         assert!(empire.research.current_tech.is_none());
         assert!(empire.research.completed.is_empty());
         let _ = state;
+    }
+
+    #[test]
+    fn scout_mission_fields() {
+        let mission = ScoutMission {
+            fleet: FleetId(1),
+            destination: StarId(5),
+            turns_remaining: 3,
+        };
+        assert_eq!(mission.fleet, FleetId(1));
+        assert_eq!(mission.destination, StarId(5));
+        assert_eq!(mission.turns_remaining, 3);
+    }
+
+    #[test]
+    fn game_state_default_has_empty_exploration() {
+        let state = GameState::default();
+        assert!(state.explored_stars.is_empty());
+        assert!(state.scout_missions.is_empty());
+    }
+
+    #[test]
+    fn game_state_partial_eq_considers_explored_stars() {
+        let mut state_a = GameState::default();
+        let state_b = GameState::default();
+        assert_eq!(state_a, state_b);
+
+        state_a.explored_stars.insert(StarId(1));
+        assert_ne!(state_a, state_b);
+    }
+
+    #[test]
+    fn game_state_partial_eq_considers_scout_missions() {
+        let mut state_a = GameState::default();
+        let state_b = GameState::default();
+        assert_eq!(state_a, state_b);
+
+        state_a.scout_missions.insert(
+            FleetId(1),
+            ScoutMission {
+                fleet: FleetId(1),
+                destination: StarId(2),
+                turns_remaining: 2,
+            },
+        );
+        assert_ne!(state_a, state_b);
     }
 }

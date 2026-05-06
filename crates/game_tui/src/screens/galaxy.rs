@@ -183,11 +183,16 @@ fn render_star_map(
 
 /// Render the one-line map legend at the bottom of the star map.
 fn render_map_legend(frame: &mut Frame, area: Rect) {
+    // Explored stars use spectral-class colors (varies); use plain white here to
+    // indicate "any explored star" without implying a specific color.
+    // AI-colony stars are a separate dim-yellow entry distinct from explored.
     let spans = vec![
         Span::styled("@", Theme::highlight_style()),
         Span::styled(" Sel  ", Theme::dim_border_style()),
-        Span::styled("*", Style::default().fg(ratatui::style::Color::Yellow)),
+        Span::styled("*", Theme::default_style()),
         Span::styled(" Explored  ", Theme::dim_border_style()),
+        Span::styled("*", Style::default().fg(ratatui::style::Color::Yellow)),
+        Span::styled(" AI  ", Theme::dim_border_style()),
         Span::styled("?", Theme::muted_style()),
         Span::styled(" Unknown  ", Theme::dim_border_style()),
         Span::styled("+", Style::default().fg(ratatui::style::Color::Yellow)),

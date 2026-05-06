@@ -67,7 +67,7 @@ impl EventLog {
 /// 1. `Error:` prefix → error (red)
 /// 2. Turn / game-start keywords → accent (cyan)
 /// 3. Research keywords → success (green)
-/// 4. Colony / coloniz keywords → accent (cyan)  (`"colon"` catches colony/colonize/colonization)
+/// 4. Colony / colonize keywords → accent (cyan)  (`"colon"` catches colony/colonize/colonization)
 /// 5. Scout keywords → yellow
 /// 6. Fleet / ship keywords → light-blue
 /// 7. Diplomacy / contact keywords → magenta

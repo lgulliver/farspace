@@ -67,10 +67,10 @@ impl EventLog {
 /// 1. `Error:` prefix → error (red)
 /// 2. Turn / game-start keywords → accent (cyan)
 /// 3. Research keywords → success (green)
-/// 4. Colony / coloniz keywords → accent (cyan)
+/// 4. Colony / coloniz keywords → accent (cyan)  (`"colon"` catches colony/colonize/colonization)
 /// 5. Scout keywords → yellow
 /// 6. Fleet / ship keywords → light-blue
-/// 7. Diplomacy / contact keywords → yellow
+/// 7. Diplomacy / contact keywords → magenta
 /// 8. Everything else → muted (dark-gray)
 fn log_entry_style(entry: &str) -> Style {
     let lower = entry.to_ascii_lowercase();
@@ -86,6 +86,7 @@ fn log_entry_style(entry: &str) -> Style {
     {
         Theme::success_style()
     } else if lower.contains("colon") {
+        // "colon" is a deliberate substring that matches colony/colonize/colonization
         Theme::accent_style()
     } else if lower.contains("scout") || lower.contains("explored") {
         Style::default().fg(ratatui::style::Color::Yellow)

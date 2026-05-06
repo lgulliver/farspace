@@ -1,6 +1,6 @@
 //! Events emitted by the game engine
 
-use crate::state::{BuildItem, ColonyId, FleetId, StarId, TechId};
+use crate::state::{BuildItem, ColonyId, EmpireId, FleetId, StarId, TechId};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +34,15 @@ pub enum Event {
     FleetCreated { fleet: FleetId, location: StarId },
     /// A technology was selected for research
     ResearchSelected { tech: TechId },
+    /// Research points were generated empire-wide this turn
+    ScienceGenerated { empire: EmpireId, amount: i64 },
+    /// Research progress was made toward the active technology
+    ResearchProgress {
+        tech: TechId,
+        gained: i64,
+        total: i64,
+        cost: i64,
+    },
     /// A technology research was completed
     ResearchCompleted { tech: TechId },
     /// A scout fleet has been dispatched toward an unexplored system
@@ -88,6 +97,20 @@ impl Event {
             }
             Event::ResearchSelected { tech } => {
                 format!("Research started: tech {}", tech.0)
+            }
+            Event::ScienceGenerated { empire, amount } => {
+                format!("Empire {} generated {} science this turn", empire.0, amount)
+            }
+            Event::ResearchProgress {
+                tech,
+                gained,
+                total,
+                cost,
+            } => {
+                format!(
+                    "Research: +{} rp on tech {} ({}/{} rp)",
+                    gained, tech.0, total, cost
+                )
             }
             Event::ResearchCompleted { tech } => {
                 format!("Research complete: tech {}", tech.0)
@@ -165,6 +188,26 @@ mod tests {
             tech: crate::state::TechId(3),
         };
         assert_eq!(event.to_log_message(), "Research started: tech 3");
+
+        let event = Event::ScienceGenerated {
+            empire: crate::state::EmpireId(1),
+            amount: 42,
+        };
+        assert_eq!(
+            event.to_log_message(),
+            "Empire 1 generated 42 science this turn"
+        );
+
+        let event = Event::ResearchProgress {
+            tech: crate::state::TechId(2),
+            gained: 10,
+            total: 30,
+            cost: 80,
+        };
+        assert_eq!(
+            event.to_log_message(),
+            "Research: +10 rp on tech 2 (30/80 rp)"
+        );
 
         let event = Event::ResearchCompleted {
             tech: crate::state::TechId(1),

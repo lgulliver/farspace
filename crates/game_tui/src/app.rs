@@ -1417,38 +1417,38 @@ mod tests {
         let mut app = App::new();
         app.new_game(42);
 
-        // Select an unexplored star
-        let engine = app.engine.as_ref().unwrap();
-        let unexplored = engine
-            .state
-            .stars
-            .keys()
-            .find(|id| !engine.state.explored_stars.contains(id))
-            .copied();
-
-        if let Some(star_id) = unexplored {
-            app.state.selected_star = Some(star_id);
-            let before = app.state.log.len();
-
-            app.handle_key(key(KeyCode::Char('S')));
-
-            // A log entry should have been added (ScoutDispatched message)
-            assert!(
-                app.state.log.len() > before,
-                "Scout dispatch should add a log entry"
-            );
-
-            let has_mission = app
-                .engine
-                .as_ref()
-                .unwrap()
+        // Select an unexplored star (Engine::new(42) explores at most 4 of 20 stars)
+        let star_id = {
+            let engine = app.engine.as_ref().unwrap();
+            engine
                 .state
-                .scout_missions
-                .values()
-                .any(|m| m.destination == star_id);
-            assert!(has_mission, "Scout mission should be active after S key");
-        }
-        // If every star is initially explored (very unlikely) we skip
+                .stars
+                .keys()
+                .find(|id| !engine.state.explored_stars.contains(id))
+                .copied()
+                .expect("Engine::new(42) must have unexplored stars")
+        };
+
+        app.state.selected_star = Some(star_id);
+        let before = app.state.log.len();
+
+        app.handle_key(key(KeyCode::Char('S')));
+
+        // A log entry should have been added (ScoutDispatched message)
+        assert!(
+            app.state.log.len() > before,
+            "Scout dispatch should add a log entry"
+        );
+
+        let has_mission = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .scout_missions
+            .values()
+            .any(|m| m.destination == star_id);
+        assert!(has_mission, "Scout mission should be active after S key");
     }
 
     #[test]
@@ -1510,16 +1510,15 @@ mod tests {
             .stars
             .keys()
             .find(|id| !engine.state.explored_stars.contains(id))
-            .copied();
+            .copied()
+            .expect("Engine::new(42) must have unexplored stars");
 
-        if let Some(star_id) = unexplored {
-            app.state.selected_star = Some(star_id);
-            let before = app.state.log.len();
-            app.dispatch_scout();
-            assert!(
-                app.state.log.len() > before,
-                "Should log 'no scout available'"
-            );
-        }
+        app.state.selected_star = Some(unexplored);
+        let before = app.state.log.len();
+        app.dispatch_scout();
+        assert!(
+            app.state.log.len() > before,
+            "Should log 'no scout available'"
+        );
     }
 }

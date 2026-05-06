@@ -286,16 +286,17 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
 
         let engine = Engine::new(42);
-        // Select an unexplored star
+        // Select an unexplored star (Engine::new(42) explores at most 4 of 20 stars)
         let unexplored = engine
             .state
             .stars
             .keys()
             .find(|id| !engine.state.explored_stars.contains(id))
-            .copied();
+            .copied()
+            .expect("Engine::new(42) must have unexplored stars");
 
         let app_state = AppState {
-            selected_star: unexplored,
+            selected_star: Some(unexplored),
             ..Default::default()
         };
 

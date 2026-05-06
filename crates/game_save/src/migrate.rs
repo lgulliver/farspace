@@ -22,8 +22,8 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             migrate(SaveFile { version: 2, state })
         }
         2 => {
-            // v2 → v3: fleet_missions field added; defaults to empty via serde(default).
-            // Nothing to populate — just bump the version.
+            // v2 -> v3: fleet_missions field added; defaults to empty via serde(default).
+            // Nothing to populate -- just bump the version.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,

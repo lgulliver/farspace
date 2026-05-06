@@ -18,9 +18,9 @@ const SCOUT_TRAVEL_TURNS: u32 = 3;
 /// Return the number of travel turns for a fleet moving the given squared distance.
 ///
 /// Buckets (squared distance):
-/// * ≤ 100 000  → 1 turn
-/// * ≤ 400 000  → 2 turns
-/// * else        → 3 turns
+/// * <= 100_000  -> 1 turn
+/// * <= 400_000  -> 2 turns
+/// * else        -> 3 turns
 fn fleet_travel_turns(squared_distance: i64) -> u32 {
     if squared_distance <= 100_000 {
         1

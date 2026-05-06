@@ -869,7 +869,9 @@ impl Engine {
             }
         }
 
-        // Consume the colonizer fleet
+        // Consume the colonizer fleet.
+        // The mission maps are cleared defensively so that no stale entries can
+        // accumulate if the fleet was somehow in an inconsistent state on load.
         self.state.fleets.remove(&fleet_id);
         self.state.scout_missions.remove(&fleet_id);
         self.state.fleet_missions.remove(&fleet_id);
@@ -3117,15 +3119,12 @@ mod tests {
         let mut engine = Engine::new(42);
 
         // The home star already has a colony at planet_index 0
-        let home_star_id = engine.state.player_empire;
-        let home = {
-            let empire = engine
-                .state
-                .empires
-                .get(&engine.state.player_empire)
-                .unwrap();
-            empire.home_star
-        };
+        let home = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
 
         let fleet_id = FleetId(99);
         engine.state.fleets.insert(
@@ -3138,7 +3137,6 @@ mod tests {
                 kind: FleetKind::Colonizer,
             },
         );
-        let _ = home_star_id; // suppress warning
 
         let events = engine.apply_turn(vec![Command::Colonize {
             fleet: fleet_id,

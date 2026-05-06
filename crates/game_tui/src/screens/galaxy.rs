@@ -279,7 +279,7 @@ fn render_star_details(
         lines.push(Line::from(Span::styled("Fleets:", Theme::title_style())));
         for fleet in &fleets_here {
             let label = if fleet.kind == game_core::FleetKind::Colonizer {
-                format!("Colonizer {} (idle)", fleet.id.0)
+                format!("Colony Ship {} (idle)", fleet.id.0)
             } else {
                 format!("Fleet {} (idle)", fleet.id.0)
             };

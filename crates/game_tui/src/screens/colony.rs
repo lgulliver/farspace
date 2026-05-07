@@ -874,6 +874,6 @@ mod tests {
             .map(|c| c.symbol())
             .collect();
         assert!(content.contains("Surface"));
-        assert!(content.contains("pp left"));
+        assert!(content.contains("17/60"));
     }
 }

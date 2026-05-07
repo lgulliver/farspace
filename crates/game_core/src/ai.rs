@@ -697,7 +697,9 @@ mod tests {
 
         let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
         assert!(
-            colony.build_queue.contains(&BuildItem::Ship(crate::state::ShipDesignId::COLONY)),
+            colony
+                .build_queue
+                .contains(&BuildItem::Ship(crate::state::ShipDesignId::COLONY)),
             "AI must queue Colony Ship when no colonizer exists"
         );
         assert!(events.iter().any(|e| matches!(
@@ -757,7 +759,9 @@ mod tests {
 
         let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
         assert!(
-            colony.build_queue.contains(&BuildItem::Ship(crate::state::ShipDesignId::SCOUT)),
+            colony
+                .build_queue
+                .contains(&BuildItem::Ship(crate::state::ShipDesignId::SCOUT)),
             "AI must queue Scout when FabricationYard built and colonizer exists"
         );
         assert!(events.iter().any(|e| matches!(
@@ -1292,11 +1296,15 @@ mod tests {
 
         let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
         assert!(
-            !colony.build_queue.contains(&BuildItem::Ship(crate::state::ShipDesignId::SCOUT)),
+            !colony
+                .build_queue
+                .contains(&BuildItem::Ship(crate::state::ShipDesignId::SCOUT)),
             "AI must not queue Scout without a Shipyard"
         );
         assert!(
-            !colony.build_queue.contains(&BuildItem::Ship(crate::state::ShipDesignId::COLONY)),
+            !colony
+                .build_queue
+                .contains(&BuildItem::Ship(crate::state::ShipDesignId::COLONY)),
             "AI must not queue Colony Ship without a Shipyard"
         );
     }

@@ -565,7 +565,10 @@ impl ProductionItem {
     /// Display name for this item
     pub fn name(&self) -> &'static str {
         match self {
-            ProductionItem::Ship(design_id) => design_id.record().map(|d| d.name).unwrap_or("Unknown Ship Design"),
+            ProductionItem::Ship(design_id) => design_id
+                .record()
+                .map(|d| d.name)
+                .unwrap_or("Unknown Ship Design"),
             ProductionItem::Scout => "Scout",
             ProductionItem::Colony => "Colony Ship",
             ProductionItem::Outpost => "Outpost",

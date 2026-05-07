@@ -898,7 +898,10 @@ impl Engine {
         }
 
         // Surface buildings require a free surface slot
-        if matches!(item, BuildItem::SurfaceStructure(_) | BuildItem::Structure(_)) {
+        if matches!(
+            item,
+            BuildItem::SurfaceStructure(_) | BuildItem::Structure(_)
+        ) {
             let planet_size = self
                 .state
                 .stars
@@ -6356,7 +6359,10 @@ mod tests {
             None
         );
         assert_eq!(BuildItem::Scout.required_tech(), None);
-        assert_eq!(BuildItem::Ship(ShipDesignId::COLONY).required_tech(), Some(TechId(2)));
+        assert_eq!(
+            BuildItem::Ship(ShipDesignId::COLONY).required_tech(),
+            Some(TechId(2))
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -6516,9 +6522,9 @@ mod tests {
             item: BuildItem::Ship(ShipDesignId::COLONY),
         }]);
 
-        assert!(events.iter().any(
-            |e| matches!(e, Event::Error { message } if message.contains("Habitat Seeding"))
-        ));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::Error { message } if message.contains("Habitat Seeding"))));
     }
 
     #[test]
@@ -6619,9 +6625,15 @@ mod tests {
         for _ in 0..30 {
             let ev_a = a.apply_turn(vec![Command::EndTurn]);
             let ev_b = b.apply_turn(vec![Command::EndTurn]);
-            assert_eq!(ev_a, ev_b, "events must match for deterministic queue processing");
+            assert_eq!(
+                ev_a, ev_b,
+                "events must match for deterministic queue processing"
+            );
         }
-        assert_eq!(a.state, b.state, "states must match for deterministic queue processing");
+        assert_eq!(
+            a.state, b.state,
+            "states must match for deterministic queue processing"
+        );
     }
 
     #[test]

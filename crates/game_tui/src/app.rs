@@ -333,7 +333,9 @@ impl App {
 
     /// Total number of items in the build picker (surface buildings + orbital structures + ships)
     fn all_build_item_count() -> usize {
-        BuildingType::all().len() + OrbitalStructureType::all().len() + game_core::ShipDesignId::all().len()
+        BuildingType::all().len()
+            + OrbitalStructureType::all().len()
+            + game_core::ShipDesignId::all().len()
     }
 
     /// Try to enter the colony screen for the selected star.

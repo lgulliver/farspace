@@ -261,7 +261,10 @@ impl Event {
                 format!("System {} explored", star.0)
             }
             Event::PlanetSurveyCompleted { star, planet_index } => {
-                format!("Survey completed: system {} planet {}", star.0, planet_index)
+                format!(
+                    "Survey completed: system {} planet {}",
+                    star.0, planet_index
+                )
             }
             Event::FleetDeparted {
                 fleet,

@@ -1000,7 +1000,10 @@ mod tests {
         app.handle_key(key(KeyCode::Char('C')));
 
         let star = &app.engine.as_ref().unwrap().state.stars[&target];
-        assert!(star.planets[1].colony.is_some(), "selected planet should be colonized");
+        assert!(
+            star.planets[1].colony.is_some(),
+            "selected planet should be colonized"
+        );
     }
 
     #[test]
@@ -1097,8 +1100,8 @@ mod tests {
         app.new_game(42);
         let initial_turn = app.engine.as_ref().unwrap().state.turn;
 
-        // 'Enter' ends the turn
-        app.handle_key(key(KeyCode::Enter));
+        // 't' ends the turn on galaxy screen (Enter opens System View)
+        app.handle_key(key(KeyCode::Char('t')));
         assert_eq!(app.engine.as_ref().unwrap().state.turn, initial_turn + 1);
     }
 
@@ -2003,7 +2006,7 @@ mod tests {
     }
 
     #[test]
-    fn colonize_key_without_colonizer_logs_error() {
+    fn system_colonize_key_without_colonizer_logs_error() {
         let mut app = App::new();
         app.new_game(42);
 
@@ -2011,6 +2014,7 @@ mod tests {
         let engine = app.engine.as_ref().unwrap();
         let star = *engine.state.explored_stars.iter().next().unwrap();
         app.state.selected_star = Some(star);
+        app.state.active = Screen::System;
 
         let before = app.state.log.len();
         app.handle_key(key(KeyCode::Char('C')));
@@ -2024,7 +2028,7 @@ mod tests {
     fn colonize_without_engine_is_noop() {
         let mut app = App::new();
         // No game started
-        app.colonize_selected_system();
+        app.colonize_selected_planet();
         assert!(app.engine.is_none());
     }
 
@@ -2034,7 +2038,7 @@ mod tests {
         app.new_game(42);
         app.state.selected_star = None;
         let before = app.state.log.len();
-        app.colonize_selected_system();
+        app.colonize_selected_planet();
         assert!(app.state.log.len() > before);
     }
 
@@ -2133,6 +2137,7 @@ mod tests {
 
         // Select target star and press C
         app.state.selected_star = Some(target);
+        app.state.active = Screen::System;
         app.handle_key(key(KeyCode::Char('C')));
 
         let engine = app.engine.as_ref().unwrap();

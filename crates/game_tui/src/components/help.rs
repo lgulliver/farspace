@@ -68,7 +68,10 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("j / ↓", "Select next planet"),
             HelpEntry::Binding("k / ↑", "Select previous planet"),
             HelpEntry::Section("Actions"),
-            HelpEntry::Binding("C", "Colonize selected planet with idle colony ship in system"),
+            HelpEntry::Binding(
+                "C",
+                "Colonize selected planet with idle colony ship in system",
+            ),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding(":", "Command palette (save · load)"),

@@ -1301,6 +1301,12 @@ impl Engine {
         });
     }
 
+    /// Mark all unsurveyed planets at `star_id` as surveyed and emit
+    /// `PlanetSurveyCompleted` events in orbital order.
+    ///
+    /// Called when a player scout finishes exploration or when a player fleet
+    /// arrives at a system. Iteration follows planet vector order so event
+    /// ordering remains deterministic for a fixed game state.
     fn survey_planets_at_star(&mut self, star_id: StarId, events: &mut Vec<Event>) {
         if let Some(star) = self.state.stars.get_mut(&star_id) {
             for (planet_index, planet) in star.planets.iter_mut().enumerate() {
@@ -4184,6 +4190,7 @@ mod tests {
                 if let Some(planet) = star_data.planets.get_mut(0) {
                     planet.habitable = true;
                     planet.colony = None;
+                    planet.surveyed = true;
                 }
             }
             engine.state.fleets.insert(
@@ -7035,7 +7042,10 @@ mod tests {
             .planets
             .iter()
             .all(|p| p.surveyed);
-        assert!(all_surveyed, "all planets at destination should be surveyed");
+        assert!(
+            all_surveyed,
+            "all planets at destination should be surveyed"
+        );
     }
 
     #[test]

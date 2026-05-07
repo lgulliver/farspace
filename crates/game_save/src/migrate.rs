@@ -118,7 +118,7 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
         }
         12 => {
             // v12 -> v13: Planet.surveyed: bool added (serde default = false).
-            // Existing planets default to unsurveyed unless already persisted by newer saves.
+            // Existing planets default to unsurveyed via serde default.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,

@@ -364,28 +364,26 @@ fn render_star_details(
 
         let colony_info = if !planet.surveyed {
             " [Unsurveyed]".to_string()
-        } else {
-            match &planet.colony {
-                Some(colony_id) => {
-                    if let Some(colony) = game_state.colonies.get(colony_id) {
-                        if colony.owner == game_state.player_empire {
-                            format!(" [Colony - Pop: {}]", colony.population)
-                        } else if foreign_is_contacted == Some(true) {
-                            if let Some(empire) = game_state.empires.get(&colony.owner) {
-                                format!(" [{} Colony - Pop: {}]", empire.name, colony.population)
-                            } else {
-                                format!(" [Foreign Colony - Pop: {}]", colony.population)
-                            }
-                        } else {
-                            format!(" [Unknown Colony - Pop: {}]", colony.population)
-                        }
+        } else if let Some(colony_id) = planet.colony {
+            if let Some(colony) = game_state.colonies.get(&colony_id) {
+                if colony.owner == game_state.player_empire {
+                    format!(" [Colony - Pop: {}]", colony.population)
+                } else if foreign_is_contacted == Some(true) {
+                    if let Some(empire) = game_state.empires.get(&colony.owner) {
+                        format!(" [{} Colony - Pop: {}]", empire.name, colony.population)
                     } else {
-                        String::new()
+                        format!(" [Foreign Colony - Pop: {}]", colony.population)
                     }
+                } else {
+                    format!(" [Unknown Colony - Pop: {}]", colony.population)
                 }
-                None if planet.habitable => " [Habitable]".to_string(),
-                None => " [Uninhabitable]".to_string(),
+            } else {
+                String::new()
             }
+        } else if planet.habitable {
+            " [Habitable]".to_string()
+        } else {
+            " [Uninhabitable]".to_string()
         };
 
         let colony_style = match &planet.colony {

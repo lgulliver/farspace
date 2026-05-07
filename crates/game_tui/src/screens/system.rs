@@ -5,7 +5,7 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{FleetKind, GameState, StarId};
+use game_core::{FleetKind, GameState};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
@@ -45,11 +45,21 @@ pub fn render_system(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
     render_footer(frame, footer_area, &Screen::System);
 }
 
-fn selected_star<'a>(app_state: &AppState, game_state: &'a GameState) -> Option<&'a game_core::Star> {
-    app_state.selected_star.and_then(|id| game_state.stars.get(&id))
+fn selected_star<'a>(
+    app_state: &AppState,
+    game_state: &'a GameState,
+) -> Option<&'a game_core::Star> {
+    app_state
+        .selected_star
+        .and_then(|id| game_state.stars.get(&id))
 }
 
-fn render_orbital_panel(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
+fn render_orbital_panel(
+    frame: &mut Frame,
+    area: Rect,
+    app_state: &AppState,
+    game_state: &GameState,
+) {
     let block = Block::default()
         .title(" System Orbits ")
         .borders(Borders::ALL)
@@ -85,7 +95,11 @@ fn render_orbital_panel(frame: &mut Frame, area: Rect, app_state: &AppState, gam
         let selected = index == selected_planet;
         let prefix = if selected { "▶" } else { " " };
         let surveyed_mark = if planet.surveyed { "S" } else { "?" };
-        let colony_mark = if planet.colony.is_some() { "◉" } else { "○" };
+        let colony_mark = if planet.colony.is_some() {
+            "◉"
+        } else {
+            "○"
+        };
         let label = if planet.surveyed {
             planet.name.as_str().to_string()
         } else {
@@ -171,7 +185,11 @@ fn render_system_details(
         ]),
         Line::from(vec![
             Span::styled("Survey: ", Theme::muted_style()),
-            Span::raw(if planet.surveyed { "Surveyed" } else { "Unsurveyed" }),
+            Span::raw(if planet.surveyed {
+                "Surveyed"
+            } else {
+                "Unsurveyed"
+            }),
         ]),
     ];
 
@@ -186,7 +204,11 @@ fn render_system_details(
         ]));
         lines.push(Line::from(vec![
             Span::styled("Habitability: ", Theme::muted_style()),
-            Span::raw(if planet.habitable { "Habitable" } else { "Uninhabitable" }),
+            Span::raw(if planet.habitable {
+                "Habitable"
+            } else {
+                "Uninhabitable"
+            }),
         ]));
     } else {
         lines.push(Line::from(vec![
@@ -230,7 +252,6 @@ fn render_system_details(
             let label = match fleet.kind {
                 FleetKind::Colonizer => format!("  Colony Ship {}", fleet.id.0),
                 FleetKind::Scout => format!("  Scout {}", fleet.id.0),
-                _ => format!("  Fleet {}", fleet.id.0),
             };
             lines.push(Line::from(Span::raw(label)));
         }

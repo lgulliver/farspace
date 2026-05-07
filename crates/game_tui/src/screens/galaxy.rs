@@ -1,5 +1,7 @@
 //! Galaxy map screen
 
+use std::borrow::Cow;
+
 use crate::components::{render_footer, render_header, render_log};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
@@ -362,24 +364,40 @@ fn render_star_details(
             )
         });
 
-        let colony_info = if !planet.surveyed {
-            " [Unsurveyed]".to_string()
-        } else if let Some(colony_id) = planet.colony {
+        let colony_info = if let Some(colony_id) = planet.colony {
             if let Some(colony) = game_state.colonies.get(&colony_id) {
                 if colony.owner == game_state.player_empire {
-                    format!(" [Colony - Pop: {}]", colony.population)
+                    if planet.surveyed {
+                        format!(" [Colony - Pop: {}]", colony.population)
+                    } else {
+                        " [Colony - Unsurveyed]".to_string()
+                    }
                 } else if foreign_is_contacted == Some(true) {
                     if let Some(empire) = game_state.empires.get(&colony.owner) {
-                        format!(" [{} Colony - Pop: {}]", empire.name, colony.population)
+                        if planet.surveyed {
+                            format!(" [{} Colony - Pop: {}]", empire.name, colony.population)
+                        } else {
+                            format!(" [{} Colony - Unsurveyed]", empire.name)
+                        }
                     } else {
-                        format!(" [Foreign Colony - Pop: {}]", colony.population)
+                        if planet.surveyed {
+                            format!(" [Foreign Colony - Pop: {}]", colony.population)
+                        } else {
+                            " [Foreign Colony - Unsurveyed]".to_string()
+                        }
                     }
                 } else {
-                    format!(" [Unknown Colony - Pop: {}]", colony.population)
+                    if planet.surveyed {
+                        format!(" [Unknown Colony - Pop: {}]", colony.population)
+                    } else {
+                        " [Unknown Colony - Unsurveyed]".to_string()
+                    }
                 }
             } else {
                 String::new()
             }
+        } else if !planet.surveyed {
+            " [Unsurveyed]".to_string()
         } else if planet.habitable {
             " [Habitable]".to_string()
         } else {
@@ -405,10 +423,10 @@ fn render_star_details(
             _ => Theme::accent_style(),
         };
 
-        let planet_name = if planet.surveyed {
-            planet.name.clone()
+        let planet_name: Cow<'_, str> = if planet.surveyed {
+            Cow::Borrowed(planet.name.as_str())
         } else {
-            format!("Orbit {}", planet_index + 1)
+            Cow::Owned(format!("Orbit {}", planet_index + 1))
         };
         let size_label = if planet.surveyed {
             format!(" ({:?})", planet.size)

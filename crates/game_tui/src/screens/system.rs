@@ -1,5 +1,7 @@
 //! System inspector screen
 
+use std::borrow::Cow;
+
 use crate::components::{render_footer, render_header, render_log};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
@@ -100,10 +102,10 @@ fn render_orbital_panel(
         } else {
             "○"
         };
-        let label = if planet.surveyed {
-            planet.name.as_str().to_string()
+        let label: Cow<'_, str> = if planet.surveyed {
+            Cow::Borrowed(planet.name.as_str())
         } else {
-            format!("Orbit {}", index + 1)
+            Cow::Owned(format!("Orbit {}", index + 1))
         };
         let style = if selected {
             Theme::highlight_style()

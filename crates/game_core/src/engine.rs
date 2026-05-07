@@ -1212,8 +1212,9 @@ impl Engine {
 
             if planet_index >= star.planets.len() {
                 events.push(Event::error(format!(
-                    "Planet index {} out of bounds for star {}",
-                    planet_index, star_id.0
+                    "Orbit {} out of bounds for star {}",
+                    planet_index.saturating_add(1),
+                    star_id.0
                 )));
                 return;
             }
@@ -1225,8 +1226,9 @@ impl Engine {
         // Validate planet is surveyed
         if !planet_surveyed {
             events.push(Event::error(format!(
-                "Planet {} at star {} has not been surveyed",
-                planet_index, star_id.0
+                "Orbit {} at star {} has not been surveyed",
+                planet_index.saturating_add(1),
+                star_id.0
             )));
             return;
         }
@@ -1234,8 +1236,9 @@ impl Engine {
         // Validate planet is habitable
         if !planet_habitable {
             events.push(Event::error(format!(
-                "Planet {} at star {} is not habitable",
-                planet_index, star_id.0
+                "Orbit {} at star {} is not habitable",
+                planet_index.saturating_add(1),
+                star_id.0
             )));
             return;
         }
@@ -1243,8 +1246,9 @@ impl Engine {
         // Validate planet is not already colonized
         if planet_colony.is_some() {
             events.push(Event::error(format!(
-                "Planet {} at star {} is already colonized",
-                planet_index, star_id.0
+                "Orbit {} at star {} is already colonized",
+                planet_index.saturating_add(1),
+                star_id.0
             )));
             return;
         }

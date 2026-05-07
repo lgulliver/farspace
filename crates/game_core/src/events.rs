@@ -262,8 +262,9 @@ impl Event {
             }
             Event::PlanetSurveyCompleted { star, planet_index } => {
                 format!(
-                    "Survey completed: system {} planet {}",
-                    star.0, planet_index
+                    "Survey completed: system {} orbit {}",
+                    star.0,
+                    planet_index + 1
                 )
             }
             Event::FleetDeparted {
@@ -287,8 +288,11 @@ impl Event {
                 planet_index,
             } => {
                 format!(
-                    "Empire {} started colonization with fleet {} at system {} planet {}",
-                    empire.0, fleet.0, star.0, planet_index
+                    "Empire {} started colonization with fleet {} at system {} orbit {}",
+                    empire.0,
+                    fleet.0,
+                    star.0,
+                    planet_index + 1
                 )
             }
             Event::ColonizationCompleted {
@@ -299,8 +303,11 @@ impl Event {
                 colony,
             } => {
                 format!(
-                    "Empire {} founded colony {} at system {} planet {}",
-                    empire.0, colony.0, star.0, planet_index
+                    "Empire {} founded colony {} at system {} orbit {}",
+                    empire.0,
+                    colony.0,
+                    star.0,
+                    planet_index + 1
                 )
             }
             Event::EconomySummary {

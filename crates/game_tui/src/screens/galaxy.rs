@@ -65,17 +65,28 @@ fn render_star_map(
     game_state: &GameState,
     selected_star: Option<StarId>,
 ) {
+    // Build a dynamic title showing the selected star name when one is chosen
+    let title = match selected_star.and_then(|id| game_state.stars.get(&id)) {
+        Some(star) if game_state.explored_stars.contains(&star.id) => {
+            format!(" Galaxy Map — {} ", star.name)
+        }
+        _ => " Galaxy Map ".to_string(),
+    };
+
     let block = Block::default()
-        .title(" Galaxy Map ")
+        .title(title)
+        .title_style(Theme::title_style())
         .borders(Borders::ALL)
+        .border_style(Theme::focused_border_style())
         .style(Theme::default_style());
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // Calculate map bounds
-    let map_width = inner.width.saturating_sub(2) as i32;
+    // Reserve the last row for the legend
+    let legend_y = inner.y + inner.height.saturating_sub(1);
     let map_height = inner.height.saturating_sub(1) as i32;
+    let map_width = inner.width.saturating_sub(2) as i32;
 
     if map_width <= 0 || map_height <= 0 {
         return;
@@ -95,6 +106,47 @@ fn render_star_map(
         .map(|m| m.destination)
         .collect();
 
+    // Collect contested stars in a single O(fleets) pass:
+    // build a map of star → set of idle empire owners, then mark a star as contested
+    // when the player and a contacted foreign empire both have idle fleets there.
+    let contested_stars: std::collections::BTreeSet<StarId> = {
+        let player = game_state.player_empire;
+        // Accumulate idle owners per star
+        let mut owners_by_star: std::collections::BTreeMap<
+            StarId,
+            std::collections::BTreeSet<game_core::EmpireId>,
+        > = std::collections::BTreeMap::new();
+        for (fid, f) in &game_state.fleets {
+            if !game_state.fleet_missions.contains_key(fid)
+                && !game_state.scout_missions.contains_key(fid)
+            {
+                owners_by_star
+                    .entry(f.location)
+                    .or_default()
+                    .insert(f.owner);
+            }
+        }
+        // A star is contested only if it is explored AND has the player plus a
+        // contacted foreign empire as idle fleet owners.
+        owners_by_star
+            .into_iter()
+            .filter(|(star_id, owners)| {
+                game_state.explored_stars.contains(star_id)
+                    && owners.contains(&player)
+                    && owners.iter().any(|&owner| {
+                        owner != player
+                            && game_state
+                                .diplomacy
+                                .get(&owner)
+                                .copied()
+                                .unwrap_or(game_core::RelationshipStatus::Unknown)
+                                == game_core::RelationshipStatus::Contacted
+                    })
+            })
+            .map(|(star_id, _)| star_id)
+            .collect()
+    };
+
     // Scale stars to fit the map area
     // Stars are in range -500..500, map to 0..map_width/height
     for star in game_state.stars.values() {
@@ -104,8 +156,8 @@ fn render_star_map(
         let x = inner.x + screen_x as u16;
         let y = inner.y + screen_y as u16;
 
-        // Check bounds
-        if x >= inner.x + inner.width || y >= inner.y + inner.height {
+        // Check bounds (exclude legend row)
+        if x >= inner.x + inner.width || y >= legend_y {
             continue;
         }
 
@@ -113,6 +165,7 @@ fn render_star_map(
         let is_explored = game_state.explored_stars.contains(&star.id);
         let scout_en_route = scout_destinations.contains(&star.id);
         let fleet_en_route = fleet_destinations.contains(&star.id);
+        let is_contested = contested_stars.contains(&star.id);
 
         // Check if the star has any AI-owned colony
         let has_ai_colony = star.planets.iter().any(|p| {
@@ -126,6 +179,14 @@ fn render_star_map(
 
         let (render_char, style) = if is_selected {
             ('@', Theme::highlight_style())
+        } else if is_explored && is_contested {
+            // Contested explored system — fleets from opposing contacted empires present
+            (
+                '!',
+                Style::default()
+                    .fg(ratatui::style::Color::Red)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else if scout_en_route {
             // Scout is heading here — show with a distinct marker
             (
@@ -163,6 +224,35 @@ fn render_star_map(
         let star_widget = Paragraph::new(render_char.to_string()).style(style);
         frame.render_widget(star_widget, Rect::new(x, y, 1, 1));
     }
+
+    // Draw map legend on the last row of the inner area
+    if inner.height >= 2 && inner.width >= 10 {
+        render_map_legend(frame, Rect::new(inner.x, legend_y, inner.width, 1));
+    }
+}
+
+/// Render the one-line map legend at the bottom of the star map.
+fn render_map_legend(frame: &mut Frame, area: Rect) {
+    // Explored stars use spectral-class colors (varies); use plain white here to
+    // indicate "any explored star" without implying a specific color.
+    // AI-colony stars are a separate dim-yellow entry distinct from explored.
+    let spans = vec![
+        Span::styled("@", Theme::highlight_style()),
+        Span::styled(" Sel  ", Theme::dim_border_style()),
+        Span::styled("*", Theme::default_style()),
+        Span::styled(" Explored  ", Theme::dim_border_style()),
+        Span::styled("*", Style::default().fg(ratatui::style::Color::Yellow)),
+        Span::styled(" AI  ", Theme::dim_border_style()),
+        Span::styled("?", Theme::muted_style()),
+        Span::styled(" Unknown  ", Theme::dim_border_style()),
+        Span::styled("+", Style::default().fg(ratatui::style::Color::Yellow)),
+        Span::styled(" Scout  ", Theme::dim_border_style()),
+        Span::styled("~", Style::default().fg(ratatui::style::Color::Cyan)),
+        Span::styled(" Fleet", Theme::dim_border_style()),
+    ];
+
+    let legend = Paragraph::new(Line::from(spans)).style(Theme::muted_style());
+    frame.render_widget(legend, area);
 }
 
 /// Render star details panel
@@ -172,9 +262,14 @@ fn render_star_details(
     game_state: &GameState,
     selected_star: Option<StarId>,
 ) {
+    // Use a dim border style for the star details panel — the star map is the
+    // primary focused panel and already uses the focused (cyan) border.
+    let border_style = Theme::dim_border_style();
+
     let block = Block::default()
         .title(" Star Details ")
         .borders(Borders::ALL)
+        .border_style(border_style)
         .style(Theme::default_style());
 
     let inner = block.inner(area);
@@ -343,14 +438,29 @@ fn render_star_details(
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled("Fleets:", Theme::title_style())));
         for fleet in &fleets_here {
-            let label = if fleet.kind == game_core::FleetKind::Colonizer {
-                format!("Colony Ship {} (idle)", fleet.id.0)
+            let is_player = fleet.owner == game_state.player_empire;
+            let owner_name = game_state
+                .empires
+                .get(&fleet.owner)
+                .map(|e| e.name.as_str())
+                .unwrap_or("Unknown");
+            let fleet_type = if fleet.kind == game_core::FleetKind::Colonizer {
+                "Colony Ship"
             } else {
-                format!("Fleet {} (idle)", fleet.id.0)
+                "Fleet"
+            };
+            let label = format!(
+                "{} {} [{}] Str:{} HP:{}/100",
+                fleet_type, fleet.id.0, owner_name, fleet.strength, fleet.integrity
+            );
+            let fleet_style = if is_player {
+                Theme::accent_style()
+            } else {
+                Style::default().fg(ratatui::style::Color::Yellow)
             };
             lines.push(Line::from(vec![
                 Span::raw("  "),
-                Span::styled(label, Theme::accent_style()),
+                Span::styled(label, fleet_style),
             ]));
         }
         for mission in &fleets_en_route {
@@ -562,5 +672,72 @@ mod tests {
                 render_galaxy(frame, area, &app_state, &engine.state);
             })
             .unwrap();
+    }
+
+    #[test]
+    fn galaxy_screen_small_terminal_does_not_panic() {
+        // Verify the map legend and clamping logic work at tiny sizes
+        let backend = TestBackend::new(40, 15);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let engine = Engine::new(42);
+        let app_state = AppState {
+            selected_star: engine.state.stars.keys().next().copied(),
+            ..Default::default()
+        };
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_galaxy(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn galaxy_map_title_contains_star_name_when_explored_selected() {
+        use ratatui::backend::TestBackend;
+        use ratatui::buffer::Buffer;
+
+        let engine = Engine::new(42);
+        // Pick an explored star
+        let explored_id = *engine
+            .state
+            .explored_stars
+            .iter()
+            .next()
+            .expect("must have explored stars");
+        let star_name = engine.state.stars[&explored_id].name.clone();
+
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let app_state = AppState {
+            selected_star: Some(explored_id),
+            ..Default::default()
+        };
+
+        terminal
+            .draw(|frame| {
+                render_galaxy(frame, frame.area(), &app_state, &engine.state);
+            })
+            .unwrap();
+
+        // The rendered buffer should contain the star name somewhere in the top rows
+        let buf: &Buffer = terminal.backend().buffer();
+        let rendered: String = (0..120u16)
+            .map(|x| {
+                buf.cell((x, 1))
+                    .and_then(|c| c.symbol().chars().next())
+                    .unwrap_or(' ')
+            })
+            .collect();
+
+        assert!(
+            rendered.contains(&star_name),
+            "Star name '{}' not found in map title row: {:?}",
+            star_name,
+            rendered
+        );
     }
 }

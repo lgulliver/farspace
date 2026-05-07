@@ -52,6 +52,7 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
     let block = Block::default()
         .title(" Available Technologies ")
         .borders(Borders::ALL)
+        .border_style(Theme::focused_border_style())
         .style(Theme::default_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);

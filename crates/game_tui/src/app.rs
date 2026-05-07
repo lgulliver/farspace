@@ -1961,6 +1961,8 @@ mod tests {
                 location: home,
                 ships: 1,
                 kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
             },
         );
 

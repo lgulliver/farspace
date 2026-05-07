@@ -17,6 +17,9 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("[hjkl/←↓↑→]", "Move"),
             ("[c]", "Colony"),
             ("[r]", "Research"),
+            ("[D]", "Diplomacy"),
+            ("[S]", "Scout"),
+            ("[M]", "Move Fleet"),
             ("[E/T/Enter]", "End Turn"),
             ("[?]", "Help"),
             ("[:]", "Command"),
@@ -53,7 +56,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
                 Span::styled(*desc, Theme::muted_style()),
             ];
             if i < hints.len() - 1 {
-                v.push(Span::raw("  "));
+                v.push(Span::styled("  │  ", Theme::dim_border_style()));
             }
             v
         })
@@ -133,6 +136,20 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_footer(frame, area, &Screen::Diplomacy);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_footer_galaxy_wide_terminal() {
+        // Wider terminal to verify hint separators don't panic
+        let backend = TestBackend::new(200, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_footer(frame, area, &Screen::Galaxy);
             })
             .unwrap();
     }

@@ -363,6 +363,26 @@ pub struct Fleet {
     /// Role of this fleet
     #[cfg_attr(feature = "serde", serde(default))]
     pub kind: FleetKind,
+    /// Military combat strength of this fleet.
+    ///
+    /// **Invariant: must be ≥ 1.**  The combat resolution formula divides by this
+    /// value; the engine defensively clamps via `.max(1)`, but callers should
+    /// always initialise this field to at least 1.
+    #[cfg_attr(feature = "serde", serde(default = "default_fleet_strength"))]
+    pub strength: u32,
+    /// Structural integrity of this fleet (starts at 100; 0 = destroyed)
+    #[cfg_attr(feature = "serde", serde(default = "default_fleet_integrity"))]
+    pub integrity: u32,
+}
+
+#[cfg(feature = "serde")]
+fn default_fleet_strength() -> u32 {
+    1
+}
+
+#[cfg(feature = "serde")]
+fn default_fleet_integrity() -> u32 {
+    100
 }
 
 /// An in-flight scout mission heading toward an unexplored system
@@ -849,6 +869,8 @@ mod tests {
                 location: StarId(5),
                 ships: 1,
                 kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
             },
         );
         match state.fleet_location(FleetId(1)) {
@@ -868,6 +890,8 @@ mod tests {
                 location: StarId(5),
                 ships: 1,
                 kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
             },
         );
         state.fleet_missions.insert(
@@ -901,6 +925,8 @@ mod tests {
                 location: StarId(5),
                 ships: 1,
                 kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
             },
         );
         state.scout_missions.insert(

@@ -402,6 +402,8 @@ impl Engine {
                                     location: star_id,
                                 });
                             } else {
+                                // Defensive guard: QueueBuild validation rejects unknown design IDs,
+                                // so this should only occur if a corrupted save injected bad data.
                                 events.push(Event::error(format!(
                                     "Invalid ship design {} completed at colony {}",
                                     design_id.0, colony_id.0

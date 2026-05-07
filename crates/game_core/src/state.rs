@@ -508,15 +508,24 @@ pub enum ProductionItem {
     /// A ship built from a specific design template.
     Ship(ShipDesignId),
     /// Legacy save compatibility variant for old ship queue entries.
+    ///
+    /// Kept to deserialize pre-v2 saves that encoded ships directly as `Scout`.
     #[cfg_attr(feature = "serde", serde(rename = "Scout"))]
     Scout,
     /// Legacy save compatibility variant for old ship queue entries.
+    ///
+    /// Kept to deserialize pre-v2 saves that encoded ships directly as `Colony`.
     #[cfg_attr(feature = "serde", serde(rename = "Colony"))]
     Colony,
     /// Legacy save compatibility variant for old queue entries.
+    ///
+    /// Kept to deserialize pre-v2 saves that encoded outpost entries as `Outpost`.
     #[cfg_attr(feature = "serde", serde(rename = "Outpost"))]
     Outpost,
     /// Legacy save compatibility variant for old queue entries.
+    ///
+    /// Kept to deserialize pre-v2 saves that used `Structure` before
+    /// `SurfaceStructure` naming was introduced.
     #[cfg_attr(feature = "serde", serde(rename = "Structure"))]
     Structure(BuildingType),
 }
@@ -554,8 +563,8 @@ impl ProductionItem {
     pub fn cost(&self) -> u64 {
         match self {
             ProductionItem::Ship(design_id) => design_id.record().map(|d| d.cost).unwrap_or(0),
-            ProductionItem::Scout => ShipDesignId::SCOUT.record().map(|d| d.cost).unwrap_or(50),
-            ProductionItem::Colony => ShipDesignId::COLONY.record().map(|d| d.cost).unwrap_or(200),
+            ProductionItem::Scout => ShipDesignId::SCOUT.record().map(|d| d.cost).unwrap_or(0),
+            ProductionItem::Colony => ShipDesignId::COLONY.record().map(|d| d.cost).unwrap_or(0),
             ProductionItem::Outpost => 100,
             ProductionItem::SurfaceStructure(bt) | ProductionItem::Structure(bt) => bt.cost(),
             ProductionItem::OrbitalStructure(ot) => ot.cost(),

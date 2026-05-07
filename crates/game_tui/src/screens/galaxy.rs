@@ -344,7 +344,7 @@ fn render_star_details(
         Line::from(Span::styled("Planets:", Theme::title_style())),
     ];
 
-    for planet in &star.planets {
+    for (planet_index, planet) in star.planets.iter().enumerate() {
         // For foreign colonies, compute diplomatic contact status once and reuse for
         // both the label text and the rendering style.
         let foreign_is_contacted: Option<bool> = planet.colony.and_then(|cid| {
@@ -362,26 +362,30 @@ fn render_star_details(
             )
         });
 
-        let colony_info = match &planet.colony {
-            Some(colony_id) => {
-                if let Some(colony) = game_state.colonies.get(colony_id) {
-                    if colony.owner == game_state.player_empire {
-                        format!(" [Colony - Pop: {}]", colony.population)
-                    } else if foreign_is_contacted == Some(true) {
-                        if let Some(empire) = game_state.empires.get(&colony.owner) {
-                            format!(" [{} Colony - Pop: {}]", empire.name, colony.population)
+        let colony_info = if !planet.surveyed {
+            " [Unsurveyed]".to_string()
+        } else {
+            match &planet.colony {
+                Some(colony_id) => {
+                    if let Some(colony) = game_state.colonies.get(colony_id) {
+                        if colony.owner == game_state.player_empire {
+                            format!(" [Colony - Pop: {}]", colony.population)
+                        } else if foreign_is_contacted == Some(true) {
+                            if let Some(empire) = game_state.empires.get(&colony.owner) {
+                                format!(" [{} Colony - Pop: {}]", empire.name, colony.population)
+                            } else {
+                                format!(" [Foreign Colony - Pop: {}]", colony.population)
+                            }
                         } else {
-                            format!(" [Foreign Colony - Pop: {}]", colony.population)
+                            format!(" [Unknown Colony - Pop: {}]", colony.population)
                         }
                     } else {
-                        format!(" [Unknown Colony - Pop: {}]", colony.population)
+                        String::new()
                     }
-                } else {
-                    String::new()
                 }
+                None if planet.habitable => " [Habitable]".to_string(),
+                None => " [Uninhabitable]".to_string(),
             }
-            None if planet.habitable => " [Habitable]".to_string(),
-            None => " [Uninhabitable]".to_string(),
         };
 
         let colony_style = match &planet.colony {
@@ -403,10 +407,21 @@ fn render_star_details(
             _ => Theme::accent_style(),
         };
 
+        let planet_name = if planet.surveyed {
+            planet.name.clone()
+        } else {
+            format!("Orbit {}", planet_index + 1)
+        };
+        let size_label = if planet.surveyed {
+            format!(" ({:?})", planet.size)
+        } else {
+            " (Unknown)".to_string()
+        };
+
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(&planet.name, Theme::default_style()),
-            Span::styled(format!(" ({:?})", planet.size), Theme::muted_style()),
+            Span::styled(planet_name, Theme::default_style()),
+            Span::styled(size_label, Theme::muted_style()),
             Span::styled(colony_info, colony_style),
         ]));
     }
@@ -487,25 +502,6 @@ fn render_star_details(
                 ),
             ]));
         }
-    }
-
-    // Show colonize hint if a colonizer is present and there's a habitable unowned planet
-    let colonizer_present = game_state.fleets.values().any(|f| {
-        f.location == star.id
-            && f.kind == game_core::FleetKind::Colonizer
-            && !game_state.fleet_missions.contains_key(&f.id)
-            && !game_state.scout_missions.contains_key(&f.id)
-    });
-    let has_colonizable = star
-        .planets
-        .iter()
-        .any(|p| p.habitable && p.colony.is_none());
-    if colonizer_present && has_colonizable {
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![Span::styled(
-            "Press C to colonize.",
-            Theme::accent_style(),
-        )]));
     }
 
     let paragraph = Paragraph::new(lines).style(Theme::default_style());

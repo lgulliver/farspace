@@ -110,7 +110,15 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
         11 => {
             // v11 -> v12: Colony.role: ColonyRole added (serde default = Balanced).
             // All existing colonies default to Balanced role (no modifiers).
-            // Nothing to populate explicitly — just bump the version.
+            // Nothing to populate explicitly — continue to v13 migration.
+            migrate(SaveFile {
+                version: 12,
+                state: save.state,
+            })
+        }
+        12 => {
+            // v12 -> v13: Planet.surveyed: bool added (serde default = false).
+            // Existing planets default to unsurveyed unless already persisted by newer saves.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -373,6 +381,56 @@ mod tests {
             ColonyRole::Balanced,
             "colony migrated from v11 (no role field) must default to Balanced"
         );
+    }
+
+    #[test]
+    fn migrate_v12_to_v13_defaults_planets_to_unsurveyed() {
+        let v12_json = r#"
+        {
+            "version": 12,
+            "state": {
+                "seed": 42,
+                "turn": 1,
+                "stars": {
+                    "1": {
+                        "id": 1,
+                        "name": "Test",
+                        "x": 0,
+                        "y": 0,
+                        "spectral_class": "G",
+                        "planets": [
+                            {
+                                "name": "Test I",
+                                "size": "Medium",
+                                "class": "Terran",
+                                "colony": null,
+                                "habitable": true
+                            }
+                        ]
+                    }
+                },
+                "empires": {},
+                "colonies": {},
+                "fleets": {},
+                "player_empire": 1,
+                "rng": {"seed": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], "stream": 0, "word_pos": 0},
+                "event_log": [],
+                "next_colony_id": 2,
+                "next_fleet_id": 1
+            }
+        }"#;
+
+        let save: SaveFile =
+            serde_json::from_str(v12_json).expect("v12 JSON should deserialize successfully");
+        let migrated = migrate(save).expect("v12 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        let surveyed = migrated
+            .state
+            .stars
+            .values()
+            .flat_map(|s| s.planets.iter())
+            .all(|p| !p.surveyed);
+        assert!(surveyed, "v12 planets should default to unsurveyed in v13");
     }
 
     #[test]

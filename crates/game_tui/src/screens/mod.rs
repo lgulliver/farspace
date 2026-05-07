@@ -5,6 +5,7 @@ pub mod diplomacy;
 pub mod galaxy;
 pub mod menu;
 pub mod research;
+pub mod system;
 
 use ratatui::{layout::Rect, Frame};
 
@@ -17,6 +18,7 @@ pub enum Screen {
     #[default]
     Menu,
     Galaxy,
+    System,
     Colony,
     Research,
     Diplomacy,
@@ -36,6 +38,11 @@ impl Screen {
             Screen::Galaxy => {
                 if let Some(state) = game_state {
                     galaxy::render_galaxy(frame, area, app_state, state);
+                }
+            }
+            Screen::System => {
+                if let Some(state) = game_state {
+                    system::render_system(frame, area, app_state, state);
                 }
             }
             Screen::Colony => {

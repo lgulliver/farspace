@@ -61,6 +61,8 @@ pub enum Event {
     },
     /// A star system has been explored by a scout
     SystemExplored { star: StarId },
+    /// Survey intel for a planet has been completed
+    PlanetSurveyCompleted { star: StarId, planet_index: usize },
     /// A fleet has departed toward an explored system (multi-turn movement)
     FleetDeparted {
         fleet: FleetId,
@@ -70,6 +72,13 @@ pub enum Event {
     },
     /// A fleet has arrived at its destination
     FleetArrived { fleet: FleetId, star: StarId },
+    /// A colonization attempt has started for a specific target planet
+    ColonizationStarted {
+        empire: EmpireId,
+        fleet: FleetId,
+        star: StarId,
+        planet_index: usize,
+    },
     /// A colonizer fleet has successfully founded a new colony
     ColonizationCompleted {
         empire: EmpireId,
@@ -251,6 +260,9 @@ impl Event {
             Event::SystemExplored { star } => {
                 format!("System {} explored", star.0)
             }
+            Event::PlanetSurveyCompleted { star, planet_index } => {
+                format!("Survey completed: system {} planet {}", star.0, planet_index)
+            }
             Event::FleetDeparted {
                 fleet,
                 from,
@@ -264,6 +276,17 @@ impl Event {
             }
             Event::FleetArrived { fleet, star } => {
                 format!("Fleet {} arrived at system {}", fleet.0, star.0)
+            }
+            Event::ColonizationStarted {
+                empire,
+                fleet,
+                star,
+                planet_index,
+            } => {
+                format!(
+                    "Empire {} started colonization with fleet {} at system {} planet {}",
+                    empire.0, fleet.0, star.0, planet_index
+                )
             }
             Event::ColonizationCompleted {
                 empire,

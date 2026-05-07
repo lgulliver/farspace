@@ -334,6 +334,9 @@ pub struct Planet {
     /// Whether this planet can support a colony
     #[cfg_attr(feature = "serde", serde(default = "default_true"))]
     pub habitable: bool,
+    /// Whether this planet has been surveyed by the player.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub surveyed: bool,
 }
 
 #[cfg(feature = "serde")]

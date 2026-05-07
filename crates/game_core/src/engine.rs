@@ -139,6 +139,9 @@ impl Engine {
             if let Some(planet) = star.planets.get_mut(0) {
                 planet.colony = Some(colony_id);
             }
+            for planet in &mut star.planets {
+                planet.surveyed = true;
+            }
         }
 
         // Update AI home star's planet 0 to reference the AI colony
@@ -607,6 +610,9 @@ impl Engine {
                 }
 
                 events.push(Event::SystemExplored { star: destination });
+                if !is_ai_fleet {
+                    self.survey_planets_at_star(destination, events);
+                }
 
                 // Check if this exploration brings a player scout into contact with
                 // a foreign empire colony.
@@ -651,6 +657,7 @@ impl Engine {
                     .map(|f| f.owner == self.state.player_empire)
                     .unwrap_or(false);
                 if is_player_fleet {
+                    self.survey_planets_at_star(destination, events);
                     self.check_contact_at_star(destination, events);
                 }
 
@@ -1194,7 +1201,7 @@ impl Engine {
         }
 
         // Validate star exists and get planet info
-        let (planet_habitable, planet_colony) = {
+        let (planet_habitable, planet_colony, planet_surveyed) = {
             let star = match self.state.stars.get(&star_id) {
                 Some(s) => s,
                 None => {
@@ -1212,8 +1219,17 @@ impl Engine {
             }
 
             let planet = &star.planets[planet_index];
-            (planet.habitable, planet.colony)
+            (planet.habitable, planet.colony, planet.surveyed)
         };
+
+        // Validate planet is surveyed
+        if !planet_surveyed {
+            events.push(Event::error(format!(
+                "Planet {} at star {} has not been surveyed",
+                planet_index, star_id.0
+            )));
+            return;
+        }
 
         // Validate planet is habitable
         if !planet_habitable {
@@ -1235,6 +1251,12 @@ impl Engine {
 
         // All checks pass — create the colony
         let empire_id = self.state.player_empire;
+        events.push(Event::ColonizationStarted {
+            empire: empire_id,
+            fleet: fleet_id,
+            star: star_id,
+            planet_index,
+        });
         let colony_id = self.state.next_colony_id();
 
         let new_colony = Colony {
@@ -1277,6 +1299,20 @@ impl Engine {
             planet_index,
             colony: colony_id,
         });
+    }
+
+    fn survey_planets_at_star(&mut self, star_id: StarId, events: &mut Vec<Event>) {
+        if let Some(star) = self.state.stars.get_mut(&star_id) {
+            for (planet_index, planet) in star.planets.iter_mut().enumerate() {
+                if !planet.surveyed {
+                    planet.surveyed = true;
+                    events.push(Event::PlanetSurveyCompleted {
+                        star: star_id,
+                        planet_index,
+                    });
+                }
+            }
+        }
     }
 
     /// Check whether arriving at `star_id` brings the player empire into first contact
@@ -4762,6 +4798,7 @@ mod tests {
                     class: crate::state::PlanetClass::Terran,
                     colony: Some(ColonyId(1)),
                     habitable: true,
+                    surveyed: true,
                 }],
             },
         );
@@ -4781,6 +4818,7 @@ mod tests {
                     class: crate::state::PlanetClass::Terran,
                     colony: Some(ColonyId(2)),
                     habitable: true,
+                    surveyed: true,
                 }],
             },
         );
@@ -4931,6 +4969,7 @@ mod tests {
                     class: crate::state::PlanetClass::Terran,
                     colony: Some(ColonyId(1)),
                     habitable: true,
+                    surveyed: true,
                 }],
             },
         );
@@ -4948,6 +4987,7 @@ mod tests {
                     class: crate::state::PlanetClass::Terran,
                     colony: Some(ColonyId(2)),
                     habitable: true,
+                    surveyed: true,
                 }],
             },
         );
@@ -5181,6 +5221,7 @@ mod tests {
                     class: crate::state::PlanetClass::Terran,
                     colony: Some(ColonyId(1)),
                     habitable: true,
+                    surveyed: true,
                 }],
             },
         );
@@ -5199,6 +5240,7 @@ mod tests {
                         class: crate::state::PlanetClass::Terran,
                         colony: Some(ColonyId(2)),
                         habitable: true,
+                        surveyed: true,
                     },
                     Planet {
                         name: "Target II".to_string(),
@@ -5206,6 +5248,7 @@ mod tests {
                         class: crate::state::PlanetClass::Terran,
                         colony: Some(ColonyId(3)),
                         habitable: true,
+                        surveyed: true,
                     },
                 ],
             },
@@ -6929,6 +6972,198 @@ mod tests {
             loaded.colonies[&colony_id].role,
             ColonyRole::Scientific,
             "Colony role must survive save/load round-trip"
+        );
+    }
+
+    #[test]
+    fn scout_exploration_surveys_planets_in_orbital_order() {
+        let mut engine = Engine::new(42);
+        let scout = FleetId(1);
+        let destination = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("need an unexplored destination");
+
+        if let Some(star) = engine.state.stars.get_mut(&destination) {
+            for planet in &mut star.planets {
+                planet.surveyed = false;
+            }
+        }
+
+        let dispatch = engine.apply_turn(vec![Command::SendScout {
+            fleet: scout,
+            destination,
+        }]);
+        assert!(
+            dispatch
+                .iter()
+                .any(|e| matches!(e, Event::ScoutDispatched { .. })),
+            "scout dispatch should succeed"
+        );
+
+        let mut completion_events = Vec::new();
+        for _ in 0..SCOUT_TRAVEL_TURNS {
+            completion_events = engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        assert!(
+            completion_events
+                .iter()
+                .any(|e| matches!(e, Event::SystemExplored { star } if *star == destination)),
+            "system exploration event should be emitted"
+        );
+
+        let surveyed_indices: Vec<usize> = completion_events
+            .iter()
+            .filter_map(|e| match e {
+                Event::PlanetSurveyCompleted { star, planet_index } if *star == destination => {
+                    Some(*planet_index)
+                }
+                _ => None,
+            })
+            .collect();
+        let mut sorted = surveyed_indices.clone();
+        sorted.sort_unstable();
+        assert_eq!(
+            surveyed_indices, sorted,
+            "survey completion events must be emitted in orbital order"
+        );
+
+        let all_surveyed = engine.state.stars[&destination]
+            .planets
+            .iter()
+            .all(|p| p.surveyed);
+        assert!(all_surveyed, "all planets at destination should be surveyed");
+    }
+
+    #[test]
+    fn unsurveyed_planet_cannot_be_colonized() {
+        let mut engine = Engine::new(42);
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&sid| sid != engine.state.empires[&engine.state.player_empire].home_star)
+            .expect("need a non-home explored star");
+
+        let planet_index = {
+            let star = engine.state.stars.get_mut(&target).unwrap();
+            let idx = star
+                .planets
+                .iter()
+                .enumerate()
+                .find(|(_, p)| p.colony.is_none())
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            star.planets[idx].habitable = true;
+            star.planets[idx].surveyed = false;
+            idx
+        };
+
+        let fleet_id = FleetId(9990);
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: engine.state.player_empire,
+                location: target,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: fleet_id,
+            star: target,
+            planet_index,
+        }]);
+        assert!(
+            events.iter().any(
+                |e| matches!(e, Event::Error { message } if message.contains("not been surveyed"))
+            ),
+            "unsurveyed colonization should be rejected"
+        );
+    }
+
+    #[test]
+    fn explicit_planet_index_colonizes_requested_target() {
+        let mut engine = Engine::new(42);
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&sid| sid != engine.state.empires[&engine.state.player_empire].home_star)
+            .expect("need a non-home explored star");
+
+        {
+            let star = engine.state.stars.get_mut(&target).unwrap();
+            if star.planets.len() < 2 {
+                let clone = star.planets[0].clone();
+                star.planets.push(clone);
+            }
+            star.planets[0].colony = None;
+            star.planets[0].habitable = true;
+            star.planets[0].surveyed = true;
+            star.planets[1].colony = None;
+            star.planets[1].habitable = true;
+            star.planets[1].surveyed = true;
+        }
+
+        let fleet_id = FleetId(9991);
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: engine.state.player_empire,
+                location: target,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: fleet_id,
+            star: target,
+            planet_index: 1,
+        }]);
+
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::ColonizationStarted {
+                    fleet,
+                    star,
+                    planet_index,
+                    ..
+                } if *fleet == fleet_id && *star == target && *planet_index == 1
+            )),
+            "colonization start should reference selected target"
+        );
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::ColonizationCompleted {
+                    fleet,
+                    star,
+                    planet_index,
+                    ..
+                } if *fleet == fleet_id && *star == target && *planet_index == 1
+            )),
+            "colonization completion should reference selected target"
+        );
+        assert!(
+            engine.state.stars[&target].planets[0].colony.is_none(),
+            "non-target orbit should remain uncolonized"
+        );
+        assert!(
+            engine.state.stars[&target].planets[1].colony.is_some(),
+            "selected orbit should be colonized"
         );
     }
 }

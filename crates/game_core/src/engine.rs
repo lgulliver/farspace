@@ -807,6 +807,43 @@ impl Engine {
             }
         }
 
+        // Ships require a Shipyard in orbit
+        if matches!(item, BuildItem::Scout | BuildItem::Colony) && !colony.has_shipyard() {
+            events.push(Event::error(format!(
+                "Cannot build {} — colony {} has no Shipyard",
+                item.name(),
+                colony_id.0
+            )));
+            return;
+        }
+
+        // Surface buildings require a free surface slot
+        if let BuildItem::Structure(_) = item {
+            let planet_size = self
+                .state
+                .stars
+                .get(&colony.star)
+                .and_then(|s| s.planets.get(colony.planet_index))
+                .map(|p| p.size);
+            match planet_size {
+                Some(size) if colony.can_place_surface_building(size) => {}
+                Some(_) => {
+                    events.push(Event::error(format!(
+                        "Colony {} has no free surface slots",
+                        colony_id.0
+                    )));
+                    return;
+                }
+                None => {
+                    events.push(Event::error(format!(
+                        "Colony {} planet not found",
+                        colony_id.0
+                    )));
+                    return;
+                }
+            }
+        }
+
         // Validate orbital slot capacity for orbital structures
         if let BuildItem::OrbitalStructure(_) = item {
             let planet_size = self
@@ -1396,6 +1433,19 @@ mod tests {
     use super::*;
     use crate::state::BuildingType;
 
+    /// Inject a Shipyard directly into a colony's orbital installations.
+    /// Used to satisfy the "ships require a Shipyard" rule in tests that
+    /// focus on build completion / queue mechanics rather than the validation itself.
+    fn give_colony_shipyard(engine: &mut Engine, colony_id: ColonyId) {
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .orbital_installations
+            .push(crate::state::OrbitalStructureType::Shipyard);
+    }
+
     #[test]
     fn new_engine_creates_valid_state() {
         let engine = Engine::new(42);
@@ -1567,6 +1617,7 @@ mod tests {
     fn queue_build_valid() {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
 
         let events = engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
@@ -1587,6 +1638,7 @@ mod tests {
     fn cancel_build_valid() {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
 
         // First add something to cancel
         engine.apply_turn(vec![Command::QueueBuild {
@@ -1625,6 +1677,7 @@ mod tests {
     fn build_completion_creates_fleet() {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
 
         // Queue a scout (cost 50)
         engine.apply_turn(vec![Command::QueueBuild {
@@ -1806,6 +1859,7 @@ mod tests {
     fn cancel_build_non_first_item_does_not_reset_accumulated() {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
 
         // Queue two items
         engine.apply_turn(vec![Command::QueueBuild {
@@ -1877,6 +1931,7 @@ mod tests {
     fn build_completion_colony_ship_creates_fleet() {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
 
         // Queue a colony ship (cost 200)
         engine.apply_turn(vec![Command::QueueBuild {
@@ -3441,6 +3496,7 @@ mod tests {
 
         // Queue Colony ship at home colony
         let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
             item: BuildItem::Colony,
@@ -3779,6 +3835,7 @@ mod tests {
         let setup = |seed: u64| {
             let mut engine = Engine::new(seed);
             let colony_id = ColonyId(1);
+            give_colony_shipyard(&mut engine, colony_id);
             engine.apply_turn(vec![Command::QueueBuild {
                 colony: colony_id,
                 item: BuildItem::Colony,
@@ -3854,6 +3911,7 @@ mod tests {
     fn new_colony_participates_in_next_turn_production() {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
 
         // Build a colonizer
         engine.apply_turn(vec![Command::QueueBuild {
@@ -4065,6 +4123,7 @@ mod tests {
     fn build_completion_colony_ship_creates_colonizer_fleet() {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
 
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
@@ -4096,6 +4155,7 @@ mod tests {
     fn build_scout_creates_scout_fleet() {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
 
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
@@ -4449,6 +4509,7 @@ mod tests {
     fn economy_industry_still_advances_build_queue() {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
 
         engine.apply_turn(vec![
             Command::SetColonyFocus {
@@ -5861,6 +5922,7 @@ mod tests {
         // prod_pct only controls how much of that becomes credits.
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
 
         let production = engine.state.colonies[&colony_id].production;
 
@@ -6189,5 +6251,210 @@ mod tests {
             None
         );
         assert_eq!(BuildItem::Scout.required_tech(), None);
+    }
+
+    // -------------------------------------------------------------------------
+    // Shipyard requirement for ships
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn scout_requires_shipyard_to_queue() {
+        let mut engine = Engine::new(42);
+        let colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == engine.state.player_empire)
+            .map(|(id, _)| *id)
+            .unwrap();
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Scout,
+        }]);
+
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::Error { message } if message.contains("no Shipyard"))),
+            "Scout must be rejected without a Shipyard, got: {:?}",
+            events
+        );
+        assert!(
+            engine
+                .state
+                .colonies
+                .get(&colony_id)
+                .unwrap()
+                .build_queue
+                .is_empty(),
+            "build queue must stay empty when Scout is rejected"
+        );
+    }
+
+    #[test]
+    fn colony_ship_requires_shipyard_to_queue() {
+        let mut engine = Engine::new(42);
+        let colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == engine.state.player_empire)
+            .map(|(id, _)| *id)
+            .unwrap();
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Colony,
+        }]);
+
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::Error { message } if message.contains("no Shipyard"))),
+            "Colony Ship must be rejected without a Shipyard, got: {:?}",
+            events
+        );
+    }
+
+    #[test]
+    fn scout_allowed_when_shipyard_present() {
+        let mut engine = Engine::new(42);
+        let colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == engine.state.player_empire)
+            .map(|(id, _)| *id)
+            .unwrap();
+
+        give_colony_shipyard(&mut engine, colony_id);
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Scout,
+        }]);
+
+        assert!(
+            !events.iter().any(|e| e.is_error()),
+            "Scout must be accepted with a Shipyard, got errors: {:?}",
+            events
+        );
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::BuildQueued { item, .. } if *item == BuildItem::Scout)),);
+    }
+
+    #[test]
+    fn colony_ship_allowed_when_shipyard_present() {
+        let mut engine = Engine::new(42);
+        let colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == engine.state.player_empire)
+            .map(|(id, _)| *id)
+            .unwrap();
+
+        give_colony_shipyard(&mut engine, colony_id);
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Colony,
+        }]);
+
+        assert!(
+            !events.iter().any(|e| e.is_error()),
+            "Colony Ship must be accepted with a Shipyard, got errors: {:?}",
+            events
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Surface slot cap enforcement
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn surface_structure_rejected_when_slots_full() {
+        let mut engine = Engine::new(42);
+        let colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == engine.state.player_empire)
+            .map(|(id, _)| *id)
+            .unwrap();
+
+        // Fill all surface slots
+        let (star_id, planet_index) = {
+            let c = engine.state.colonies.get(&colony_id).unwrap();
+            (c.star, c.planet_index)
+        };
+        let max_slots = engine
+            .state
+            .stars
+            .get(&star_id)
+            .unwrap()
+            .planets
+            .get(planet_index)
+            .unwrap()
+            .size
+            .surface_slots();
+
+        {
+            let colony = engine.state.colonies.get_mut(&colony_id).unwrap();
+            for _ in 0..max_slots {
+                colony
+                    .surface_installations
+                    .push(BuildingType::FabricationYard);
+            }
+        }
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Structure(BuildingType::ScienceNexus),
+        }]);
+
+        assert!(
+            events.iter().any(
+                |e| matches!(e, Event::Error { message } if message.contains("no free surface slots"))
+            ),
+            "Surface structure must be rejected when all slots are full, got: {:?}",
+            events
+        );
+        assert!(
+            engine
+                .state
+                .colonies
+                .get(&colony_id)
+                .unwrap()
+                .build_queue
+                .is_empty(),
+            "build queue must stay empty after surface-slot rejection"
+        );
+    }
+
+    #[test]
+    fn surface_structure_allowed_when_slot_available() {
+        let mut engine = Engine::new(42);
+        let colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == engine.state.player_empire)
+            .map(|(id, _)| *id)
+            .unwrap();
+
+        // Fresh colony has available slots
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Structure(BuildingType::AquacultureBay),
+        }]);
+
+        assert!(
+            !events.iter().any(|e| e.is_error()),
+            "Surface structure must be accepted when slots are available, got: {:?}",
+            events
+        );
     }
 }

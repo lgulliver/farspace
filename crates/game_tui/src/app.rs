@@ -306,9 +306,10 @@ impl App {
         }
     }
 
-    /// Total number of items in the build picker (surface buildings + orbital structures)
+    /// Total number of items in the build picker (surface buildings + orbital structures + ships)
     fn all_build_item_count() -> usize {
-        BuildingType::all().len() + OrbitalStructureType::all().len()
+        // Ships: Scout and Colony Ship
+        BuildingType::all().len() + OrbitalStructureType::all().len() + 2
     }
 
     /// Try to enter the colony screen for the selected star.
@@ -462,7 +463,11 @@ impl App {
 
         let surface_buildings = BuildingType::all();
         let orbital_structures = OrbitalStructureType::all();
-        let total = surface_buildings.len() + orbital_structures.len();
+        // Ships listed in the picker: Scout then Colony Ship
+        const SHIP_ITEMS: &[game_core::BuildItem] =
+            &[game_core::BuildItem::Scout, game_core::BuildItem::Colony];
+
+        let total = surface_buildings.len() + orbital_structures.len() + SHIP_ITEMS.len();
         if total == 0 {
             return;
         }
@@ -470,10 +475,12 @@ impl App {
 
         let item = if cursor < surface_buildings.len() {
             game_core::BuildItem::Structure(surface_buildings[cursor])
-        } else {
+        } else if cursor < surface_buildings.len() + orbital_structures.len() {
             game_core::BuildItem::OrbitalStructure(
                 orbital_structures[cursor - surface_buildings.len()],
             )
+        } else {
+            SHIP_ITEMS[cursor - surface_buildings.len() - orbital_structures.len()]
         };
 
         self.pending_commands.push(Command::QueueBuild {
@@ -1869,13 +1876,23 @@ mod tests {
 
     #[test]
     fn colonize_key_with_colonizer_succeeds() {
-        use game_core::{Command, FleetKind};
+        use game_core::{Command, FleetKind, OrbitalStructureType};
 
         let mut app = App::new();
         app.new_game(42);
 
         // Build a colonizer fleet via the engine directly
         let colony_id = game_core::ColonyId(1);
+        // Inject Shipyard so Colony Ship can be queued
+        app.engine
+            .as_mut()
+            .unwrap()
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .orbital_installations
+            .push(OrbitalStructureType::Shipyard);
         app.engine.as_mut().unwrap().apply_turn(vec![
             Command::QueueBuild {
                 colony: colony_id,

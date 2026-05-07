@@ -389,7 +389,7 @@ impl OrbitalStructureType {
     pub fn description(&self) -> &'static str {
         match self {
             OrbitalStructureType::Shipyard => {
-                "Orbital drydock — halves ship construction time at this colony"
+                "Orbital drydock — required to construct ships at this colony"
             }
         }
     }
@@ -511,6 +511,12 @@ impl Colony {
         planet_size
             .orbital_slots()
             .saturating_sub(self.orbital_installations.len())
+    }
+
+    /// Returns `true` if this colony has a Shipyard in its orbital installations
+    pub fn has_shipyard(&self) -> bool {
+        self.orbital_installations
+            .contains(&OrbitalStructureType::Shipyard)
     }
 }
 

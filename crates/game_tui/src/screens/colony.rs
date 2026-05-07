@@ -5,7 +5,7 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{BuildingType, GameState, OrbitalStructureType, TechId};
+use game_core::{BuildItem, BuildingType, GameState, OrbitalStructureType, TechId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
@@ -309,17 +309,35 @@ fn render_build_picker(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // Determine completed techs for the player empire to show lock state
+    // Determine completed techs and colony state for lock/availability badges
     let completed_techs: Vec<TechId> = game_state
         .empires
         .get(&game_state.player_empire)
         .map(|e| e.research.completed.clone())
         .unwrap_or_default();
 
-    // Build the combined list: surface buildings then orbital structures
+    // Look up the selected colony and its planet size for slot checks
+    let (has_shipyard, has_surface_slot) = app_state
+        .selected_colony
+        .and_then(|cid| game_state.colonies.get(&cid))
+        .map(|colony| {
+            let planet_size = game_state
+                .stars
+                .get(&colony.star)
+                .and_then(|s| s.planets.get(colony.planet_index))
+                .map(|p| p.size);
+            let has_surface = planet_size
+                .map(|sz| colony.can_place_surface_building(sz))
+                .unwrap_or(true);
+            (colony.has_shipyard(), has_surface)
+        })
+        .unwrap_or((false, true));
+
+    // Build the combined list: surface buildings, orbital structures, then ships
     let surface_count = BuildingType::all().len();
     let orbital_count = OrbitalStructureType::all().len();
-    let total_count = surface_count + orbital_count;
+    let ship_items: &[BuildItem] = &[BuildItem::Scout, BuildItem::Colony];
+    let total_count = surface_count + orbital_count + ship_items.len();
     let cursor = if total_count > 0 {
         app_state.colony_build_cursor % total_count
     } else {
@@ -328,7 +346,7 @@ fn render_build_picker(
 
     let mut lines = Vec::new();
 
-    // Surface buildings section header
+    // Surface buildings section
     lines.push(Line::from(vec![Span::styled(
         " Surface Structures",
         Theme::muted_style(),
@@ -336,13 +354,23 @@ fn render_build_picker(
     for (i, bt) in BuildingType::all().iter().enumerate() {
         let is_selected = i == cursor;
         let prefix = if is_selected { ">" } else { " " };
+        let slots_full = !has_surface_slot;
+        let lock_tag = if slots_full { " [FULL]" } else { "" };
         let style = if is_selected {
             Theme::highlight_style()
+        } else if slots_full {
+            Theme::muted_style()
         } else {
             Theme::default_style()
         };
         lines.push(Line::from(vec![Span::styled(
-            format!(" {} [{:>3}pp] {} ", prefix, bt.cost(), bt.name()),
+            format!(
+                " {} [{:>3}pp] {}{} ",
+                prefix,
+                bt.cost(),
+                bt.name(),
+                lock_tag
+            ),
             style,
         )]));
         lines.push(Line::from(vec![Span::styled(
@@ -351,7 +379,7 @@ fn render_build_picker(
         )]));
     }
 
-    // Orbital structures section header
+    // Orbital structures section
     lines.push(Line::from(vec![Span::styled(
         " Orbital Structures",
         Theme::muted_style(),
@@ -379,6 +407,35 @@ fn render_build_picker(
         lines.push(Line::from(vec![Span::styled(
             format!("        {}", ot.description()),
             Theme::muted_style(),
+        )]));
+    }
+
+    // Ships section
+    lines.push(Line::from(vec![Span::styled(
+        " Ships",
+        Theme::muted_style(),
+    )]));
+    for (i, ship_item) in ship_items.iter().enumerate() {
+        let idx = surface_count + orbital_count + i;
+        let is_selected = idx == cursor;
+        let prefix = if is_selected { ">" } else { " " };
+        let lock_tag = if has_shipyard { "" } else { " [NO SHIPYARD]" };
+        let style = if is_selected {
+            Theme::highlight_style()
+        } else if has_shipyard {
+            Theme::default_style()
+        } else {
+            Theme::muted_style()
+        };
+        lines.push(Line::from(vec![Span::styled(
+            format!(
+                " {} [{:>3}pp] {}{}",
+                prefix,
+                ship_item.cost(),
+                ship_item.name(),
+                lock_tag
+            ),
+            style,
         )]));
     }
 

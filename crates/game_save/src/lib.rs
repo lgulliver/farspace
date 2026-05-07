@@ -194,6 +194,29 @@ mod tests {
     }
 
     #[test]
+    fn save_load_preserves_planet_survey_state() {
+        let mut engine = Engine::new(42);
+        let star_id = *engine.state.stars.keys().next().unwrap();
+        if let Some(star) = engine.state.stars.get_mut(&star_id) {
+            if let Some(planet) = star.planets.get_mut(0) {
+                planet.surveyed = false;
+            }
+            if star.planets.len() > 1 {
+                star.planets[1].surveyed = true;
+            }
+        }
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+        let original_planets = &engine.state.stars[&star_id].planets;
+        let loaded_planets = &loaded.stars[&star_id].planets;
+        assert_eq!(original_planets.len(), loaded_planets.len());
+        for (original, loaded) in original_planets.iter().zip(loaded_planets.iter()) {
+            assert_eq!(original.surveyed, loaded.surveyed);
+        }
+    }
+
+    #[test]
     fn save_load_preserves_research_state() {
         use game_core::TechId;
 

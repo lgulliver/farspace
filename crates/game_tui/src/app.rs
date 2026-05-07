@@ -32,6 +32,8 @@ pub struct AppState {
     pub search_input: String,
     pub show_search: bool,
     pub selected_star: Option<StarId>,
+    /// Selected planet index when inspecting a system
+    pub selected_planet_index: usize,
     /// Currently viewed colony (set when entering the colony screen)
     pub selected_colony: Option<ColonyId>,
     /// Cursor index for the build-picker on the colony screen
@@ -62,6 +64,7 @@ impl App {
 
         // Select the first star by default
         self.state.selected_star = engine.state.stars.keys().next().copied();
+        self.state.selected_planet_index = 0;
 
         // Add initial log entry
         self.state.log.push("Game started".to_string());
@@ -88,6 +91,7 @@ impl App {
         let selected_star = state.stars.keys().next().copied();
         self.engine = Some(Engine::from_state(state));
         self.state.selected_star = selected_star;
+        self.state.selected_planet_index = 0;
         self.state.active = Screen::Galaxy;
         Ok(())
     }
@@ -210,6 +214,7 @@ impl App {
         match self.state.active {
             Screen::Menu => self.handle_menu_key(key),
             Screen::Galaxy => self.handle_galaxy_key(key),
+            Screen::System => self.handle_system_key(key),
             Screen::Colony => self.handle_colony_key(key),
             Screen::Research => self.handle_research_key(key),
             Screen::Diplomacy => self.handle_diplomacy_key(key),
@@ -243,9 +248,10 @@ impl App {
             return;
         }
 
-        // Colonize selected system with 'C'
-        if key.code == KeyCode::Char('C') {
-            self.colonize_selected_system();
+        // Enter system inspector
+        if key.code == KeyCode::Enter {
+            self.state.active = Screen::System;
+            self.state.selected_planet_index = 0;
             return;
         }
 
@@ -277,6 +283,45 @@ impl App {
         // End turn
         if KeyMap::is_end_turn(key) {
             self.end_turn();
+        }
+    }
+
+    fn handle_system_key(&mut self, key: KeyEvent) {
+        let planet_count = self
+            .engine
+            .as_ref()
+            .and_then(|engine| {
+                self.state
+                    .selected_star
+                    .and_then(|star_id| engine.state.stars.get(&star_id))
+            })
+            .map(|star| star.planets.len())
+            .unwrap_or(0);
+
+        match key.code {
+            KeyCode::Esc => {
+                self.state.active = Screen::Galaxy;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if planet_count > 0 {
+                    self.state.selected_planet_index =
+                        (self.state.selected_planet_index + 1) % planet_count;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if planet_count > 0 {
+                    self.state.selected_planet_index =
+                        (self.state.selected_planet_index + planet_count - 1) % planet_count;
+                }
+            }
+            KeyCode::Char('C') => {
+                self.colonize_selected_planet();
+            }
+            _ => {
+                if KeyMap::is_end_turn(key) && key.code != KeyCode::Enter {
+                    self.end_turn();
+                }
+            }
         }
     }
 
@@ -744,9 +789,9 @@ impl App {
         }
     }
 
-    /// Colonize the first available habitable unowned planet at the selected star system
+    /// Colonize the currently selected planet at the selected star system
     /// using an idle colonizer fleet present at that system.
-    fn colonize_selected_system(&mut self) {
+    fn colonize_selected_planet(&mut self) {
         let star_id = match self.state.selected_star {
             Some(id) => id,
             None => {
@@ -785,32 +830,26 @@ impl App {
             }
         };
 
-        // Find the first habitable uncolonized planet at this star
-        let planet_index: Option<usize> = {
+        let planet_count = {
             let engine = match &self.engine {
                 Some(e) => e,
                 None => return,
             };
-            let star = match engine.state.stars.get(&star_id) {
-                Some(s) => s,
-                None => return,
-            };
-            star.planets
-                .iter()
-                .enumerate()
-                .find(|(_, p)| p.habitable && p.colony.is_none())
-                .map(|(i, _)| i)
+            engine
+                .state
+                .stars
+                .get(&star_id)
+                .map(|s| s.planets.len())
+                .unwrap_or(0)
         };
 
-        let planet_index = match planet_index {
-            Some(i) => i,
-            None => {
-                self.state
-                    .log
-                    .push("No colonizable planet available at selected system.".to_string());
-                return;
-            }
-        };
+        if planet_count == 0 {
+            self.state
+                .log
+                .push("Selected system has no planets.".to_string());
+            return;
+        }
+        let planet_index = self.state.selected_planet_index.min(planet_count - 1);
 
         self.pending_commands.push(Command::Colonize {
             fleet: fleet_id,
@@ -893,6 +932,78 @@ mod tests {
         app.new_game(42);
         assert_eq!(app.state.active, Screen::Galaxy);
         assert!(app.engine.is_some());
+    }
+
+    #[test]
+    fn enter_opens_system_view_from_galaxy() {
+        let mut app = App::new();
+        app.new_game(42);
+        assert_eq!(app.state.active, Screen::Galaxy);
+
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.state.active, Screen::System);
+    }
+
+    #[test]
+    fn esc_returns_from_system_view_to_galaxy() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::System;
+
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.state.active, Screen::Galaxy);
+    }
+
+    #[test]
+    fn system_view_colonize_targets_selected_planet() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let engine = app.engine.as_mut().unwrap();
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&sid| sid != engine.state.empires[&engine.state.player_empire].home_star)
+            .expect("need explored non-home star");
+        app.state.selected_star = Some(target);
+        app.state.selected_planet_index = 1;
+        app.state.active = Screen::System;
+
+        {
+            let star = engine.state.stars.get_mut(&target).unwrap();
+            if star.planets.len() < 2 {
+                let clone = star.planets[0].clone();
+                star.planets.push(clone);
+            }
+            for planet in &mut star.planets {
+                planet.colony = None;
+                planet.habitable = true;
+                planet.surveyed = true;
+            }
+        }
+
+        let fleet_id = FleetId(6000);
+        engine.state.fleets.insert(
+            fleet_id,
+            game_core::Fleet {
+                id: fleet_id,
+                owner: engine.state.player_empire,
+                location: target,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        app.handle_key(key(KeyCode::Char('C')));
+
+        let star = &app.engine.as_ref().unwrap().state.stars[&target];
+        assert!(
+            star.planets[1].colony.is_some(),
+            "selected planet should be colonized"
+        );
     }
 
     #[test]
@@ -989,8 +1100,8 @@ mod tests {
         app.new_game(42);
         let initial_turn = app.engine.as_ref().unwrap().state.turn;
 
-        // 'Enter' ends the turn
-        app.handle_key(key(KeyCode::Enter));
+        // 't' ends the turn on galaxy screen (Enter opens System View)
+        app.handle_key(key(KeyCode::Char('t')));
         assert_eq!(app.engine.as_ref().unwrap().state.turn, initial_turn + 1);
     }
 
@@ -1895,7 +2006,7 @@ mod tests {
     }
 
     #[test]
-    fn colonize_key_without_colonizer_logs_error() {
+    fn system_colonize_key_without_colonizer_logs_error() {
         let mut app = App::new();
         app.new_game(42);
 
@@ -1903,6 +2014,7 @@ mod tests {
         let engine = app.engine.as_ref().unwrap();
         let star = *engine.state.explored_stars.iter().next().unwrap();
         app.state.selected_star = Some(star);
+        app.state.active = Screen::System;
 
         let before = app.state.log.len();
         app.handle_key(key(KeyCode::Char('C')));
@@ -1916,7 +2028,7 @@ mod tests {
     fn colonize_without_engine_is_noop() {
         let mut app = App::new();
         // No game started
-        app.colonize_selected_system();
+        app.colonize_selected_planet();
         assert!(app.engine.is_none());
     }
 
@@ -1926,7 +2038,7 @@ mod tests {
         app.new_game(42);
         app.state.selected_star = None;
         let before = app.state.log.len();
-        app.colonize_selected_system();
+        app.colonize_selected_planet();
         assert!(app.state.log.len() > before);
     }
 
@@ -2025,6 +2137,7 @@ mod tests {
 
         // Select target star and press C
         app.state.selected_star = Some(target);
+        app.state.active = Screen::System;
         app.handle_key(key(KeyCode::Char('C')));
 
         let engine = app.engine.as_ref().unwrap();

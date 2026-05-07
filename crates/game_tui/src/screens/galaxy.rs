@@ -1,5 +1,7 @@
 //! Galaxy map screen
 
+use std::borrow::Cow;
+
 use crate::components::{render_footer, render_header, render_log};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
@@ -344,7 +346,7 @@ fn render_star_details(
         Line::from(Span::styled("Planets:", Theme::title_style())),
     ];
 
-    for planet in &star.planets {
+    for (planet_index, planet) in star.planets.iter().enumerate() {
         // For foreign colonies, compute diplomatic contact status once and reuse for
         // both the label text and the rendering style.
         let foreign_is_contacted: Option<bool> = planet.colony.and_then(|cid| {
@@ -362,26 +364,44 @@ fn render_star_details(
             )
         });
 
-        let colony_info = match &planet.colony {
-            Some(colony_id) => {
-                if let Some(colony) = game_state.colonies.get(colony_id) {
-                    if colony.owner == game_state.player_empire {
+        let colony_info = if let Some(colony_id) = planet.colony {
+            if let Some(colony) = game_state.colonies.get(&colony_id) {
+                if colony.owner == game_state.player_empire {
+                    if planet.surveyed {
                         format!(" [Colony - Pop: {}]", colony.population)
-                    } else if foreign_is_contacted == Some(true) {
-                        if let Some(empire) = game_state.empires.get(&colony.owner) {
+                    } else {
+                        " [Colony - Unsurveyed]".to_string()
+                    }
+                } else if foreign_is_contacted == Some(true) {
+                    if let Some(empire) = game_state.empires.get(&colony.owner) {
+                        if planet.surveyed {
                             format!(" [{} Colony - Pop: {}]", empire.name, colony.population)
                         } else {
-                            format!(" [Foreign Colony - Pop: {}]", colony.population)
+                            format!(" [{} Colony - Unsurveyed]", empire.name)
                         }
                     } else {
-                        format!(" [Unknown Colony - Pop: {}]", colony.population)
+                        if planet.surveyed {
+                            format!(" [Foreign Colony - Pop: {}]", colony.population)
+                        } else {
+                            " [Foreign Colony - Unsurveyed]".to_string()
+                        }
                     }
                 } else {
-                    String::new()
+                    if planet.surveyed {
+                        format!(" [Unknown Colony - Pop: {}]", colony.population)
+                    } else {
+                        " [Unknown Colony - Unsurveyed]".to_string()
+                    }
                 }
+            } else {
+                String::new()
             }
-            None if planet.habitable => " [Habitable]".to_string(),
-            None => " [Uninhabitable]".to_string(),
+        } else if !planet.surveyed {
+            " [Unsurveyed]".to_string()
+        } else if planet.habitable {
+            " [Habitable]".to_string()
+        } else {
+            " [Uninhabitable]".to_string()
         };
 
         let colony_style = match &planet.colony {
@@ -403,10 +423,21 @@ fn render_star_details(
             _ => Theme::accent_style(),
         };
 
+        let planet_name: Cow<'_, str> = if planet.surveyed {
+            Cow::Borrowed(planet.name.as_str())
+        } else {
+            Cow::Owned(format!("Orbit {}", planet_index + 1))
+        };
+        let size_label = if planet.surveyed {
+            format!(" ({:?})", planet.size)
+        } else {
+            " (Unknown)".to_string()
+        };
+
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(&planet.name, Theme::default_style()),
-            Span::styled(format!(" ({:?})", planet.size), Theme::muted_style()),
+            Span::styled(planet_name, Theme::default_style()),
+            Span::styled(size_label, Theme::muted_style()),
             Span::styled(colony_info, colony_style),
         ]));
     }
@@ -487,25 +518,6 @@ fn render_star_details(
                 ),
             ]));
         }
-    }
-
-    // Show colonize hint if a colonizer is present and there's a habitable unowned planet
-    let colonizer_present = game_state.fleets.values().any(|f| {
-        f.location == star.id
-            && f.kind == game_core::FleetKind::Colonizer
-            && !game_state.fleet_missions.contains_key(&f.id)
-            && !game_state.scout_missions.contains_key(&f.id)
-    });
-    let has_colonizable = star
-        .planets
-        .iter()
-        .any(|p| p.habitable && p.colony.is_none());
-    if colonizer_present && has_colonizable {
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![Span::styled(
-            "Press C to colonize.",
-            Theme::accent_style(),
-        )]));
     }
 
     let paragraph = Paragraph::new(lines).style(Theme::default_style());

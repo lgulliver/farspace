@@ -137,6 +137,7 @@ mod tests {
             class: PlanetClass::Terran,
             colony: Some(ColonyId(1)),
             habitable: true,
+            surveyed: true,
         }
     }
 
@@ -220,6 +221,7 @@ mod tests {
             class: PlanetClass::Oceanic,
             colony: Some(ColonyId(1)),
             habitable: true,
+            surveyed: true,
         };
         let y = calculate_yield(&colony, Some(&planet));
 
@@ -235,6 +237,7 @@ mod tests {
             class: PlanetClass::Frozen,
             colony: Some(ColonyId(1)),
             habitable: true,
+            surveyed: true,
         };
         let y = calculate_yield(&colony, Some(&planet));
 
@@ -298,6 +301,7 @@ mod tests {
             class: PlanetClass::Barren,
             colony: Some(ColonyId(1)),
             habitable: false,
+            surveyed: true,
         };
         let y = calculate_yield(&colony, Some(&planet));
 

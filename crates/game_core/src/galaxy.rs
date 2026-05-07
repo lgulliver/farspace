@@ -70,6 +70,7 @@ pub fn generate_galaxy(seed: u64, star_count: usize) -> Vec<Star> {
                     class,
                     colony: None,
                     habitable: true,
+                    surveyed: false,
                 }
             })
             .collect();

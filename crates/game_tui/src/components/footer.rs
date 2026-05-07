@@ -15,15 +15,23 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::Menu => vec![("[N]", "New Game"), ("[L]", "Load"), ("[Q]", "Quit")],
         Screen::Galaxy => vec![
             ("[hjkl/←↓↑→]", "Move"),
+            ("[Enter]", "System View"),
             ("[c]", "Colony"),
             ("[r]", "Research"),
             ("[D]", "Diplomacy"),
             ("[S]", "Scout"),
             ("[M]", "Move Fleet"),
-            ("[E/T/Enter]", "End Turn"),
+            ("[E/T]", "End Turn"),
             ("[?]", "Help"),
             ("[:]", "Command"),
             ("[Q]", "Quit"),
+        ],
+        Screen::System => vec![
+            ("[j/k]", "Select Planet"),
+            ("[C]", "Colonize Selected"),
+            ("[e/t]", "End Turn"),
+            ("[?]", "Help"),
+            ("[Esc]", "Back"),
         ],
         Screen::Colony => vec![
             ("[j/k]", "Select"),
@@ -97,6 +105,19 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_footer(frame, area, &Screen::Galaxy);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_footer_system() {
+        let backend = TestBackend::new(80, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_footer(frame, area, &Screen::System);
             })
             .unwrap();
     }

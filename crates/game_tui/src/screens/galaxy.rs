@@ -106,6 +106,47 @@ fn render_star_map(
         .map(|m| m.destination)
         .collect();
 
+    // Collect contested stars in a single O(fleets) pass:
+    // build a map of star → set of idle empire owners, then mark a star as contested
+    // when the player and a contacted foreign empire both have idle fleets there.
+    let contested_stars: std::collections::BTreeSet<StarId> = {
+        let player = game_state.player_empire;
+        // Accumulate idle owners per star
+        let mut owners_by_star: std::collections::BTreeMap<
+            StarId,
+            std::collections::BTreeSet<game_core::EmpireId>,
+        > = std::collections::BTreeMap::new();
+        for (fid, f) in &game_state.fleets {
+            if !game_state.fleet_missions.contains_key(fid)
+                && !game_state.scout_missions.contains_key(fid)
+            {
+                owners_by_star
+                    .entry(f.location)
+                    .or_default()
+                    .insert(f.owner);
+            }
+        }
+        // A star is contested only if it is explored AND has the player plus a
+        // contacted foreign empire as idle fleet owners.
+        owners_by_star
+            .into_iter()
+            .filter(|(star_id, owners)| {
+                game_state.explored_stars.contains(star_id)
+                    && owners.contains(&player)
+                    && owners.iter().any(|&owner| {
+                        owner != player
+                            && game_state
+                                .diplomacy
+                                .get(&owner)
+                                .copied()
+                                .unwrap_or(game_core::RelationshipStatus::Unknown)
+                                == game_core::RelationshipStatus::Contacted
+                    })
+            })
+            .map(|(star_id, _)| star_id)
+            .collect()
+    };
+
     // Scale stars to fit the map area
     // Stars are in range -500..500, map to 0..map_width/height
     for star in game_state.stars.values() {
@@ -124,6 +165,7 @@ fn render_star_map(
         let is_explored = game_state.explored_stars.contains(&star.id);
         let scout_en_route = scout_destinations.contains(&star.id);
         let fleet_en_route = fleet_destinations.contains(&star.id);
+        let is_contested = contested_stars.contains(&star.id);
 
         // Check if the star has any AI-owned colony
         let has_ai_colony = star.planets.iter().any(|p| {
@@ -137,6 +179,14 @@ fn render_star_map(
 
         let (render_char, style) = if is_selected {
             ('@', Theme::highlight_style())
+        } else if is_explored && is_contested {
+            // Contested explored system — fleets from opposing contacted empires present
+            (
+                '!',
+                Style::default()
+                    .fg(ratatui::style::Color::Red)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else if scout_en_route {
             // Scout is heading here — show with a distinct marker
             (
@@ -388,14 +438,29 @@ fn render_star_details(
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled("Fleets:", Theme::title_style())));
         for fleet in &fleets_here {
-            let label = if fleet.kind == game_core::FleetKind::Colonizer {
-                format!("Colony Ship {} (idle)", fleet.id.0)
+            let is_player = fleet.owner == game_state.player_empire;
+            let owner_name = game_state
+                .empires
+                .get(&fleet.owner)
+                .map(|e| e.name.as_str())
+                .unwrap_or("Unknown");
+            let fleet_type = if fleet.kind == game_core::FleetKind::Colonizer {
+                "Colony Ship"
             } else {
-                format!("Fleet {} (idle)", fleet.id.0)
+                "Fleet"
+            };
+            let label = format!(
+                "{} {} [{}] Str:{} HP:{}/100",
+                fleet_type, fleet.id.0, owner_name, fleet.strength, fleet.integrity
+            );
+            let fleet_style = if is_player {
+                Theme::accent_style()
+            } else {
+                Style::default().fg(ratatui::style::Color::Yellow)
             };
             lines.push(Line::from(vec![
                 Span::raw("  "),
-                Span::styled(label, Theme::accent_style()),
+                Span::styled(label, fleet_style),
             ]));
         }
         for mission in &fleets_en_route {

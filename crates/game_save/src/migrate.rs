@@ -61,6 +61,15 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // v6 -> v7: GameState.diplomacy (BTreeMap<EmpireId, RelationshipStatus>, default empty)
             // added.  Relies on serde default — nothing to populate explicitly.
             // Existing saves will have diplomacy=empty (all empires start Unknown).
+            migrate(SaveFile {
+                version: 7,
+                state: save.state,
+            })
+        }
+        7 => {
+            // v7 -> v8: Fleet.strength (u32, default 1) and Fleet.integrity (u32, default 100)
+            // added for combat auto-resolve.  Both rely on serde defaults — nothing to populate
+            // explicitly.  Existing fleets will have full health and base strength on load.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -171,6 +180,14 @@ mod tests {
         assert_eq!(migrated.version, CURRENT_VERSION);
         // diplomacy defaults to empty
         assert!(migrated.state.diplomacy.is_empty());
+    }
+
+    #[test]
+    fn migrate_v7_to_v8_succeeds() {
+        let state = GameState::default();
+        let v7_save = SaveFile { version: 7, state };
+        let migrated = migrate(v7_save).expect("v7 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
     }
 
     #[test]

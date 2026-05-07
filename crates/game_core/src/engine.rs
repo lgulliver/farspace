@@ -151,6 +151,8 @@ impl Engine {
                 location: home_star_id,
                 ships: 1,
                 kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -164,6 +166,8 @@ impl Engine {
                 location: ai_home_star_id,
                 ships: 1,
                 kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -376,6 +380,8 @@ impl Engine {
                                     location: star_id,
                                     ships: 1,
                                     kind: fleet_kind,
+                                    strength: 1,
+                                    integrity: 100,
                                 },
                             );
                             events.push(Event::FleetCreated {
@@ -528,6 +534,8 @@ impl Engine {
                     .unwrap_or(false);
                 if is_ai_fleet {
                     self.state.ai_explored_stars.insert(destination);
+                    // Symmetric contact: AI scout arriving at a player colony
+                    self.check_ai_contact_at_star(destination, events);
                 } else {
                     self.state.explored_stars.insert(destination);
                 }
@@ -544,6 +552,9 @@ impl Engine {
                 if !is_ai_fleet {
                     self.check_contact_at_star(destination, events);
                 }
+
+                // Check for hostile fleet encounters after arrival
+                self.check_combat_at_star(destination, fleet_id, events);
             }
         }
 
@@ -581,6 +592,9 @@ impl Engine {
                 if is_player_fleet {
                     self.check_contact_at_star(destination, events);
                 }
+
+                // Check for hostile fleet encounters after arrival
+                self.check_combat_at_star(destination, fleet_id, events);
             }
         }
 
@@ -1104,6 +1118,159 @@ impl Engine {
             }
         }
     }
+
+    /// Symmetric contact check: called when an AI fleet arrives at a star.
+    ///
+    /// If the star has a player colony and the empires are not yet contacted,
+    /// establishes first contact and emits `FirstContact`.
+    fn check_ai_contact_at_star(&mut self, star_id: StarId, events: &mut Vec<Event>) {
+        let player = self.state.player_empire;
+        let has_player_colony = self
+            .state
+            .colonies
+            .values()
+            .any(|c| c.star == star_id && c.owner == player);
+
+        if !has_player_colony {
+            return;
+        }
+
+        // Check if the single AI empire (stored in ai_empire) needs first contact established.
+        if let Some(ai_empire_id) = self.state.ai_empire {
+            let status = self
+                .state
+                .diplomacy
+                .get(&ai_empire_id)
+                .copied()
+                .unwrap_or(RelationshipStatus::Unknown);
+
+            if status == RelationshipStatus::Unknown {
+                self.state
+                    .diplomacy
+                    .insert(ai_empire_id, RelationshipStatus::Contacted);
+                events.push(Event::FirstContact {
+                    with_empire: ai_empire_id,
+                });
+            }
+        }
+    }
+
+    /// Check for and resolve hostile fleet encounters at `star_id`.
+    ///
+    /// `arrived_fleet_id` is the fleet that just arrived.  It fights each
+    /// idle enemy fleet at the star in ascending FleetId order (deterministic).
+    /// Combat is simultaneous: both sides deal damage proportional to the
+    /// opposing fleet's strength.  The arrived fleet stops fighting if it is
+    /// destroyed.
+    fn check_combat_at_star(
+        &mut self,
+        star_id: StarId,
+        arrived_fleet_id: FleetId,
+        events: &mut Vec<Event>,
+    ) {
+        // Get the owner of the arriving fleet (may no longer exist if destroyed in a
+        // previous loop iteration — bail out silently).
+        let arrived_owner = match self.state.fleets.get(&arrived_fleet_id) {
+            Some(f) => f.owner,
+            None => return,
+        };
+
+        // Collect hostile idle fleet IDs at this star.
+        // BTreeMap iteration is already sorted by FleetId — deterministic ordering.
+        let enemy_fleet_ids: Vec<FleetId> = self
+            .state
+            .fleets
+            .iter()
+            .filter(|(fid, f)| {
+                **fid != arrived_fleet_id
+                    && f.location == star_id
+                    && f.owner != arrived_owner
+                    && !self.state.fleet_missions.contains_key(*fid)
+                    && !self.state.scout_missions.contains_key(*fid)
+                    && is_contacted(&self.state, arrived_owner, f.owner)
+            })
+            .map(|(fid, _)| *fid)
+            .collect();
+
+        for enemy_id in enemy_fleet_ids {
+            // Re-fetch arriving fleet — may have been destroyed in a prior iteration.
+            let (a_str, a_int) = match self.state.fleets.get(&arrived_fleet_id) {
+                Some(f) => (f.strength, f.integrity),
+                None => break,
+            };
+            let (d_str, d_int, d_owner) = match self.state.fleets.get(&enemy_id) {
+                Some(f) => (f.strength, f.integrity, f.owner),
+                None => continue,
+            };
+
+            // Simultaneous damage: each fleet takes damage proportional to the
+            // opponent's strength relative to its own.
+            // Formula: damage = (opponent_strength * 100) / own_strength
+            // This means equal strengths → both take 100 damage (destroyed).
+            // Use u64 intermediates to avoid overflow when strength is large.
+            let damage_to_arrived: u32 =
+                ((d_str as u64 * 100) / (a_str as u64).max(1)).min(u32::MAX as u64) as u32;
+            let damage_to_enemy: u32 =
+                ((a_str as u64 * 100) / (d_str as u64).max(1)).min(u32::MAX as u64) as u32;
+
+            let new_a_int = a_int.saturating_sub(damage_to_arrived);
+            let new_d_int = d_int.saturating_sub(damage_to_enemy);
+
+            let fleet_a_destroyed = new_a_int == 0;
+            let fleet_b_destroyed = new_d_int == 0;
+
+            events.push(Event::CombatResolved {
+                star: star_id,
+                fleet_a: arrived_fleet_id,
+                empire_a: arrived_owner,
+                fleet_b: enemy_id,
+                empire_b: d_owner,
+                strength_a: a_str,
+                strength_b: d_str,
+                integrity_a_remaining: new_a_int,
+                integrity_b_remaining: new_d_int,
+                fleet_a_destroyed,
+                fleet_b_destroyed,
+            });
+
+            if fleet_a_destroyed {
+                self.state.fleets.remove(&arrived_fleet_id);
+            } else if let Some(f) = self.state.fleets.get_mut(&arrived_fleet_id) {
+                f.integrity = new_a_int;
+            }
+
+            if fleet_b_destroyed {
+                self.state.fleets.remove(&enemy_id);
+            } else if let Some(f) = self.state.fleets.get_mut(&enemy_id) {
+                f.integrity = new_d_int;
+            }
+
+            if fleet_a_destroyed {
+                break;
+            }
+        }
+    }
+}
+
+/// Returns true if `empire_a` and `empire_b` are in a `Contacted` relationship.
+///
+/// Diplomacy in v1 is stored from the player's perspective.  If neither empire
+/// is the player, the function returns `false` (AI-vs-AI not applicable).
+fn is_contacted(state: &GameState, empire_a: EmpireId, empire_b: EmpireId) -> bool {
+    let player = state.player_empire;
+    let other = if empire_a == player {
+        empire_b
+    } else if empire_b == player {
+        empire_a
+    } else {
+        return false;
+    };
+    state
+        .diplomacy
+        .get(&other)
+        .copied()
+        .unwrap_or(RelationshipStatus::Unknown)
+        == RelationshipStatus::Contacted
 }
 
 /// Compute the set of initially explored stars: home star + up to 3 nearest neighbours.
@@ -1460,6 +1627,8 @@ mod tests {
                 location,
                 ships: 1,
                 kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -2944,6 +3113,8 @@ mod tests {
                 location: home_star,
                 ships: 1,
                 kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -3338,6 +3509,8 @@ mod tests {
                 location: unexplored,
                 ships: 1,
                 kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -3374,6 +3547,8 @@ mod tests {
                 location: home,
                 ships: 1,
                 kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -3425,6 +3600,8 @@ mod tests {
                 location: target,
                 ships: 1,
                 kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -3502,6 +3679,8 @@ mod tests {
                 location: target,
                 ships: 1,
                 kind: FleetKind::Scout, // Not a colonizer
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -3730,6 +3909,8 @@ mod tests {
                     location: star,
                     ships: 1,
                     kind: FleetKind::Colonizer,
+                    strength: 1,
+                    integrity: 100,
                 },
             );
         }
@@ -3792,6 +3973,8 @@ mod tests {
                 location: home,
                 ships: 1,
                 kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -4420,6 +4603,8 @@ mod tests {
                 location: player_star_id,
                 ships: 1,
                 kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
             },
         );
 
@@ -4566,6 +4751,8 @@ mod tests {
                 location: player_star_id,
                 ships: 1,
                 kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
             },
         );
         // Put the scout in a mission with 1 turn remaining to destination = ai_star_id
@@ -4817,6 +5004,8 @@ mod tests {
                 location: star1,
                 ships: 1,
                 kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
             },
         );
         state.fleet_missions.insert(
@@ -4859,5 +5048,375 @@ mod tests {
             "Log message should reference empire ID 2"
         );
         assert!(!event.is_error());
+    }
+
+    // -----------------------------------------------------------------------
+    // Combat auto-resolve tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: build a minimal GameState with two fleets at the same star,
+    /// controlled by the player (EmpireId 1) and a contacted foreign empire
+    /// (EmpireId 2).
+    fn make_combat_state(
+        player_strength: u32,
+        player_integrity: u32,
+        enemy_strength: u32,
+        enemy_integrity: u32,
+    ) -> (GameState, StarId, FleetId, FleetId) {
+        let mut engine = Engine::new(42);
+        let state = &mut engine.state;
+
+        // Use the player's home star
+        let star_id = state.empires.get(&state.player_empire).unwrap().home_star;
+
+        // Remove existing fleets to avoid interference
+        state.fleets.clear();
+        state.fleet_missions.clear();
+        state.scout_missions.clear();
+
+        let player = state.player_empire;
+        let enemy_empire = EmpireId(2);
+
+        // Establish contact so combat is enabled
+        state
+            .diplomacy
+            .insert(enemy_empire, RelationshipStatus::Contacted);
+
+        let player_fleet_id = FleetId(10);
+        let enemy_fleet_id = FleetId(20);
+
+        state.fleets.insert(
+            player_fleet_id,
+            Fleet {
+                id: player_fleet_id,
+                owner: player,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: player_strength,
+                integrity: player_integrity,
+            },
+        );
+        state.fleets.insert(
+            enemy_fleet_id,
+            Fleet {
+                id: enemy_fleet_id,
+                owner: enemy_empire,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: enemy_strength,
+                integrity: enemy_integrity,
+            },
+        );
+
+        (engine.state, star_id, player_fleet_id, enemy_fleet_id)
+    }
+
+    #[test]
+    fn stronger_fleet_wins_deterministically() {
+        // Player fleet (strength 20) vs enemy fleet (strength 10)
+        let (state, star_id, player_fid, enemy_fid) = make_combat_state(20, 100, 10, 100);
+
+        let mut events = Vec::new();
+        let mut engine = Engine::from_state(state);
+        engine.check_combat_at_star(star_id, player_fid, &mut events);
+
+        // Enemy should be destroyed; player should survive
+        assert!(
+            !engine.state.fleets.contains_key(&enemy_fid),
+            "Enemy fleet should be destroyed"
+        );
+        assert!(
+            engine.state.fleets.contains_key(&player_fid),
+            "Player fleet should survive"
+        );
+
+        // CombatResolved event emitted
+        let combat_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, Event::CombatResolved { .. }))
+            .collect();
+        assert_eq!(combat_events.len(), 1, "Exactly one CombatResolved event");
+
+        if let Event::CombatResolved {
+            fleet_a_destroyed,
+            fleet_b_destroyed,
+            ..
+        } = &combat_events[0]
+        {
+            assert!(!fleet_a_destroyed, "Player fleet should not be destroyed");
+            assert!(fleet_b_destroyed, "Enemy fleet should be destroyed");
+        }
+    }
+
+    #[test]
+    fn equal_fleets_destroy_each_other() {
+        let (state, star_id, player_fid, enemy_fid) = make_combat_state(10, 100, 10, 100);
+
+        let mut events = Vec::new();
+        let mut engine = Engine::from_state(state);
+        engine.check_combat_at_star(star_id, player_fid, &mut events);
+
+        assert!(
+            !engine.state.fleets.contains_key(&player_fid),
+            "Player fleet should be destroyed when equal"
+        );
+        assert!(
+            !engine.state.fleets.contains_key(&enemy_fid),
+            "Enemy fleet should be destroyed when equal"
+        );
+
+        let combat_event = events
+            .iter()
+            .find(|e| matches!(e, Event::CombatResolved { .. }))
+            .expect("CombatResolved event required");
+        if let Event::CombatResolved {
+            fleet_a_destroyed,
+            fleet_b_destroyed,
+            ..
+        } = combat_event
+        {
+            assert!(fleet_a_destroyed, "Fleet A should be destroyed");
+            assert!(fleet_b_destroyed, "Fleet B should be destroyed");
+        }
+    }
+
+    #[test]
+    fn damaged_winner_has_expected_integrity() {
+        // Player strength 20 vs enemy strength 10 — damage_to_player = 10*100/20 = 50
+        let (state, star_id, player_fid, _) = make_combat_state(20, 100, 10, 100);
+
+        let mut events = Vec::new();
+        let mut engine = Engine::from_state(state);
+        engine.check_combat_at_star(star_id, player_fid, &mut events);
+
+        let survivor = engine
+            .state
+            .fleets
+            .get(&player_fid)
+            .expect("Player fleet should survive");
+        assert_eq!(
+            survivor.integrity, 50,
+            "Winner integrity should be 100 - (10*100/20) = 50"
+        );
+
+        let combat_event = events
+            .iter()
+            .find(|e| matches!(e, Event::CombatResolved { .. }))
+            .expect("CombatResolved event required");
+        if let Event::CombatResolved {
+            integrity_a_remaining,
+            ..
+        } = combat_event
+        {
+            assert_eq!(*integrity_a_remaining, 50);
+        }
+    }
+
+    #[test]
+    fn same_empire_fleets_do_not_fight() {
+        let mut engine = Engine::new(42);
+        let star_id = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
+        let player = engine.state.player_empire;
+
+        engine.state.fleets.clear();
+        engine.state.fleet_missions.clear();
+        engine.state.scout_missions.clear();
+
+        let fid_a = FleetId(10);
+        let fid_b = FleetId(20);
+
+        for fid in [fid_a, fid_b] {
+            engine.state.fleets.insert(
+                fid,
+                Fleet {
+                    id: fid,
+                    owner: player,
+                    location: star_id,
+                    ships: 1,
+                    kind: FleetKind::Scout,
+                    strength: 10,
+                    integrity: 100,
+                },
+            );
+        }
+
+        let mut events = Vec::new();
+        engine.check_combat_at_star(star_id, fid_a, &mut events);
+
+        // No combat events
+        assert!(
+            events
+                .iter()
+                .all(|e| !matches!(e, Event::CombatResolved { .. })),
+            "No combat between fleets of the same empire"
+        );
+        // Both fleets still present
+        assert!(engine.state.fleets.contains_key(&fid_a));
+        assert!(engine.state.fleets.contains_key(&fid_b));
+    }
+
+    #[test]
+    fn unknown_empire_fleets_do_not_fight() {
+        let (mut state, star_id, player_fid, enemy_fid) = make_combat_state(10, 100, 10, 100);
+
+        // Remove contact so empires are Unknown
+        state.diplomacy.clear();
+
+        let mut events = Vec::new();
+        let mut engine = Engine::from_state(state);
+        engine.check_combat_at_star(star_id, player_fid, &mut events);
+
+        // No combat events
+        assert!(
+            events
+                .iter()
+                .all(|e| !matches!(e, Event::CombatResolved { .. })),
+            "No combat between unknown empires"
+        );
+        // Both fleets still alive
+        assert!(engine.state.fleets.contains_key(&player_fid));
+        assert!(engine.state.fleets.contains_key(&enemy_fid));
+    }
+
+    #[test]
+    fn combat_triggers_after_fleet_arrival() {
+        // Set up: player fleet travels to a star where a contacted enemy fleet waits
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        let ai_empire = engine.state.ai_empire.expect("AI empire required");
+
+        // Establish contact
+        engine
+            .state
+            .diplomacy
+            .insert(ai_empire, RelationshipStatus::Contacted);
+
+        // Pick a star that is explored by the player and not the home star
+        let home_star = engine.state.empires.get(&player).unwrap().home_star;
+        let target_star = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&sid| sid != home_star)
+            .expect("Need at least one non-home explored star");
+
+        // Place an enemy fleet at the target star
+        let enemy_fid = FleetId(99);
+        engine.state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: ai_empire,
+                location: target_star,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        // Find the player fleet (FleetId 1)
+        let player_fid = FleetId(1);
+
+        // Move player fleet to target star (1-turn if close enough; set mission directly)
+        engine.state.fleet_missions.insert(
+            player_fid,
+            FleetMission {
+                fleet: player_fid,
+                destination: target_star,
+                turns_remaining: 1,
+            },
+        );
+
+        // End turn — fleet arrives, combat should fire
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        let combat_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, Event::CombatResolved { .. }))
+            .collect();
+        assert!(
+            !combat_events.is_empty(),
+            "CombatResolved should be emitted after fleet arrival"
+        );
+    }
+
+    #[test]
+    fn destroyed_fleets_are_removed_from_state() {
+        let (state, star_id, player_fid, enemy_fid) = make_combat_state(10, 100, 10, 100); // equal → both destroyed
+
+        let mut engine = Engine::from_state(state);
+        let mut events = Vec::new();
+        engine.check_combat_at_star(star_id, player_fid, &mut events);
+
+        assert!(
+            !engine.state.fleets.contains_key(&player_fid),
+            "Destroyed player fleet must be removed"
+        );
+        assert!(
+            !engine.state.fleets.contains_key(&enemy_fid),
+            "Destroyed enemy fleet must be removed"
+        );
+    }
+
+    #[test]
+    fn combat_events_are_deterministic() {
+        // Running the same scenario twice should produce identical events.
+        let (state1, star_id, player_fid, _) = make_combat_state(20, 100, 10, 100);
+        let (state2, _, _, _) = make_combat_state(20, 100, 10, 100);
+
+        let mut events1 = Vec::new();
+        let mut engine1 = Engine::from_state(state1);
+        engine1.check_combat_at_star(star_id, player_fid, &mut events1);
+
+        let mut events2 = Vec::new();
+        let mut engine2 = Engine::from_state(state2);
+        engine2.check_combat_at_star(star_id, player_fid, &mut events2);
+
+        assert_eq!(
+            events1, events2,
+            "Combat events must be identical for same initial state"
+        );
+    }
+
+    #[test]
+    fn combat_resolved_log_message_contains_expected_content() {
+        let event = Event::CombatResolved {
+            star: StarId(5),
+            fleet_a: FleetId(1),
+            empire_a: EmpireId(1),
+            fleet_b: FleetId(2),
+            empire_b: EmpireId(2),
+            strength_a: 20,
+            strength_b: 10,
+            integrity_a_remaining: 50,
+            integrity_b_remaining: 0,
+            fleet_a_destroyed: false,
+            fleet_b_destroyed: true,
+        };
+        let msg = event.to_log_message();
+        assert!(msg.contains("COMBAT"), "Log should mention COMBAT");
+        assert!(msg.contains("system 5"), "Log should mention star system 5");
+        assert!(!event.is_error());
+    }
+
+    #[test]
+    fn fleet_has_strength_and_integrity_fields() {
+        let engine = Engine::new(42);
+        // All initial fleets should have strength=1 and integrity=100
+        for fleet in engine.state.fleets.values() {
+            assert_eq!(fleet.strength, 1, "Initial fleet strength should be 1");
+            assert_eq!(
+                fleet.integrity, 100,
+                "Initial fleet integrity should be 100"
+            );
+        }
     }
 }

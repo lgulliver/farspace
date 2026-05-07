@@ -892,7 +892,7 @@ impl Engine {
         // Ships require a Shipyard in orbit
         if item.is_ship() && !colony.has_shipyard() {
             events.push(Event::error(format!(
-                "Cannot build {} — colony {} has no Shipyard",
+                "Cannot build Ship {} — colony {} has no Shipyard",
                 item.name(),
                 colony_id.0
             )));
@@ -1536,6 +1536,16 @@ mod tests {
             .push(crate::state::OrbitalStructureType::Shipyard);
     }
 
+    /// Unlock Habitat Seeding (TechId 2) for the player empire.
+    fn unlock_habitat_seeding(engine: &mut Engine) {
+        let empire_id = engine.state.player_empire;
+        if let Some(empire) = engine.state.empires.get_mut(&empire_id) {
+            if !empire.research.completed.contains(&TechId(2)) {
+                empire.research.completed.push(TechId(2));
+            }
+        }
+    }
+
     #[test]
     fn new_engine_creates_valid_state() {
         let engine = Engine::new(42);
@@ -1962,7 +1972,7 @@ mod tests {
         }]);
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
-            item: BuildItem::Colony,
+            item: BuildItem::Scout,
         }]);
 
         // Set some accumulated production
@@ -2028,6 +2038,7 @@ mod tests {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
         give_colony_shipyard(&mut engine, colony_id);
+        unlock_habitat_seeding(&mut engine);
 
         // Queue a colony ship (cost 200)
         engine.apply_turn(vec![Command::QueueBuild {
@@ -3593,6 +3604,7 @@ mod tests {
         // Queue Colony ship at home colony
         let colony_id = ColonyId(1);
         give_colony_shipyard(&mut engine, colony_id);
+        unlock_habitat_seeding(&mut engine);
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
             item: BuildItem::Colony,
@@ -3932,6 +3944,7 @@ mod tests {
             let mut engine = Engine::new(seed);
             let colony_id = ColonyId(1);
             give_colony_shipyard(&mut engine, colony_id);
+            unlock_habitat_seeding(&mut engine);
             engine.apply_turn(vec![Command::QueueBuild {
                 colony: colony_id,
                 item: BuildItem::Colony,
@@ -4008,6 +4021,7 @@ mod tests {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
         give_colony_shipyard(&mut engine, colony_id);
+        unlock_habitat_seeding(&mut engine);
 
         // Build a colonizer
         engine.apply_turn(vec![Command::QueueBuild {
@@ -4220,6 +4234,7 @@ mod tests {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
         give_colony_shipyard(&mut engine, colony_id);
+        unlock_habitat_seeding(&mut engine);
 
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
@@ -6409,6 +6424,7 @@ mod tests {
     #[test]
     fn colony_ship_requires_shipyard_to_queue() {
         let mut engine = Engine::new(42);
+        unlock_habitat_seeding(&mut engine);
         let colony_id = engine
             .state
             .colonies
@@ -6462,6 +6478,7 @@ mod tests {
     #[test]
     fn colony_ship_allowed_when_shipyard_present() {
         let mut engine = Engine::new(42);
+        unlock_habitat_seeding(&mut engine);
         let colony_id = engine
             .state
             .colonies

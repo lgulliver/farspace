@@ -590,8 +590,8 @@ impl ProductionItem {
     pub fn required_tech(&self) -> Option<TechId> {
         match self {
             ProductionItem::Ship(design_id) => design_id.record().and_then(|d| d.required_tech),
-            ProductionItem::Scout => None,
-            ProductionItem::Colony => None,
+            ProductionItem::Scout => ShipDesignId::SCOUT.record().and_then(|d| d.required_tech),
+            ProductionItem::Colony => ShipDesignId::COLONY.record().and_then(|d| d.required_tech),
             ProductionItem::Outpost
             | ProductionItem::SurfaceStructure(_)
             | ProductionItem::Structure(_) => None,

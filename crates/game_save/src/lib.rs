@@ -432,6 +432,14 @@ mod tests {
             .unwrap()
             .orbital_installations
             .push(OrbitalStructureType::Shipyard);
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .completed
+            .push(game_core::TechId(2));
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
             item: game_core::BuildItem::Colony,
@@ -546,6 +554,14 @@ mod tests {
             .unwrap()
             .orbital_installations
             .push(OrbitalStructureType::Shipyard);
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .completed
+            .push(game_core::TechId(2));
 
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,

@@ -1950,6 +1950,16 @@ mod tests {
             .unwrap()
             .orbital_installations
             .push(OrbitalStructureType::Shipyard);
+        app.engine
+            .as_mut()
+            .unwrap()
+            .state
+            .empires
+            .get_mut(&game_core::EmpireId(1))
+            .unwrap()
+            .research
+            .completed
+            .push(game_core::TechId(2));
         app.engine.as_mut().unwrap().apply_turn(vec![
             Command::QueueBuild {
                 colony: colony_id,

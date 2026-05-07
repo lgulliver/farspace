@@ -49,56 +49,10 @@ pub fn generate_galaxy(seed: u64, star_count: usize) -> GeneratedGalaxy {
     // Generate sector positions in a grid-like pattern across the galaxy
     let sector_positions = generate_sector_positions(sector_count, &mut rng);
 
-    // Generate sector names (deterministic based on count to maintain RNG consistency)
-    // Use base names without RNG consumption
-    let sector_names: Vec<String> = match sector_count {
-        2 => vec!["Alpha Reach".to_string(), "Beta Frontier".to_string()],
-        3 => vec![
-            "Alpha Reach".to_string(),
-            "Beta Frontier".to_string(),
-            "Gamma Core".to_string(),
-        ],
-        4 => vec![
-            "Alpha Reach".to_string(),
-            "Beta Frontier".to_string(),
-            "Gamma Core".to_string(),
-            "Delta Void".to_string(),
-        ],
-        5 => vec![
-            "Alpha Reach".to_string(),
-            "Beta Frontier".to_string(),
-            "Gamma Core".to_string(),
-            "Delta Void".to_string(),
-            "Epsilon Passage".to_string(),
-        ],
-        6 => vec![
-            "Alpha Reach".to_string(),
-            "Beta Frontier".to_string(),
-            "Gamma Core".to_string(),
-            "Delta Void".to_string(),
-            "Epsilon Passage".to_string(),
-            "Zeta Expanse".to_string(),
-        ],
-        7 => vec![
-            "Alpha Reach".to_string(),
-            "Beta Frontier".to_string(),
-            "Gamma Core".to_string(),
-            "Delta Void".to_string(),
-            "Epsilon Passage".to_string(),
-            "Zeta Expanse".to_string(),
-            "Eta Cluster".to_string(),
-        ],
-        _ => vec![
-            "Alpha Reach".to_string(),
-            "Beta Frontier".to_string(),
-            "Gamma Core".to_string(),
-            "Delta Void".to_string(),
-            "Epsilon Passage".to_string(),
-            "Zeta Expanse".to_string(),
-            "Eta Cluster".to_string(),
-            "Theta Haven".to_string(),
-        ],
-    };
+    // Generate deterministic sector names without consuming RNG.
+    let sector_names: Vec<String> = (0..sector_count)
+        .map(|i| format!("{} {}", SECTOR_NAME_PREFIXES[i], SECTOR_NAME_SUFFIXES[i]))
+        .collect();
 
     let sectors: Vec<Sector> = (0..sector_count)
         .map(|id| Sector {

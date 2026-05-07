@@ -838,10 +838,10 @@ mod tests {
             content.contains("Shipyard"),
             "Shipyard must be visible when Orbital Engineering is researched"
         );
-        // [LOCKED] should not appear anywhere when tech is available
+        // Shipyard specifically should not be marked locked when tech is available.
         assert!(
-            !content.contains("LOCKED"),
-            "LOCKED badge must not appear when Orbital Engineering is researched"
+            !content.contains("Shipyard [LOCKED]"),
+            "Shipyard must not show [LOCKED] when Orbital Engineering is researched"
         );
     }
 

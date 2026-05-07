@@ -7,7 +7,7 @@ use crate::galaxy::{find_home_star, generate_galaxy};
 use crate::state::{
     all_techs, BuildItem, Colony, ColonyId, ColonyRole, Empire, EmpireId, Fleet, FleetId,
     FleetKind, FleetMission, GameState, RelationshipStatus, ResearchState, ScoutMission,
-    SectorId, ShipDesignId, StarId, SurveyMission, TechId,
+    ShipDesignId, StarId, SurveyMission, TechId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -60,11 +60,11 @@ impl Engine {
 
         // Find a suitable home star for the player
         let home_star =
-            find_home_star(&stars_vec).expect("Galaxy should have at least one habitable star");
+            find_home_star(stars_vec).expect("Galaxy should have at least one habitable star");
         let home_star_id = home_star.id;
 
         // Find the AI home star: farthest habitable star from the player
-        let ai_home_star_id = find_ai_home_star(&stars_vec, home_star_id)
+        let ai_home_star_id = find_ai_home_star(stars_vec, home_star_id)
             .expect("Galaxy must have at least two habitable stars");
 
         // Create player empire
@@ -192,8 +192,8 @@ impl Engine {
         );
 
         // Determine initially explored stars for player and AI
-        let explored_stars = initial_explored_stars(&stars_vec, home_star_id);
-        let ai_explored_stars = initial_explored_stars(&stars_vec, ai_home_star_id);
+        let explored_stars = initial_explored_stars(stars_vec, home_star_id);
+        let ai_explored_stars = initial_explored_stars(stars_vec, ai_home_star_id);
 
         let state = GameState {
             seed,
@@ -1734,7 +1734,7 @@ fn find_ai_home_star(stars: &[crate::state::Star], player_home: StarId) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::BuildingType;
+    use crate::state::{BuildingType, SectorId};
 
     /// Inject a Shipyard directly into a colony's orbital installations.
     /// Used to satisfy the "ships require a Shipyard" rule in tests that
@@ -3905,6 +3905,13 @@ mod tests {
             "Colonizer must be at target star"
         );
 
+        // Mark target planets surveyed, then find first habitable unowned planet.
+        if let Some(star) = engine.state.stars.get_mut(&target_star) {
+            for planet in &mut star.planets {
+                planet.surveyed = true;
+            }
+        }
+
         // Find first habitable unowned planet
         let planet_index = engine
             .state
@@ -4316,6 +4323,12 @@ mod tests {
         }]);
         for _ in 0..4 {
             engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        if let Some(star) = engine.state.stars.get_mut(&target) {
+            for planet in &mut star.planets {
+                planet.surveyed = true;
+            }
         }
 
         let planet_idx = engine
@@ -4985,6 +4998,7 @@ mod tests {
             fleets: BTreeMap::new(),
             explored_stars: BTreeSet::new(),
             scout_missions: BTreeMap::new(),
+            survey_missions: BTreeMap::new(),
             fleet_missions: BTreeMap::new(),
             ai_empire: Some(ai_id),
             ai_explored_stars: BTreeSet::new(),
@@ -5159,6 +5173,7 @@ mod tests {
                 s
             },
             scout_missions: BTreeMap::new(),
+            survey_missions: BTreeMap::new(),
             fleet_missions: BTreeMap::new(),
             ai_empire: Some(ai_id),
             ai_explored_stars: BTreeSet::new(),
@@ -5414,6 +5429,7 @@ mod tests {
                 s
             },
             scout_missions: BTreeMap::new(),
+            survey_missions: BTreeMap::new(),
             fleet_missions: BTreeMap::new(),
             ai_empire: Some(ai1),
             ai_explored_stars: BTreeSet::new(),
@@ -7192,7 +7208,7 @@ mod tests {
     }
 
     #[test]
-    fn scout_exploration_surveys_planets_in_orbital_order() {
+    fn scout_exploration_reveals_system_without_surveying_planets() {
         let mut engine = Engine::new(42);
         let scout = FleetId(1);
         let destination = *engine
@@ -7240,21 +7256,17 @@ mod tests {
                 _ => None,
             })
             .collect();
-        let mut sorted = surveyed_indices.clone();
-        sorted.sort_unstable();
         assert_eq!(
-            surveyed_indices, sorted,
-            "survey completion events must be emitted in orbital order"
+            surveyed_indices,
+            Vec::<usize>::new(),
+            "scout exploration should not emit planet survey completions"
         );
 
         let all_surveyed = engine.state.stars[&destination]
             .planets
             .iter()
             .all(|p| p.surveyed);
-        assert!(
-            all_surveyed,
-            "all planets at destination should be surveyed"
-        );
+        assert!(!all_surveyed, "scout exploration should not fully survey planets");
     }
 
     #[test]

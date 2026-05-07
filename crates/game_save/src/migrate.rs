@@ -129,7 +129,7 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // and Star.sector (SectorId) added.
             // Both fields rely on serde defaults — nothing to populate explicitly.
             // v13 saves will have empty sectors and SectorId(0) on stars until a new game is started.
-            Ok(SaveFile {
+            migrate(SaveFile {
                 version: 14,
                 state: save.state,
             })

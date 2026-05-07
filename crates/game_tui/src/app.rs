@@ -349,6 +349,9 @@ impl App {
             KeyCode::Char('S') => {
                 self.survey_selected_planet();
             }
+            KeyCode::Char('c') => {
+                self.try_enter_colony();
+            }
             _ => {
                 if KeyMap::is_end_turn(key) && key.code != KeyCode::Enter {
                     self.end_turn();
@@ -433,7 +436,24 @@ impl App {
             None => return false,
         };
 
-        // Find the first planet at this star that has a player-owned colony
+        if !star.planets.is_empty() {
+            let selected_planet = self
+                .state
+                .selected_planet_index
+                .min(star.planets.len().saturating_sub(1));
+            if let Some(colony_id) = star.planets[selected_planet].colony {
+                if let Some(colony) = engine.state.colonies.get(&colony_id) {
+                    if colony.owner == engine.state.player_empire {
+                        self.state.selected_colony = Some(colony_id);
+                        self.state.colony_build_cursor = 0;
+                        self.state.active = Screen::Colony;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Fallback: find the first planet at this star that has a player-owned colony.
         for planet in &star.planets {
             if let Some(colony_id) = planet.colony {
                 if let Some(colony) = engine.state.colonies.get(&colony_id) {
@@ -1666,6 +1686,108 @@ mod tests {
 
         assert_eq!(app.state.active, Screen::Colony);
         assert!(app.state.selected_colony.is_some());
+    }
+
+    #[test]
+    fn try_enter_colony_prefers_selected_planet_colony() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let engine = app.engine.as_mut().unwrap();
+        let player_empire = engine.state.player_empire;
+        let home_colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == player_empire)
+            .map(|(id, _)| *id)
+            .expect("player colony should exist");
+        let home_colony = engine
+            .state
+            .colonies
+            .get(&home_colony_id)
+            .cloned()
+            .expect("player colony data should exist");
+        let home_star_id = home_colony.star;
+
+        let second_colony_id = ColonyId(engine.state.next_colony_id);
+        engine.state.next_colony_id += 1;
+        let mut second_colony = home_colony.clone();
+        second_colony.id = second_colony_id;
+        second_colony.planet_index = 1;
+        second_colony.accumulated_production = 0;
+        second_colony.build_queue.clear();
+        engine.state.colonies.insert(second_colony_id, second_colony);
+
+        let star = engine
+            .state
+            .stars
+            .get_mut(&home_star_id)
+            .expect("home star should exist");
+        while star.planets.len() < 2 {
+            let mut clone = star.planets[0].clone();
+            clone.colony = None;
+            star.planets.push(clone);
+        }
+        star.planets[1].colony = Some(second_colony_id);
+
+        app.state.selected_star = Some(home_star_id);
+        app.state.selected_planet_index = 1;
+        assert!(app.try_enter_colony());
+        assert_eq!(app.state.selected_colony, Some(second_colony_id));
+        assert_eq!(app.state.active, Screen::Colony);
+    }
+
+    #[test]
+    fn c_key_in_system_view_enters_selected_planet_colony() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let engine = app.engine.as_mut().unwrap();
+        let player_empire = engine.state.player_empire;
+        let home_colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == player_empire)
+            .map(|(id, _)| *id)
+            .expect("player colony should exist");
+        let home_colony = engine
+            .state
+            .colonies
+            .get(&home_colony_id)
+            .cloned()
+            .expect("player colony data should exist");
+        let home_star_id = home_colony.star;
+
+        let second_colony_id = ColonyId(engine.state.next_colony_id);
+        engine.state.next_colony_id += 1;
+        let mut second_colony = home_colony.clone();
+        second_colony.id = second_colony_id;
+        second_colony.planet_index = 1;
+        second_colony.accumulated_production = 0;
+        second_colony.build_queue.clear();
+        engine.state.colonies.insert(second_colony_id, second_colony);
+
+        let star = engine
+            .state
+            .stars
+            .get_mut(&home_star_id)
+            .expect("home star should exist");
+        while star.planets.len() < 2 {
+            let mut clone = star.planets[0].clone();
+            clone.colony = None;
+            star.planets.push(clone);
+        }
+        star.planets[1].colony = Some(second_colony_id);
+
+        app.state.active = Screen::System;
+        app.state.selected_star = Some(home_star_id);
+        app.state.selected_planet_index = 1;
+        app.handle_key(key(KeyCode::Char('c')));
+
+        assert_eq!(app.state.active, Screen::Colony);
+        assert_eq!(app.state.selected_colony, Some(second_colony_id));
     }
 
     #[test]

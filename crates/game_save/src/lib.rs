@@ -551,6 +551,12 @@ mod tests {
             engine.apply_turn(vec![Command::EndTurn]);
         }
 
+        if let Some(star) = engine.state.stars.get_mut(&target) {
+            for planet in &mut star.planets {
+                planet.surveyed = true;
+            }
+        }
+
         let planet_idx = engine
             .state
             .stars

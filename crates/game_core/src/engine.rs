@@ -1213,7 +1213,7 @@ impl Engine {
             if planet_index >= star.planets.len() {
                 events.push(Event::error(format!(
                     "Orbit {} out of bounds for star {}",
-                    planet_index.saturating_add(1),
+                    planet_index + 1,
                     star_id.0
                 )));
                 return;
@@ -1227,7 +1227,7 @@ impl Engine {
         if !planet_surveyed {
             events.push(Event::error(format!(
                 "Orbit {} at star {} has not been surveyed",
-                planet_index.saturating_add(1),
+                planet_index + 1,
                 star_id.0
             )));
             return;
@@ -1237,7 +1237,7 @@ impl Engine {
         if !planet_habitable {
             events.push(Event::error(format!(
                 "Orbit {} at star {} is not habitable",
-                planet_index.saturating_add(1),
+                planet_index + 1,
                 star_id.0
             )));
             return;
@@ -1247,7 +1247,7 @@ impl Engine {
         if planet_colony.is_some() {
             events.push(Event::error(format!(
                 "Orbit {} at star {} is already colonized",
-                planet_index.saturating_add(1),
+                planet_index + 1,
                 star_id.0
             )));
             return;

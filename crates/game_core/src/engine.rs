@@ -1436,6 +1436,9 @@ mod tests {
     /// Inject a Shipyard directly into a colony's orbital installations.
     /// Used to satisfy the "ships require a Shipyard" rule in tests that
     /// focus on build completion / queue mechanics rather than the validation itself.
+    ///
+    /// # Panics
+    /// Panics if `colony_id` does not exist in the engine state.
     fn give_colony_shipyard(engine: &mut Engine, colony_id: ColonyId) {
         engine
             .state

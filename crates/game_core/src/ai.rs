@@ -136,9 +136,9 @@ fn pick_build_item(
 
     // Priority 1: FabricationYard — only if surface slot available
     if !colony.buildings.contains(&BuildingType::FabricationYard) {
-        let has_surface_slot =
+        let can_place_surface =
             planet_size.is_some_and(|size| colony.can_place_surface_building(size));
-        if has_surface_slot {
+        if can_place_surface {
             return Some(BuildItem::Structure(BuildingType::FabricationYard));
         }
     }
@@ -150,9 +150,9 @@ fn pick_build_item(
         .get(&empire_id)
         .is_some_and(|e| e.research.completed.contains(&TechId(7)));
     if has_orbital_engineering && !colony.has_shipyard() {
-        let has_orbital_slot =
+        let can_place_orbital =
             planet_size.is_some_and(|size| colony.can_place_orbital_installation(size));
-        if has_orbital_slot {
+        if can_place_orbital {
             return Some(BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard));
         }
     }

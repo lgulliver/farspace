@@ -989,4 +989,123 @@ mod tests {
             "AI colonies must survive save/load round-trip"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Research — edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ai_emits_no_research_event_when_all_techs_complete() {
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+
+        // Mark every tech as completed for the AI empire
+        {
+            let empire = engine.state.empires.get_mut(&ai).unwrap();
+            empire.research.current_tech = None;
+            empire.research.completed = all_techs().iter().map(|t| t.id).collect();
+        }
+
+        let events = engine.apply_turn(vec![crate::commands::Command::EndTurn]);
+
+        // No AiResearchSelected should be emitted when all techs are done
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::AiResearchSelected { empire, .. } if *empire == ai)),
+            "AI must not select research when all techs are already completed"
+        );
+        // current_tech must remain None (no invalid tech selected)
+        assert!(
+            engine.state.empires[&ai].research.current_tech.is_none(),
+            "AI research.current_tech must stay None when all techs are complete"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Colonization — determinism
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ai_colonize_is_deterministic_across_identical_seeds() {
+        // Seed 42 is chosen because it reliably produces at least one AI-explored
+        // star (other than AI home) with a free habitable planet.  We place an
+        // idle colonizer there so colonization is guaranteed to happen, making the
+        // test non-vacuous.  Both runs must produce identical events AND both must
+        // contain an AiColonized event.
+        let setup = |seed: u64| {
+            let mut engine = Engine::new(seed);
+            let ai = engine.state.ai_empire.expect("AI must exist");
+            let ai_home = engine.state.empires[&ai].home_star;
+
+            // Find the first AI-explored star with a free habitable planet —
+            // expect this to succeed for seed 42; panic with a clear message
+            // if the galaxy is unexpectedly too small.
+            let target_star = engine
+                .state
+                .ai_explored_stars
+                .iter()
+                .copied()
+                .find(|&sid| {
+                    sid != ai_home
+                        && engine.state.stars.get(&sid).is_some_and(|s| {
+                            s.planets.iter().any(|p| p.habitable && p.colony.is_none())
+                        })
+                })
+                .expect("Seed 42 must have an AI-explored star with a free habitable planet");
+
+            let colonizer_id = crate::state::FleetId(55);
+            engine.state.fleets.insert(
+                colonizer_id,
+                crate::state::Fleet {
+                    id: colonizer_id,
+                    owner: ai,
+                    location: target_star,
+                    ships: 1,
+                    kind: FleetKind::Colonizer,
+                    strength: 1,
+                    integrity: 100,
+                },
+            );
+
+            engine.apply_turn(vec![crate::commands::Command::EndTurn])
+        };
+
+        let events_a = setup(42);
+        let events_b = setup(42);
+
+        // Both runs must contain an AiColonized event — test is non-vacuous
+        assert!(
+            events_a
+                .iter()
+                .any(|e| matches!(e, Event::AiColonized { .. })),
+            "setup must actually trigger colonization (seed 42 must colonize)"
+        );
+
+        assert_eq!(
+            events_a, events_b,
+            "AI colonization events must be identical for the same seed"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Multi-turn full-state equality
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ai_five_turn_state_is_deterministic() {
+        let mut engine_a = Engine::new(11_111);
+        let mut engine_b = Engine::new(11_111);
+
+        for _ in 0..5 {
+            let ea = engine_a.apply_turn(vec![crate::commands::Command::EndTurn]);
+            let eb = engine_b.apply_turn(vec![crate::commands::Command::EndTurn]);
+            assert_eq!(ea, eb, "Per-turn events must match");
+        }
+
+        assert_eq!(
+            engine_a.state, engine_b.state,
+            "State after 5 AI turns must be identical for the same seed"
+        );
+    }
 }

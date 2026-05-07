@@ -144,11 +144,17 @@ mod tests {
         let planet = terran_planet();
         let y = calculate_yield(&colony, Some(&planet));
 
-        assert_eq!(y.industry, 10, "industry should equal population at neutral stability");
+        assert_eq!(
+            y.industry, 10,
+            "industry should equal population at neutral stability"
+        );
         assert_eq!(y.credits, 5, "credits = 10 * 50 / 100 = 5");
         assert_eq!(y.science, 5, "science = 10 * 50 / 100 = 5");
         assert_eq!(y.food, 10, "food = population with no bonuses on Terran");
-        assert_eq!(y.food_consumed, 10, "food_consumed always equals population");
+        assert_eq!(
+            y.food_consumed, 10,
+            "food_consumed always equals population"
+        );
         assert_eq!(y.maintenance, 0, "no buildings = no maintenance");
     }
 
@@ -194,7 +200,10 @@ mod tests {
         let y = calculate_yield(&colony, None);
 
         assert_eq!(y.industry, 11, "industry = 10 + 0 + 1 = 11");
-        assert_eq!(y.credits, 5, "credits = 11 * 50 / 100 = 5 (integer division)");
+        assert_eq!(
+            y.credits, 5,
+            "credits = 11 * 50 / 100 = 5 (integer division)"
+        );
     }
 
     #[test]
@@ -317,13 +326,13 @@ mod tests {
     fn food_consumed_always_equals_population() {
         let mut colony = base_colony();
         colony.population = 7;
-        colony.buildings = vec![
-            BuildingType::AquacultureBay,
-            BuildingType::AquacultureBay,
-        ];
+        colony.buildings = vec![BuildingType::AquacultureBay, BuildingType::AquacultureBay];
         let y = calculate_yield(&colony, None);
 
-        assert_eq!(y.food_consumed, 7, "consumed equals population regardless of buildings");
+        assert_eq!(
+            y.food_consumed, 7,
+            "consumed equals population regardless of buildings"
+        );
         assert_eq!(y.food, 7 + 7 + 7, "food = pop + 0 + 2*AquacultureBay*pop");
     }
 }

@@ -5,9 +5,7 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{
-    yield_model, BuildItem, BuildingType, GameState, OrbitalStructureType, TechId,
-};
+use game_core::{yield_model, BuildItem, BuildingType, GameState, OrbitalStructureType, TechId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
@@ -109,7 +107,7 @@ fn render_colony_stats(
     let industry = colony_yield.industry;
     let research_out = colony_yield.science;
     let food_out = colony_yield.food;
-    let building_maint = colony_yield.maintenance;
+    let total_maint = colony_yield.maintenance;
 
     // Get planet size for infrastructure slot capacity
     let (surface_used, surface_max, orbital_used, orbital_max) = planet
@@ -176,7 +174,7 @@ fn render_colony_stats(
         ]),
         Line::from(vec![
             Span::styled("Maint cost : ", Theme::muted_style()),
-            Span::styled(format!("{} cr/turn", building_maint), Theme::muted_style()),
+            Span::styled(format!("{} cr/turn", total_maint), Theme::muted_style()),
         ]),
         Line::from(""),
         Line::from(vec![

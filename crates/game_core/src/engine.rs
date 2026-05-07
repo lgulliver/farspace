@@ -5,9 +5,8 @@ use crate::deterministic::sorted_colony_ids;
 use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy};
 use crate::state::{
-    all_techs, BuildItem, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId,
-    FleetKind, FleetMission, GameState, RelationshipStatus, ResearchState, ScoutMission, StarId,
-    TechId,
+    all_techs, BuildItem, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId, FleetKind,
+    FleetMission, GameState, RelationshipStatus, ResearchState, ScoutMission, StarId, TechId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -281,8 +280,8 @@ impl Engine {
         // Food consumed by population
         let mut empire_food_consumed: std::collections::BTreeMap<EmpireId, i64> =
             std::collections::BTreeMap::new();
-        // Credit maintenance from buildings and orbital structures
-        let mut empire_building_maintenance: std::collections::BTreeMap<EmpireId, i64> =
+        // Credit maintenance from buildings and orbital structures per colony
+        let mut empire_colony_maintenance: std::collections::BTreeMap<EmpireId, i64> =
             std::collections::BTreeMap::new();
 
         for colony_id in colony_ids {
@@ -329,7 +328,7 @@ impl Engine {
             *empire_credits_income.entry(owner).or_insert(0) += credits;
             *empire_food_produced.entry(owner).or_insert(0) += colony_yield.food;
             *empire_food_consumed.entry(owner).or_insert(0) += colony_yield.food_consumed;
-            *empire_building_maintenance.entry(owner).or_insert(0) += colony_yield.maintenance;
+            *empire_colony_maintenance.entry(owner).or_insert(0) += colony_yield.maintenance;
 
             events.push(Event::ColonyProduced {
                 colony: colony_id,
@@ -465,7 +464,7 @@ impl Engine {
             let credits_income = empire_credits_income.get(&empire_id).copied().unwrap_or(0);
             let food_produced = empire_food_produced.get(&empire_id).copied().unwrap_or(0);
             let food_consumed = empire_food_consumed.get(&empire_id).copied().unwrap_or(0);
-            let building_maint = empire_building_maintenance
+            let colony_maint = empire_colony_maintenance
                 .get(&empire_id)
                 .copied()
                 .unwrap_or(0);
@@ -478,7 +477,7 @@ impl Engine {
                 .filter(|f| f.owner == empire_id)
                 .count() as i64;
 
-            let maintenance = fleet_maintenance + building_maint;
+            let maintenance = fleet_maintenance + colony_maint;
 
             // Update empire food and credit balance
             if let Some(empire) = self.state.empires.get_mut(&empire_id) {

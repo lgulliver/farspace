@@ -39,6 +39,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
         ],
         Screen::System => vec![
             ("[j/k]", "Select Planet"),
+            ("[S]", "Survey"),
             ("[C]", "Colonize Selected"),
             ("[e/t]", "End Turn"),
             ("[?]", "Help"),

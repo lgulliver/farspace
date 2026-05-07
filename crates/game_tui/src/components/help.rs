@@ -85,6 +85,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("j / ↓", "Select next planet"),
             HelpEntry::Binding("k / ↑", "Select previous planet"),
             HelpEntry::Section("Actions"),
+            HelpEntry::Binding("S", "Survey selected planet with science ship"),
             HelpEntry::Binding(
                 "C",
                 "Colonize selected planet with idle colony ship in system",

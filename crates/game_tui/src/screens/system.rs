@@ -56,6 +56,29 @@ fn selected_star<'a>(
         .and_then(|id| game_state.stars.get(&id))
 }
 
+fn planet_survey_state(
+    game_state: &GameState,
+    star_id: game_core::StarId,
+    planet_index: usize,
+    planet_surveyed: bool,
+) -> &'static str {
+    if !game_state.explored_stars.contains(&star_id) {
+        return "Unknown";
+    }
+
+    if game_state
+        .survey_missions
+        .values()
+        .any(|mission| mission.star == star_id && mission.planet_index == planet_index)
+    {
+        "Surveying"
+    } else if planet_surveyed {
+        "Surveyed"
+    } else {
+        "Unsurveyed"
+    }
+}
+
 fn render_orbital_panel(
     frame: &mut Frame,
     area: Rect,
@@ -96,20 +119,26 @@ fn render_orbital_panel(
     for (index, planet) in star.planets.iter().enumerate() {
         let selected = index == selected_planet;
         let prefix = if selected { "▶" } else { " " };
-        let surveyed_mark = if planet.surveyed { "S" } else { "?" };
+        let survey_state = planet_survey_state(game_state, star.id, index, planet.surveyed);
+        let surveyed_mark = match survey_state {
+            "Surveyed" => "S",
+            "Surveying" => "~",
+            "Unsurveyed" => "?",
+            _ => "!",
+        };
         let colony_mark = if planet.colony.is_some() {
             "◉"
         } else {
             "○"
         };
-        let label: Cow<'_, str> = if planet.surveyed {
+        let label: Cow<'_, str> = if survey_state == "Surveyed" {
             Cow::Borrowed(planet.name.as_str())
         } else {
             Cow::Owned(format!("Orbit {}", index + 1))
         };
         let style = if selected {
             Theme::highlight_style()
-        } else if planet.surveyed {
+        } else if survey_state == "Surveyed" {
             Theme::default_style()
         } else {
             Theme::muted_style()
@@ -119,6 +148,7 @@ fn render_orbital_panel(
             Span::styled(format!("{} ", colony_mark), style),
             Span::styled(format!("{} ", surveyed_mark), style),
             Span::styled(label, style),
+            Span::styled(format!(" — {}", survey_state), Theme::muted_style()),
         ]));
     }
 
@@ -172,6 +202,8 @@ fn render_system_details(
         })
         .collect();
 
+    let survey_state = planet_survey_state(game_state, star.id, selected_planet, planet.surveyed);
+
     let mut lines = vec![
         Line::from(vec![
             Span::styled(star.name.as_str(), Theme::title_style()),
@@ -187,15 +219,11 @@ fn render_system_details(
         ]),
         Line::from(vec![
             Span::styled("Survey: ", Theme::muted_style()),
-            Span::raw(if planet.surveyed {
-                "Surveyed"
-            } else {
-                "Unsurveyed"
-            }),
+            Span::raw(survey_state),
         ]),
     ];
 
-    if planet.surveyed {
+    if survey_state == "Surveyed" {
         lines.push(Line::from(vec![
             Span::styled("Class: ", Theme::muted_style()),
             Span::raw(planet.class.name()),
@@ -211,6 +239,14 @@ fn render_system_details(
             } else {
                 "Uninhabitable"
             }),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("Modifiers: ", Theme::muted_style()),
+            Span::raw(format!(
+                "{:+} food, {:+} science",
+                planet.class.food_bonus(),
+                planet.class.science_bonus()
+            )),
         ]));
     } else {
         lines.push(Line::from(vec![
@@ -237,9 +273,9 @@ fn render_system_details(
         } else {
             format!("Colony {}", colony_id.0)
         }
-    } else {
-        "Uncolonized".to_string()
-    };
+        } else {
+            "Uncolonized".to_string()
+        };
     lines.push(Line::from(vec![
         Span::styled("Status: ", Theme::muted_style()),
         Span::raw(colony_line),
@@ -254,6 +290,17 @@ fn render_system_details(
             let label = match fleet.kind {
                 FleetKind::Colonizer => format!("  Colony Ship {}", fleet.id.0),
                 FleetKind::Scout => format!("  Scout {}", fleet.id.0),
+                FleetKind::Science => {
+                    let mission = game_state.survey_missions.get(&fleet.id);
+                    match mission {
+                        Some(mission) => format!(
+                            "  Science Ship {} (Surveying orbit {})",
+                            fleet.id.0,
+                            mission.planet_index + 1
+                        ),
+                        None => format!("  Science Ship {}", fleet.id.0),
+                    }
+                }
             };
             lines.push(Line::from(Span::raw(label)));
         }
@@ -324,6 +371,7 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let mut engine = Engine::new(42);
         let star_id = engine.state.stars.keys().next().copied().unwrap();
+        engine.state.explored_stars.insert(star_id);
         if let Some(star) = engine.state.stars.get_mut(&star_id) {
             if let Some(planet) = star.planets.get_mut(0) {
                 planet.surveyed = true;
@@ -352,6 +400,65 @@ mod tests {
         assert!(
             rendered.contains("Class: Terran"),
             "surveyed details should show class"
+        );
+    }
+
+    #[test]
+    fn surveying_planet_shows_progress_state() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut engine = Engine::new(42);
+        let star_id = engine.state.stars.keys().next().copied().unwrap();
+        engine.state.explored_stars.insert(star_id);
+        if let Some(star) = engine.state.stars.get_mut(&star_id) {
+            if let Some(planet) = star.planets.get_mut(0) {
+                planet.surveyed = false;
+            }
+        }
+        let science_fleet = game_core::FleetId(999);
+        engine.state.fleets.insert(
+            science_fleet,
+            game_core::Fleet {
+                id: science_fleet,
+                owner: engine.state.player_empire,
+                location: star_id,
+                ships: 1,
+                kind: game_core::FleetKind::Science,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        engine.state.survey_missions.insert(
+            science_fleet,
+            game_core::SurveyMission {
+                fleet: science_fleet,
+                star: star_id,
+                planet_index: 0,
+                turns_remaining: 2,
+            },
+        );
+        let app_state = AppState {
+            selected_star: Some(star_id),
+            selected_planet_index: 0,
+            ..Default::default()
+        };
+        terminal
+            .draw(|frame| render_system(frame, frame.area(), &app_state, &engine.state))
+            .unwrap();
+
+        let buf = terminal.backend().buffer();
+        let rendered: String = (0..40u16)
+            .flat_map(|y| {
+                (0..120u16).map(move |x| {
+                    buf.cell((x, y))
+                        .and_then(|c| c.symbol().chars().next())
+                        .unwrap_or(' ')
+                })
+            })
+            .collect();
+        assert!(
+            rendered.contains("Survey: Surveying"),
+            "surveying details should show surveying state"
         );
     }
 }

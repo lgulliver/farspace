@@ -20,6 +20,6 @@ pub use state::{
     EmpireId, Fleet, FleetId, FleetKind, FleetLocation, FleetMission, GameState,
     OrbitalStructureType, Planet, PlanetClass, PlanetSize, ProductionItem, RelationshipStatus,
     ResearchState, RoleModifiers, ScoutMission, Sector, SectorId, ShipDesignId, ShipDesignRecord,
-    SpectralClass, Star, StarId, TechId, TechRecord,
+    SpectralClass, Star, StarId, SurveyMission, TechId, TechRecord,
 };
 pub use yield_model::ColonyYield;

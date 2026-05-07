@@ -346,6 +346,9 @@ impl App {
             KeyCode::Char('C') => {
                 self.colonize_selected_planet();
             }
+            KeyCode::Char('S') => {
+                self.survey_selected_planet();
+            }
             _ => {
                 if KeyMap::is_end_turn(key) && key.code != KeyCode::Enter {
                     self.end_turn();
@@ -868,7 +871,9 @@ impl App {
                 .values()
                 .find(|f| {
                     f.owner == engine.state.player_empire
+                        && f.kind == FleetKind::Scout
                         && !engine.state.scout_missions.contains_key(&f.id)
+                        && !engine.state.survey_missions.contains_key(&f.id)
                         && !engine.state.fleet_missions.contains_key(&f.id)
                 })
                 .map(|f| f.id)
@@ -924,6 +929,7 @@ impl App {
                 .find(|f| {
                     f.owner == engine.state.player_empire
                         && !engine.state.scout_missions.contains_key(&f.id)
+                        && !engine.state.survey_missions.contains_key(&f.id)
                         && !engine.state.fleet_missions.contains_key(&f.id)
                 })
                 .map(|f| f.id)
@@ -981,6 +987,7 @@ impl App {
                         && f.location == star_id
                         && f.kind == FleetKind::Colonizer
                         && !engine.state.scout_missions.contains_key(&f.id)
+                        && !engine.state.survey_missions.contains_key(&f.id)
                         && !engine.state.fleet_missions.contains_key(&f.id)
                 })
                 .map(|f| f.id)
@@ -1018,6 +1025,85 @@ impl App {
         let planet_index = self.state.selected_planet_index.min(planet_count - 1);
 
         self.pending_commands.push(Command::Colonize {
+            fleet: fleet_id,
+            star: star_id,
+            planet_index,
+        });
+
+        let commands = std::mem::take(&mut self.pending_commands);
+        let engine = match &mut self.engine {
+            Some(e) => e,
+            None => return,
+        };
+        let events = engine.apply_turn(commands);
+        for event in events {
+            self.state.log.push(event.to_log_message());
+        }
+    }
+
+    /// Survey the currently selected planet using an idle science ship at the selected star.
+    fn survey_selected_planet(&mut self) {
+        let star_id = match self.state.selected_star {
+            Some(id) => id,
+            None => {
+                self.state.log.push("No star selected.".to_string());
+                return;
+            }
+        };
+
+        let fleet_id: Option<FleetId> = {
+            let engine = match &self.engine {
+                Some(e) => e,
+                None => return,
+            };
+            engine
+                .state
+                .fleets
+                .values()
+                .find(|f| {
+                    f.owner == engine.state.player_empire
+                        && f.location == star_id
+                        && f.kind == FleetKind::Science
+                        && !engine.state.scout_missions.contains_key(&f.id)
+                        && !engine.state.survey_missions.contains_key(&f.id)
+                        && !engine.state.fleet_missions.contains_key(&f.id)
+                })
+                .map(|f| f.id)
+        };
+
+        let fleet_id = match fleet_id {
+            Some(id) => id,
+            None => {
+                self.state
+                    .log
+                    .push("No science ship available to survey.".to_string());
+                return;
+            }
+        };
+
+        let planet_count = {
+            let engine = match &self.engine {
+                Some(e) => e,
+                None => return,
+            };
+            engine
+                .state
+                .stars
+                .get(&star_id)
+                .map(|s| s.planets.len())
+                .unwrap_or(0)
+        };
+
+        if planet_count == 0 {
+            self.state
+                .log
+                .push("Selected system has no planets.".to_string());
+            return;
+        }
+
+        let planet_index = self.state.selected_planet_index.min(planet_count - 1);
+
+        self.pending_commands.push(Command::SurveyPlanet {
             fleet: fleet_id,
             star: star_id,
             planet_index,
@@ -2209,6 +2295,50 @@ mod tests {
     }
 
     #[test]
+    fn system_view_survey_targets_selected_planet() {
+        use game_core::{FleetKind, SurveyMission};
+
+        let mut app = App::new();
+        app.new_game(42);
+
+        let engine = app.engine.as_mut().unwrap();
+        let star = *engine.state.explored_stars.iter().next().unwrap();
+        let science_fleet = game_core::FleetId(77);
+        engine.state.fleets.insert(
+            science_fleet,
+            game_core::Fleet {
+                id: science_fleet,
+                owner: engine.state.player_empire,
+                location: star,
+                ships: 1,
+                kind: FleetKind::Science,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        engine.state.stars.get_mut(&star).unwrap().planets[0].surveyed = false;
+        app.state.selected_star = Some(star);
+        app.state.selected_planet_index = 0;
+        app.state.active = Screen::System;
+
+        app.handle_key(key(KeyCode::Char('S')));
+
+        let engine = app.engine.as_ref().unwrap();
+        assert!(
+            engine.state.survey_missions.contains_key(&science_fleet),
+            "Survey command should create a survey mission"
+        );
+        assert!(matches!(
+            engine.state.survey_missions.get(&science_fleet),
+            Some(SurveyMission {
+                star: s,
+                planet_index: 0,
+                ..
+            }) if *s == star
+        ));
+    }
+
+    #[test]
     fn colonize_without_engine_is_noop() {
         let mut app = App::new();
         // No game started
@@ -2294,6 +2424,15 @@ mod tests {
             .iter()
             .find(|&&id| id != home)
             .expect("Need explored star");
+        app.engine
+            .as_mut()
+            .unwrap()
+            .state
+            .stars
+            .get_mut(&target)
+            .unwrap()
+            .planets[0]
+            .surveyed = true;
 
         // Move colonizer to target
         app.engine

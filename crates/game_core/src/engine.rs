@@ -6,8 +6,8 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy};
 use crate::state::{
     all_techs, BuildItem, Colony, ColonyId, ColonyRole, Empire, EmpireId, Fleet, FleetId,
-    FleetKind, FleetMission, GameState, RelationshipStatus, ResearchState, ScoutMission, SectorId,
-    StarId, TechId,
+    FleetKind, FleetMission, GameState, RelationshipStatus, ResearchState, ScoutMission,
+    SectorId, ShipDesignId, StarId, SurveyMission, TechId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -15,6 +15,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Number of turns for a scout to travel to an unexplored system
 pub(crate) const SCOUT_TRAVEL_TURNS: u32 = 3;
+/// Number of turns for a science ship to survey a planet
+pub(crate) const SURVEY_TURNS: u32 = 2;
 
 /// Return the number of travel turns for a fleet moving the given squared distance.
 ///
@@ -208,6 +210,7 @@ impl Engine {
             next_fleet_id: 3,
             explored_stars,
             scout_missions: BTreeMap::new(),
+            survey_missions: BTreeMap::new(),
             fleet_missions: BTreeMap::new(),
             ai_empire: Some(ai_empire_id),
             ai_explored_stars,
@@ -252,6 +255,13 @@ impl Engine {
                 }
                 Command::SendScout { fleet, destination } => {
                     self.process_send_scout(fleet, destination, &mut events);
+                }
+                Command::SurveyPlanet {
+                    fleet,
+                    star,
+                    planet_index,
+                } => {
+                    self.process_survey_planet(fleet, star, planet_index, &mut events);
                 }
                 Command::Colonize {
                     fleet,
@@ -434,9 +444,9 @@ impl Engine {
                         // Legacy save compatibility paths.
                         BuildItem::Scout | BuildItem::Colony => {
                             let legacy_design = if matches!(current_item, BuildItem::Colony) {
-                                crate::state::ShipDesignId::COLONY
+                                ShipDesignId::COLONY
                             } else {
-                                crate::state::ShipDesignId::SCOUT
+                                ShipDesignId::SCOUT
                             };
                             if let Some(design) = legacy_design.record() {
                                 let fleet_id = self.state.next_fleet_id();
@@ -618,9 +628,6 @@ impl Engine {
                 }
 
                 events.push(Event::SystemExplored { star: destination });
-                if !is_ai_fleet {
-                    self.survey_planets_at_star(destination, events);
-                }
 
                 // Check if this exploration brings a player scout into contact with
                 // a foreign empire colony.
@@ -630,6 +637,22 @@ impl Engine {
 
                 // Check for hostile fleet encounters after arrival
                 self.check_combat_at_star(destination, fleet_id, events);
+            }
+        }
+
+        // Tick survey missions: decrement and resolve completed ones.
+        // Ordered by FleetId for deterministic completion order.
+        let survey_mission_ids: Vec<FleetId> = self.state.survey_missions.keys().copied().collect();
+        for fleet_id in survey_mission_ids {
+            let (star, planet_index, new_remaining) = {
+                let mission = self.state.survey_missions.get_mut(&fleet_id).unwrap();
+                mission.turns_remaining = mission.turns_remaining.saturating_sub(1);
+                (mission.star, mission.planet_index, mission.turns_remaining)
+            };
+
+            if new_remaining == 0 {
+                self.state.survey_missions.remove(&fleet_id);
+                self.complete_survey_at_star(star, planet_index, events);
             }
         }
 
@@ -665,7 +688,6 @@ impl Engine {
                     .map(|f| f.owner == self.state.player_empire)
                     .unwrap_or(false);
                 if is_player_fleet {
-                    self.survey_planets_at_star(destination, events);
                     self.check_contact_at_star(destination, events);
                 }
 
@@ -783,6 +805,15 @@ impl Engine {
         if self.state.scout_missions.contains_key(&fleet_id) {
             events.push(Event::error(format!(
                 "Fleet {} is already travelling",
+                fleet_id.0
+            )));
+            return;
+        }
+
+        // Block move if fleet is on an active survey mission
+        if self.state.survey_missions.contains_key(&fleet_id) {
+            events.push(Event::error(format!(
+                "Fleet {} is already surveying",
                 fleet_id.0
             )));
             return;
@@ -1093,6 +1124,14 @@ impl Engine {
             return;
         }
 
+        if fleet.kind != FleetKind::Scout {
+            events.push(Event::error(format!(
+                "Fleet {} is not a scout",
+                fleet_id.0
+            )));
+            return;
+        }
+
         // Validate fleet is not already on a mission
         if self.state.scout_missions.contains_key(&fleet_id) {
             events.push(Event::error(format!(
@@ -1106,6 +1145,15 @@ impl Engine {
         if self.state.fleet_missions.contains_key(&fleet_id) {
             events.push(Event::error(format!(
                 "Fleet {} is already travelling",
+                fleet_id.0
+            )));
+            return;
+        }
+
+        // Block if fleet already has a survey mission
+        if self.state.survey_missions.contains_key(&fleet_id) {
+            events.push(Event::error(format!(
+                "Fleet {} is already surveying",
                 fleet_id.0
             )));
             return;
@@ -1146,6 +1194,102 @@ impl Engine {
         });
     }
 
+    fn process_survey_planet(
+        &mut self,
+        fleet_id: FleetId,
+        star_id: StarId,
+        planet_index: usize,
+        events: &mut Vec<Event>,
+    ) {
+        let fleet = match self.state.fleets.get(&fleet_id) {
+            Some(f) => f,
+            None => {
+                events.push(Event::error(format!("Fleet {} not found", fleet_id.0)));
+                return;
+            }
+        };
+
+        if fleet.owner != self.state.player_empire {
+            events.push(Event::error("Fleet not owned by player"));
+            return;
+        }
+
+        if fleet.kind != FleetKind::Science {
+            events.push(Event::error(format!(
+                "Fleet {} is not a science ship",
+                fleet_id.0
+            )));
+            return;
+        }
+
+        if self.state.scout_missions.contains_key(&fleet_id)
+            || self.state.fleet_missions.contains_key(&fleet_id)
+            || self.state.survey_missions.contains_key(&fleet_id)
+        {
+            events.push(Event::error(format!(
+                "Fleet {} is already travelling",
+                fleet_id.0
+            )));
+            return;
+        }
+
+        if fleet.location != star_id {
+            events.push(Event::error(format!(
+                "Fleet {} is not at star {}",
+                fleet_id.0, star_id.0
+            )));
+            return;
+        }
+
+        if !self.state.explored_stars.contains(&star_id) {
+            events.push(Event::error(format!("Star {} is not explored", star_id.0)));
+            return;
+        }
+
+        let planet = match self
+            .state
+            .stars
+            .get(&star_id)
+            .and_then(|star| star.planets.get(planet_index))
+        {
+            Some(planet) => planet,
+            None => {
+                events.push(Event::error(format!(
+                    "Orbit {} out of bounds for star {}",
+                    planet_index + 1,
+                    star_id.0
+                )));
+                return;
+            }
+        };
+
+        if planet.surveyed {
+            events.push(Event::error(format!(
+                "Orbit {} at star {} has already been surveyed",
+                planet_index + 1,
+                star_id.0
+            )));
+            return;
+        }
+
+        self.state.survey_missions.insert(
+            fleet_id,
+            SurveyMission {
+                fleet: fleet_id,
+                star: star_id,
+                planet_index,
+                turns_remaining: SURVEY_TURNS,
+            },
+        );
+
+        events.push(Event::SurveyStarted {
+            fleet: fleet_id,
+            star: star_id,
+            planet_index,
+            turns_remaining: SURVEY_TURNS,
+        });
+    }
+
     fn process_colonize(
         &mut self,
         fleet_id: FleetId,
@@ -1181,6 +1325,13 @@ impl Engine {
         if self.state.scout_missions.contains_key(&fleet_id) {
             events.push(Event::error(format!(
                 "Fleet {} is already travelling",
+                fleet_id.0
+            )));
+            return;
+        }
+        if self.state.survey_missions.contains_key(&fleet_id) {
+            events.push(Event::error(format!(
+                "Fleet {} is already surveying",
                 fleet_id.0
             )));
             return;
@@ -1313,15 +1464,15 @@ impl Engine {
         });
     }
 
-    /// Mark all unsurveyed planets at `star_id` as surveyed and emit
-    /// `PlanetSurveyCompleted` events in orbital order.
-    ///
-    /// Called when a player scout finishes exploration or when a player fleet
-    /// arrives at a system. Iteration follows planet vector order so event
-    /// ordering remains deterministic for a fixed game state.
-    fn survey_planets_at_star(&mut self, star_id: StarId, events: &mut Vec<Event>) {
+    /// Mark a specific planet as surveyed and emit a `PlanetSurveyCompleted` event.
+    fn complete_survey_at_star(
+        &mut self,
+        star_id: StarId,
+        planet_index: usize,
+        events: &mut Vec<Event>,
+    ) {
         if let Some(star) = self.state.stars.get_mut(&star_id) {
-            for (planet_index, planet) in star.planets.iter_mut().enumerate() {
+            if let Some(planet) = star.planets.get_mut(planet_index) {
                 if !planet.surveyed {
                     planet.surveyed = true;
                     events.push(Event::PlanetSurveyCompleted {
@@ -1435,11 +1586,12 @@ impl Engine {
             .fleets
             .iter()
             .filter(|(fid, f)| {
-                **fid != arrived_fleet_id
+                    **fid != arrived_fleet_id
                     && f.location == star_id
                     && f.owner != arrived_owner
                     && !self.state.fleet_missions.contains_key(*fid)
                     && !self.state.scout_missions.contains_key(*fid)
+                    && !self.state.survey_missions.contains_key(*fid)
                     && is_contacted(&self.state, arrived_owner, f.owner)
             })
             .map(|(fid, _)| *fid)
@@ -3044,6 +3196,42 @@ mod tests {
         assert!(
             engine.state.scout_missions.contains_key(&fleet_id),
             "Scout mission should be registered"
+        );
+    }
+
+    #[test]
+    fn send_scout_with_science_fleet_emits_error() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(99);
+        let home = engine.state.fleets.get(&FleetId(1)).unwrap().location;
+        let destination = *engine
+            .state
+            .stars
+            .keys()
+            .find(|id| !engine.state.explored_stars.contains(id))
+            .expect("Unexplored star needed");
+
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: engine.state.player_empire,
+                location: home,
+                ships: 1,
+                kind: FleetKind::Science,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::SendScout {
+            fleet: fleet_id,
+            destination,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "SendScout with a science ship must emit an error"
         );
     }
 

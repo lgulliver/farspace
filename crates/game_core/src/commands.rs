@@ -26,6 +26,12 @@ pub enum Command {
     SelectResearch { tech: TechId },
     /// Dispatch a scout fleet to explore an unexplored star system
     SendScout { fleet: FleetId, destination: StarId },
+    /// Start surveying a planet with a science fleet
+    SurveyPlanet {
+        fleet: FleetId,
+        star: StarId,
+        planet_index: usize,
+    },
     /// Colonize a habitable, unowned planet with an idle colonizer fleet
     Colonize {
         fleet: FleetId,
@@ -91,6 +97,19 @@ mod tests {
         let cmd = Command::SendScout {
             fleet: FleetId(1),
             destination: StarId(5),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn survey_planet_serialization() {
+        let cmd = Command::SurveyPlanet {
+            fleet: FleetId(2),
+            star: StarId(5),
+            planet_index: 1,
         };
         let json = serde_json::to_string(&cmd).unwrap();
         let parsed: Command = serde_json::from_str(&json).unwrap();

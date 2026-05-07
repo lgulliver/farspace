@@ -85,6 +85,8 @@ fn log_entry_style(entry: &str) -> Style {
     } else if lower.contains("research") || lower.contains("technology") || lower.contains("tech ")
     {
         Theme::success_style()
+    } else if lower.contains("survey") {
+        Theme::accent_style()
     } else if lower.contains("colon") {
         // "colon" is a deliberate substring that matches colony/colonize/colonization
         Theme::accent_style()
@@ -204,6 +206,12 @@ mod tests {
     fn scout_keyword_uses_yellow() {
         let style = log_entry_style("Scout arrived at Velara");
         assert_eq!(style.fg, Some(ratatui::style::Color::Yellow));
+    }
+
+    #[test]
+    fn survey_keyword_uses_accent_style() {
+        let style = log_entry_style("Survey started for orbit 2");
+        assert_eq!(style.fg, Theme::accent_style().fg);
     }
 
     #[test]

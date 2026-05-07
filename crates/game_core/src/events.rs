@@ -59,6 +59,13 @@ pub enum Event {
         destination: StarId,
         turns_remaining: u32,
     },
+    /// A science fleet has started surveying a planet
+    SurveyStarted {
+        fleet: FleetId,
+        star: StarId,
+        planet_index: usize,
+        turns_remaining: u32,
+    },
     /// A star system has been explored by a scout
     SystemExplored { star: StarId },
     /// Survey intel for a planet has been completed
@@ -255,6 +262,20 @@ impl Event {
                 format!(
                     "Scout {} dispatched to system {} ({} turns)",
                     fleet.0, destination.0, turns_remaining
+                )
+            }
+            Event::SurveyStarted {
+                fleet,
+                star,
+                planet_index,
+                turns_remaining,
+            } => {
+                format!(
+                    "Science ship {} started survey at system {} orbit {} ({} turns)",
+                    fleet.0,
+                    star.0,
+                    planet_index + 1,
+                    turns_remaining
                 )
             }
             Event::SystemExplored { star } => {
@@ -538,6 +559,17 @@ mod tests {
     }
 
     #[test]
+    fn survey_started_is_not_error() {
+        let event = Event::SurveyStarted {
+            fleet: crate::state::FleetId(1),
+            star: crate::state::StarId(5),
+            planet_index: 0,
+            turns_remaining: 2,
+        };
+        assert!(!event.is_error());
+    }
+
+    #[test]
     fn system_explored_is_not_error() {
         let event = Event::SystemExplored {
             star: crate::state::StarId(5),
@@ -552,6 +584,20 @@ mod tests {
             fleet: crate::state::FleetId(1),
             destination: crate::state::StarId(5),
             turns_remaining: 3,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, parsed);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn survey_started_serialization() {
+        let event = Event::SurveyStarted {
+            fleet: crate::state::FleetId(1),
+            star: crate::state::StarId(5),
+            planet_index: 2,
+            turns_remaining: 2,
         };
         let json = serde_json::to_string(&event).unwrap();
         let parsed: Event = serde_json::from_str(&json).unwrap();

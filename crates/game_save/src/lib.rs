@@ -217,6 +217,51 @@ mod tests {
     }
 
     #[test]
+    fn save_load_preserves_survey_missions_and_science_fleets() {
+        use game_core::{FleetKind, SurveyMission};
+
+        let mut engine = Engine::new(42);
+        let star_id = *engine.state.explored_stars.iter().next().unwrap();
+        let science_fleet = game_core::FleetId(99);
+        engine.state.fleets.insert(
+            science_fleet,
+            game_core::Fleet {
+                id: science_fleet,
+                owner: engine.state.player_empire,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Science,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        engine.state.survey_missions.insert(
+            science_fleet,
+            SurveyMission {
+                fleet: science_fleet,
+                star: star_id,
+                planet_index: 0,
+                turns_remaining: 2,
+            },
+        );
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert_eq!(engine.state.fleets[&science_fleet].kind, FleetKind::Science);
+        assert_eq!(
+            loaded.fleets[&science_fleet].kind,
+            FleetKind::Science,
+            "science fleet kind must survive save/load"
+        );
+        assert_eq!(
+            loaded.survey_missions.get(&science_fleet),
+            engine.state.survey_missions.get(&science_fleet),
+            "survey mission must survive save/load"
+        );
+    }
+
+    #[test]
     fn save_load_preserves_research_state() {
         use game_core::TechId;
 

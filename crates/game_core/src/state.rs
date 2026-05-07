@@ -134,12 +134,22 @@ pub fn all_ship_designs() -> &'static [ShipDesignRecord] {
             strength: 1,
             required_tech: Some(TechId(2)),
         },
+        ShipDesignRecord {
+            id: ShipDesignId::SCIENCE,
+            name: "Science Ship",
+            cost: 100,
+            fleet_kind: FleetKind::Science,
+            ships: 1,
+            strength: 1,
+            required_tech: None,
+        },
     ]
 }
 
 impl ShipDesignId {
-    pub const SCOUT: ShipDesignId = ShipDesignId(1);
-    pub const COLONY: ShipDesignId = ShipDesignId(2);
+pub const SCOUT: ShipDesignId = ShipDesignId(1);
+pub const COLONY: ShipDesignId = ShipDesignId(2);
+pub const SCIENCE: ShipDesignId = ShipDesignId(3);
 
     /// All design IDs in deterministic display order, derived from `all_ship_designs()`
     /// to ensure both stay in sync automatically.
@@ -820,6 +830,8 @@ pub enum FleetKind {
     /// General-purpose scout/exploration fleet
     #[default]
     Scout,
+    /// Science ship — performs planet surveys
+    Science,
     /// Colony ship — consumed when founding a new colony
     Colonizer,
 }
@@ -871,6 +883,20 @@ pub struct ScoutMission {
     /// Target star system to explore
     pub destination: StarId,
     /// Turns remaining until the scout arrives
+    pub turns_remaining: u32,
+}
+
+/// A planet survey mission executed by a science fleet
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct SurveyMission {
+    /// The fleet executing this mission
+    pub fleet: FleetId,
+    /// Target star system
+    pub star: StarId,
+    /// Target planet within the star
+    pub planet_index: usize,
+    /// Turns remaining until survey completes
     pub turns_remaining: u32,
 }
 
@@ -932,6 +958,9 @@ pub struct GameState {
     /// Active scout missions keyed by fleet ID (for exploring unexplored stars)
     #[cfg_attr(feature = "serde", serde(default))]
     pub scout_missions: BTreeMap<FleetId, ScoutMission>,
+    /// Active survey missions keyed by fleet ID (for science ships)
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub survey_missions: BTreeMap<FleetId, SurveyMission>,
     /// Active fleet movement missions keyed by fleet ID (for moving to explored stars)
     #[cfg_attr(feature = "serde", serde(default))]
     pub fleet_missions: BTreeMap<FleetId, FleetMission>,
@@ -973,6 +1002,9 @@ impl GameState {
                 turns_remaining: mission.turns_remaining,
             });
         }
+        if let Some(mission) = self.survey_missions.get(&fleet_id) {
+            return Some(FleetLocation::AtStar(mission.star));
+        }
         // Scout mission (to unexplored stars)
         if let Some(mission) = self.scout_missions.get(&fleet_id) {
             return Some(FleetLocation::Travelling {
@@ -1002,6 +1034,7 @@ impl PartialEq for GameState {
             && self.next_fleet_id == other.next_fleet_id
             && self.explored_stars == other.explored_stars
             && self.scout_missions == other.scout_missions
+            && self.survey_missions == other.survey_missions
             && self.fleet_missions == other.fleet_missions
             && self.ai_empire == other.ai_empire
             && self.ai_explored_stars == other.ai_explored_stars
@@ -1049,6 +1082,7 @@ impl Default for GameState {
             next_fleet_id: 1,
             explored_stars: BTreeSet::new(),
             scout_missions: BTreeMap::new(),
+            survey_missions: BTreeMap::new(),
             fleet_missions: BTreeMap::new(),
             ai_empire: None,
             ai_explored_stars: BTreeSet::new(),
@@ -1094,8 +1128,10 @@ mod tests {
     #[test]
     fn build_item_costs() {
         assert_eq!(BuildItem::Ship(ShipDesignId::SCOUT).cost(), 50);
+        assert_eq!(BuildItem::Ship(ShipDesignId::SCIENCE).cost(), 100);
         assert_eq!(BuildItem::Ship(ShipDesignId::COLONY).cost(), 200);
         assert_eq!(BuildItem::Scout.cost(), 50);
+        assert_eq!(BuildItem::Ship(ShipDesignId::SCIENCE).name(), "Science Ship");
         assert_eq!(BuildItem::Colony.cost(), 200);
         assert_eq!(BuildItem::Outpost.cost(), 100);
         assert_eq!(
@@ -1167,6 +1203,7 @@ mod tests {
     fn build_item_names() {
         assert_eq!(BuildItem::Ship(ShipDesignId::SCOUT).name(), "Scout");
         assert_eq!(BuildItem::Ship(ShipDesignId::COLONY).name(), "Colony Ship");
+        assert_eq!(BuildItem::Ship(ShipDesignId::SCIENCE).name(), "Science Ship");
         assert_eq!(BuildItem::Scout.name(), "Scout");
         assert_eq!(BuildItem::Colony.name(), "Colony Ship");
         assert_eq!(BuildItem::Outpost.name(), "Outpost");
@@ -1193,6 +1230,13 @@ mod tests {
             ShipDesignId(999).record().is_none(),
             "unknown design ID must be invalid"
         );
+    }
+
+    #[test]
+    fn all_ship_designs_contains_science_ship() {
+        let all = all_ship_designs();
+        assert_eq!(all.len(), 3);
+        assert!(all.iter().any(|d| d.name == "Science Ship"));
     }
 
     #[test]
@@ -1316,6 +1360,7 @@ mod tests {
         let state = GameState::default();
         assert!(state.explored_stars.is_empty());
         assert!(state.scout_missions.is_empty());
+        assert!(state.survey_missions.is_empty());
     }
 
     #[test]
@@ -1339,6 +1384,24 @@ mod tests {
             ScoutMission {
                 fleet: FleetId(1),
                 destination: StarId(2),
+                turns_remaining: 2,
+            },
+        );
+        assert_ne!(state_a, state_b);
+    }
+
+    #[test]
+    fn game_state_partial_eq_considers_survey_missions() {
+        let mut state_a = GameState::default();
+        let state_b = GameState::default();
+        assert_eq!(state_a, state_b);
+
+        state_a.survey_missions.insert(
+            FleetId(1),
+            SurveyMission {
+                fleet: FleetId(1),
+                star: StarId(2),
+                planet_index: 0,
                 turns_remaining: 2,
             },
         );
@@ -1463,6 +1526,50 @@ mod tests {
             }
             other => panic!("Expected Travelling, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn fleet_location_at_star_via_survey_mission() {
+        let mut state = GameState::default();
+        state.fleets.insert(
+            FleetId(1),
+            Fleet {
+                id: FleetId(1),
+                owner: EmpireId(1),
+                location: StarId(5),
+                ships: 1,
+                kind: FleetKind::Science,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        state.survey_missions.insert(
+            FleetId(1),
+            SurveyMission {
+                fleet: FleetId(1),
+                star: StarId(5),
+                planet_index: 1,
+                turns_remaining: 2,
+            },
+        );
+        match state.fleet_location(FleetId(1)) {
+            Some(FleetLocation::AtStar(id)) => assert_eq!(id, StarId(5)),
+            other => panic!("Expected AtStar, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn survey_mission_fields() {
+        let mission = SurveyMission {
+            fleet: FleetId(3),
+            star: StarId(7),
+            planet_index: 2,
+            turns_remaining: 2,
+        };
+        assert_eq!(mission.fleet, FleetId(3));
+        assert_eq!(mission.star, StarId(7));
+        assert_eq!(mission.planet_index, 2);
+        assert_eq!(mission.turns_remaining, 2);
     }
 
     #[test]

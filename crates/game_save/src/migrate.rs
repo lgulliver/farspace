@@ -130,6 +130,15 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // Both fields rely on serde defaults — nothing to populate explicitly.
             // v13 saves will have empty sectors and SectorId(0) on stars until a new game is started.
             Ok(SaveFile {
+                version: 14,
+                state: save.state,
+            })
+        }
+        14 => {
+            // v14 -> v15: GameState.survey_missions added (serde default = empty).
+            // Science ships are encoded as FleetKind::Science, which old saves can load
+            // as long as the new field defaults to empty.
+            Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
             })
@@ -449,6 +458,15 @@ mod tests {
         let v13_save = SaveFile { version: 13, state };
         let migrated = migrate(v13_save).expect("v13 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn migrate_v14_to_v15_defaults_survey_missions_to_empty() {
+        let state = GameState::default();
+        let v14_save = SaveFile { version: 14, state };
+        let migrated = migrate(v14_save).expect("v14 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        assert!(migrated.state.survey_missions.is_empty());
     }
 
     #[test]

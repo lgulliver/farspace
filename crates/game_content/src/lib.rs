@@ -85,6 +85,15 @@ impl ShipTemplate {
                 speed: 2,
                 range: 3,
             },
+            ShipTemplate {
+                name: "Science Ship".to_string(),
+                build_item: BuildItem::Ship(game_core::ShipDesignId::SCIENCE),
+                cost: BuildItem::Ship(game_core::ShipDesignId::SCIENCE).cost(),
+                attack: 0,
+                defense: 1,
+                speed: 2,
+                range: 4,
+            },
         ]
     }
 }
@@ -155,6 +164,7 @@ mod tests {
         let templates = ShipTemplate::defaults();
         assert!(!templates.is_empty());
         assert!(templates.iter().any(|t| t.name == "Scout"));
+        assert!(templates.iter().any(|t| t.name == "Science Ship"));
     }
 
     #[test]

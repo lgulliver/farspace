@@ -52,9 +52,9 @@ pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(35),
             Constraint::Percentage(30),
-            Constraint::Percentage(35),
+            Constraint::Percentage(25),
+            Constraint::Percentage(45),
         ])
         .split(right_area);
 
@@ -740,6 +740,33 @@ mod tests {
         assert!(
             content.contains("Shipyard"),
             "Build picker must render Shipyard; got: <content truncated>"
+        );
+    }
+
+    #[test]
+    fn build_picker_shows_science_ship_in_ship_section() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let engine = Engine::new(42);
+        let app_state = make_app_state_with_colony(&engine);
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_colony(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(
+            content.contains("Science Ship"),
+            "Build picker must render Science Ship; got: <content truncated>"
         );
     }
 

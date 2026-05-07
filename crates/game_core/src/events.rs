@@ -182,13 +182,23 @@ impl Event {
                 format!("Fleet {} moved from {} to {}", fleet.0, from.0, to.0)
             }
             Event::BuildQueued { colony, item } => {
-                format!("Colony {} queued {}", colony.0, item.name())
+                format!(
+                    "Colony {} queued {} ({})",
+                    colony.0,
+                    item.name(),
+                    item.category_name()
+                )
             }
             Event::BuildCancelled { colony } => {
                 format!("Colony {} cancelled build", colony.0)
             }
             Event::BuildCompleted { colony, item } => {
-                format!("Colony {} completed {}", colony.0, item.name())
+                format!(
+                    "Colony {} completed {} ({})",
+                    colony.0,
+                    item.name(),
+                    item.category_name()
+                )
             }
             Event::ColonyProduced {
                 colony,

@@ -141,7 +141,7 @@ fn pick_build_item(
         let can_place_surface =
             planet_size.is_some_and(|size| colony.can_place_surface_building(size));
         if can_place_surface {
-            return Some(BuildItem::Structure(BuildingType::FabricationYard));
+            return Some(BuildItem::SurfaceStructure(BuildingType::FabricationYard));
         }
     }
 
@@ -169,12 +169,16 @@ fn pick_build_item(
         .fleets
         .values()
         .any(|f| f.owner == empire_id && f.kind == FleetKind::Colonizer);
-    if !has_colonizer {
-        return Some(BuildItem::Colony);
+    let has_habitat_seeding = state
+        .empires
+        .get(&empire_id)
+        .is_some_and(|e| e.research.completed.contains(&TechId(2)));
+    if !has_colonizer && has_habitat_seeding {
+        return Some(BuildItem::Ship(crate::state::ShipDesignId::COLONY));
     }
 
     // Priority 4: Scout for continued exploration
-    Some(BuildItem::Scout)
+    Some(BuildItem::Ship(crate::state::ShipDesignId::SCOUT))
 }
 
 // ---------------------------------------------------------------------------
@@ -588,7 +592,7 @@ mod tests {
         assert!(
             colony
                 .build_queue
-                .contains(&BuildItem::Structure(BuildingType::FabricationYard)),
+                .contains(&BuildItem::SurfaceStructure(BuildingType::FabricationYard)),
             "AI must queue FabricationYard first"
         );
 
@@ -598,7 +602,7 @@ mod tests {
                 e,
                 Event::AiBuildQueued { empire, colony, item }
                 if *empire == ai && *colony == ai_colony_id
-                    && *item == BuildItem::Structure(BuildingType::FabricationYard)
+                    && *item == BuildItem::SurfaceStructure(BuildingType::FabricationYard)
             )),
             "AiBuildQueued event must be emitted for FabricationYard"
         );
@@ -623,7 +627,7 @@ mod tests {
             .get_mut(&ai_colony_id)
             .unwrap()
             .build_queue
-            .push(BuildItem::Scout);
+            .push(BuildItem::Ship(crate::state::ShipDesignId::SCOUT));
 
         let events = engine.apply_turn(vec![crate::commands::Command::EndTurn]);
 
@@ -679,17 +683,27 @@ mod tests {
             .values()
             .any(|f| f.owner == ai && f.kind == FleetKind::Colonizer));
 
+        // Colony ship design requires Habitat Seeding.
+        engine
+            .state
+            .empires
+            .get_mut(&ai)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId(2));
+
         let events = engine.apply_turn(vec![crate::commands::Command::EndTurn]);
 
         let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
         assert!(
-            colony.build_queue.contains(&BuildItem::Colony),
+            colony.build_queue.contains(&BuildItem::Ship(crate::state::ShipDesignId::COLONY)),
             "AI must queue Colony Ship when no colonizer exists"
         );
         assert!(events.iter().any(|e| matches!(
             e,
             Event::AiBuildQueued { empire, item, .. }
-            if *empire == ai && *item == BuildItem::Colony
+            if *empire == ai && *item == BuildItem::Ship(crate::state::ShipDesignId::COLONY)
         )));
     }
 
@@ -743,13 +757,13 @@ mod tests {
 
         let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
         assert!(
-            colony.build_queue.contains(&BuildItem::Scout),
+            colony.build_queue.contains(&BuildItem::Ship(crate::state::ShipDesignId::SCOUT)),
             "AI must queue Scout when FabricationYard built and colonizer exists"
         );
         assert!(events.iter().any(|e| matches!(
             e,
             Event::AiBuildQueued { empire, item, .. }
-            if *empire == ai && *item == BuildItem::Scout
+            if *empire == ai && *item == BuildItem::Ship(crate::state::ShipDesignId::SCOUT)
         )));
     }
 
@@ -1278,11 +1292,11 @@ mod tests {
 
         let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
         assert!(
-            !colony.build_queue.contains(&BuildItem::Scout),
+            !colony.build_queue.contains(&BuildItem::Ship(crate::state::ShipDesignId::SCOUT)),
             "AI must not queue Scout without a Shipyard"
         );
         assert!(
-            !colony.build_queue.contains(&BuildItem::Colony),
+            !colony.build_queue.contains(&BuildItem::Ship(crate::state::ShipDesignId::COLONY)),
             "AI must not queue Colony Ship without a Shipyard"
         );
     }
@@ -1385,7 +1399,7 @@ mod tests {
         assert!(
             !colony
                 .build_queue
-                .contains(&BuildItem::Structure(BuildingType::FabricationYard)),
+                .contains(&BuildItem::SurfaceStructure(BuildingType::FabricationYard)),
             "AI must not queue FabricationYard when all surface slots are full"
         );
     }

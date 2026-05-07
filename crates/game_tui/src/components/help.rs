@@ -68,7 +68,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("j / ↓", "Move cursor down in active panel"),
             HelpEntry::Binding("k / ↑", "Move cursor up in active panel"),
             HelpEntry::Section("Actions"),
-            HelpEntry::Binding("Enter", "Assign role or queue building (active panel)"),
+            HelpEntry::Binding("Enter", "Assign role or queue production item (active panel)"),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding(":", "Command palette (save · load)"),

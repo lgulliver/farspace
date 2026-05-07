@@ -333,8 +333,7 @@ impl App {
 
     /// Total number of items in the build picker (surface buildings + orbital structures + ships)
     fn all_build_item_count() -> usize {
-        // Ships: Scout and Colony Ship
-        BuildingType::all().len() + OrbitalStructureType::all().len() + 2
+        BuildingType::all().len() + OrbitalStructureType::all().len() + game_core::ShipDesignId::all().len()
     }
 
     /// Try to enter the colony screen for the selected star.
@@ -488,24 +487,25 @@ impl App {
 
         let surface_buildings = BuildingType::all();
         let orbital_structures = OrbitalStructureType::all();
-        // Ships listed in the picker: Scout then Colony Ship
-        const SHIP_ITEMS: &[game_core::BuildItem] =
-            &[game_core::BuildItem::Scout, game_core::BuildItem::Colony];
+        let ship_items: Vec<game_core::BuildItem> = game_core::ShipDesignId::all()
+            .iter()
+            .map(|design| game_core::BuildItem::Ship(*design))
+            .collect();
 
-        let total = surface_buildings.len() + orbital_structures.len() + SHIP_ITEMS.len();
+        let total = surface_buildings.len() + orbital_structures.len() + ship_items.len();
         if total == 0 {
             return;
         }
         let cursor = self.state.colony_build_cursor % total;
 
         let item = if cursor < surface_buildings.len() {
-            game_core::BuildItem::Structure(surface_buildings[cursor])
+            game_core::BuildItem::SurfaceStructure(surface_buildings[cursor])
         } else if cursor < surface_buildings.len() + orbital_structures.len() {
             game_core::BuildItem::OrbitalStructure(
                 orbital_structures[cursor - surface_buildings.len()],
             )
         } else {
-            SHIP_ITEMS[cursor - surface_buildings.len() - orbital_structures.len()]
+            ship_items[cursor - surface_buildings.len() - orbital_structures.len()]
         };
 
         self.pending_commands.push(Command::QueueBuild {

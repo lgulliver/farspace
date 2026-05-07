@@ -440,11 +440,8 @@ fn render_build_picker(
     // Build the combined list: surface buildings, orbital structures, then ships
     let surface_count = BuildingType::all().len();
     let orbital_count = OrbitalStructureType::all().len();
-    let ship_items: Vec<BuildItem> = game_core::ShipDesignId::all()
-        .iter()
-        .map(|design| BuildItem::Ship(*design))
-        .collect();
-    let total_count = surface_count + orbital_count + ship_items.len();
+    let ship_count = game_core::all_ship_designs().len();
+    let total_count = surface_count + orbital_count + ship_count;
     let cursor = if total_count > 0 {
         app_state.colony_build_cursor % total_count
     } else {
@@ -517,17 +514,18 @@ fn render_build_picker(
         )]));
     }
 
-    // Ships section
+    // Ships section — iterate over all_ship_designs() directly to avoid per-frame allocation
     lines.push(Line::from(vec![Span::styled(
         " Ships",
         Theme::muted_style(),
     )]));
-    for (i, ship_item) in ship_items.iter().enumerate() {
+    for (i, design) in game_core::all_ship_designs().iter().enumerate() {
+        let ship_item = BuildItem::Ship(design.id);
         let idx = surface_count + orbital_count + i;
         let is_selected = idx == cursor;
         let prefix = if is_selected { ">" } else { " " };
-        let tech_unlocked = ship_item
-            .required_tech()
+        let tech_unlocked = design
+            .required_tech
             .map(|t| completed_techs.contains(&t))
             .unwrap_or(true);
         let lock_tag = match (has_shipyard, tech_unlocked) {
@@ -548,7 +546,7 @@ fn render_build_picker(
                 " {} [{:>3}pp] {}{}",
                 prefix,
                 ship_item.cost(),
-                ship_item.name(),
+                design.name,
                 lock_tag
             ),
             style,

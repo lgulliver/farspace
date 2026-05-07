@@ -356,26 +356,36 @@ impl Engine {
                 };
                 let mut production_pool = accumulated + production + ship_bonus;
 
-                loop {
-                    let current_item = self
+                // Determine how many items complete this turn and collect them.
+                // We read the queue once, computing completions, then drain the prefix.
+                let completed_items: Vec<BuildItem> = {
+                    let queue = self
                         .state
                         .colonies
                         .get(&colony_id)
-                        .and_then(|c| c.build_queue.first().copied());
-                    let Some(current_item) = current_item else {
-                        break;
-                    };
-
-                    let cost = current_item.cost();
-                    if production_pool < cost {
-                        break;
+                        .map(|c| c.build_queue.as_slice())
+                        .unwrap_or(&[]);
+                    let mut completed = Vec::new();
+                    for &q_item in queue {
+                        let cost = q_item.cost();
+                        if production_pool < cost {
+                            break;
+                        }
+                        production_pool -= cost;
+                        completed.push(q_item);
                     }
+                    completed
+                };
 
+                // Drain the completed prefix in one O(n) pass.
+                let n_completed = completed_items.len();
+                if n_completed > 0 {
                     if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
-                        colony.build_queue.remove(0);
+                        colony.build_queue.drain(..n_completed);
                     }
-                    production_pool -= cost;
+                }
 
+                for current_item in completed_items {
                     events.push(Event::BuildCompleted {
                         colony: colony_id,
                         item: current_item,

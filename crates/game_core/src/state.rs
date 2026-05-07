@@ -136,9 +136,10 @@ impl ShipDesignId {
     pub const SCOUT: ShipDesignId = ShipDesignId(1);
     pub const COLONY: ShipDesignId = ShipDesignId(2);
 
-    /// All design IDs in deterministic display order.
-    pub fn all() -> &'static [ShipDesignId] {
-        &[ShipDesignId::SCOUT, ShipDesignId::COLONY]
+    /// All design IDs in deterministic display order, derived from `all_ship_designs()`
+    /// to ensure both stay in sync automatically.
+    pub fn all() -> impl Iterator<Item = ShipDesignId> {
+        all_ship_designs().iter().map(|d| d.id)
     }
 
     /// Resolve this ID to a known design record.
@@ -559,10 +560,15 @@ impl ProductionItem {
         }
     }
 
-    /// Production cost for this item
+    /// Production cost for this item.
+    ///
+    /// Returns `u64::MAX` for `Ship(_)` with an invalid (unknown) design ID so the item
+    /// can never be silently completed due to a zero-cost guard in queue processing.
     pub fn cost(&self) -> u64 {
         match self {
-            ProductionItem::Ship(design_id) => design_id.record().map(|d| d.cost).unwrap_or(0),
+            ProductionItem::Ship(design_id) => {
+                design_id.record().map(|d| d.cost).unwrap_or(u64::MAX)
+            }
             ProductionItem::Scout => ShipDesignId::SCOUT.record().map(|d| d.cost).unwrap_or(0),
             ProductionItem::Colony => ShipDesignId::COLONY.record().map(|d| d.cost).unwrap_or(0),
             ProductionItem::Outpost => 100,

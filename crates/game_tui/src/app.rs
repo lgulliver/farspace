@@ -335,7 +335,7 @@ impl App {
     fn all_build_item_count() -> usize {
         BuildingType::all().len()
             + OrbitalStructureType::all().len()
-            + game_core::ShipDesignId::all().len()
+            + game_core::all_ship_designs().len()
     }
 
     /// Try to enter the colony screen for the selected star.
@@ -489,12 +489,9 @@ impl App {
 
         let surface_buildings = BuildingType::all();
         let orbital_structures = OrbitalStructureType::all();
-        let ship_items: Vec<game_core::BuildItem> = game_core::ShipDesignId::all()
-            .iter()
-            .map(|design| game_core::BuildItem::Ship(*design))
-            .collect();
+        let ship_designs = game_core::all_ship_designs();
 
-        let total = surface_buildings.len() + orbital_structures.len() + ship_items.len();
+        let total = surface_buildings.len() + orbital_structures.len() + ship_designs.len();
         if total == 0 {
             return;
         }
@@ -507,7 +504,9 @@ impl App {
                 orbital_structures[cursor - surface_buildings.len()],
             )
         } else {
-            ship_items[cursor - surface_buildings.len() - orbital_structures.len()]
+            game_core::BuildItem::Ship(
+                ship_designs[cursor - surface_buildings.len() - orbital_structures.len()].id,
+            )
         };
 
         self.pending_commands.push(Command::QueueBuild {

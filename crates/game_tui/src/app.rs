@@ -5,7 +5,8 @@ use crate::keys::KeyMap;
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
-    all_techs, BuildingType, ColonyId, Command, Engine, FleetId, FleetKind, StarId, TechId,
+    all_techs, BuildingType, ColonyId, Command, Engine, FleetId, FleetKind, OrbitalStructureType,
+    StarId, TechId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -284,11 +285,11 @@ impl App {
             }
             // Navigate build picker
             KeyCode::Char('j') | KeyCode::Down => {
-                let count = BuildingType::all().len();
+                let count = Self::all_build_item_count();
                 self.state.colony_build_cursor = (self.state.colony_build_cursor + 1) % count;
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                let count = BuildingType::all().len();
+                let count = Self::all_build_item_count();
                 self.state.colony_build_cursor =
                     (self.state.colony_build_cursor + count.saturating_sub(1)) % count;
             }
@@ -303,6 +304,12 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Total number of items in the build picker (surface buildings + orbital structures + ships)
+    fn all_build_item_count() -> usize {
+        // Ships: Scout and Colony Ship
+        BuildingType::all().len() + OrbitalStructureType::all().len() + 2
     }
 
     /// Try to enter the colony screen for the selected star.
@@ -447,20 +454,38 @@ impl App {
         }
     }
 
-    /// Queue the currently selected building at the active colony
+    /// Queue the currently selected build item at the active colony
     fn queue_building(&mut self) {
         let colony_id = match self.state.selected_colony {
             Some(id) => id,
             None => return,
         };
 
-        let buildings = BuildingType::all();
-        let cursor = self.state.colony_build_cursor % buildings.len();
-        let bt = buildings[cursor];
+        let surface_buildings = BuildingType::all();
+        let orbital_structures = OrbitalStructureType::all();
+        // Ships listed in the picker: Scout then Colony Ship
+        const SHIP_ITEMS: &[game_core::BuildItem] =
+            &[game_core::BuildItem::Scout, game_core::BuildItem::Colony];
+
+        let total = surface_buildings.len() + orbital_structures.len() + SHIP_ITEMS.len();
+        if total == 0 {
+            return;
+        }
+        let cursor = self.state.colony_build_cursor % total;
+
+        let item = if cursor < surface_buildings.len() {
+            game_core::BuildItem::Structure(surface_buildings[cursor])
+        } else if cursor < surface_buildings.len() + orbital_structures.len() {
+            game_core::BuildItem::OrbitalStructure(
+                orbital_structures[cursor - surface_buildings.len()],
+            )
+        } else {
+            SHIP_ITEMS[cursor - surface_buildings.len() - orbital_structures.len()]
+        };
 
         self.pending_commands.push(Command::QueueBuild {
             colony: colony_id,
-            item: game_core::BuildItem::Structure(bt),
+            item,
         });
 
         let commands = std::mem::take(&mut self.pending_commands);
@@ -1292,7 +1317,7 @@ mod tests {
         app.new_game(42);
         goto_colony_screen(&mut app);
 
-        let count = BuildingType::all().len();
+        let count = App::all_build_item_count();
         // Move down past the last item
         for _ in 0..count {
             app.handle_key(key(KeyCode::Char('j')));
@@ -1309,7 +1334,7 @@ mod tests {
 
         // Move up from 0 should wrap to last
         app.handle_key(key(KeyCode::Char('k')));
-        let count = BuildingType::all().len();
+        let count = App::all_build_item_count();
         assert_eq!(app.state.colony_build_cursor, count - 1);
     }
 
@@ -1851,13 +1876,23 @@ mod tests {
 
     #[test]
     fn colonize_key_with_colonizer_succeeds() {
-        use game_core::{Command, FleetKind};
+        use game_core::{Command, FleetKind, OrbitalStructureType};
 
         let mut app = App::new();
         app.new_game(42);
 
         // Build a colonizer fleet via the engine directly
         let colony_id = game_core::ColonyId(1);
+        // Inject Shipyard so Colony Ship can be queued
+        app.engine
+            .as_mut()
+            .unwrap()
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .orbital_installations
+            .push(OrbitalStructureType::Shipyard);
         app.engine.as_mut().unwrap().apply_turn(vec![
             Command::QueueBuild {
                 colony: colony_id,

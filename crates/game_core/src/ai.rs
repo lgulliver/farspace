@@ -3,7 +3,8 @@
 //! The AI empire follows a fixed priority list each turn:
 //! 1. Select cheapest unresearched tech (if none active)
 //! 2. Queue builds for each owned colony with an empty queue
-//!    (FabricationYard first, then Colony Ship, then Scout)
+//!    (FabricationYard first, then Shipyard if tech available, then Colony Ship, then Scout)
+//!    Ships are only queued when the colony has a Shipyard.
 //! 3. Dispatch the first idle scout to the nearest unexplored star
 //! 4. Colonize with any idle colonizer at an AI-explored star
 
@@ -11,7 +12,7 @@ use crate::engine::SCOUT_TRAVEL_TURNS;
 use crate::events::Event;
 use crate::state::{
     all_techs, BuildItem, BuildingType, Colony, ColonyId, EmpireId, FleetId, FleetKind, GameState,
-    ScoutMission, StarId, TechId,
+    OrbitalStructureType, ScoutMission, StarId, TechId,
 };
 
 /// Run one AI decision pass for the given empire.
@@ -108,9 +109,11 @@ fn ai_queue_builds(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<
 /// Pick what to build at a colony with an empty queue.
 ///
 /// Priority:
-/// 1. `FabricationYard` if not yet built at this colony
-/// 2. Colony Ship if the empire has no colonizer fleet
-/// 3. Scout (to continue exploration)
+/// 1. `FabricationYard` if not yet built and a surface slot is available
+/// 2. `Shipyard` if Orbital Engineering is researched, no Shipyard installed yet, and an
+///    orbital slot is free
+/// 3. Colony Ship if the colony has a Shipyard and the empire has no colonizer fleet
+/// 4. Scout if the colony has a Shipyard
 fn pick_build_item(
     state: &GameState,
     empire_id: EmpireId,
@@ -124,12 +127,42 @@ fn pick_build_item(
         return None;
     }
 
-    // Priority 1: FabricationYard
+    // Look up planet size for slot checks
+    let planet_size = state
+        .stars
+        .get(&colony.star)
+        .and_then(|s| s.planets.get(colony.planet_index))
+        .map(|p| p.size);
+
+    // Priority 1: FabricationYard — only if surface slot available
     if !colony.buildings.contains(&BuildingType::FabricationYard) {
-        return Some(BuildItem::Structure(BuildingType::FabricationYard));
+        let can_place_surface =
+            planet_size.is_some_and(|size| colony.can_place_surface_building(size));
+        if can_place_surface {
+            return Some(BuildItem::Structure(BuildingType::FabricationYard));
+        }
     }
 
-    // Priority 2: Colony Ship if no colonizer exists
+    // Priority 2: Shipyard — only if Orbital Engineering researched, not yet installed,
+    // and orbital slot available
+    let has_orbital_engineering = state
+        .empires
+        .get(&empire_id)
+        .is_some_and(|e| e.research.completed.contains(&TechId(7)));
+    if has_orbital_engineering && !colony.has_shipyard() {
+        let can_place_orbital =
+            planet_size.is_some_and(|size| colony.can_place_orbital_installation(size));
+        if can_place_orbital {
+            return Some(BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard));
+        }
+    }
+
+    // Priority 3 & 4: ships only if the colony has a Shipyard
+    if !colony.has_shipyard() {
+        return None;
+    }
+
+    // Priority 3: Colony Ship if no colonizer exists
     let has_colonizer = state
         .fleets
         .values()
@@ -138,7 +171,7 @@ fn pick_build_item(
         return Some(BuildItem::Colony);
     }
 
-    // Priority 3: Scout for continued exploration
+    // Priority 4: Scout for continued exploration
     Some(BuildItem::Scout)
 }
 
@@ -545,6 +578,15 @@ mod tests {
             .buildings
             .push(BuildingType::FabricationYard);
 
+        // Give the AI colony a Shipyard so it can queue ships
+        engine
+            .state
+            .colonies
+            .get_mut(&ai_colony_id)
+            .unwrap()
+            .orbital_installations
+            .push(crate::state::OrbitalStructureType::Shipyard);
+
         // Ensure no colonizer exists
         assert!(!engine
             .state
@@ -587,6 +629,15 @@ mod tests {
             .unwrap()
             .buildings
             .push(BuildingType::FabricationYard);
+
+        // Give the AI colony a Shipyard so it can queue ships
+        engine
+            .state
+            .colonies
+            .get_mut(&ai_colony_id)
+            .unwrap()
+            .orbital_installations
+            .push(crate::state::OrbitalStructureType::Shipyard);
 
         // Add a fake colonizer fleet for the AI
         let fake_colonizer_id = crate::state::FleetId(99);
@@ -1108,6 +1159,149 @@ mod tests {
         assert_eq!(
             engine_a.state, engine_b.state,
             "State after 5 AI turns must be identical for the same seed"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // AI respects ship / surface-slot rules
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ai_does_not_queue_ships_without_shipyard() {
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+
+        let ai_colony_id = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == ai)
+            .map(|c| c.id)
+            .unwrap();
+
+        // Give the AI colony a FabricationYard so it would otherwise move on to ships
+        engine
+            .state
+            .colonies
+            .get_mut(&ai_colony_id)
+            .unwrap()
+            .buildings
+            .push(BuildingType::FabricationYard);
+        // No Shipyard in orbital_installations
+
+        engine.apply_turn(vec![crate::commands::Command::EndTurn]);
+
+        let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
+        assert!(
+            !colony.build_queue.contains(&BuildItem::Scout),
+            "AI must not queue Scout without a Shipyard"
+        );
+        assert!(
+            !colony.build_queue.contains(&BuildItem::Colony),
+            "AI must not queue Colony Ship without a Shipyard"
+        );
+    }
+
+    #[test]
+    fn ai_queues_shipyard_when_orbital_engineering_researched() {
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+
+        let ai_colony_id = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == ai)
+            .map(|c| c.id)
+            .unwrap();
+
+        // Give the AI FabricationYard so it skips priority 1
+        engine
+            .state
+            .colonies
+            .get_mut(&ai_colony_id)
+            .unwrap()
+            .buildings
+            .push(BuildingType::FabricationYard);
+
+        // Grant Orbital Engineering to the AI empire
+        engine
+            .state
+            .empires
+            .get_mut(&ai)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId(7));
+
+        engine.apply_turn(vec![crate::commands::Command::EndTurn]);
+
+        let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
+        assert!(
+            colony
+                .build_queue
+                .contains(&BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard)),
+            "AI must queue Shipyard after researching Orbital Engineering"
+        );
+    }
+
+    #[test]
+    fn ai_does_not_queue_surface_structure_when_slots_full() {
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+
+        let ai_colony_id = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == ai)
+            .map(|c| c.id)
+            .unwrap();
+
+        // Ensure the AI would otherwise queue a FabricationYard
+        assert!(
+            !engine
+                .state
+                .colonies
+                .get(&ai_colony_id)
+                .unwrap()
+                .buildings
+                .contains(&BuildingType::FabricationYard),
+            "AI colony must start without FabricationYard for this test"
+        );
+
+        // Fill all surface slots so the FabricationYard cannot be queued
+        let (star_id, planet_index) = {
+            let c = engine.state.colonies.get(&ai_colony_id).unwrap();
+            (c.star, c.planet_index)
+        };
+        let max_slots = engine
+            .state
+            .stars
+            .get(&star_id)
+            .unwrap()
+            .planets
+            .get(planet_index)
+            .unwrap()
+            .size
+            .surface_slots();
+        {
+            let colony = engine.state.colonies.get_mut(&ai_colony_id).unwrap();
+            for _ in 0..max_slots {
+                colony
+                    .surface_installations
+                    .push(BuildingType::FabricationYard);
+            }
+        }
+
+        engine.apply_turn(vec![crate::commands::Command::EndTurn]);
+
+        let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
+        assert!(
+            !colony
+                .build_queue
+                .contains(&BuildItem::Structure(BuildingType::FabricationYard)),
+            "AI must not queue FabricationYard when all surface slots are full"
         );
     }
 }

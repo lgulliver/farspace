@@ -80,6 +80,19 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // orbital_installations (Vec<BuildingType>, default empty) added for infrastructure system.
             // Both fields rely on serde defaults — nothing to populate explicitly.
             // Existing planets will default to Terran class; colonies start with no installed infrastructure.
+            migrate(SaveFile {
+                version: 9,
+                state: save.state,
+            })
+        }
+        9 => {
+            // v9 -> v10: OrbitalStructureType enum added; Colony.orbital_installations type changed
+            // from Vec<BuildingType> to Vec<OrbitalStructureType>.
+            // Since orbital_installations was never populated by the engine before v10, all v9 saves
+            // have orbital_installations: [] — an empty array deserialises safely to any Vec<T>.
+            // BuildItem::OrbitalStructure variant added; Shipyard added as OrbitalStructureType::Shipyard.
+            // TechId(7) "Orbital Engineering" added to all_techs().
+            // Nothing to populate explicitly — just bump the version.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -197,6 +210,29 @@ mod tests {
         let state = GameState::default();
         let v7_save = SaveFile { version: 7, state };
         let migrated = migrate(v7_save).expect("v7 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn migrate_v8_to_v9_succeeds() {
+        let state = GameState::default();
+        let v8_save = SaveFile { version: 8, state };
+        let migrated = migrate(v8_save).expect("v8 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        // orbital_installations defaults to empty on all colonies
+        for colony in migrated.state.colonies.values() {
+            assert!(
+                colony.orbital_installations.is_empty(),
+                "orbital_installations must default to empty"
+            );
+        }
+    }
+
+    #[test]
+    fn migrate_v9_to_v10_succeeds() {
+        let state = GameState::default();
+        let v9_save = SaveFile { version: 9, state };
+        let migrated = migrate(v9_save).expect("v9 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
     }
 

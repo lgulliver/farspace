@@ -418,12 +418,20 @@ mod tests {
 
     #[test]
     fn save_load_preserves_colonized_planet_and_fleet_changes() {
-        use game_core::{Command, FleetKind};
+        use game_core::{Command, FleetKind, OrbitalStructureType};
 
         let mut engine = Engine::new(42);
 
         // Build a colonizer fleet
         let colony_id = game_core::ColonyId(1);
+        // Inject Shipyard so Colony Ship can be queued
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .orbital_installations
+            .push(OrbitalStructureType::Shipyard);
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
             item: game_core::BuildItem::Colony,
@@ -525,10 +533,19 @@ mod tests {
 
     #[test]
     fn save_load_preserves_fleet_kind() {
-        use game_core::{Command, FleetKind};
+        use game_core::{Command, FleetKind, OrbitalStructureType};
 
         let mut engine = Engine::new(42);
         let colony_id = game_core::ColonyId(1);
+
+        // Inject Shipyard so Colony Ship can be queued
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .orbital_installations
+            .push(OrbitalStructureType::Shipyard);
 
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
@@ -954,5 +971,39 @@ mod tests {
                 col_id
             );
         }
+    }
+
+    /// Orbital installations (including Shipyard) survive a save/load round-trip.
+    #[test]
+    fn save_load_preserves_orbital_installations_with_shipyard() {
+        use game_core::OrbitalStructureType;
+
+        let engine = Engine::new(42);
+        let mut state = engine.state.clone();
+
+        // Directly inject a Shipyard into the first player colony
+        let colony_id = state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == state.player_empire)
+            .map(|(id, _)| *id)
+            .expect("player colony must exist");
+        state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .orbital_installations
+            .push(OrbitalStructureType::Shipyard);
+
+        let saved = save(&state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        let loaded_colony = &loaded.colonies[&colony_id];
+        assert!(
+            loaded_colony
+                .orbital_installations
+                .contains(&OrbitalStructureType::Shipyard),
+            "Shipyard orbital installation must survive save/load round-trip"
+        );
     }
 }

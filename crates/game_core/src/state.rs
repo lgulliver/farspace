@@ -81,6 +81,13 @@ pub fn all_techs() -> &'static [TechRecord] {
             description: "Predictive navigation charts derived from gravitational drift analysis.",
             cost: 90,
         },
+        TechRecord {
+            id: TechId(7),
+            name: "Orbital Engineering",
+            description:
+                "Advanced construction techniques for assembling large structures in orbit.",
+            cost: 150,
+        },
     ]
 }
 
@@ -357,6 +364,58 @@ impl BuildingType {
     }
 }
 
+/// Orbital infrastructure types that occupy orbital slots around a colony's planet
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum OrbitalStructureType {
+    /// A large orbital drydock capable of constructing and refitting warships
+    Shipyard,
+}
+
+impl OrbitalStructureType {
+    /// All orbital structure types available for construction
+    pub fn all() -> &'static [OrbitalStructureType] {
+        &[OrbitalStructureType::Shipyard]
+    }
+
+    /// Display name for this orbital structure
+    pub fn name(&self) -> &'static str {
+        match self {
+            OrbitalStructureType::Shipyard => "Shipyard",
+        }
+    }
+
+    /// Short description of what this orbital structure does
+    pub fn description(&self) -> &'static str {
+        match self {
+            OrbitalStructureType::Shipyard => {
+                "Orbital drydock — required to construct ships at this colony"
+            }
+        }
+    }
+
+    /// Production cost to construct this orbital structure
+    pub fn cost(&self) -> u64 {
+        match self {
+            OrbitalStructureType::Shipyard => 200,
+        }
+    }
+
+    /// Credit maintenance cost per turn for this orbital structure
+    pub fn maintenance_cost(&self) -> i64 {
+        match self {
+            OrbitalStructureType::Shipyard => 2,
+        }
+    }
+
+    /// Technology required to construct this orbital structure, if any
+    pub fn required_tech(&self) -> Option<TechId> {
+        match self {
+            OrbitalStructureType::Shipyard => Some(TechId(7)),
+        }
+    }
+}
+
 /// Items that can be built at a colony
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -364,8 +423,10 @@ pub enum BuildItem {
     Scout,
     Colony,
     Outpost,
-    /// A permanent structure to be built on the colony
+    /// A permanent surface structure to be built on the colony
     Structure(BuildingType),
+    /// An orbital structure to be assembled in orbit around the colony's planet
+    OrbitalStructure(OrbitalStructureType),
 }
 
 impl BuildItem {
@@ -376,6 +437,7 @@ impl BuildItem {
             BuildItem::Colony => 200,
             BuildItem::Outpost => 100,
             BuildItem::Structure(bt) => bt.cost(),
+            BuildItem::OrbitalStructure(ot) => ot.cost(),
         }
     }
 
@@ -386,6 +448,17 @@ impl BuildItem {
             BuildItem::Colony => "Colony Ship",
             BuildItem::Outpost => "Outpost",
             BuildItem::Structure(bt) => bt.name(),
+            BuildItem::OrbitalStructure(ot) => ot.name(),
+        }
+    }
+
+    /// Technology required before this item can be queued, if any
+    pub fn required_tech(&self) -> Option<TechId> {
+        match self {
+            BuildItem::Scout | BuildItem::Colony | BuildItem::Outpost | BuildItem::Structure(_) => {
+                None
+            }
+            BuildItem::OrbitalStructure(ot) => ot.required_tech(),
         }
     }
 }
@@ -404,15 +477,15 @@ pub struct Colony {
     pub research_pct: u8,
     pub build_queue: Vec<BuildItem>,
     pub accumulated_production: u64,
-    /// Completed permanent buildings at this colony
+    /// Completed permanent buildings at this colony (used for effect calculations)
     #[cfg_attr(feature = "serde", serde(default))]
     pub buildings: Vec<BuildingType>,
-    /// Infrastructure occupying surface building slots
+    /// Surface building installations tracked for slot capacity
     #[cfg_attr(feature = "serde", serde(default))]
     pub surface_installations: Vec<BuildingType>,
-    /// Infrastructure occupying orbital slots
+    /// Orbital installations tracked for slot capacity
     #[cfg_attr(feature = "serde", serde(default))]
-    pub orbital_installations: Vec<BuildingType>,
+    pub orbital_installations: Vec<OrbitalStructureType>,
 }
 
 impl Colony {
@@ -438,6 +511,12 @@ impl Colony {
         planet_size
             .orbital_slots()
             .saturating_sub(self.orbital_installations.len())
+    }
+
+    /// Returns `true` if this colony has a Shipyard in its orbital installations
+    pub fn has_shipyard(&self) -> bool {
+        self.orbital_installations
+            .contains(&OrbitalStructureType::Shipyard)
     }
 }
 
@@ -828,9 +907,13 @@ mod tests {
     }
 
     #[test]
-    fn all_techs_returns_six_entries() {
+    fn all_techs_returns_seven_entries() {
         let techs = all_techs();
-        assert_eq!(techs.len(), 6);
+        assert_eq!(techs.len(), 7);
+        assert!(
+            techs.iter().any(|t| t.name == "Orbital Engineering"),
+            "Orbital Engineering tech must be present"
+        );
     }
 
     #[test]

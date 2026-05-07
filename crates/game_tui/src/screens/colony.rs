@@ -5,7 +5,7 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{BuildingType, GameState};
+use game_core::{BuildItem, BuildingType, GameState, OrbitalStructureType, TechId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
@@ -53,7 +53,7 @@ pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
         .split(right_area);
 
     render_production_queue(frame, right_chunks[0], app_state, game_state);
-    render_build_picker(frame, right_chunks[1], app_state);
+    render_build_picker(frame, right_chunks[1], app_state, game_state);
 
     render_footer(frame, footer_area, &Screen::Colony);
 }
@@ -295,7 +295,12 @@ fn render_production_queue(
 }
 
 /// Render the available buildings picker
-fn render_build_picker(frame: &mut Frame, area: Rect, app_state: &AppState) {
+fn render_build_picker(
+    frame: &mut Frame,
+    area: Rect,
+    app_state: &AppState,
+    game_state: &GameState,
+) {
     let block = Block::default()
         .title(" Add to Queue ")
         .borders(Borders::ALL)
@@ -304,25 +309,133 @@ fn render_build_picker(frame: &mut Frame, area: Rect, app_state: &AppState) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let buildings = BuildingType::all();
-    let cursor = app_state.colony_build_cursor % buildings.len();
+    // Determine completed techs and colony state for lock/availability badges
+    let completed_techs: Vec<TechId> = game_state
+        .empires
+        .get(&game_state.player_empire)
+        .map(|e| e.research.completed.clone())
+        .unwrap_or_default();
+
+    // Look up the selected colony and its planet size for slot checks
+    let (has_shipyard, has_surface_slot) = app_state
+        .selected_colony
+        .and_then(|cid| game_state.colonies.get(&cid))
+        .map(|colony| {
+            let planet_size = game_state
+                .stars
+                .get(&colony.star)
+                .and_then(|s| s.planets.get(colony.planet_index))
+                .map(|p| p.size);
+            let has_surface = planet_size
+                .map(|sz| colony.can_place_surface_building(sz))
+                .unwrap_or(true);
+            (colony.has_shipyard(), has_surface)
+        })
+        .unwrap_or((false, true));
+
+    // Build the combined list: surface buildings, orbital structures, then ships
+    let surface_count = BuildingType::all().len();
+    let orbital_count = OrbitalStructureType::all().len();
+    let ship_items: &[BuildItem] = &[BuildItem::Scout, BuildItem::Colony];
+    let total_count = surface_count + orbital_count + ship_items.len();
+    let cursor = if total_count > 0 {
+        app_state.colony_build_cursor % total_count
+    } else {
+        0
+    };
 
     let mut lines = Vec::new();
-    for (i, bt) in buildings.iter().enumerate() {
+
+    // Surface buildings section
+    lines.push(Line::from(vec![Span::styled(
+        " Surface Structures",
+        Theme::muted_style(),
+    )]));
+    for (i, bt) in BuildingType::all().iter().enumerate() {
         let is_selected = i == cursor;
         let prefix = if is_selected { ">" } else { " " };
+        let slots_full = !has_surface_slot;
+        let lock_tag = if slots_full { " [FULL]" } else { "" };
         let style = if is_selected {
             Theme::highlight_style()
+        } else if slots_full {
+            Theme::muted_style()
         } else {
             Theme::default_style()
         };
         lines.push(Line::from(vec![Span::styled(
-            format!(" {} [{:>3}pp] {} ", prefix, bt.cost(), bt.name()),
+            format!(
+                " {} [{:>3}pp] {}{} ",
+                prefix,
+                bt.cost(),
+                bt.name(),
+                lock_tag
+            ),
             style,
         )]));
         lines.push(Line::from(vec![Span::styled(
             format!("        {}", bt.description()),
             Theme::muted_style(),
+        )]));
+    }
+
+    // Orbital structures section
+    lines.push(Line::from(vec![Span::styled(
+        " Orbital Structures",
+        Theme::muted_style(),
+    )]));
+    for (i, ot) in OrbitalStructureType::all().iter().enumerate() {
+        let idx = surface_count + i;
+        let is_selected = idx == cursor;
+        let prefix = if is_selected { ">" } else { " " };
+        let tech_unlocked = ot
+            .required_tech()
+            .map(|t| completed_techs.contains(&t))
+            .unwrap_or(true);
+        let lock_tag = if tech_unlocked { "" } else { " [LOCKED]" };
+        let style = if is_selected {
+            Theme::highlight_style()
+        } else if tech_unlocked {
+            Theme::default_style()
+        } else {
+            Theme::muted_style()
+        };
+        lines.push(Line::from(vec![Span::styled(
+            format!(" {} [{:>3}pp] {}{}", prefix, ot.cost(), ot.name(), lock_tag),
+            style,
+        )]));
+        lines.push(Line::from(vec![Span::styled(
+            format!("        {}", ot.description()),
+            Theme::muted_style(),
+        )]));
+    }
+
+    // Ships section
+    lines.push(Line::from(vec![Span::styled(
+        " Ships",
+        Theme::muted_style(),
+    )]));
+    for (i, ship_item) in ship_items.iter().enumerate() {
+        let idx = surface_count + orbital_count + i;
+        let is_selected = idx == cursor;
+        let prefix = if is_selected { ">" } else { " " };
+        let lock_tag = if has_shipyard { "" } else { " [NO SHIPYARD]" };
+        let style = if is_selected {
+            Theme::highlight_style()
+        } else if has_shipyard {
+            Theme::default_style()
+        } else {
+            Theme::muted_style()
+        };
+        lines.push(Line::from(vec![Span::styled(
+            format!(
+                " {} [{:>3}pp] {}{}",
+                prefix,
+                ship_item.cost(),
+                ship_item.name(),
+                lock_tag
+            ),
+            style,
         )]));
     }
 
@@ -477,5 +590,117 @@ mod tests {
                 render_colony(frame, area, &app_state, &engine.state);
             })
             .unwrap();
+    }
+
+    #[test]
+    fn build_picker_shows_shipyard_in_orbital_section() {
+        // The build picker renders without panic and includes Shipyard in the output
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let engine = Engine::new(42);
+        let app_state = make_app_state_with_colony(&engine);
+
+        // Set cursor to the Shipyard position (after surface buildings)
+        let shipyard_cursor = BuildingType::all().len(); // first orbital = after all surface
+        let app_state_at_shipyard = AppState {
+            selected_colony: app_state.selected_colony,
+            colony_build_cursor: shipyard_cursor,
+            ..Default::default()
+        };
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_colony(frame, area, &app_state_at_shipyard, &engine.state);
+            })
+            .unwrap();
+
+        // Verify "Shipyard" appears in the rendered output
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(
+            content.contains("Shipyard"),
+            "Build picker must render Shipyard; got: <content truncated>"
+        );
+    }
+
+    #[test]
+    fn build_picker_shows_locked_when_tech_missing() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        // New game — no techs researched, so Shipyard should show [LOCKED]
+        let engine = Engine::new(42);
+        let app_state = make_app_state_with_colony(&engine);
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_colony(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(
+            content.contains("LOCKED"),
+            "Shipyard must show [LOCKED] when Orbital Engineering is not researched"
+        );
+    }
+
+    #[test]
+    fn build_picker_does_not_show_locked_when_tech_present() {
+        use game_core::TechId;
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut engine = Engine::new(42);
+        // Grant Orbital Engineering to the player empire
+        let empire_id = engine.state.player_empire;
+        engine
+            .state
+            .empires
+            .get_mut(&empire_id)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId(7));
+
+        let app_state = make_app_state_with_colony(&engine);
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_colony(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        // Shipyard is present but not marked locked
+        assert!(
+            content.contains("Shipyard"),
+            "Shipyard must be visible when Orbital Engineering is researched"
+        );
+        // [LOCKED] should not appear anywhere when tech is available
+        assert!(
+            !content.contains("LOCKED"),
+            "LOCKED badge must not appear when Orbital Engineering is researched"
+        );
     }
 }

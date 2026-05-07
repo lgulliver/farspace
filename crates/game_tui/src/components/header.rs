@@ -18,16 +18,27 @@ pub fn render_header(
     food: i64,
     research: i64,
 ) {
+    let credits_style = if credits < 0 {
+        Theme::warning_style()
+    } else {
+        Theme::default_style()
+    };
+    let food_style = if food < 0 {
+        Theme::warning_style()
+    } else {
+        Theme::default_style()
+    };
+
     let spans = vec![
         Span::styled(format!(" Turn {} ", turn), Theme::header_style()),
         Span::raw(" │ "),
         Span::styled(empire_name, Theme::title_style()),
         Span::raw(" │ "),
         Span::styled("Credits: ", Theme::muted_style()),
-        Span::raw(format!("{}", credits)),
+        Span::styled(format!("{}", credits), credits_style),
         Span::raw(" │ "),
         Span::styled("Food: ", Theme::muted_style()),
-        Span::raw(format!("{}", food)),
+        Span::styled(format!("{}", food), food_style),
         Span::raw(" │ "),
         Span::styled("Research: ", Theme::muted_style()),
         Span::raw(format!("{}", research)),
@@ -66,6 +77,32 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_header(frame, area, 3, "Test Empire", 20, -5, 10);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_header_negative_credits_no_panic() {
+        let backend = TestBackend::new(80, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_header(frame, area, 7, "Test Empire", -100, 3, 200);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_header_both_deficits_no_panic() {
+        let backend = TestBackend::new(80, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_header(frame, area, 10, "Test Empire", -50, -3, 0);
             })
             .unwrap();
     }

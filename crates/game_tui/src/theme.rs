@@ -26,6 +26,11 @@ impl Theme {
         Color::Yellow
     }
 
+    /// Warning color — used for deficits and negative values
+    pub fn warning() -> Color {
+        Color::LightRed
+    }
+
     /// Error color
     pub fn error() -> Color {
         Color::Red
@@ -79,6 +84,16 @@ impl Theme {
         Style::default().fg(Self::error())
     }
 
+    /// Warning style — for deficits (negative credits, food shortage, etc.)
+    pub fn warning_style() -> Style {
+        Style::default().fg(Self::warning())
+    }
+
+    /// Success style — for positive/good values (income, surplus)
+    pub fn success_style() -> Style {
+        Style::default().fg(Self::success())
+    }
+
     /// Muted style
     pub fn muted_style() -> Style {
         Style::default().fg(Self::muted())
@@ -95,6 +110,18 @@ impl Theme {
             .fg(Self::fg())
             .bg(Color::DarkGray)
             .add_modifier(Modifier::BOLD)
+    }
+
+    /// Border style for a focused/active panel
+    pub fn focused_border_style() -> Style {
+        Style::default()
+            .fg(Self::accent())
+            .add_modifier(Modifier::BOLD)
+    }
+
+    /// Border style for an unfocused/inactive panel
+    pub fn dim_border_style() -> Style {
+        Style::default().fg(Self::muted())
     }
 }
 
@@ -113,6 +140,29 @@ mod tests {
         assert_ne!(
             Theme::star_color(game_core::SpectralClass::O),
             Theme::star_color(game_core::SpectralClass::M)
+        );
+    }
+
+    #[test]
+    fn warning_color_is_distinct_from_error() {
+        assert_ne!(Theme::warning(), Theme::error());
+    }
+
+    #[test]
+    fn warning_style_uses_warning_color() {
+        assert_eq!(Theme::warning_style().fg, Some(Theme::warning()));
+    }
+
+    #[test]
+    fn success_style_uses_success_color() {
+        assert_eq!(Theme::success_style().fg, Some(Theme::success()));
+    }
+
+    #[test]
+    fn focused_border_style_is_distinct_from_dim() {
+        assert_ne!(
+            Theme::focused_border_style().fg,
+            Theme::dim_border_style().fg
         );
     }
 }

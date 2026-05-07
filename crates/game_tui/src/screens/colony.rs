@@ -272,6 +272,7 @@ fn render_build_picker(frame: &mut Frame, area: Rect, app_state: &AppState) {
     let block = Block::default()
         .title(" Add to Queue ")
         .borders(Borders::ALL)
+        .border_style(Theme::focused_border_style())
         .style(Theme::default_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);

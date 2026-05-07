@@ -65,17 +65,28 @@ fn render_star_map(
     game_state: &GameState,
     selected_star: Option<StarId>,
 ) {
+    // Build a dynamic title showing the selected star name when one is chosen
+    let title = match selected_star.and_then(|id| game_state.stars.get(&id)) {
+        Some(star) if game_state.explored_stars.contains(&star.id) => {
+            format!(" Galaxy Map — {} ", star.name)
+        }
+        _ => " Galaxy Map ".to_string(),
+    };
+
     let block = Block::default()
-        .title(" Galaxy Map ")
+        .title(title)
+        .title_style(Theme::title_style())
         .borders(Borders::ALL)
+        .border_style(Theme::focused_border_style())
         .style(Theme::default_style());
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // Calculate map bounds
-    let map_width = inner.width.saturating_sub(2) as i32;
+    // Reserve the last row for the legend
+    let legend_y = inner.y + inner.height.saturating_sub(1);
     let map_height = inner.height.saturating_sub(1) as i32;
+    let map_width = inner.width.saturating_sub(2) as i32;
 
     if map_width <= 0 || map_height <= 0 {
         return;
@@ -145,8 +156,8 @@ fn render_star_map(
         let x = inner.x + screen_x as u16;
         let y = inner.y + screen_y as u16;
 
-        // Check bounds
-        if x >= inner.x + inner.width || y >= inner.y + inner.height {
+        // Check bounds (exclude legend row)
+        if x >= inner.x + inner.width || y >= legend_y {
             continue;
         }
 
@@ -213,6 +224,35 @@ fn render_star_map(
         let star_widget = Paragraph::new(render_char.to_string()).style(style);
         frame.render_widget(star_widget, Rect::new(x, y, 1, 1));
     }
+
+    // Draw map legend on the last row of the inner area
+    if inner.height >= 2 && inner.width >= 10 {
+        render_map_legend(frame, Rect::new(inner.x, legend_y, inner.width, 1));
+    }
+}
+
+/// Render the one-line map legend at the bottom of the star map.
+fn render_map_legend(frame: &mut Frame, area: Rect) {
+    // Explored stars use spectral-class colors (varies); use plain white here to
+    // indicate "any explored star" without implying a specific color.
+    // AI-colony stars are a separate dim-yellow entry distinct from explored.
+    let spans = vec![
+        Span::styled("@", Theme::highlight_style()),
+        Span::styled(" Sel  ", Theme::dim_border_style()),
+        Span::styled("*", Theme::default_style()),
+        Span::styled(" Explored  ", Theme::dim_border_style()),
+        Span::styled("*", Style::default().fg(ratatui::style::Color::Yellow)),
+        Span::styled(" AI  ", Theme::dim_border_style()),
+        Span::styled("?", Theme::muted_style()),
+        Span::styled(" Unknown  ", Theme::dim_border_style()),
+        Span::styled("+", Style::default().fg(ratatui::style::Color::Yellow)),
+        Span::styled(" Scout  ", Theme::dim_border_style()),
+        Span::styled("~", Style::default().fg(ratatui::style::Color::Cyan)),
+        Span::styled(" Fleet", Theme::dim_border_style()),
+    ];
+
+    let legend = Paragraph::new(Line::from(spans)).style(Theme::muted_style());
+    frame.render_widget(legend, area);
 }
 
 /// Render star details panel
@@ -222,9 +262,14 @@ fn render_star_details(
     game_state: &GameState,
     selected_star: Option<StarId>,
 ) {
+    // Use a dim border style for the star details panel — the star map is the
+    // primary focused panel and already uses the focused (cyan) border.
+    let border_style = Theme::dim_border_style();
+
     let block = Block::default()
         .title(" Star Details ")
         .borders(Borders::ALL)
+        .border_style(border_style)
         .style(Theme::default_style());
 
     let inner = block.inner(area);
@@ -627,5 +672,72 @@ mod tests {
                 render_galaxy(frame, area, &app_state, &engine.state);
             })
             .unwrap();
+    }
+
+    #[test]
+    fn galaxy_screen_small_terminal_does_not_panic() {
+        // Verify the map legend and clamping logic work at tiny sizes
+        let backend = TestBackend::new(40, 15);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let engine = Engine::new(42);
+        let app_state = AppState {
+            selected_star: engine.state.stars.keys().next().copied(),
+            ..Default::default()
+        };
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_galaxy(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn galaxy_map_title_contains_star_name_when_explored_selected() {
+        use ratatui::backend::TestBackend;
+        use ratatui::buffer::Buffer;
+
+        let engine = Engine::new(42);
+        // Pick an explored star
+        let explored_id = *engine
+            .state
+            .explored_stars
+            .iter()
+            .next()
+            .expect("must have explored stars");
+        let star_name = engine.state.stars[&explored_id].name.clone();
+
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let app_state = AppState {
+            selected_star: Some(explored_id),
+            ..Default::default()
+        };
+
+        terminal
+            .draw(|frame| {
+                render_galaxy(frame, frame.area(), &app_state, &engine.state);
+            })
+            .unwrap();
+
+        // The rendered buffer should contain the star name somewhere in the top rows
+        let buf: &Buffer = terminal.backend().buffer();
+        let rendered: String = (0..120u16)
+            .map(|x| {
+                buf.cell((x, 1))
+                    .and_then(|c| c.symbol().chars().next())
+                    .unwrap_or(' ')
+            })
+            .collect();
+
+        assert!(
+            rendered.contains(&star_name),
+            "Star name '{}' not found in map title row: {:?}",
+            star_name,
+            rendered
+        );
     }
 }

@@ -5,8 +5,9 @@ use crate::deterministic::sorted_colony_ids;
 use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy};
 use crate::state::{
-    all_techs, BuildItem, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId, FleetKind,
-    FleetMission, GameState, RelationshipStatus, ResearchState, ScoutMission, StarId, TechId,
+    all_techs, BuildItem, Colony, ColonyId, ColonyRole, Empire, EmpireId, Fleet, FleetId,
+    FleetKind, FleetMission, GameState, RelationshipStatus, ResearchState, ScoutMission, StarId,
+    TechId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -106,6 +107,7 @@ impl Engine {
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
                 stability: 100,
+                role: ColonyRole::Balanced,
             },
         );
 
@@ -128,6 +130,7 @@ impl Engine {
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
                 stability: 100,
+                role: ColonyRole::Balanced,
             },
         );
 
@@ -246,6 +249,9 @@ impl Engine {
                 } => {
                     self.process_colonize(fleet, star, planet_index, &mut events);
                 }
+                Command::SetColonyRole { colony, role } => {
+                    self.process_set_colony_role(colony, role, &mut events);
+                }
             }
         }
 
@@ -286,7 +292,7 @@ impl Engine {
 
         for colony_id in colony_ids {
             // Get colony data needed for yield calculation and build queue
-            let (owner, production, star_id, build_queue_front, accumulated) = {
+            let (owner, production, star_id, build_queue_front, accumulated, colony_role) = {
                 let colony = self.state.colonies.get(&colony_id).unwrap();
                 (
                     colony.owner,
@@ -294,6 +300,7 @@ impl Engine {
                     colony.star,
                     colony.build_queue.first().copied(),
                     colony.accumulated_production,
+                    colony.role,
                 )
             };
 
@@ -339,9 +346,14 @@ impl Engine {
                 maintenance: colony_yield.maintenance,
             });
 
-            // Process build queue — still uses colony.production for build speed
+            // Process build queue — still uses colony.production for build speed.
+            // Military colonies receive a flat bonus when building ships.
             if let Some(item) = build_queue_front {
-                let new_accumulated = accumulated + production;
+                let ship_bonus = match item {
+                    BuildItem::Scout | BuildItem::Colony => colony_role.ship_production_bonus(),
+                    _ => 0,
+                };
+                let new_accumulated = accumulated + production + ship_bonus;
                 let cost = item.cost();
 
                 if new_accumulated >= cost {
@@ -649,6 +661,38 @@ impl Engine {
         }
 
         events.push(Event::ColonyFocusSet { colony: colony_id });
+    }
+
+    fn process_set_colony_role(
+        &mut self,
+        colony_id: ColonyId,
+        role: ColonyRole,
+        events: &mut Vec<Event>,
+    ) {
+        // Validate colony exists
+        let colony = match self.state.colonies.get(&colony_id) {
+            Some(c) => c,
+            None => {
+                events.push(Event::error(format!("Colony {} not found", colony_id.0)));
+                return;
+            }
+        };
+
+        // Validate owner — only the player may issue this command
+        if colony.owner != self.state.player_empire {
+            events.push(Event::error("Colony not owned by player"));
+            return;
+        }
+
+        // Apply the new role
+        if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
+            colony.role = role;
+        }
+
+        events.push(Event::ColonyRoleChanged {
+            colony: colony_id,
+            role,
+        });
     }
 
     fn process_move_fleet(
@@ -1147,6 +1191,7 @@ impl Engine {
             surface_installations: Vec::new(),
             orbital_installations: Vec::new(),
             stability: 100,
+            role: ColonyRole::Balanced,
         };
         self.state.colonies.insert(colony_id, new_colony);
 
@@ -1791,6 +1836,7 @@ mod tests {
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
                 stability: 100,
+                role: crate::state::ColonyRole::Balanced,
             },
         );
 
@@ -1840,6 +1886,7 @@ mod tests {
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
                 stability: 100,
+                role: crate::state::ColonyRole::Balanced,
             },
         );
 
@@ -1912,6 +1959,7 @@ mod tests {
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
                 stability: 100,
+                role: crate::state::ColonyRole::Balanced,
             },
         );
 
@@ -4707,6 +4755,7 @@ mod tests {
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
                 stability: 100,
+                role: crate::state::ColonyRole::Balanced,
             },
         );
 
@@ -4728,6 +4777,7 @@ mod tests {
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
                 stability: 100,
+                role: crate::state::ColonyRole::Balanced,
             },
         );
 
@@ -4866,6 +4916,7 @@ mod tests {
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
                 stability: 100,
+                role: crate::state::ColonyRole::Balanced,
             },
         );
         state.colonies.insert(
@@ -4885,6 +4936,7 @@ mod tests {
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
                 stability: 100,
+                role: crate::state::ColonyRole::Balanced,
             },
         );
         // Player scout at player star — will scout the AI star
@@ -5113,6 +5165,7 @@ mod tests {
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
                 stability: 100,
+                role: crate::state::ColonyRole::Balanced,
             },
         );
         state.colonies.insert(
@@ -5132,6 +5185,7 @@ mod tests {
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
                 stability: 100,
+                role: crate::state::ColonyRole::Balanced,
             },
         );
         state.colonies.insert(
@@ -5151,6 +5205,7 @@ mod tests {
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
                 stability: 100,
+                role: crate::state::ColonyRole::Balanced,
             },
         );
         state.fleets.insert(
@@ -6459,6 +6514,141 @@ mod tests {
             !events.iter().any(|e| e.is_error()),
             "Surface structure must be accepted when slots are available, got: {:?}",
             events
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // SetColonyRole
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn set_colony_role_valid() {
+        use crate::state::ColonyRole;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        let events = engine.apply_turn(vec![Command::SetColonyRole {
+            colony: colony_id,
+            role: ColonyRole::Industrial,
+        }]);
+
+        assert!(
+            !events.iter().any(|e| e.is_error()),
+            "Expected no errors, got: {:?}",
+            events
+        );
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::ColonyRoleChanged { colony, role }
+                if *colony == colony_id && *role == ColonyRole::Industrial
+            )),
+            "ColonyRoleChanged event must be emitted"
+        );
+
+        let colony = engine.state.colonies.get(&colony_id).unwrap();
+        assert_eq!(colony.role, ColonyRole::Industrial, "Role must be updated");
+    }
+
+    #[test]
+    fn set_colony_role_unknown_colony_emits_error() {
+        use crate::state::ColonyRole;
+        let mut engine = Engine::new(42);
+
+        let events = engine.apply_turn(vec![Command::SetColonyRole {
+            colony: ColonyId(999),
+            role: ColonyRole::Agricultural,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Unknown colony must produce error"
+        );
+    }
+
+    #[test]
+    fn set_colony_role_not_owned_by_player_emits_error() {
+        use crate::state::ColonyRole;
+        let mut engine = Engine::new(42);
+
+        // ColonyId(2) is the AI colony
+        let ai_colony_id = ColonyId(2);
+
+        let events = engine.apply_turn(vec![Command::SetColonyRole {
+            colony: ai_colony_id,
+            role: ColonyRole::Financial,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Setting role on non-player colony must produce error"
+        );
+    }
+
+    #[test]
+    fn set_colony_role_balanced_produces_no_modifier() {
+        use crate::state::ColonyRole;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // Set to Balanced
+        engine.apply_turn(vec![Command::SetColonyRole {
+            colony: colony_id,
+            role: ColonyRole::Balanced,
+        }]);
+
+        let colony = engine.state.colonies.get(&colony_id).unwrap();
+        assert_eq!(colony.role, ColonyRole::Balanced);
+        // Verify no modifier is produced
+        let mods = ColonyRole::Balanced.modifiers();
+        assert_eq!(mods.food, 0);
+        assert_eq!(mods.industry, 0);
+        assert_eq!(mods.science, 0);
+        assert_eq!(mods.credits, 0);
+        assert_eq!(mods.maintenance, 0);
+    }
+
+    #[test]
+    fn military_role_provides_ship_production_bonus() {
+        use crate::state::ColonyRole;
+        // Military role ship_production_bonus must be > 0
+        assert!(
+            ColonyRole::Military.ship_production_bonus() > 0,
+            "Military must have positive ship production bonus"
+        );
+        // Other roles must have 0
+        assert_eq!(ColonyRole::Balanced.ship_production_bonus(), 0);
+        assert_eq!(ColonyRole::Agricultural.ship_production_bonus(), 0);
+        assert_eq!(ColonyRole::Industrial.ship_production_bonus(), 0);
+        assert_eq!(ColonyRole::Scientific.ship_production_bonus(), 0);
+        assert_eq!(ColonyRole::Financial.ship_production_bonus(), 0);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn colony_role_persists_through_save_load() {
+        use crate::state::ColonyRole;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // Set a non-default role
+        engine.apply_turn(vec![Command::SetColonyRole {
+            colony: colony_id,
+            role: ColonyRole::Scientific,
+        }]);
+        assert_eq!(
+            engine.state.colonies[&colony_id].role,
+            ColonyRole::Scientific
+        );
+
+        // Round-trip through JSON
+        let saved = serde_json::to_string(&engine.state).expect("serialize must succeed");
+        let loaded: GameState = serde_json::from_str(&saved).expect("deserialize must succeed");
+
+        assert_eq!(
+            loaded.colonies[&colony_id].role,
+            ColonyRole::Scientific,
+            "Colony role must survive save/load round-trip"
         );
     }
 }

@@ -1,6 +1,6 @@
 //! Commands that can be issued to the game engine
 
-use crate::state::{BuildItem, ColonyId, FleetId, StarId, TechId};
+use crate::state::{BuildItem, ColonyId, ColonyRole, FleetId, StarId, TechId};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +32,8 @@ pub enum Command {
         star: StarId,
         planet_index: usize,
     },
+    /// Assign a specialisation role to a player-owned colony
+    SetColonyRole { colony: ColonyId, role: ColonyRole },
 }
 
 #[cfg(test)]

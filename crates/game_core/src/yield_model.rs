@@ -21,22 +21,22 @@
 //!
 //! * **Maintenance** — sum of per-building and per-orbital-structure costs
 
-use crate::state::{BuildingType, Colony, Planet};
+use crate::state::{BuildingType, Colony, Planet}; // ColonyRole applied via colony.role.modifiers()
 
 /// Computed economic yields for a colony in a single turn.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColonyYield {
-    /// Effective industrial output this turn (population + building bonuses + stability modifier).
+    /// Effective industrial output this turn (population + building bonuses + stability modifier + role modifier).
     pub industry: i64,
-    /// Credits generated this turn (`industry × prod_pct / 100`).
+    /// Credits generated this turn (`industry × prod_pct / 100` + role flat modifier).
     pub credits: i64,
-    /// Science generated this turn (`industry × research_pct / 100 + ScienceNexus bonus + planet bonus`).
+    /// Science generated this turn (`industry × research_pct / 100 + ScienceNexus bonus + planet bonus` + role flat modifier).
     pub science: i64,
-    /// Food produced this turn (`population + planet bonus + AquacultureBay × population`).
+    /// Food produced this turn (`population + planet bonus + AquacultureBay × population` + role flat modifier).
     pub food: i64,
     /// Food consumed this turn (= population).
     pub food_consumed: i64,
-    /// Total credit maintenance cost this turn (surface buildings + orbital structures).
+    /// Total credit maintenance cost this turn (surface buildings + orbital structures + role surcharge).
     pub maintenance: i64,
 }
 
@@ -50,8 +50,9 @@ pub fn calculate_yield(colony: &Colony, planet: Option<&Planet>) -> ColonyYield 
     let pop = colony.population as i64;
     let buildings = &colony.buildings;
     let orbitals = &colony.orbital_installations;
+    let role_mod = colony.role.modifiers();
 
-    // Industry = population + FabricationYard × 2 + stability modifier.
+    // Industry = population + FabricationYard × 2 + stability modifier + role modifier.
     // stability_modifier = (stability − 100) / 10; clamped at 0 to prevent
     // negative industry on heavily destabilised colonies.
     let fabrication_bonus: i64 = buildings
@@ -60,33 +61,36 @@ pub fn calculate_yield(colony: &Colony, planet: Option<&Planet>) -> ColonyYield 
         .count() as i64
         * 2;
     let stability_mod = (colony.stability as i64 - 100) / 10;
-    let industry = (pop + fabrication_bonus + stability_mod).max(0);
+    let industry = (pop + fabrication_bonus + stability_mod + role_mod.industry).max(0);
 
-    // Credits = industry × prod_pct / 100.
-    let credits = (industry * colony.prod_pct as i64) / 100;
+    // Credits = industry × prod_pct / 100 + role flat modifier.
+    let credits = ((industry * colony.prod_pct as i64) / 100 + role_mod.credits).max(0);
 
-    // Science = industry × research_pct / 100 + ScienceNexus × population + planet bonus.
+    // Science = industry × research_pct / 100 + ScienceNexus × population + planet bonus + role flat modifier.
     let nexus_count = buildings
         .iter()
         .filter(|b| **b == BuildingType::ScienceNexus)
         .count() as i64;
     let planet_science_bonus = planet.map(|p| p.class.science_bonus()).unwrap_or(0);
-    let science =
-        (industry * colony.research_pct as i64) / 100 + nexus_count * pop + planet_science_bonus;
+    let science = ((industry * colony.research_pct as i64) / 100
+        + nexus_count * pop
+        + planet_science_bonus
+        + role_mod.science)
+        .max(0);
 
-    // Food = population + planet food bonus + AquacultureBay × population.
+    // Food = population + planet food bonus + AquacultureBay × population + role flat modifier.
     let aqua_count = buildings
         .iter()
         .filter(|b| **b == BuildingType::AquacultureBay)
         .count() as i64;
     let planet_food_bonus = planet.map(|p| p.class.food_bonus()).unwrap_or(0);
-    let food = pop + planet_food_bonus + aqua_count * pop;
+    let food = pop + planet_food_bonus + aqua_count * pop + role_mod.food;
     let food_consumed = pop;
 
-    // Maintenance = sum of building costs + sum of orbital structure costs.
+    // Maintenance = sum of building costs + sum of orbital structure costs + role surcharge.
     let building_maint: i64 = buildings.iter().map(|b| b.maintenance_cost()).sum();
     let orbital_maint: i64 = orbitals.iter().map(|o| o.maintenance_cost()).sum();
-    let maintenance = building_maint + orbital_maint;
+    let maintenance = building_maint + orbital_maint + role_mod.maintenance;
 
     ColonyYield {
         industry,
@@ -122,6 +126,7 @@ mod tests {
             surface_installations: Vec::new(),
             orbital_installations: Vec::new(),
             stability: 100,
+            role: crate::state::ColonyRole::Balanced,
         }
     }
 
@@ -334,5 +339,130 @@ mod tests {
             "consumed equals population regardless of buildings"
         );
         assert_eq!(y.food, 7 + 7 + 7, "food = pop + 0 + 2*AquacultureBay*pop");
+    }
+
+    // ── Colony role modifier tests ──────────────────────────────────────────
+
+    #[test]
+    fn balanced_role_applies_no_modifiers() {
+        use crate::state::ColonyRole;
+        let mut colony_balanced = base_colony();
+        colony_balanced.role = ColonyRole::Balanced;
+        let mut colony_default = base_colony();
+        colony_default.role = ColonyRole::Balanced;
+
+        let y_balanced = calculate_yield(&colony_balanced, None);
+        let y_default = calculate_yield(&colony_default, None);
+
+        // Both must be identical and match the expected base yield
+        assert_eq!(y_balanced, y_default, "Balanced must not alter base yields");
+        assert_eq!(y_balanced.food, 10, "Balanced: food = pop");
+        assert_eq!(y_balanced.industry, 10, "Balanced: industry = pop");
+        assert_eq!(y_balanced.credits, 5, "Balanced: credits = 10*50/100");
+        assert_eq!(y_balanced.science, 5, "Balanced: science = 10*50/100");
+        assert_eq!(y_balanced.maintenance, 0, "Balanced: no maintenance");
+    }
+
+    #[test]
+    fn agricultural_role_boosts_food_reduces_industry() {
+        use crate::state::ColonyRole;
+        let mut colony = base_colony();
+        colony.role = ColonyRole::Agricultural;
+        let y = calculate_yield(&colony, None);
+
+        // industry = 10 - 1 = 9; food = 10 + 2 = 12
+        assert_eq!(y.industry, 9, "Agricultural: industry = pop - 1");
+        assert_eq!(y.food, 12, "Agricultural: food = pop + 2");
+        // credits and science are scaled from reduced industry
+        assert_eq!(y.credits, 4, "Agricultural: credits = 9*50/100 = 4");
+        assert_eq!(y.science, 4, "Agricultural: science = 9*50/100 = 4");
+        assert_eq!(y.maintenance, 0, "Agricultural: no maintenance surcharge");
+    }
+
+    #[test]
+    fn industrial_role_boosts_industry_reduces_science() {
+        use crate::state::ColonyRole;
+        let mut colony = base_colony();
+        colony.role = ColonyRole::Industrial;
+        let y = calculate_yield(&colony, None);
+
+        // industry = 10 + 2 = 12; science = 12*50/100 - 1 = 6 - 1 = 5
+        assert_eq!(y.industry, 12, "Industrial: industry = pop + 2");
+        assert_eq!(y.credits, 6, "Industrial: credits = 12*50/100 = 6");
+        assert_eq!(y.science, 5, "Industrial: science = 12*50/100 - 1 = 5");
+        assert_eq!(y.food, 10, "Industrial: food unchanged");
+        assert_eq!(y.maintenance, 0, "Industrial: no maintenance surcharge");
+    }
+
+    #[test]
+    fn scientific_role_boosts_science_reduces_credits() {
+        use crate::state::ColonyRole;
+        let mut colony = base_colony();
+        colony.role = ColonyRole::Scientific;
+        let y = calculate_yield(&colony, None);
+
+        // industry = 10; science = 10*50/100 + 2 = 7; credits = 10*50/100 - 1 = 4
+        assert_eq!(y.industry, 10, "Scientific: industry unchanged");
+        assert_eq!(y.science, 7, "Scientific: science = 5 + 2 = 7");
+        assert_eq!(y.credits, 4, "Scientific: credits = 5 - 1 = 4");
+        assert_eq!(y.food, 10, "Scientific: food unchanged");
+        assert_eq!(y.maintenance, 0, "Scientific: no maintenance surcharge");
+    }
+
+    #[test]
+    fn financial_role_boosts_credits_reduces_industry() {
+        use crate::state::ColonyRole;
+        let mut colony = base_colony();
+        colony.role = ColonyRole::Financial;
+        let y = calculate_yield(&colony, None);
+
+        // industry = 10 - 1 = 9; credits = 9*50/100 + 2 = 4 + 2 = 6
+        assert_eq!(y.industry, 9, "Financial: industry = pop - 1");
+        assert_eq!(y.credits, 6, "Financial: credits = 4 + 2 = 6");
+        assert_eq!(y.science, 4, "Financial: science = 9*50/100 = 4");
+        assert_eq!(y.food, 10, "Financial: food unchanged");
+        assert_eq!(y.maintenance, 0, "Financial: no maintenance surcharge");
+    }
+
+    #[test]
+    fn military_role_increases_maintenance_no_yield_change() {
+        use crate::state::ColonyRole;
+        let mut colony = base_colony();
+        colony.role = ColonyRole::Military;
+        let y = calculate_yield(&colony, None);
+
+        // Military does not modify food/industry/credits/science
+        assert_eq!(y.industry, 10, "Military: industry unchanged");
+        assert_eq!(y.credits, 5, "Military: credits unchanged");
+        assert_eq!(y.science, 5, "Military: science unchanged");
+        assert_eq!(y.food, 10, "Military: food unchanged");
+        assert_eq!(y.maintenance, 1, "Military: maintenance +1 surcharge");
+    }
+
+    #[test]
+    fn role_modifiers_are_deterministic() {
+        use crate::state::ColonyRole;
+        // Running calculate_yield twice with the same state must produce identical results.
+        let mut colony = base_colony();
+        colony.role = ColonyRole::Industrial;
+        let y1 = calculate_yield(&colony, None);
+        let y2 = calculate_yield(&colony, None);
+        assert_eq!(y1, y2, "yield calculation must be deterministic");
+    }
+
+    #[test]
+    fn credits_clamped_at_zero_for_scientific_role_with_no_production() {
+        use crate::state::ColonyRole;
+        // Edge case: colony with minimal industry and Scientific role getting -1 credits
+        let mut colony = base_colony();
+        colony.population = 1;
+        colony.prod_pct = 100;
+        colony.research_pct = 0;
+        colony.role = ColonyRole::Scientific;
+        let y = calculate_yield(&colony, None);
+        // credits = 1*100/100 - 1 = 0 (clamped at 0)
+        assert_eq!(y.credits, 0, "credits must not go below 0");
+        // science = 1*0/100 + 2 = 2
+        assert_eq!(y.science, 2);
     }
 }

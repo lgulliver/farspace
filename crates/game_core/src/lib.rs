@@ -16,9 +16,9 @@ pub use commands::Command;
 pub use engine::Engine;
 pub use events::Event;
 pub use state::{
-    all_techs, BuildItem, BuildingType, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId,
-    FleetKind, FleetLocation, FleetMission, GameState, OrbitalStructureType, Planet, PlanetClass,
-    PlanetSize, RelationshipStatus, ResearchState, ScoutMission, SpectralClass, Star, StarId,
-    TechId, TechRecord,
+    all_techs, BuildItem, BuildingType, Colony, ColonyId, ColonyRole, Empire, EmpireId, Fleet,
+    FleetId, FleetKind, FleetLocation, FleetMission, GameState, OrbitalStructureType, Planet,
+    PlanetClass, PlanetSize, RelationshipStatus, ResearchState, RoleModifiers, ScoutMission,
+    SpectralClass, Star, StarId, TechId, TechRecord,
 };
 pub use yield_model::ColonyYield;

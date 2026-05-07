@@ -7,12 +7,13 @@
 //!    Ships are only queued when the colony has a Shipyard.
 //! 3. Dispatch the first idle scout to the nearest unexplored star
 //! 4. Colonize with any idle colonizer at an AI-explored star
+//! 5. Assign colony roles based on planet class (once, deterministically)
 
 use crate::engine::SCOUT_TRAVEL_TURNS;
 use crate::events::Event;
 use crate::state::{
-    all_techs, BuildItem, BuildingType, Colony, ColonyId, EmpireId, FleetId, FleetKind, GameState,
-    OrbitalStructureType, ScoutMission, StarId, TechId,
+    all_techs, BuildItem, BuildingType, Colony, ColonyId, ColonyRole, EmpireId, FleetId, FleetKind,
+    GameState, OrbitalStructureType, PlanetClass, ScoutMission, StarId, TechId,
 };
 
 /// Run one AI decision pass for the given empire.
@@ -27,6 +28,7 @@ pub fn run_ai_turn(state: &mut GameState, ai_empire_id: EmpireId) -> Vec<Event> 
     ai_queue_builds(state, ai_empire_id, &mut events);
     ai_dispatch_scouts(state, ai_empire_id, &mut events);
     ai_colonize(state, ai_empire_id, &mut events);
+    ai_assign_colony_roles(state, ai_empire_id, &mut events);
 
     events
 }
@@ -251,6 +253,14 @@ fn ai_colonize(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Even
     if let Some((fleet_id, star_id, planet_index)) = pick_colonize_target(state, empire_id) {
         let colony_id = state.next_colony_id();
 
+        // Choose role deterministically based on the target planet's class.
+        let role = state
+            .stars
+            .get(&star_id)
+            .and_then(|s| s.planets.get(planet_index))
+            .map(|p| ai_role_for_planet_class(p.class))
+            .unwrap_or(ColonyRole::Balanced);
+
         let new_colony = Colony {
             id: colony_id,
             star: star_id,
@@ -266,6 +276,7 @@ fn ai_colonize(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Even
             surface_installations: Vec::new(),
             orbital_installations: Vec::new(),
             stability: 100,
+            role,
         };
         state.colonies.insert(colony_id, new_colony);
 
@@ -320,6 +331,79 @@ fn pick_colonize_target(
         .map(|(i, _)| i)?;
 
     Some((fleet_id, fleet_loc, planet_index))
+}
+
+// ---------------------------------------------------------------------------
+// Colony role assignment
+// ---------------------------------------------------------------------------
+
+/// Deterministic rule: pick a colony role based solely on planet class.
+///
+/// This mapping is stable — same input always produces the same output.
+pub(crate) fn ai_role_for_planet_class(class: PlanetClass) -> ColonyRole {
+    match class {
+        PlanetClass::Oceanic => ColonyRole::Agricultural,
+        PlanetClass::Volcanic | PlanetClass::Barren => ColonyRole::Industrial,
+        PlanetClass::Frozen => ColonyRole::Scientific,
+        PlanetClass::Desert => ColonyRole::Financial,
+        PlanetClass::Terran => ColonyRole::Balanced,
+    }
+}
+
+/// Assign specialisation roles to any AI-owned colony that still has the
+/// default `Balanced` role and whose planet class maps to a different role.
+///
+/// Runs once per turn; produces `AiColonyRoleAssigned` events only when a
+/// role change actually occurs.
+fn ai_assign_colony_roles(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Event>) {
+    // Collect colony IDs first to avoid simultaneous mutable borrow
+    let colony_ids: Vec<ColonyId> = state
+        .colonies
+        .keys()
+        .filter(|&&id| {
+            state
+                .colonies
+                .get(&id)
+                .is_some_and(|c| c.owner == empire_id && c.role == ColonyRole::Balanced)
+        })
+        .copied()
+        .collect();
+
+    for colony_id in colony_ids {
+        // Look up the planet class for this colony
+        let planet_class = {
+            let colony = match state.colonies.get(&colony_id) {
+                Some(c) => c,
+                None => continue,
+            };
+            state
+                .stars
+                .get(&colony.star)
+                .and_then(|s| s.planets.get(colony.planet_index))
+                .map(|p| p.class)
+        };
+
+        let planet_class = match planet_class {
+            Some(c) => c,
+            None => continue,
+        };
+
+        let role = ai_role_for_planet_class(planet_class);
+        if role == ColonyRole::Balanced {
+            // No change needed
+            continue;
+        }
+
+        if let Some(colony) = state.colonies.get_mut(&colony_id) {
+            colony.role = role;
+        }
+
+        events.push(Event::AiColonyRoleAssigned {
+            empire: empire_id,
+            colony: colony_id,
+            role,
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1304,5 +1388,149 @@ mod tests {
                 .contains(&BuildItem::Structure(BuildingType::FabricationYard)),
             "AI must not queue FabricationYard when all surface slots are full"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Colony role assignment
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ai_role_for_planet_class_is_deterministic() {
+        use crate::state::PlanetClass;
+        // Same class always produces the same role
+        assert_eq!(
+            ai_role_for_planet_class(PlanetClass::Oceanic),
+            ColonyRole::Agricultural
+        );
+        assert_eq!(
+            ai_role_for_planet_class(PlanetClass::Volcanic),
+            ColonyRole::Industrial
+        );
+        assert_eq!(
+            ai_role_for_planet_class(PlanetClass::Barren),
+            ColonyRole::Industrial
+        );
+        assert_eq!(
+            ai_role_for_planet_class(PlanetClass::Frozen),
+            ColonyRole::Scientific
+        );
+        assert_eq!(
+            ai_role_for_planet_class(PlanetClass::Desert),
+            ColonyRole::Financial
+        );
+        assert_eq!(
+            ai_role_for_planet_class(PlanetClass::Terran),
+            ColonyRole::Balanced
+        );
+    }
+
+    #[test]
+    fn ai_assigns_non_terran_colony_role_on_turn() {
+        use crate::state::PlanetClass;
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+
+        // Find or create an AI colony on an Oceanic planet to test role assignment
+        let ai_colony_id = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == ai)
+            .map(|c| c.id)
+            .unwrap();
+
+        // Force the planet class to Oceanic
+        {
+            let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
+            let star_id = colony.star;
+            let planet_index = colony.planet_index;
+            if let Some(star) = engine.state.stars.get_mut(&star_id) {
+                if let Some(planet) = star.planets.get_mut(planet_index) {
+                    planet.class = PlanetClass::Oceanic;
+                }
+            }
+        }
+
+        // Colony starts as Balanced (the default)
+        assert_eq!(
+            engine.state.colonies.get(&ai_colony_id).unwrap().role,
+            ColonyRole::Balanced
+        );
+
+        let events = engine.apply_turn(vec![crate::commands::Command::EndTurn]);
+
+        // After one turn AI should have assigned Agricultural to the Oceanic colony
+        let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
+        assert_eq!(
+            colony.role,
+            ColonyRole::Agricultural,
+            "AI must assign Agricultural role to Oceanic colony"
+        );
+
+        // AiColonyRoleAssigned event must be emitted
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::AiColonyRoleAssigned { empire, colony, role }
+                if *empire == ai && *colony == ai_colony_id && *role == ColonyRole::Agricultural
+            )),
+            "AiColonyRoleAssigned event must be emitted"
+        );
+    }
+
+    #[test]
+    fn ai_does_not_reassign_non_balanced_role() {
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+
+        let ai_colony_id = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == ai)
+            .map(|c| c.id)
+            .unwrap();
+
+        // Pre-set a non-Balanced role
+        engine.state.colonies.get_mut(&ai_colony_id).unwrap().role = ColonyRole::Military;
+
+        let events = engine.apply_turn(vec![crate::commands::Command::EndTurn]);
+
+        // Role must not be reassigned
+        let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
+        assert_eq!(
+            colony.role,
+            ColonyRole::Military,
+            "AI must not reassign a colony that already has a non-Balanced role"
+        );
+
+        // No AiColonyRoleAssigned event for this colony
+        assert!(
+            !events.iter().any(|e| matches!(
+                e,
+                Event::AiColonyRoleAssigned { colony, .. }
+                if *colony == ai_colony_id
+            )),
+            "AI must not emit AiColonyRoleAssigned for a colony already assigned"
+        );
+    }
+
+    #[test]
+    fn ai_role_assignment_is_deterministic() {
+        let mut engine_a = Engine::new(99);
+        let mut engine_b = Engine::new(99);
+
+        engine_a.apply_turn(vec![crate::commands::Command::EndTurn]);
+        engine_b.apply_turn(vec![crate::commands::Command::EndTurn]);
+
+        // All colony roles must match between the two runs
+        for (id, colony_a) in &engine_a.state.colonies {
+            let colony_b = engine_b.state.colonies.get(id).unwrap();
+            assert_eq!(
+                colony_a.role, colony_b.role,
+                "Colony {}: role must be deterministic",
+                id.0
+            );
+        }
     }
 }

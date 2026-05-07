@@ -5,8 +5,8 @@ use crate::keys::KeyMap;
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
-    all_techs, BuildingType, ColonyId, Command, Engine, FleetId, FleetKind, OrbitalStructureType,
-    StarId, TechId,
+    all_techs, BuildingType, ColonyId, ColonyRole, Command, Engine, FleetId, FleetKind,
+    OrbitalStructureType, StarId, TechId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -36,6 +36,10 @@ pub struct AppState {
     pub selected_colony: Option<ColonyId>,
     /// Cursor index for the build-picker on the colony screen
     pub colony_build_cursor: usize,
+    /// Cursor index for the role selector on the colony screen
+    pub colony_role_cursor: usize,
+    /// Whether the role selector is the active panel (true) or build picker (false)
+    pub colony_role_panel_active: bool,
     /// Cursor index for the tech list on the research screen
     pub research_cursor: usize,
     pub log: EventLog,
@@ -282,20 +286,41 @@ impl App {
             KeyCode::Esc => {
                 self.state.active = Screen::Galaxy;
                 self.state.selected_colony = None;
+                self.state.colony_role_panel_active = false;
+                self.state.colony_role_cursor = 0;
             }
-            // Navigate build picker
+            // Tab: switch active panel (build picker ↔ role selector)
+            KeyCode::Tab => {
+                self.state.colony_role_panel_active = !self.state.colony_role_panel_active;
+            }
+            // Navigate the active panel
             KeyCode::Char('j') | KeyCode::Down => {
-                let count = Self::all_build_item_count();
-                self.state.colony_build_cursor = (self.state.colony_build_cursor + 1) % count;
+                if self.state.colony_role_panel_active {
+                    let count = ColonyRole::all().len();
+                    self.state.colony_role_cursor = (self.state.colony_role_cursor + 1) % count;
+                } else {
+                    let count = Self::all_build_item_count();
+                    self.state.colony_build_cursor = (self.state.colony_build_cursor + 1) % count;
+                }
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                let count = Self::all_build_item_count();
-                self.state.colony_build_cursor =
-                    (self.state.colony_build_cursor + count.saturating_sub(1)) % count;
+                if self.state.colony_role_panel_active {
+                    let count = ColonyRole::all().len();
+                    self.state.colony_role_cursor =
+                        (self.state.colony_role_cursor + count.saturating_sub(1)) % count;
+                } else {
+                    let count = Self::all_build_item_count();
+                    self.state.colony_build_cursor =
+                        (self.state.colony_build_cursor + count.saturating_sub(1)) % count;
+                }
             }
-            // Queue the selected building
+            // Enter: confirm selection in the active panel
             KeyCode::Enter => {
-                self.queue_building();
+                if self.state.colony_role_panel_active {
+                    self.set_colony_role();
+                } else {
+                    self.queue_building();
+                }
             }
             // End turn from colony screen
             _ => {
@@ -486,6 +511,36 @@ impl App {
         self.pending_commands.push(Command::QueueBuild {
             colony: colony_id,
             item,
+        });
+
+        let commands = std::mem::take(&mut self.pending_commands);
+        let engine = match &mut self.engine {
+            Some(e) => e,
+            None => return,
+        };
+        let events = engine.apply_turn(commands);
+        for event in events {
+            self.state.log.push(event.to_log_message());
+        }
+    }
+
+    /// Assign the currently highlighted role to the active colony.
+    fn set_colony_role(&mut self) {
+        let colony_id = match self.state.selected_colony {
+            Some(id) => id,
+            None => return,
+        };
+
+        let roles = ColonyRole::all();
+        if roles.is_empty() {
+            return;
+        }
+        let cursor = self.state.colony_role_cursor % roles.len();
+        let role = roles[cursor];
+
+        self.pending_commands.push(Command::SetColonyRole {
+            colony: colony_id,
+            role,
         });
 
         let commands = std::mem::take(&mut self.pending_commands);

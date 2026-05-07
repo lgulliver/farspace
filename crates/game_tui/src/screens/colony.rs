@@ -5,7 +5,9 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{yield_model, BuildItem, BuildingType, GameState, OrbitalStructureType, TechId};
+use game_core::{
+    yield_model, BuildItem, BuildingType, ColonyRole, GameState, OrbitalStructureType, TechId,
+};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
@@ -34,7 +36,7 @@ pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
         research,
     );
 
-    // Split main area 50/50: left=colony info+buildings, right=queue+picker
+    // Split main area left (colony info+buildings) / right (queue+role+picker) at 50%
     let (left_area, right_area) = split_horizontal(main_area, 50);
 
     // Left column: stats (top 60%) and buildings (bottom 40%)
@@ -46,14 +48,19 @@ pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
     render_colony_stats(frame, left_chunks[0], app_state, game_state);
     render_colony_buildings(frame, left_chunks[1], app_state, game_state);
 
-    // Right column: queue (top 50%) and build picker (bottom 50%)
+    // Right column: queue (top 35%), role selector (middle 30%), build picker (bottom 35%)
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([
+            Constraint::Percentage(35),
+            Constraint::Percentage(30),
+            Constraint::Percentage(35),
+        ])
         .split(right_area);
 
     render_production_queue(frame, right_chunks[0], app_state, game_state);
-    render_build_picker(frame, right_chunks[1], app_state, game_state);
+    render_role_selector(frame, right_chunks[1], app_state, game_state);
+    render_build_picker(frame, right_chunks[2], app_state, game_state);
 
     render_footer(frame, footer_area, &Screen::Colony);
 }
@@ -132,6 +139,13 @@ fn render_colony_stats(
             Span::raw(planet_class),
             Span::styled("  Stability: ", Theme::muted_style()),
             Span::raw(format!("{}", colony.stability)),
+        ]),
+        Line::from(vec![
+            Span::styled("Role:  ", Theme::muted_style()),
+            Span::styled(colony.role.name(), Theme::accent_style()),
+            Span::styled("  (", Theme::muted_style()),
+            Span::styled(colony.role.description(), Theme::muted_style()),
+            Span::styled(")", Theme::muted_style()),
         ]),
         Line::from(""),
         Line::from(vec![
@@ -234,6 +248,74 @@ fn render_colony_buildings(
     frame.render_widget(paragraph, inner);
 }
 
+/// Render the colony role selector panel
+fn render_role_selector(
+    frame: &mut Frame,
+    area: Rect,
+    app_state: &AppState,
+    game_state: &GameState,
+) {
+    let is_active = app_state.colony_role_panel_active;
+    let border_style = if is_active {
+        Theme::focused_border_style()
+    } else {
+        Theme::dim_border_style()
+    };
+    let block = Block::default()
+        .title(" Colony Role [Tab] ")
+        .borders(Borders::ALL)
+        .border_style(border_style)
+        .style(Theme::default_style());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    // Determine the current role for the selected colony
+    let current_role = app_state
+        .selected_colony
+        .and_then(|cid| game_state.colonies.get(&cid))
+        .map(|c| c.role)
+        .unwrap_or(ColonyRole::Balanced);
+
+    let roles = ColonyRole::all();
+    let total = roles.len();
+    let cursor = if total > 0 {
+        app_state.colony_role_cursor % total
+    } else {
+        0
+    };
+
+    let lines: Vec<Line> = roles
+        .iter()
+        .enumerate()
+        .map(|(i, role)| {
+            let is_selected = i == cursor && is_active;
+            let is_current = *role == current_role;
+            let prefix = if is_selected { ">" } else { " " };
+            let current_mark = if is_current { " ✓" } else { "  " };
+            let style = if is_selected {
+                Theme::highlight_style()
+            } else if is_current {
+                Theme::accent_style()
+            } else {
+                Theme::default_style()
+            };
+            Line::from(vec![Span::styled(
+                format!(
+                    " {} {}{} — {}",
+                    prefix,
+                    role.name(),
+                    current_mark,
+                    role.description()
+                ),
+                style,
+            )])
+        })
+        .collect();
+
+    let paragraph = Paragraph::new(lines).style(Theme::default_style());
+    frame.render_widget(paragraph, inner);
+}
+
 /// Render the production queue panel
 fn render_production_queue(
     frame: &mut Frame,
@@ -303,10 +385,16 @@ fn render_build_picker(
     app_state: &AppState,
     game_state: &GameState,
 ) {
+    let is_active = !app_state.colony_role_panel_active;
+    let border_style = if is_active {
+        Theme::focused_border_style()
+    } else {
+        Theme::dim_border_style()
+    };
     let block = Block::default()
         .title(" Add to Queue ")
         .borders(Borders::ALL)
-        .border_style(Theme::focused_border_style())
+        .border_style(border_style)
         .style(Theme::default_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);

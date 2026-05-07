@@ -42,9 +42,10 @@ pub struct ColonyYield {
 
 /// Calculate colony yields for a single turn.
 ///
-/// `planet` should be the planet this colony occupies.  Pass `None` only when
-/// no planet data is available (e.g. in isolated unit tests); production will
-/// then assume no planet-class bonuses.
+/// `planet` should be the planet this colony occupies.  When `None` is passed
+/// all planet-class bonuses default to zero, which is correct both in isolated
+/// unit tests and in any production path where a planet lookup fails (graceful
+/// degradation rather than a panic).
 pub fn calculate_yield(colony: &Colony, planet: Option<&Planet>) -> ColonyYield {
     let pop = colony.population as i64;
     let buildings = &colony.buildings;

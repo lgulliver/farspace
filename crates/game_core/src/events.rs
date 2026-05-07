@@ -187,6 +187,8 @@ impl Event {
                 credits,
                 research,
                 food,
+                // industry and maintenance are available for UI/summary display
+                // but omitted from the log message to keep it concise.
                 industry: _,
                 maintenance: _,
             } => {

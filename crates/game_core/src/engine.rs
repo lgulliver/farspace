@@ -6,8 +6,8 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy};
 use crate::state::{
     all_techs, BuildItem, Colony, ColonyId, ColonyRole, Empire, EmpireId, Fleet, FleetId,
-    FleetKind, FleetMission, GameState, RelationshipStatus, ResearchState, ScoutMission, StarId,
-    TechId,
+    FleetKind, FleetMission, GameState, RelationshipStatus, ResearchState, ScoutMission, SectorId,
+    StarId, TechId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -42,12 +42,19 @@ impl Engine {
     /// Create a new game engine with the given seed
     pub fn new(seed: u64) -> Self {
         let rng = ChaCha8Rng::seed_from_u64(seed);
-        let stars_vec = generate_galaxy(seed, 20);
+        let galaxy = generate_galaxy(seed, 20);
+
+        let mut sectors = BTreeMap::new();
+        for sector in &galaxy.sectors {
+            sectors.insert(sector.id, sector.clone());
+        }
 
         let mut stars = BTreeMap::new();
-        for star in stars_vec.iter() {
+        for star in &galaxy.stars {
             stars.insert(star.id, star.clone());
         }
+
+        let stars_vec = &galaxy.stars;
 
         // Find a suitable home star for the player
         let home_star =
@@ -189,6 +196,7 @@ impl Engine {
         let state = GameState {
             seed,
             turn: 1,
+            sectors,
             stars,
             empires,
             colonies,
@@ -4783,6 +4791,7 @@ mod tests {
             next_colony_id: 10,
             next_fleet_id: 10,
             stars: BTreeMap::new(),
+            sectors: BTreeMap::new(),
             empires: BTreeMap::new(),
             colonies: BTreeMap::new(),
             fleets: BTreeMap::new(),
@@ -4802,6 +4811,7 @@ mod tests {
                 name: "Alpha".to_string(),
                 x: 0,
                 y: 0,
+                sector: SectorId(0),
                 spectral_class: SpectralClass::G,
                 planets: vec![Planet {
                     name: "Alpha I".to_string(),
@@ -4822,6 +4832,7 @@ mod tests {
                 name: "Beta".to_string(),
                 x: 100,
                 y: 0,
+                sector: SectorId(0),
                 spectral_class: SpectralClass::K,
                 planets: vec![Planet {
                     name: "Beta I".to_string(),
@@ -4949,6 +4960,7 @@ mod tests {
             next_colony_id: 10,
             next_fleet_id: 10,
             stars: BTreeMap::new(),
+            sectors: BTreeMap::new(),
             empires: BTreeMap::new(),
             colonies: BTreeMap::new(),
             fleets: BTreeMap::new(),
@@ -4973,6 +4985,7 @@ mod tests {
                 name: "Alpha".to_string(),
                 x: 0,
                 y: 0,
+                sector: SectorId(0),
                 spectral_class: SpectralClass::G,
                 planets: vec![crate::state::Planet {
                     name: "Alpha I".to_string(),
@@ -4991,6 +5004,7 @@ mod tests {
                 name: "Beta".to_string(),
                 x: 100,
                 y: 0,
+                sector: SectorId(0),
                 spectral_class: SpectralClass::K,
                 planets: vec![crate::state::Planet {
                     name: "Beta I".to_string(),
@@ -5201,6 +5215,7 @@ mod tests {
             next_colony_id: 10,
             next_fleet_id: 10,
             stars: BTreeMap::new(),
+            sectors: BTreeMap::new(),
             empires: BTreeMap::new(),
             colonies: BTreeMap::new(),
             fleets: BTreeMap::new(),
@@ -5225,6 +5240,7 @@ mod tests {
                 name: "Home".to_string(),
                 x: 0,
                 y: 0,
+                sector: SectorId(0),
                 spectral_class: SpectralClass::G,
                 planets: vec![Planet {
                     name: "Home I".to_string(),
@@ -5243,6 +5259,7 @@ mod tests {
                 name: "Target".to_string(),
                 x: 100,
                 y: 0,
+                sector: SectorId(0),
                 spectral_class: SpectralClass::K,
                 planets: vec![
                     Planet {

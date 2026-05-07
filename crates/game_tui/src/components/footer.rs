@@ -13,7 +13,17 @@ use ratatui::{
 pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
     let hints = match screen {
         Screen::Menu => vec![("[N]", "New Game"), ("[L]", "Load"), ("[Q]", "Quit")],
-        Screen::Galaxy => vec![
+        Screen::SectorOverview => vec![
+            ("[hjkl/←↓↑→]", "Move"),
+            ("[Enter]", "Sector Map"),
+            ("[r]", "Research"),
+            ("[D]", "Diplomacy"),
+            ("[E/T]", "End Turn"),
+            ("[?]", "Help"),
+            ("[:]", "Command"),
+            ("[Q]", "Quit"),
+        ],
+        Screen::SectorMap => vec![
             ("[hjkl/←↓↑→]", "Move"),
             ("[Enter]", "System View"),
             ("[c]", "Colony"),
@@ -24,6 +34,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("[E/T]", "End Turn"),
             ("[?]", "Help"),
             ("[:]", "Command"),
+            ("[Esc]", "Galaxy"),
             ("[Q]", "Quit"),
         ],
         Screen::System => vec![
@@ -97,14 +108,27 @@ mod tests {
     }
 
     #[test]
-    fn render_footer_galaxy() {
+    fn render_footer_sector_overview() {
         let backend = TestBackend::new(80, 3);
         let mut terminal = Terminal::new(backend).unwrap();
 
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_footer(frame, area, &Screen::Galaxy);
+                render_footer(frame, area, &Screen::SectorOverview);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_footer_sector_map() {
+        let backend = TestBackend::new(80, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_footer(frame, area, &Screen::SectorMap);
             })
             .unwrap();
     }
@@ -162,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn render_footer_galaxy_wide_terminal() {
+    fn render_footer_sector_map_wide_terminal() {
         // Wider terminal to verify hint separators don't panic
         let backend = TestBackend::new(200, 3);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -170,7 +194,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_footer(frame, area, &Screen::Galaxy);
+                render_footer(frame, area, &Screen::SectorMap);
             })
             .unwrap();
     }

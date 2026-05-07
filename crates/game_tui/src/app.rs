@@ -6,7 +6,7 @@ use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
     all_techs, BuildingType, ColonyId, ColonyRole, Command, Engine, FleetId, FleetKind,
-    OrbitalStructureType, StarId, TechId,
+    OrbitalStructureType, SectorId, StarId, TechId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -31,6 +31,7 @@ pub struct AppState {
     pub palette_input: String,
     pub search_input: String,
     pub show_search: bool,
+    pub selected_sector: Option<SectorId>,
     pub selected_star: Option<StarId>,
     /// Selected planet index when inspecting a system
     pub selected_planet_index: usize,
@@ -62,7 +63,8 @@ impl App {
     pub fn new_game(&mut self, seed: u64) {
         let engine = Engine::new(seed);
 
-        // Select the first star by default
+        // Select the first sector and first star by default
+        self.state.selected_sector = engine.state.sectors.keys().next().copied();
         self.state.selected_star = engine.state.stars.keys().next().copied();
         self.state.selected_planet_index = 0;
 
@@ -70,7 +72,7 @@ impl App {
         self.state.log.push("Game started".to_string());
 
         self.engine = Some(engine);
-        self.state.active = Screen::Galaxy;
+        self.state.active = Screen::SectorOverview;
     }
 
     /// Save the current game to the given path. Returns an error message on failure.
@@ -89,10 +91,12 @@ impl App {
         let state = game_save::load_from_file(path)
             .map_err(|e| format!("Error: Load failed ({}): {}", path.display(), e))?;
         let selected_star = state.stars.keys().next().copied();
+        let selected_sector = state.sectors.keys().next().copied();
         self.engine = Some(Engine::from_state(state));
+        self.state.selected_sector = selected_sector;
         self.state.selected_star = selected_star;
         self.state.selected_planet_index = 0;
-        self.state.active = Screen::Galaxy;
+        self.state.active = Screen::SectorOverview;
         Ok(())
     }
 
@@ -213,7 +217,8 @@ impl App {
         // Screen-specific handling
         match self.state.active {
             Screen::Menu => self.handle_menu_key(key),
-            Screen::Galaxy => self.handle_galaxy_key(key),
+            Screen::SectorOverview => self.handle_sector_overview_key(key),
+            Screen::SectorMap => self.handle_sector_map_key(key),
             Screen::System => self.handle_system_key(key),
             Screen::Colony => self.handle_colony_key(key),
             Screen::Research => self.handle_research_key(key),
@@ -235,52 +240,76 @@ impl App {
         }
     }
 
-    fn handle_galaxy_key(&mut self, key: KeyEvent) {
-        // Movement
+    fn handle_sector_overview_key(&mut self, key: KeyEvent) {
         if let Some((dx, dy)) = KeyMap::movement(key) {
-            self.move_star_selection(dx, dy);
+            self.move_sector_selection(dx, dy);
             return;
         }
 
-        // Enter colony view with 'c'
-        if key.code == KeyCode::Char('c') {
-            self.try_enter_colony();
-            return;
-        }
-
-        // Enter system inspector
         if key.code == KeyCode::Enter {
-            self.state.active = Screen::System;
-            self.state.selected_planet_index = 0;
+            self.state.active = Screen::SectorMap;
             return;
         }
 
-        // Open research screen with 'r'
         if key.code == KeyCode::Char('r') {
             self.state.active = Screen::Research;
             self.state.research_cursor = 0;
             return;
         }
 
-        // Open diplomacy screen with 'D'
         if key.code == KeyCode::Char('D') {
             self.state.active = Screen::Diplomacy;
             return;
         }
 
-        // Dispatch scout with 'S'
+        if KeyMap::is_end_turn(key) {
+            self.end_turn();
+        }
+    }
+
+    fn handle_sector_map_key(&mut self, key: KeyEvent) {
+        if key.code == KeyCode::Esc {
+            self.state.active = Screen::SectorOverview;
+            return;
+        }
+
+        if let Some((dx, dy)) = KeyMap::movement(key) {
+            self.move_star_selection_in_sector(dx, dy);
+            return;
+        }
+
+        if key.code == KeyCode::Enter {
+            self.state.active = Screen::System;
+            self.state.selected_planet_index = 0;
+            return;
+        }
+
+        if key.code == KeyCode::Char('c') {
+            self.try_enter_colony();
+            return;
+        }
+
         if key.code == KeyCode::Char('S') {
             self.dispatch_scout();
             return;
         }
 
-        // Move idle fleet with 'M'
         if key.code == KeyCode::Char('M') {
             self.move_fleet();
             return;
         }
 
-        // End turn
+        if key.code == KeyCode::Char('r') {
+            self.state.active = Screen::Research;
+            self.state.research_cursor = 0;
+            return;
+        }
+
+        if key.code == KeyCode::Char('D') {
+            self.state.active = Screen::Diplomacy;
+            return;
+        }
+
         if KeyMap::is_end_turn(key) {
             self.end_turn();
         }
@@ -300,7 +329,7 @@ impl App {
 
         match key.code {
             KeyCode::Esc => {
-                self.state.active = Screen::Galaxy;
+                self.state.active = Screen::SectorMap;
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 if planet_count > 0 {
@@ -327,9 +356,9 @@ impl App {
 
     fn handle_colony_key(&mut self, key: KeyEvent) {
         match key.code {
-            // Return to galaxy map
+            // Return to sector map
             KeyCode::Esc => {
-                self.state.active = Screen::Galaxy;
+                self.state.active = Screen::SectorMap;
                 self.state.selected_colony = None;
                 self.state.colony_role_panel_active = false;
                 self.state.colony_role_cursor = 0;
@@ -420,9 +449,8 @@ impl App {
 
     fn handle_research_key(&mut self, key: KeyEvent) {
         match key.code {
-            // Return to galaxy map
             KeyCode::Esc => {
-                self.state.active = Screen::Galaxy;
+                self.state.active = Screen::SectorMap;
             }
             // Navigate tech list
             KeyCode::Char('j') | KeyCode::Down => {
@@ -453,9 +481,8 @@ impl App {
 
     fn handle_diplomacy_key(&mut self, key: KeyEvent) {
         match key.code {
-            // Return to galaxy map
             KeyCode::Esc => {
-                self.state.active = Screen::Galaxy;
+                self.state.active = Screen::SectorMap;
             }
             // End turn from diplomacy screen
             _ => {
@@ -600,6 +627,7 @@ impl App {
         }
     }
 
+    #[allow(dead_code)]
     fn move_star_selection(&mut self, dx: i32, dy: i32) {
         let engine = match &self.engine {
             Some(e) => e,
@@ -632,6 +660,144 @@ impl App {
             let rel_y = star.y - current_star.y;
 
             // Check if star is in the right direction
+            let in_direction = match (dx, dy) {
+                (1, 0) => rel_x > 0,
+                (-1, 0) => rel_x < 0,
+                (0, 1) => rel_y > 0,
+                (0, -1) => rel_y < 0,
+                _ => false,
+            };
+
+            if !in_direction {
+                continue;
+            }
+
+            let distance = rel_x * rel_x + rel_y * rel_y;
+
+            match &best {
+                None => best = Some((star.id, distance)),
+                Some((_, best_dist)) if distance < *best_dist => {
+                    best = Some((star.id, distance));
+                }
+                _ => {}
+            }
+        }
+
+        if let Some((id, _)) = best {
+            self.state.selected_star = Some(id);
+        }
+    }
+
+    fn move_sector_selection(&mut self, dx: i32, dy: i32) {
+        let engine = match &self.engine {
+            Some(e) => e,
+            None => return,
+        };
+
+        let current = match self.state.selected_sector {
+            Some(id) => id,
+            None => {
+                self.state.selected_sector = engine.state.sectors.keys().next().copied();
+                return;
+            }
+        };
+
+        let current_sector = match engine.state.sectors.get(&current) {
+            Some(s) => s,
+            None => return,
+        };
+
+        let mut best: Option<(SectorId, i32)> = None;
+
+        for sector in engine.state.sectors.values() {
+            if sector.id == current {
+                continue;
+            }
+
+            let rel_x = sector.x - current_sector.x;
+            let rel_y = sector.y - current_sector.y;
+
+            let in_direction = match (dx, dy) {
+                (1, 0) => rel_x > 0,
+                (-1, 0) => rel_x < 0,
+                (0, 1) => rel_y > 0,
+                (0, -1) => rel_y < 0,
+                _ => false,
+            };
+
+            if !in_direction {
+                continue;
+            }
+
+            let distance = rel_x * rel_x + rel_y * rel_y;
+
+            match &best {
+                None => best = Some((sector.id, distance)),
+                Some((_, best_dist)) if distance < *best_dist => {
+                    best = Some((sector.id, distance));
+                }
+                _ => {}
+            }
+        }
+
+        if let Some((id, _)) = best {
+            self.state.selected_sector = Some(id);
+            self.state.selected_star = engine
+                .state
+                .stars
+                .values()
+                .find(|s| s.sector == id)
+                .map(|s| s.id);
+        }
+    }
+
+    fn move_star_selection_in_sector(&mut self, dx: i32, dy: i32) {
+        let engine = match &self.engine {
+            Some(e) => e,
+            None => return,
+        };
+
+        let sector_id = match self.state.selected_sector {
+            Some(id) => id,
+            None => return,
+        };
+
+        let current = match self.state.selected_star {
+            Some(id) => id,
+            None => {
+                self.state.selected_star = engine
+                    .state
+                    .stars
+                    .values()
+                    .find(|s| s.sector == sector_id)
+                    .map(|s| s.id);
+                return;
+            }
+        };
+
+        let current_star = match engine.state.stars.get(&current) {
+            Some(s) if s.sector == sector_id => s,
+            _ => {
+                self.state.selected_star = engine
+                    .state
+                    .stars
+                    .values()
+                    .find(|s| s.sector == sector_id)
+                    .map(|s| s.id);
+                return;
+            }
+        };
+
+        let mut best: Option<(StarId, i32)> = None;
+
+        for star in engine.state.stars.values() {
+            if star.id == current || star.sector != sector_id {
+                continue;
+            }
+
+            let rel_x = star.x - current_star.x;
+            let rel_y = star.y - current_star.y;
+
             let in_direction = match (dx, dy) {
                 (1, 0) => rel_x > 0,
                 (-1, 0) => rel_x < 0,
@@ -930,28 +1096,38 @@ mod tests {
         assert_eq!(app.state.active, Screen::Menu);
 
         app.new_game(42);
-        assert_eq!(app.state.active, Screen::Galaxy);
+        assert_eq!(app.state.active, Screen::SectorOverview);
         assert!(app.engine.is_some());
     }
 
     #[test]
-    fn enter_opens_system_view_from_galaxy() {
+    fn enter_opens_sector_map_from_sector_overview() {
         let mut app = App::new();
         app.new_game(42);
-        assert_eq!(app.state.active, Screen::Galaxy);
+        assert_eq!(app.state.active, Screen::SectorOverview);
+
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.state.active, Screen::SectorMap);
+    }
+
+    #[test]
+    fn enter_opens_system_view_from_sector_map() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::SectorMap;
 
         app.handle_key(key(KeyCode::Enter));
         assert_eq!(app.state.active, Screen::System);
     }
 
     #[test]
-    fn esc_returns_from_system_view_to_galaxy() {
+    fn esc_returns_from_system_view_to_sector_map() {
         let mut app = App::new();
         app.new_game(42);
         app.state.active = Screen::System;
 
         app.handle_key(key(KeyCode::Esc));
-        assert_eq!(app.state.active, Screen::Galaxy);
+        assert_eq!(app.state.active, Screen::SectorMap);
     }
 
     #[test]
@@ -1203,7 +1379,7 @@ mod tests {
 
         let turn_after = app.engine.as_ref().unwrap().state.turn;
         assert_eq!(turn_before, turn_after);
-        assert_eq!(app.state.active, Screen::Galaxy);
+        assert_eq!(app.state.active, Screen::SectorOverview);
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1381,10 +1557,10 @@ mod tests {
     }
 
     #[test]
-    fn enter_colony_from_galaxy_with_c_key() {
+    fn enter_colony_from_sector_map_with_c_key() {
         let mut app = App::new();
         app.new_game(42);
-        assert_eq!(app.state.active, Screen::Galaxy);
+        app.state.active = Screen::SectorMap;
 
         // Select the star that has the player's home colony
         let player_empire = app.engine.as_ref().unwrap().state.player_empire;
@@ -1424,6 +1600,8 @@ mod tests {
     fn try_enter_colony_returns_false_for_empty_star() {
         let mut app = App::new();
         app.new_game(42);
+        // Navigate to SectorMap first
+        app.state.active = Screen::SectorMap;
         // Select a star that has no colony
         let engine = app.engine.as_ref().unwrap();
         let player_empire = engine.state.player_empire;
@@ -1447,20 +1625,20 @@ mod tests {
         if let Some(star_id) = empty_star {
             app.state.selected_star = Some(star_id);
             assert!(!app.try_enter_colony());
-            assert_eq!(app.state.active, Screen::Galaxy);
+            assert_eq!(app.state.active, Screen::SectorMap);
         }
         // If every star has a colony (very unlikely with 20 stars and 1 colony) we skip
     }
 
     #[test]
-    fn esc_returns_to_galaxy_from_colony_screen() {
+    fn esc_returns_to_sector_map_from_colony_screen() {
         let mut app = App::new();
         app.new_game(42);
         goto_colony_screen(&mut app);
         assert_eq!(app.state.active, Screen::Colony);
 
         app.handle_key(key(KeyCode::Esc));
-        assert_eq!(app.state.active, Screen::Galaxy);
+        assert_eq!(app.state.active, Screen::SectorMap);
         assert!(app.state.selected_colony.is_none());
     }
 
@@ -1638,10 +1816,10 @@ mod tests {
     // ──────────────────────────────────────────────────────────────────
 
     #[test]
-    fn r_key_opens_research_screen() {
+    fn r_key_opens_research_screen_from_sector_overview() {
         let mut app = App::new();
         app.new_game(42);
-        assert_eq!(app.state.active, Screen::Galaxy);
+        assert_eq!(app.state.active, Screen::SectorOverview);
 
         app.handle_key(key(KeyCode::Char('r')));
 
@@ -1650,14 +1828,14 @@ mod tests {
     }
 
     #[test]
-    fn esc_closes_research_screen() {
+    fn esc_closes_research_screen_returns_to_sector_map() {
         let mut app = App::new();
         app.new_game(42);
         app.state.active = Screen::Research;
 
         app.handle_key(key(KeyCode::Esc));
 
-        assert_eq!(app.state.active, Screen::Galaxy);
+        assert_eq!(app.state.active, Screen::SectorMap);
     }
 
     #[test]
@@ -1786,6 +1964,9 @@ mod tests {
         let mut app = App::new();
         app.new_game(42);
 
+        // Navigate to SectorMap since 'S' is only handled there
+        app.state.active = Screen::SectorMap;
+
         // Select an unexplored star (Engine::new(42) explores at most 4 of 20 stars)
         let star_id = {
             let engine = app.engine.as_ref().unwrap();
@@ -1899,6 +2080,9 @@ mod tests {
     fn m_key_dispatches_move_fleet() {
         let mut app = App::new();
         app.new_game(42);
+
+        // Navigate to SectorMap since 'M' is only handled there
+        app.state.active = Screen::SectorMap;
 
         // Select an explored star that is not the fleet's home
         let engine = app.engine.as_ref().unwrap();
@@ -2153,7 +2337,7 @@ mod tests {
     }
 
     #[test]
-    fn galaxy_renders_with_colonizer_fleet_present() {
+    fn sector_overview_renders_with_colonizer_fleet_present() {
         use game_core::FleetKind;
         use ratatui::backend::TestBackend;
         use ratatui::Terminal;
@@ -2180,7 +2364,9 @@ mod tests {
             },
         );
 
+        let sector = engine.state.stars.get(&home).map(|s| s.sector);
         let app_state = crate::AppState {
+            selected_sector: sector,
             selected_star: Some(home),
             ..Default::default()
         };
@@ -2188,7 +2374,12 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                crate::screens::galaxy::render_galaxy(frame, area, &app_state, &engine.state);
+                crate::screens::sector_overview::render_sector_overview(
+                    frame,
+                    area,
+                    &app_state,
+                    &engine.state,
+                );
             })
             .unwrap();
     }

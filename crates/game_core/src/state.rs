@@ -10,6 +10,11 @@ use std::collections::{BTreeMap, BTreeSet};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct StarId(pub u64);
 
+/// Unique identifier for a sector
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct SectorId(pub u64);
+
 /// Unique identifier for an empire
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -354,11 +359,23 @@ fn default_true() -> bool {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Star {
     pub id: StarId,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sector: SectorId,
     pub name: String,
     pub x: i32,
     pub y: i32,
     pub spectral_class: SpectralClass,
     pub planets: Vec<Planet>,
+}
+
+/// A sector (region) containing multiple star systems
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct Sector {
+    pub id: SectorId,
+    pub name: String,
+    pub x: i32,
+    pub y: i32,
 }
 
 /// An empire (player or AI)
@@ -897,6 +914,8 @@ pub enum RelationshipStatus {
 pub struct GameState {
     pub seed: u64,
     pub turn: u32,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sectors: BTreeMap<SectorId, Sector>,
     pub stars: BTreeMap<StarId, Star>,
     pub empires: BTreeMap<EmpireId, Empire>,
     pub colonies: BTreeMap<ColonyId, Colony>,
@@ -972,6 +991,7 @@ impl PartialEq for GameState {
     fn eq(&self, other: &Self) -> bool {
         self.seed == other.seed
             && self.turn == other.turn
+            && self.sectors == other.sectors
             && self.stars == other.stars
             && self.empires == other.empires
             && self.colonies == other.colonies
@@ -1017,6 +1037,7 @@ impl Default for GameState {
         GameState {
             seed: 0,
             turn: 1,
+            sectors: BTreeMap::new(),
             stars: BTreeMap::new(),
             empires: BTreeMap::new(),
             colonies: BTreeMap::new(),
@@ -1045,6 +1066,22 @@ mod tests {
         let id1 = StarId(1);
         let id2 = StarId(2);
         assert!(id1 < id2);
+    }
+
+    #[test]
+    fn sector_id_ordering() {
+        let id1 = SectorId(1);
+        let id2 = SectorId(2);
+        assert!(id1 < id2);
+    }
+
+    #[test]
+    fn sector_id_equality() {
+        let id1 = SectorId(42);
+        let id2 = SectorId(42);
+        let id3 = SectorId(43);
+        assert_eq!(id1, id2);
+        assert_ne!(id1, id3);
     }
 
     #[test]

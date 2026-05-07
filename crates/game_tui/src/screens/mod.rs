@@ -2,9 +2,10 @@
 
 pub mod colony;
 pub mod diplomacy;
-pub mod galaxy;
 pub mod menu;
 pub mod research;
+pub mod sector_map;
+pub mod sector_overview;
 pub mod system;
 
 use ratatui::{layout::Rect, Frame};
@@ -17,7 +18,8 @@ use game_core::GameState;
 pub enum Screen {
     #[default]
     Menu,
-    Galaxy,
+    SectorOverview,
+    SectorMap,
     System,
     Colony,
     Research,
@@ -35,9 +37,14 @@ impl Screen {
     ) {
         match self {
             Screen::Menu => menu::render_menu(frame, area),
-            Screen::Galaxy => {
+            Screen::SectorOverview => {
                 if let Some(state) = game_state {
-                    galaxy::render_galaxy(frame, area, app_state, state);
+                    sector_overview::render_sector_overview(frame, area, app_state, state);
+                }
+            }
+            Screen::SectorMap => {
+                if let Some(state) = game_state {
+                    sector_map::render_sector_map(frame, area, app_state, state);
                 }
             }
             Screen::System => {

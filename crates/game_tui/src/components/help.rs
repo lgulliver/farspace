@@ -27,7 +27,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
 
     let title = match screen {
         Screen::Menu => " Main Menu Help ",
-        Screen::Galaxy => " Galaxy Map Help ",
+        Screen::SectorOverview => " Galaxy Overview Help ",
+        Screen::SectorMap => " Sector Map Help ",
         Screen::System => " System View Help ",
         Screen::Colony => " Colony Help ",
         Screen::Research => " Research Help ",
@@ -43,7 +44,23 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding("?", "Toggle this help"),
         ],
-        Screen::Galaxy => vec![
+        Screen::SectorOverview => vec![
+            HelpEntry::Section("Navigation"),
+            HelpEntry::Binding("h / ←", "Move selection left"),
+            HelpEntry::Binding("j / ↓", "Move selection down"),
+            HelpEntry::Binding("k / ↑", "Move selection up"),
+            HelpEntry::Binding("l / →", "Move selection right"),
+            HelpEntry::Section("Actions"),
+            HelpEntry::Binding("Enter", "Enter selected sector (Sector Map)"),
+            HelpEntry::Binding("r", "Open research screen"),
+            HelpEntry::Binding("D", "Open diplomacy screen"),
+            HelpEntry::Binding("E / T", "End turn (AI acts automatically)"),
+            HelpEntry::Section("Global"),
+            HelpEntry::Binding(":", "Command palette (save · load)"),
+            HelpEntry::Binding("?", "Toggle this help"),
+            HelpEntry::Binding("Q", "Quit"),
+        ],
+        Screen::SectorMap => vec![
             HelpEntry::Section("Navigation"),
             HelpEntry::Binding("h / ←", "Move selection left"),
             HelpEntry::Binding("j / ↓", "Move selection down"),
@@ -59,8 +76,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("E / T", "End turn (AI acts automatically)"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding(":", "Command palette (save · load)"),
-            HelpEntry::Binding("/", "Search"),
             HelpEntry::Binding("?", "Toggle this help"),
+            HelpEntry::Binding("Esc", "Return to Galaxy Overview"),
             HelpEntry::Binding("Q", "Quit"),
         ],
         Screen::System => vec![
@@ -76,7 +93,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding(":", "Command palette (save · load)"),
             HelpEntry::Binding("?", "Toggle this help"),
-            HelpEntry::Binding("Esc", "Return to galaxy map"),
+            HelpEntry::Binding("Esc", "Return to Sector Map"),
         ],
         Screen::Colony => vec![
             HelpEntry::Section("Navigation"),
@@ -92,7 +109,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding(":", "Command palette (save · load)"),
             HelpEntry::Binding("?", "Toggle this help"),
-            HelpEntry::Binding("Esc", "Return to galaxy map"),
+            HelpEntry::Binding("Esc", "Return to Sector Map"),
         ],
         Screen::Research => vec![
             HelpEntry::Section("Navigation"),
@@ -104,7 +121,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding(":", "Command palette (save · load)"),
             HelpEntry::Binding("?", "Toggle this help"),
-            HelpEntry::Binding("Esc", "Return to galaxy map"),
+            HelpEntry::Binding("Esc", "Return to Sector Map"),
         ],
         Screen::Diplomacy => vec![
             HelpEntry::Section("Actions"),
@@ -112,7 +129,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding(":", "Command palette (save · load)"),
             HelpEntry::Binding("?", "Toggle this help"),
-            HelpEntry::Binding("Esc", "Return to galaxy map"),
+            HelpEntry::Binding("Esc", "Return to Sector Map"),
         ],
     };
 
@@ -167,14 +184,27 @@ mod tests {
     }
 
     #[test]
-    fn render_help_galaxy() {
+    fn render_help_sector_overview() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
 
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_help(frame, area, &Screen::Galaxy);
+                render_help(frame, area, &Screen::SectorOverview);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_help_sector_map() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_help(frame, area, &Screen::SectorMap);
             })
             .unwrap();
     }
@@ -240,7 +270,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_help(frame, area, &Screen::Galaxy);
+                render_help(frame, area, &Screen::SectorOverview);
             })
             .unwrap();
     }

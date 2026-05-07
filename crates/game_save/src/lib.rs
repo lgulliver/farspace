@@ -1081,4 +1081,70 @@ mod tests {
             "Shipyard orbital installation must survive save/load round-trip"
         );
     }
+
+    /// Save/load round-trip preserves sectors and sector membership.
+    #[test]
+    fn save_load_preserves_sectors_and_membership() {
+        let engine = Engine::new(42);
+        let original = engine.state.clone();
+
+        // Verify sectors exist
+        assert!(
+            !original.sectors.is_empty(),
+            "Engine::new galaxy should have sectors"
+        );
+
+        // Verify every star has a sector
+        for star in original.stars.values() {
+            assert!(
+                original.sectors.contains_key(&star.sector),
+                "Star {} should belong to valid sector {:?}",
+                star.id.0,
+                star.sector
+            );
+        }
+
+        let saved = save(&original).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        // Verify sector count matches
+        assert_eq!(
+            original.sectors.len(),
+            loaded.sectors.len(),
+            "Sector count must survive save/load"
+        );
+
+        // Verify sector content matches
+        for (id, original_sector) in &original.sectors {
+            let loaded_sector = loaded
+                .sectors
+                .get(id)
+                .expect("Sector should exist after load");
+            assert_eq!(
+                original_sector.name, loaded_sector.name,
+                "Sector {} name must match",
+                id.0
+            );
+            assert_eq!(
+                original_sector.x, loaded_sector.x,
+                "Sector {} x must match",
+                id.0
+            );
+            assert_eq!(
+                original_sector.y, loaded_sector.y,
+                "Sector {} y must match",
+                id.0
+            );
+        }
+
+        // Verify star sector membership matches
+        for (id, original_star) in &original.stars {
+            let loaded_star = loaded.stars.get(id).expect("Star should exist after load");
+            assert_eq!(
+                original_star.sector, loaded_star.sector,
+                "Star {} sector membership must match",
+                id.0
+            );
+        }
+    }
 }

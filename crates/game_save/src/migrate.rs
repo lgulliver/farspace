@@ -119,6 +119,16 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
         12 => {
             // v12 -> v13: Planet.surveyed: bool added (serde default = false).
             // Existing planets default to unsurveyed via serde default.
+            migrate(SaveFile {
+                version: 13,
+                state: save.state,
+            })
+        }
+        13 => {
+            // v13 -> v14: Sector and SectorId added; GameState.sectors (BTreeMap<SectorId, Sector>)
+            // and Star.sector (SectorId) added.
+            // Both fields rely on serde defaults — nothing to populate explicitly.
+            // v13 saves will have empty sectors and SectorId(0) on stars until a new game is started.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -431,6 +441,14 @@ mod tests {
             .flat_map(|s| s.planets.iter())
             .all(|p| !p.surveyed);
         assert!(surveyed, "v12 planets should default to unsurveyed in v13");
+    }
+
+    #[test]
+    fn migrate_v13_to_v14_succeeds() {
+        let state = GameState::default();
+        let v13_save = SaveFile { version: 13, state };
+        let migrated = migrate(v13_save).expect("v13 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
     }
 
     #[test]

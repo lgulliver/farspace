@@ -93,6 +93,15 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // BuildItem::OrbitalStructure variant added; Shipyard added as OrbitalStructureType::Shipyard.
             // TechId(7) "Orbital Engineering" added to all_techs().
             // Nothing to populate explicitly — just bump the version.
+            migrate(SaveFile {
+                version: 10,
+                state: save.state,
+            })
+        }
+        10 => {
+            // v10 -> v11: Colony.stability: u8 added (serde default = 100).
+            // All existing colonies default to neutral stability.
+            // Nothing to populate explicitly — just bump the version.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -234,6 +243,65 @@ mod tests {
         let v9_save = SaveFile { version: 9, state };
         let migrated = migrate(v9_save).expect("v9 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn migrate_v10_to_v11_succeeds_and_stability_defaults_to_100() {
+        // Build a v10 save JSON that omits the `stability` field on a colony,
+        // simulating a real save written before v11 introduced the field.
+        // serde must apply the default of 100 when the field is absent.
+        let v10_json = r#"
+        {
+            "version": 10,
+            "state": {
+                "seed": 42,
+                "turn": 1,
+                "stars": {},
+                "empires": {},
+                "colonies": {
+                    "1": {
+                        "id": 1,
+                        "star": 1,
+                        "planet_index": 0,
+                        "owner": 1,
+                        "population": 5,
+                        "production": 5,
+                        "prod_pct": 50,
+                        "research_pct": 50,
+                        "build_queue": [],
+                        "accumulated_production": 0,
+                        "buildings": [],
+                        "surface_installations": [],
+                        "orbital_installations": []
+                    }
+                },
+                "fleets": {},
+                "player_empire": 1,
+                "rng": {"seed": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], "stream": 0, "word_pos": 0},
+                "event_log": [],
+                "next_colony_id": 2,
+                "next_fleet_id": 1
+            }
+        }"#;
+
+        let save: SaveFile =
+            serde_json::from_str(v10_json).expect("v10 JSON should deserialize successfully");
+        assert_eq!(save.version, 10, "parsed version should be 10");
+
+        let migrated = migrate(save).expect("v10 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+
+        // The colony lacked `stability` in the JSON — serde default must apply 100.
+        let colony = migrated
+            .state
+            .colonies
+            .values()
+            .next()
+            .expect("state should contain the test colony");
+        assert_eq!(
+            colony.stability, 100,
+            "colony migrated from v10 (no stability field) must default to neutral stability 100"
+        );
     }
 
     #[test]

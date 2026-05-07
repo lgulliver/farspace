@@ -180,6 +180,31 @@ impl PlanetClass {
             PlanetClass::Barren => "Barren",
         }
     }
+
+    /// Flat science bonus per turn for colonies on this planet class.
+    ///
+    /// Frozen worlds favour computation; all other classes provide no bonus.
+    pub fn science_bonus(&self) -> i64 {
+        match self {
+            PlanetClass::Frozen => 1,
+            _ => 0,
+        }
+    }
+
+    /// Flat food bonus per turn for colonies on this planet class.
+    ///
+    /// Positive values indicate abundant resources; negative values reflect
+    /// harsh or arid conditions that make food production harder.
+    pub fn food_bonus(&self) -> i64 {
+        match self {
+            PlanetClass::Terran => 0,
+            PlanetClass::Oceanic => 2,
+            PlanetClass::Desert => -1,
+            PlanetClass::Volcanic => -1,
+            PlanetClass::Frozen => -1,
+            PlanetClass::Barren => -2,
+        }
+    }
 }
 
 /// Size category for a planet
@@ -486,6 +511,10 @@ pub struct Colony {
     /// Orbital installations tracked for slot capacity
     #[cfg_attr(feature = "serde", serde(default))]
     pub orbital_installations: Vec<OrbitalStructureType>,
+    /// Colony stability (0–200, neutral = 100).  Values above 100 boost industry;
+    /// values below reduce it.  Defaults to 100 for all existing colonies.
+    #[cfg_attr(feature = "serde", serde(default = "default_stability"))]
+    pub stability: u8,
 }
 
 impl Colony {
@@ -561,6 +590,11 @@ fn default_fleet_strength() -> u32 {
 
 #[cfg(feature = "serde")]
 fn default_fleet_integrity() -> u32 {
+    100
+}
+
+#[cfg(feature = "serde")]
+fn default_stability() -> u8 {
     100
 }
 
@@ -1193,6 +1227,7 @@ mod tests {
             buildings: Vec::new(),
             surface_installations: Vec::new(),
             orbital_installations: Vec::new(),
+            stability: 100,
         };
 
         assert!(colony.can_place_surface_building(PlanetSize::Medium));
@@ -1217,6 +1252,7 @@ mod tests {
             buildings: Vec::new(),
             surface_installations: vec![BuildingType::FabricationYard],
             orbital_installations: Vec::new(),
+            stability: 100,
         };
 
         // With 1 surface building on Tiny (capacity 3), we have 2 left

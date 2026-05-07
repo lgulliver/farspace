@@ -5,7 +5,7 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{BuildItem, BuildingType, GameState, OrbitalStructureType, TechId};
+use game_core::{yield_model, BuildItem, BuildingType, GameState, OrbitalStructureType, TechId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
@@ -100,18 +100,14 @@ fn render_colony_stats(
     let planet = star.and_then(|s| s.planets.get(colony.planet_index));
     let food_cap = planet.map(|p| p.size.base_capacity()).unwrap_or(0);
     let planet_name = planet.map(|p| p.name.as_str()).unwrap_or("Unknown");
+    let planet_class = planet.map(|p| p.class.name()).unwrap_or("Unknown");
 
-    let industry = (colony.production as i64 * colony.prod_pct as i64) / 100;
-    let research_out = (colony.production as i64 * colony.research_pct as i64) / 100;
-    // Food produced per turn: base = population, plus AquacultureBay bonus
-    let food_out: i64 = colony.population as i64
-        + colony
-            .buildings
-            .iter()
-            .map(|b| b.food_bonus(colony.population))
-            .sum::<i64>();
-    // Maintenance cost from buildings at this colony
-    let building_maint: i64 = colony.buildings.iter().map(|b| b.maintenance_cost()).sum();
+    // Calculate yields via the v2 model
+    let colony_yield = yield_model::calculate_yield(colony, planet);
+    let industry = colony_yield.industry;
+    let research_out = colony_yield.science;
+    let food_out = colony_yield.food;
+    let total_maint = colony_yield.maintenance;
 
     // Get planet size for infrastructure slot capacity
     let (surface_used, surface_max, orbital_used, orbital_max) = planet
@@ -130,6 +126,12 @@ fn render_colony_stats(
         Line::from(vec![
             Span::styled("Star: ", Theme::muted_style()),
             Span::raw(star_name),
+        ]),
+        Line::from(vec![
+            Span::styled("Class: ", Theme::muted_style()),
+            Span::raw(planet_class),
+            Span::styled("  Stability: ", Theme::muted_style()),
+            Span::raw(format!("{}", colony.stability)),
         ]),
         Line::from(""),
         Line::from(vec![
@@ -172,7 +174,7 @@ fn render_colony_stats(
         ]),
         Line::from(vec![
             Span::styled("Maint cost : ", Theme::muted_style()),
-            Span::styled(format!("{} cr/turn", building_maint), Theme::muted_style()),
+            Span::styled(format!("{} cr/turn", total_maint), Theme::muted_style()),
         ]),
         Line::from(""),
         Line::from(vec![

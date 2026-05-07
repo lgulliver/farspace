@@ -93,6 +93,15 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // BuildItem::OrbitalStructure variant added; Shipyard added as OrbitalStructureType::Shipyard.
             // TechId(7) "Orbital Engineering" added to all_techs().
             // Nothing to populate explicitly — just bump the version.
+            migrate(SaveFile {
+                version: 10,
+                state: save.state,
+            })
+        }
+        10 => {
+            // v10 -> v11: Colony.stability: u8 added (serde default = 100).
+            // All existing colonies default to neutral stability.
+            // Nothing to populate explicitly — just bump the version.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -234,6 +243,21 @@ mod tests {
         let v9_save = SaveFile { version: 9, state };
         let migrated = migrate(v9_save).expect("v9 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn migrate_v10_to_v11_succeeds_and_stability_defaults_to_100() {
+        let state = GameState::default();
+        let v10_save = SaveFile { version: 10, state };
+        let migrated = migrate(v10_save).expect("v10 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        // Colony.stability defaults to 100 (neutral) via serde
+        for colony in migrated.state.colonies.values() {
+            assert_eq!(
+                colony.stability, 100,
+                "colonies migrated from v10 must have neutral stability"
+            );
+        }
     }
 
     #[test]

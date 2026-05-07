@@ -5,7 +5,7 @@ use crate::deterministic::sorted_colony_ids;
 use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy};
 use crate::state::{
-    all_techs, BuildItem, BuildingType, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId,
+    all_techs, BuildItem, Colony, ColonyId, Empire, EmpireId, Fleet, FleetId,
     FleetKind, FleetMission, GameState, RelationshipStatus, ResearchState, ScoutMission, StarId,
     TechId,
 };
@@ -106,6 +106,7 @@ impl Engine {
                 buildings: Vec::new(),
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
+                stability: 100,
             },
         );
 
@@ -127,6 +128,7 @@ impl Engine {
                 buildings: Vec::new(),
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
+                stability: 100,
             },
         );
 
@@ -279,56 +281,42 @@ impl Engine {
         // Food consumed by population
         let mut empire_food_consumed: std::collections::BTreeMap<EmpireId, i64> =
             std::collections::BTreeMap::new();
-        // Credit maintenance from buildings
+        // Credit maintenance from buildings and orbital structures
         let mut empire_building_maintenance: std::collections::BTreeMap<EmpireId, i64> =
             std::collections::BTreeMap::new();
 
         for colony_id in colony_ids {
-            // Get colony data
-            let (
-                owner,
-                production,
-                prod_pct,
-                research_pct,
-                star_id,
-                build_queue_front,
-                accumulated,
-                population,
-                buildings,
-            ) = {
+            // Get colony data needed for yield calculation and build queue
+            let (owner, production, star_id, build_queue_front, accumulated) = {
                 let colony = self.state.colonies.get(&colony_id).unwrap();
                 (
                     colony.owner,
                     colony.production,
-                    colony.prod_pct,
-                    colony.research_pct,
                     colony.star,
                     colony.build_queue.first().copied(),
                     colony.accumulated_production,
-                    colony.population,
-                    colony.buildings.clone(),
                 )
             };
 
-            // Calculate output
-            let total_output = production as i64;
-            let credits = (total_output * prod_pct as i64) / 100;
-            // Base science from production focus, plus ScienceNexus bonus (population per nexus)
-            let base_science = (total_output * research_pct as i64) / 100;
-            let nexus_count = buildings
-                .iter()
-                .filter(|b| **b == BuildingType::ScienceNexus)
-                .count() as i64;
-            let research = base_science + nexus_count * population as i64;
+            // Look up the planet this colony occupies for class bonuses
+            let planet = self
+                .state
+                .stars
+                .get(&star_id)
+                .and_then(|s| {
+                    let idx = self.state.colonies.get(&colony_id).unwrap().planet_index;
+                    s.planets.get(idx)
+                })
+                .cloned();
 
-            // Food: base = population, plus bonuses from buildings (e.g. AquacultureBay)
-            let food_from_buildings: i64 = buildings.iter().map(|b| b.food_bonus(population)).sum();
-            let colony_food_produced = population as i64 + food_from_buildings;
-            let colony_food_consumed = population as i64;
+            // Calculate yield via the v2 model
+            let colony_yield = {
+                let colony = self.state.colonies.get(&colony_id).unwrap();
+                crate::yield_model::calculate_yield(colony, planet.as_ref())
+            };
 
-            // Building maintenance cost for this colony
-            let colony_building_maintenance: i64 =
-                buildings.iter().map(|b| b.maintenance_cost()).sum();
+            let credits = colony_yield.credits;
+            let research = colony_yield.science;
 
             // Update empire credits and lifetime research total
             if let Some(empire) = self.state.empires.get_mut(&owner) {
@@ -339,17 +327,20 @@ impl Engine {
             // Accumulate per-empire totals
             *empire_research.entry(owner).or_insert(0) += research;
             *empire_credits_income.entry(owner).or_insert(0) += credits;
-            *empire_food_produced.entry(owner).or_insert(0) += colony_food_produced;
-            *empire_food_consumed.entry(owner).or_insert(0) += colony_food_consumed;
-            *empire_building_maintenance.entry(owner).or_insert(0) += colony_building_maintenance;
+            *empire_food_produced.entry(owner).or_insert(0) += colony_yield.food;
+            *empire_food_consumed.entry(owner).or_insert(0) += colony_yield.food_consumed;
+            *empire_building_maintenance.entry(owner).or_insert(0) += colony_yield.maintenance;
 
             events.push(Event::ColonyProduced {
                 colony: colony_id,
                 credits,
                 research,
+                food: colony_yield.food,
+                industry: colony_yield.industry,
+                maintenance: colony_yield.maintenance,
             });
 
-            // Process build queue
+            // Process build queue — still uses colony.production for build speed
             if let Some(item) = build_queue_front {
                 let new_accumulated = accumulated + production;
                 let cost = item.cost();
@@ -1156,6 +1147,7 @@ impl Engine {
             buildings: Vec::new(),
             surface_installations: Vec::new(),
             orbital_installations: Vec::new(),
+            stability: 100,
         };
         self.state.colonies.insert(colony_id, new_colony);
 
@@ -1799,6 +1791,7 @@ mod tests {
                 buildings: Vec::new(),
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
+                stability: 100,
             },
         );
 
@@ -1847,6 +1840,7 @@ mod tests {
                 buildings: Vec::new(),
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
+                stability: 100,
             },
         );
 
@@ -1918,6 +1912,7 @@ mod tests {
                 buildings: Vec::new(),
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
+                stability: 100,
             },
         );
 
@@ -4712,6 +4707,7 @@ mod tests {
                 buildings: Vec::new(),
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
+                stability: 100,
             },
         );
 
@@ -4732,6 +4728,7 @@ mod tests {
                 buildings: Vec::new(),
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
+                stability: 100,
             },
         );
 
@@ -4869,6 +4866,7 @@ mod tests {
                 buildings: Vec::new(),
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
+                stability: 100,
             },
         );
         state.colonies.insert(
@@ -4887,6 +4885,7 @@ mod tests {
                 buildings: Vec::new(),
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
+                stability: 100,
             },
         );
         // Player scout at player star — will scout the AI star
@@ -5114,6 +5113,7 @@ mod tests {
                 buildings: Vec::new(),
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
+                stability: 100,
             },
         );
         state.colonies.insert(
@@ -5132,6 +5132,7 @@ mod tests {
                 buildings: Vec::new(),
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
+                stability: 100,
             },
         );
         state.colonies.insert(
@@ -5150,6 +5151,7 @@ mod tests {
                 buildings: Vec::new(),
                 surface_installations: Vec::new(),
                 orbital_installations: Vec::new(),
+                stability: 100,
             },
         );
         state.fleets.insert(

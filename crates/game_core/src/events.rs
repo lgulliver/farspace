@@ -27,8 +27,16 @@ pub enum Event {
     /// Colony produced resources
     ColonyProduced {
         colony: ColonyId,
+        /// Credits generated this turn
         credits: i64,
+        /// Science generated this turn
         research: i64,
+        /// Food produced this turn
+        food: i64,
+        /// Effective industrial output this turn
+        industry: i64,
+        /// Credit maintenance cost at this colony this turn
+        maintenance: i64,
     },
     /// Fleet was created
     FleetCreated { fleet: FleetId, location: StarId },
@@ -178,10 +186,13 @@ impl Event {
                 colony,
                 credits,
                 research,
+                food,
+                industry: _,
+                maintenance: _,
             } => {
                 format!(
-                    "Colony {} produced {} credits, {} research",
-                    colony.0, credits, research
+                    "Colony {} produced {} credits, {} research, {} food",
+                    colony.0, credits, research, food
                 )
             }
             Event::FleetCreated { fleet, location } => {

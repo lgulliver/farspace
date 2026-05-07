@@ -393,10 +393,17 @@ impl Engine {
                                 location: star_id,
                             });
                         }
-                        // Add permanent buildings to the colony
+                        // Add permanent surface buildings to the colony
                         BuildItem::Structure(bt) => {
                             if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
                                 colony.buildings.push(bt);
+                                colony.surface_installations.push(bt);
+                            }
+                        }
+                        // Add orbital installations to the colony
+                        BuildItem::OrbitalStructure(ot) => {
+                            if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
+                                colony.orbital_installations.push(ot);
                             }
                         }
                         // Outpost: no extra action needed
@@ -773,6 +780,58 @@ impl Engine {
         if colony.owner != self.state.player_empire {
             events.push(Event::error("Colony not owned by player"));
             return;
+        }
+
+        // Validate tech requirement
+        if let Some(required_tech) = item.required_tech() {
+            let empire = match self.state.empires.get(&self.state.player_empire) {
+                Some(e) => e,
+                None => {
+                    events.push(Event::error("Player empire not found"));
+                    return;
+                }
+            };
+            if !empire.research.completed.contains(&required_tech) {
+                let tech_name = all_techs()
+                    .iter()
+                    .find(|t| t.id == required_tech)
+                    .map(|t| t.name)
+                    .unwrap_or("Unknown tech");
+                events.push(Event::error(format!(
+                    "Cannot build {} — requires {} (tech {})",
+                    item.name(),
+                    tech_name,
+                    required_tech.0
+                )));
+                return;
+            }
+        }
+
+        // Validate orbital slot capacity for orbital structures
+        if let BuildItem::OrbitalStructure(_) = item {
+            let planet_size = self
+                .state
+                .stars
+                .get(&colony.star)
+                .and_then(|s| s.planets.get(colony.planet_index))
+                .map(|p| p.size);
+            match planet_size {
+                Some(size) if colony.can_place_orbital_installation(size) => {}
+                Some(_) => {
+                    events.push(Event::error(format!(
+                        "Colony {} has no free orbital slots",
+                        colony_id.0
+                    )));
+                    return;
+                }
+                None => {
+                    events.push(Event::error(format!(
+                        "Colony {} planet not found",
+                        colony_id.0
+                    )));
+                    return;
+                }
+            }
         }
 
         // Add to queue
@@ -5857,5 +5916,278 @@ mod tests {
             credits_before - fleet_count,
             "Credits should only decrease by maintenance when prod_pct=0"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Shipyard / orbital structure regression tests
+    // -------------------------------------------------------------------------
+
+    /// Helper: unlock Orbital Engineering (TechId 7) for the player empire.
+    fn unlock_orbital_engineering(engine: &mut Engine) {
+        let empire_id = engine.state.player_empire;
+        if let Some(empire) = engine.state.empires.get_mut(&empire_id) {
+            if !empire.research.completed.contains(&TechId(7)) {
+                empire.research.completed.push(TechId(7));
+            }
+        }
+    }
+
+    #[test]
+    fn shipyard_requires_orbital_engineering_tech() {
+        // Without the tech, queuing a Shipyard should emit an Error event.
+        let mut engine = Engine::new(42);
+        let colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == engine.state.player_empire)
+            .map(|(id, _)| *id)
+            .expect("player colony must exist");
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::OrbitalStructure(crate::state::OrbitalStructureType::Shipyard),
+        }]);
+
+        assert!(
+            events.iter().any(
+                |e| matches!(e, Event::Error { message } if message.contains("Orbital Engineering"))
+            ),
+            "expected an error mentioning Orbital Engineering, got: {:?}",
+            events
+        );
+
+        // Queue should be empty — build was rejected
+        let colony = engine.state.colonies.get(&colony_id).unwrap();
+        assert!(
+            colony.build_queue.is_empty(),
+            "build queue must be empty after rejected Shipyard"
+        );
+    }
+
+    #[test]
+    fn shipyard_can_be_queued_with_orbital_engineering() {
+        let mut engine = Engine::new(42);
+        let colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == engine.state.player_empire)
+            .map(|(id, _)| *id)
+            .expect("player colony must exist");
+
+        unlock_orbital_engineering(&mut engine);
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::OrbitalStructure(crate::state::OrbitalStructureType::Shipyard),
+        }]);
+
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::BuildQueued { .. })),
+            "expected BuildQueued event, got: {:?}",
+            events
+        );
+
+        let colony = engine.state.colonies.get(&colony_id).unwrap();
+        assert_eq!(
+            colony.build_queue.last(),
+            Some(&BuildItem::OrbitalStructure(
+                crate::state::OrbitalStructureType::Shipyard
+            )),
+            "Shipyard must be in the build queue"
+        );
+    }
+
+    #[test]
+    fn shipyard_blocked_when_no_orbital_slots_available() {
+        use crate::state::OrbitalStructureType;
+
+        let mut engine = Engine::new(42);
+        let colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == engine.state.player_empire)
+            .map(|(id, _)| *id)
+            .expect("player colony must exist");
+
+        unlock_orbital_engineering(&mut engine);
+
+        // Find the colony's planet size and fill all orbital slots
+        let (star_id, planet_index) = {
+            let c = engine.state.colonies.get(&colony_id).unwrap();
+            (c.star, c.planet_index)
+        };
+        let planet_size = engine
+            .state
+            .stars
+            .get(&star_id)
+            .unwrap()
+            .planets
+            .get(planet_index)
+            .unwrap()
+            .size;
+        let max_slots = planet_size.orbital_slots();
+
+        // Fill all orbital slots by directly mutating the colony
+        {
+            let colony = engine.state.colonies.get_mut(&colony_id).unwrap();
+            for _ in 0..max_slots {
+                colony
+                    .orbital_installations
+                    .push(OrbitalStructureType::Shipyard);
+            }
+        }
+
+        // Now try to queue another Shipyard — should be rejected
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard),
+        }]);
+
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::Error { message } if message.contains("no free orbital slots"))),
+            "expected no-orbital-slots error, got: {:?}",
+            events
+        );
+    }
+
+    #[test]
+    fn shipyard_build_completes_and_enters_orbital_installations() {
+        use crate::state::OrbitalStructureType;
+
+        let mut engine = Engine::new(42);
+        let colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == engine.state.player_empire)
+            .map(|(id, _)| *id)
+            .expect("player colony must exist");
+
+        unlock_orbital_engineering(&mut engine);
+
+        // Queue the Shipyard
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard),
+        }]);
+
+        // Force 100% production focus and run enough turns for it to complete
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+
+        // Shipyard costs 200pp; run enough turns to build it (production is at least 5/turn)
+        let mut completed = false;
+        for _ in 0..50 {
+            let events = engine.apply_turn(vec![Command::EndTurn]);
+            if events.iter().any(|e| {
+                matches!(e, Event::BuildCompleted { item, .. } if *item == BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard))
+            }) {
+                completed = true;
+                break;
+            }
+        }
+
+        assert!(completed, "Shipyard should complete within 50 turns");
+
+        let colony = engine.state.colonies.get(&colony_id).unwrap();
+        assert!(
+            colony
+                .orbital_installations
+                .contains(&OrbitalStructureType::Shipyard),
+            "completed Shipyard must appear in orbital_installations"
+        );
+    }
+
+    #[test]
+    fn surface_building_enters_surface_installations_on_completion() {
+        let mut engine = Engine::new(42);
+        let colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == engine.state.player_empire)
+            .map(|(id, _)| *id)
+            .expect("player colony must exist");
+
+        engine.apply_turn(vec![
+            Command::QueueBuild {
+                colony: colony_id,
+                item: BuildItem::Structure(BuildingType::FabricationYard),
+            },
+            Command::SetColonyFocus {
+                colony: colony_id,
+                prod_pct: 100,
+                research_pct: 0,
+            },
+        ]);
+
+        let mut completed = false;
+        for _ in 0..20 {
+            let events = engine.apply_turn(vec![Command::EndTurn]);
+            if events.iter().any(|e| {
+                matches!(e, Event::BuildCompleted { item, .. } if *item == BuildItem::Structure(BuildingType::FabricationYard))
+            }) {
+                completed = true;
+                break;
+            }
+        }
+
+        assert!(completed, "FabricationYard should complete within 20 turns");
+
+        let colony = engine.state.colonies.get(&colony_id).unwrap();
+        assert!(
+            colony
+                .surface_installations
+                .contains(&BuildingType::FabricationYard),
+            "completed FabricationYard must appear in surface_installations"
+        );
+        assert!(
+            colony.buildings.contains(&BuildingType::FabricationYard),
+            "completed FabricationYard must appear in buildings for effect tracking"
+        );
+    }
+
+    #[test]
+    fn orbital_engineering_tech_exists_in_all_techs() {
+        let techs = all_techs();
+        assert!(
+            techs
+                .iter()
+                .any(|t| t.id == TechId(7) && t.name == "Orbital Engineering"),
+            "Orbital Engineering must be TechId(7)"
+        );
+    }
+
+    #[test]
+    fn orbital_structure_type_shipyard_has_correct_metadata() {
+        use crate::state::OrbitalStructureType;
+        let ot = OrbitalStructureType::Shipyard;
+        assert_eq!(ot.name(), "Shipyard");
+        assert_eq!(ot.required_tech(), Some(TechId(7)));
+        assert!(ot.cost() > 0, "cost must be positive");
+        assert!(ot.maintenance_cost() > 0, "maintenance must be positive");
+    }
+
+    #[test]
+    fn build_item_orbital_structure_required_tech_matches() {
+        use crate::state::OrbitalStructureType;
+        let item = BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard);
+        assert_eq!(item.required_tech(), Some(TechId(7)));
+        // Surface structures have no required tech
+        assert_eq!(
+            BuildItem::Structure(BuildingType::FabricationYard).required_tech(),
+            None
+        );
+        assert_eq!(BuildItem::Scout.required_tech(), None);
     }
 }

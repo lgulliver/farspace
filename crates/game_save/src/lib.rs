@@ -955,4 +955,38 @@ mod tests {
             );
         }
     }
+
+    /// Orbital installations (including Shipyard) survive a save/load round-trip.
+    #[test]
+    fn save_load_preserves_orbital_installations_with_shipyard() {
+        use game_core::OrbitalStructureType;
+
+        let engine = Engine::new(42);
+        let mut state = engine.state.clone();
+
+        // Directly inject a Shipyard into the first player colony
+        let colony_id = state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == state.player_empire)
+            .map(|(id, _)| *id)
+            .expect("player colony must exist");
+        state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .orbital_installations
+            .push(OrbitalStructureType::Shipyard);
+
+        let saved = save(&state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        let loaded_colony = &loaded.colonies[&colony_id];
+        assert!(
+            loaded_colony
+                .orbital_installations
+                .contains(&OrbitalStructureType::Shipyard),
+            "Shipyard orbital installation must survive save/load round-trip"
+        );
+    }
 }

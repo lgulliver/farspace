@@ -488,6 +488,126 @@ impl BuildItem {
     }
 }
 
+/// Specialisation role assigned to a colony, influencing its yield profile.
+///
+/// Roles apply small, deterministic flat modifiers on top of the base yield
+/// calculation.  They complement — but never override — planet class identity
+/// or installed infrastructure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum ColonyRole {
+    /// No yield modifier — the default starting role.
+    #[default]
+    Balanced,
+    /// +2 food, −1 industry.
+    Agricultural,
+    /// +2 industry, −1 science (flat).
+    Industrial,
+    /// +2 science (flat), −1 credits (flat).
+    Scientific,
+    /// +2 credits (flat), −1 industry.
+    Financial,
+    /// +1 maintenance, bonus ship production efficiency.
+    Military,
+}
+
+impl ColonyRole {
+    /// All available colony roles in display order.
+    pub fn all() -> &'static [ColonyRole] {
+        &[
+            ColonyRole::Balanced,
+            ColonyRole::Agricultural,
+            ColonyRole::Industrial,
+            ColonyRole::Scientific,
+            ColonyRole::Financial,
+            ColonyRole::Military,
+        ]
+    }
+
+    /// Short display name for this role.
+    pub fn name(&self) -> &'static str {
+        match self {
+            ColonyRole::Balanced => "Balanced",
+            ColonyRole::Agricultural => "Agricultural",
+            ColonyRole::Industrial => "Industrial",
+            ColonyRole::Scientific => "Scientific",
+            ColonyRole::Financial => "Financial",
+            ColonyRole::Military => "Military",
+        }
+    }
+
+    /// One-line description of the role's effects.
+    pub fn description(&self) -> &'static str {
+        match self {
+            ColonyRole::Balanced => "No modifiers",
+            ColonyRole::Agricultural => "+2 food, −1 industry",
+            ColonyRole::Industrial => "+2 industry, −1 science",
+            ColonyRole::Scientific => "+2 science, −1 credits",
+            ColonyRole::Financial => "+2 credits, −1 industry",
+            ColonyRole::Military => "+1 maintenance, +ship efficiency",
+        }
+    }
+
+    /// Flat yield modifiers applied on top of the base colony yield each turn.
+    pub fn modifiers(&self) -> RoleModifiers {
+        match self {
+            ColonyRole::Balanced => RoleModifiers::default(),
+            ColonyRole::Agricultural => RoleModifiers {
+                food: 2,
+                industry: -1,
+                ..RoleModifiers::default()
+            },
+            ColonyRole::Industrial => RoleModifiers {
+                industry: 2,
+                science: -1,
+                ..RoleModifiers::default()
+            },
+            ColonyRole::Scientific => RoleModifiers {
+                science: 2,
+                credits: -1,
+                ..RoleModifiers::default()
+            },
+            ColonyRole::Financial => RoleModifiers {
+                credits: 2,
+                industry: -1,
+                ..RoleModifiers::default()
+            },
+            ColonyRole::Military => RoleModifiers {
+                maintenance: 1,
+                ..RoleModifiers::default()
+            },
+        }
+    }
+
+    /// Extra production units applied each turn when building ships at a Military colony.
+    ///
+    /// Returns 0 for all non-Military roles.
+    pub fn ship_production_bonus(&self) -> u64 {
+        match self {
+            ColonyRole::Military => 2,
+            _ => 0,
+        }
+    }
+}
+
+/// Flat yield modifiers contributed by a colony's assigned role.
+///
+/// All fields default to zero (Balanced).  Applied additively on top of the
+/// base yield calculated from population, buildings, and planet class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RoleModifiers {
+    /// Flat food bonus/penalty per turn.
+    pub food: i64,
+    /// Flat industry bonus/penalty per turn (applied before credit/science scaling).
+    pub industry: i64,
+    /// Flat science bonus/penalty per turn.
+    pub science: i64,
+    /// Flat credits bonus/penalty per turn.
+    pub credits: i64,
+    /// Flat maintenance surcharge per turn.
+    pub maintenance: i64,
+}
+
 /// A colony on a planet
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -515,6 +635,9 @@ pub struct Colony {
     /// values below reduce it.  Defaults to 100 for all existing colonies.
     #[cfg_attr(feature = "serde", serde(default = "default_stability"))]
     pub stability: u8,
+    /// Specialisation role for this colony.  Defaults to `Balanced` (no modifiers).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub role: ColonyRole,
 }
 
 impl Colony {
@@ -1228,6 +1351,7 @@ mod tests {
             surface_installations: Vec::new(),
             orbital_installations: Vec::new(),
             stability: 100,
+            role: ColonyRole::Balanced,
         };
 
         assert!(colony.can_place_surface_building(PlanetSize::Medium));
@@ -1253,6 +1377,7 @@ mod tests {
             surface_installations: vec![BuildingType::FabricationYard],
             orbital_installations: Vec::new(),
             stability: 100,
+            role: ColonyRole::Balanced,
         };
 
         // With 1 surface building on Tiny (capacity 3), we have 2 left

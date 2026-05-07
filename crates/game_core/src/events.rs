@@ -1,6 +1,6 @@
 //! Events emitted by the game engine
 
-use crate::state::{BuildItem, ColonyId, EmpireId, FleetId, StarId, TechId};
+use crate::state::{BuildItem, ColonyId, ColonyRole, EmpireId, FleetId, StarId, TechId};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -154,6 +154,14 @@ pub enum Event {
         fleet_a_destroyed: bool,
         /// Whether fleet_b was destroyed
         fleet_b_destroyed: bool,
+    },
+    /// A colony's specialisation role was changed by the player
+    ColonyRoleChanged { colony: ColonyId, role: ColonyRole },
+    /// AI empire assigned a specialisation role to one of its colonies
+    AiColonyRoleAssigned {
+        empire: EmpireId,
+        colony: ColonyId,
+        role: ColonyRole,
     },
 }
 
@@ -358,6 +366,21 @@ impl Event {
                 format!(
                     "COMBAT at system {}: Fleet {} (Str:{}) vs Fleet {} (Str:{}) — {}",
                     star.0, fleet_a.0, strength_a, fleet_b.0, strength_b, result
+                )
+            }
+            Event::ColonyRoleChanged { colony, role } => {
+                format!("Colony {}: role set to {}", colony.0, role.name())
+            }
+            Event::AiColonyRoleAssigned {
+                empire,
+                colony,
+                role,
+            } => {
+                format!(
+                    "AI Empire {}: colony {} assigned role {}",
+                    empire.0,
+                    colony.0,
+                    role.name()
                 )
             }
         }

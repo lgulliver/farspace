@@ -4,7 +4,7 @@ use game_core::state::GameState;
 use serde::{Deserialize, Serialize};
 
 /// Current save file version
-pub const CURRENT_VERSION: u32 = 11;
+pub const CURRENT_VERSION: u32 = 12;
 
 /// Save file format
 #[derive(Debug, Clone, Serialize, Deserialize)]

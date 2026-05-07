@@ -102,6 +102,15 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // v10 -> v11: Colony.stability: u8 added (serde default = 100).
             // All existing colonies default to neutral stability.
             // Nothing to populate explicitly — just bump the version.
+            migrate(SaveFile {
+                version: 11,
+                state: save.state,
+            })
+        }
+        11 => {
+            // v11 -> v12: Colony.role: ColonyRole added (serde default = Balanced).
+            // All existing colonies default to Balanced role (no modifiers).
+            // Nothing to populate explicitly — just bump the version.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -301,6 +310,68 @@ mod tests {
         assert_eq!(
             colony.stability, 100,
             "colony migrated from v10 (no stability field) must default to neutral stability 100"
+        );
+    }
+
+    #[test]
+    fn migrate_v11_to_v12_succeeds_and_role_defaults_to_balanced() {
+        // Build a v11 save JSON that omits the `role` field on a colony,
+        // simulating a real save written before v12 introduced the field.
+        // serde must apply the default of Balanced when the field is absent.
+        let v11_json = r#"
+        {
+            "version": 11,
+            "state": {
+                "seed": 42,
+                "turn": 1,
+                "stars": {},
+                "empires": {},
+                "colonies": {
+                    "1": {
+                        "id": 1,
+                        "star": 1,
+                        "planet_index": 0,
+                        "owner": 1,
+                        "population": 5,
+                        "production": 5,
+                        "prod_pct": 50,
+                        "research_pct": 50,
+                        "build_queue": [],
+                        "accumulated_production": 0,
+                        "buildings": [],
+                        "surface_installations": [],
+                        "orbital_installations": [],
+                        "stability": 100
+                    }
+                },
+                "fleets": {},
+                "player_empire": 1,
+                "rng": {"seed": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], "stream": 0, "word_pos": 0},
+                "event_log": [],
+                "next_colony_id": 2,
+                "next_fleet_id": 1
+            }
+        }"#;
+
+        let save: SaveFile =
+            serde_json::from_str(v11_json).expect("v11 JSON should deserialize successfully");
+        assert_eq!(save.version, 11, "parsed version should be 11");
+
+        let migrated = migrate(save).expect("v11 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+
+        // The colony lacked `role` in the JSON — serde default must apply Balanced.
+        use game_core::ColonyRole;
+        let colony = migrated
+            .state
+            .colonies
+            .values()
+            .next()
+            .expect("state should contain the test colony");
+        assert_eq!(
+            colony.role,
+            ColonyRole::Balanced,
+            "colony migrated from v11 (no role field) must default to Balanced"
         );
     }
 

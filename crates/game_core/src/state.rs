@@ -30,6 +30,11 @@ pub struct FleetId(pub u64);
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TechId(pub u32);
 
+/// Unique identifier for a ship design template.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ShipDesignId(pub u32);
+
 /// Static record describing a researchable technology
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TechRecord {
@@ -89,6 +94,58 @@ pub fn all_techs() -> &'static [TechRecord] {
             cost: 150,
         },
     ]
+}
+
+/// Static record describing a constructible ship design.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShipDesignRecord {
+    pub id: ShipDesignId,
+    pub name: &'static str,
+    pub cost: u64,
+    pub fleet_kind: FleetKind,
+    pub ships: u32,
+    pub strength: u32,
+    pub required_tech: Option<TechId>,
+}
+
+/// All constructible ship designs in deterministic display order.
+pub fn all_ship_designs() -> &'static [ShipDesignRecord] {
+    &[
+        ShipDesignRecord {
+            id: ShipDesignId::SCOUT,
+            name: "Scout",
+            cost: 50,
+            fleet_kind: FleetKind::Scout,
+            ships: 1,
+            strength: 1,
+            required_tech: None,
+        },
+        ShipDesignRecord {
+            id: ShipDesignId::COLONY,
+            name: "Colony Ship",
+            cost: 200,
+            fleet_kind: FleetKind::Colonizer,
+            ships: 1,
+            strength: 1,
+            required_tech: Some(TechId(2)),
+        },
+    ]
+}
+
+impl ShipDesignId {
+    pub const SCOUT: ShipDesignId = ShipDesignId(1);
+    pub const COLONY: ShipDesignId = ShipDesignId(2);
+
+    /// All design IDs in deterministic display order, derived from `all_ship_designs()`
+    /// to ensure both stay in sync automatically.
+    pub fn all() -> impl Iterator<Item = ShipDesignId> {
+        all_ship_designs().iter().map(|d| d.id)
+    }
+
+    /// Resolve this ID to a known design record.
+    pub fn record(&self) -> Option<&'static ShipDesignRecord> {
+        all_ship_designs().iter().find(|d| d.id == *self)
+    }
 }
 
 /// Per-empire research progress tracking
@@ -441,52 +498,116 @@ impl OrbitalStructureType {
     }
 }
 
-/// Items that can be built at a colony
+/// Items that can be produced at a colony.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum BuildItem {
-    Scout,
-    Colony,
-    Outpost,
-    /// A permanent surface structure to be built on the colony
-    Structure(BuildingType),
+pub enum ProductionItem {
+    /// A permanent surface structure to be built on the colony.
+    SurfaceStructure(BuildingType),
     /// An orbital structure to be assembled in orbit around the colony's planet
     OrbitalStructure(OrbitalStructureType),
+    /// A ship built from a specific design template.
+    Ship(ShipDesignId),
+    /// Legacy save compatibility variant for old ship queue entries.
+    ///
+    /// Kept to deserialize pre-v2 saves that encoded ships directly as `Scout`.
+    #[cfg_attr(feature = "serde", serde(rename = "Scout"))]
+    Scout,
+    /// Legacy save compatibility variant for old ship queue entries.
+    ///
+    /// Kept to deserialize pre-v2 saves that encoded ships directly as `Colony`.
+    #[cfg_attr(feature = "serde", serde(rename = "Colony"))]
+    Colony,
+    /// Legacy save compatibility variant for old queue entries.
+    ///
+    /// Kept to deserialize pre-v2 saves that encoded outpost entries as `Outpost`.
+    #[cfg_attr(feature = "serde", serde(rename = "Outpost"))]
+    Outpost,
+    /// Legacy save compatibility variant for old queue entries.
+    ///
+    /// Kept to deserialize pre-v2 saves that used `Structure` before
+    /// `SurfaceStructure` naming was introduced.
+    #[cfg_attr(feature = "serde", serde(rename = "Structure"))]
+    Structure(BuildingType),
 }
 
-impl BuildItem {
-    /// Production cost for this item
+impl ProductionItem {
+    /// Human-readable category name for this item type.
+    pub fn category_name(&self) -> &'static str {
+        match self {
+            ProductionItem::SurfaceStructure(_) | ProductionItem::Structure(_) => "Surface",
+            ProductionItem::OrbitalStructure(_) => "Orbital",
+            ProductionItem::Ship(_) | ProductionItem::Scout | ProductionItem::Colony => "Ship",
+            ProductionItem::Outpost => "Surface",
+        }
+    }
+
+    /// Returns true if this production item is a ship.
+    pub fn is_ship(&self) -> bool {
+        matches!(
+            self,
+            ProductionItem::Ship(_) | ProductionItem::Scout | ProductionItem::Colony
+        )
+    }
+
+    /// Resolve this production item to a ship design when it is ship production.
+    pub fn ship_design_id(&self) -> Option<ShipDesignId> {
+        match self {
+            ProductionItem::Ship(id) => Some(*id),
+            ProductionItem::Scout => Some(ShipDesignId::SCOUT),
+            ProductionItem::Colony => Some(ShipDesignId::COLONY),
+            _ => None,
+        }
+    }
+
+    /// Production cost for this item.
+    ///
+    /// Returns `u64::MAX` for `Ship(_)` with an invalid (unknown) design ID so the item
+    /// can never be silently completed due to a zero-cost guard in queue processing.
     pub fn cost(&self) -> u64 {
         match self {
-            BuildItem::Scout => 50,
-            BuildItem::Colony => 200,
-            BuildItem::Outpost => 100,
-            BuildItem::Structure(bt) => bt.cost(),
-            BuildItem::OrbitalStructure(ot) => ot.cost(),
+            ProductionItem::Ship(design_id) => {
+                design_id.record().map(|d| d.cost).unwrap_or(u64::MAX)
+            }
+            ProductionItem::Scout => ShipDesignId::SCOUT.record().map(|d| d.cost).unwrap_or(0),
+            ProductionItem::Colony => ShipDesignId::COLONY.record().map(|d| d.cost).unwrap_or(0),
+            ProductionItem::Outpost => 100,
+            ProductionItem::SurfaceStructure(bt) | ProductionItem::Structure(bt) => bt.cost(),
+            ProductionItem::OrbitalStructure(ot) => ot.cost(),
         }
     }
 
     /// Display name for this item
     pub fn name(&self) -> &'static str {
         match self {
-            BuildItem::Scout => "Scout",
-            BuildItem::Colony => "Colony Ship",
-            BuildItem::Outpost => "Outpost",
-            BuildItem::Structure(bt) => bt.name(),
-            BuildItem::OrbitalStructure(ot) => ot.name(),
+            ProductionItem::Ship(design_id) => design_id
+                .record()
+                .map(|d| d.name)
+                .unwrap_or("Unknown Ship Design"),
+            ProductionItem::Scout => "Scout",
+            ProductionItem::Colony => "Colony Ship",
+            ProductionItem::Outpost => "Outpost",
+            ProductionItem::SurfaceStructure(bt) | ProductionItem::Structure(bt) => bt.name(),
+            ProductionItem::OrbitalStructure(ot) => ot.name(),
         }
     }
 
     /// Technology required before this item can be queued, if any
     pub fn required_tech(&self) -> Option<TechId> {
         match self {
-            BuildItem::Scout | BuildItem::Colony | BuildItem::Outpost | BuildItem::Structure(_) => {
-                None
-            }
-            BuildItem::OrbitalStructure(ot) => ot.required_tech(),
+            ProductionItem::Ship(design_id) => design_id.record().and_then(|d| d.required_tech),
+            ProductionItem::Scout => ShipDesignId::SCOUT.record().and_then(|d| d.required_tech),
+            ProductionItem::Colony => ShipDesignId::COLONY.record().and_then(|d| d.required_tech),
+            ProductionItem::Outpost
+            | ProductionItem::SurfaceStructure(_)
+            | ProductionItem::Structure(_) => None,
+            ProductionItem::OrbitalStructure(ot) => ot.required_tech(),
         }
     }
 }
+
+/// Backward-compatible alias retained for existing code paths and save semantics.
+pub type BuildItem = ProductionItem;
 
 /// Specialisation role assigned to a colony, influencing its yield profile.
 ///
@@ -620,7 +741,7 @@ pub struct Colony {
     pub production: u64,
     pub prod_pct: u8,
     pub research_pct: u8,
-    pub build_queue: Vec<BuildItem>,
+    pub build_queue: Vec<ProductionItem>,
     pub accumulated_production: u64,
     /// Completed permanent buildings at this colony (used for effect calculations)
     #[cfg_attr(feature = "serde", serde(default))]
@@ -932,6 +1053,8 @@ mod tests {
 
     #[test]
     fn build_item_costs() {
+        assert_eq!(BuildItem::Ship(ShipDesignId::SCOUT).cost(), 50);
+        assert_eq!(BuildItem::Ship(ShipDesignId::COLONY).cost(), 200);
         assert_eq!(BuildItem::Scout.cost(), 50);
         assert_eq!(BuildItem::Colony.cost(), 200);
         assert_eq!(BuildItem::Outpost.cost(), 100);
@@ -1002,6 +1125,8 @@ mod tests {
 
     #[test]
     fn build_item_names() {
+        assert_eq!(BuildItem::Ship(ShipDesignId::SCOUT).name(), "Scout");
+        assert_eq!(BuildItem::Ship(ShipDesignId::COLONY).name(), "Colony Ship");
         assert_eq!(BuildItem::Scout.name(), "Scout");
         assert_eq!(BuildItem::Colony.name(), "Colony Ship");
         assert_eq!(BuildItem::Outpost.name(), "Outpost");
@@ -1016,6 +1141,17 @@ mod tests {
         assert_eq!(
             BuildItem::Structure(BuildingType::ScienceNexus).name(),
             "Science Nexus"
+        );
+    }
+
+    #[test]
+    fn ship_design_records_are_resolvable() {
+        for id in ShipDesignId::all() {
+            assert!(id.record().is_some(), "known design ID must resolve");
+        }
+        assert!(
+            ShipDesignId(999).record().is_none(),
+            "unknown design ID must be invalid"
         );
     }
 

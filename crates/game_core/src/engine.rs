@@ -346,76 +346,124 @@ impl Engine {
                 maintenance: colony_yield.maintenance,
             });
 
-            // Process build queue — still uses colony.production for build speed.
-            // Military colonies receive a flat bonus when building ships.
+            // Process production queue — one active item at a time, with deterministic
+            // overflow carry into subsequent queued items in the same turn.
             if let Some(item) = build_queue_front {
-                let ship_bonus = match item {
-                    BuildItem::Scout | BuildItem::Colony => colony_role.ship_production_bonus(),
-                    _ => 0,
+                let ship_bonus = if item.is_ship() {
+                    colony_role.ship_production_bonus()
+                } else {
+                    0
                 };
-                let new_accumulated = accumulated + production + ship_bonus;
-                let cost = item.cost();
+                let mut production_pool = accumulated + production + ship_bonus;
 
-                if new_accumulated >= cost {
-                    // Item completed
-                    if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
-                        colony.build_queue.remove(0);
-                        colony.accumulated_production = new_accumulated - cost;
+                // Determine how many items complete this turn and collect them.
+                // We read the queue once, computing completions, then drain the prefix.
+                let completed_items: Vec<BuildItem> = {
+                    let queue = self
+                        .state
+                        .colonies
+                        .get(&colony_id)
+                        .map(|c| c.build_queue.as_slice())
+                        .unwrap_or(&[]);
+                    let mut completed = Vec::new();
+                    for &q_item in queue {
+                        let cost = q_item.cost();
+                        if production_pool < cost {
+                            break;
+                        }
+                        production_pool -= cost;
+                        completed.push(q_item);
                     }
+                    completed
+                };
 
+                // Drain the completed prefix in one O(n) pass.
+                let n_completed = completed_items.len();
+                if n_completed > 0 {
+                    if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
+                        colony.build_queue.drain(..n_completed);
+                    }
+                }
+
+                for current_item in completed_items {
                     events.push(Event::BuildCompleted {
                         colony: colony_id,
-                        item,
+                        item: current_item,
                     });
 
-                    match item {
-                        // Create a fleet for ship items
-                        BuildItem::Scout | BuildItem::Colony => {
-                            let fleet_id = self.state.next_fleet_id();
-                            let owner_id = owner;
-                            let fleet_kind = if item == BuildItem::Colony {
-                                FleetKind::Colonizer
-                            } else {
-                                FleetKind::Scout
-                            };
-                            self.state.fleets.insert(
-                                fleet_id,
-                                Fleet {
-                                    id: fleet_id,
-                                    owner: owner_id,
+                    match current_item {
+                        BuildItem::Ship(design_id) => {
+                            if let Some(design) = design_id.record() {
+                                let fleet_id = self.state.next_fleet_id();
+                                self.state.fleets.insert(
+                                    fleet_id,
+                                    Fleet {
+                                        id: fleet_id,
+                                        owner,
+                                        location: star_id,
+                                        ships: design.ships,
+                                        kind: design.fleet_kind,
+                                        strength: design.strength.max(1),
+                                        integrity: 100,
+                                    },
+                                );
+                                events.push(Event::FleetCreated {
+                                    fleet: fleet_id,
                                     location: star_id,
-                                    ships: 1,
-                                    kind: fleet_kind,
-                                    strength: 1,
-                                    integrity: 100,
-                                },
-                            );
-                            events.push(Event::FleetCreated {
-                                fleet: fleet_id,
-                                location: star_id,
-                            });
+                                });
+                            } else {
+                                // Defensive guard: QueueBuild validation rejects unknown design IDs,
+                                // so this should only occur if a corrupted save injected bad data.
+                                events.push(Event::error(format!(
+                                    "Invalid ship design {} completed at colony {}",
+                                    design_id.0, colony_id.0
+                                )));
+                            }
                         }
-                        // Add permanent surface buildings to the colony
-                        BuildItem::Structure(bt) => {
+                        // Legacy save compatibility paths.
+                        BuildItem::Scout | BuildItem::Colony => {
+                            let legacy_design = if matches!(current_item, BuildItem::Colony) {
+                                crate::state::ShipDesignId::COLONY
+                            } else {
+                                crate::state::ShipDesignId::SCOUT
+                            };
+                            if let Some(design) = legacy_design.record() {
+                                let fleet_id = self.state.next_fleet_id();
+                                self.state.fleets.insert(
+                                    fleet_id,
+                                    Fleet {
+                                        id: fleet_id,
+                                        owner,
+                                        location: star_id,
+                                        ships: design.ships,
+                                        kind: design.fleet_kind,
+                                        strength: design.strength.max(1),
+                                        integrity: 100,
+                                    },
+                                );
+                                events.push(Event::FleetCreated {
+                                    fleet: fleet_id,
+                                    location: star_id,
+                                });
+                            }
+                        }
+                        BuildItem::SurfaceStructure(bt) | BuildItem::Structure(bt) => {
                             if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
                                 colony.buildings.push(bt);
                                 colony.surface_installations.push(bt);
                             }
                         }
-                        // Add orbital installations to the colony
                         BuildItem::OrbitalStructure(ot) => {
                             if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
                                 colony.orbital_installations.push(ot);
                             }
                         }
-                        // Outpost: no extra action needed
                         BuildItem::Outpost => {}
                     }
-                } else {
-                    // Update accumulated production
-                    if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
-                        colony.accumulated_production = new_accumulated;
-                    }
+                }
+
+                if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
+                    colony.accumulated_production = production_pool;
                 }
             }
         }
@@ -816,6 +864,16 @@ impl Engine {
             return;
         }
 
+        if let BuildItem::Ship(design_id) = item {
+            if design_id.record().is_none() {
+                events.push(Event::error(format!(
+                    "Cannot build ship — design {} is invalid",
+                    design_id.0
+                )));
+                return;
+            }
+        }
+
         // Validate tech requirement
         if let Some(required_tech) = item.required_tech() {
             let empire = match self.state.empires.get(&self.state.player_empire) {
@@ -842,9 +900,9 @@ impl Engine {
         }
 
         // Ships require a Shipyard in orbit
-        if matches!(item, BuildItem::Scout | BuildItem::Colony) && !colony.has_shipyard() {
+        if item.is_ship() && !colony.has_shipyard() {
             events.push(Event::error(format!(
-                "Cannot build {} — colony {} has no Shipyard",
+                "Cannot build Ship {} — colony {} has no Shipyard",
                 item.name(),
                 colony_id.0
             )));
@@ -852,7 +910,10 @@ impl Engine {
         }
 
         // Surface buildings require a free surface slot
-        if let BuildItem::Structure(_) = item {
+        if matches!(
+            item,
+            BuildItem::SurfaceStructure(_) | BuildItem::Structure(_)
+        ) {
             let planet_size = self
                 .state
                 .stars
@@ -1485,6 +1546,16 @@ mod tests {
             .push(crate::state::OrbitalStructureType::Shipyard);
     }
 
+    /// Unlock Habitat Seeding (TechId 2) for the player empire.
+    fn unlock_habitat_seeding(engine: &mut Engine) {
+        let empire_id = engine.state.player_empire;
+        if let Some(empire) = engine.state.empires.get_mut(&empire_id) {
+            if !empire.research.completed.contains(&TechId(2)) {
+                empire.research.completed.push(TechId(2));
+            }
+        }
+    }
+
     #[test]
     fn new_engine_creates_valid_state() {
         let engine = Engine::new(42);
@@ -1911,7 +1982,7 @@ mod tests {
         }]);
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
-            item: BuildItem::Colony,
+            item: BuildItem::Scout,
         }]);
 
         // Set some accumulated production
@@ -1977,6 +2048,7 @@ mod tests {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
         give_colony_shipyard(&mut engine, colony_id);
+        unlock_habitat_seeding(&mut engine);
 
         // Queue a colony ship (cost 200)
         engine.apply_turn(vec![Command::QueueBuild {
@@ -3542,6 +3614,7 @@ mod tests {
         // Queue Colony ship at home colony
         let colony_id = ColonyId(1);
         give_colony_shipyard(&mut engine, colony_id);
+        unlock_habitat_seeding(&mut engine);
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
             item: BuildItem::Colony,
@@ -3881,6 +3954,7 @@ mod tests {
             let mut engine = Engine::new(seed);
             let colony_id = ColonyId(1);
             give_colony_shipyard(&mut engine, colony_id);
+            unlock_habitat_seeding(&mut engine);
             engine.apply_turn(vec![Command::QueueBuild {
                 colony: colony_id,
                 item: BuildItem::Colony,
@@ -3957,6 +4031,7 @@ mod tests {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
         give_colony_shipyard(&mut engine, colony_id);
+        unlock_habitat_seeding(&mut engine);
 
         // Build a colonizer
         engine.apply_turn(vec![Command::QueueBuild {
@@ -4169,6 +4244,7 @@ mod tests {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
         give_colony_shipyard(&mut engine, colony_id);
+        unlock_habitat_seeding(&mut engine);
 
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
@@ -6301,7 +6377,7 @@ mod tests {
 
     #[test]
     fn build_item_orbital_structure_required_tech_matches() {
-        use crate::state::OrbitalStructureType;
+        use crate::state::{OrbitalStructureType, ShipDesignId};
         let item = BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard);
         assert_eq!(item.required_tech(), Some(TechId(7)));
         // Surface structures have no required tech
@@ -6310,6 +6386,10 @@ mod tests {
             None
         );
         assert_eq!(BuildItem::Scout.required_tech(), None);
+        assert_eq!(
+            BuildItem::Ship(ShipDesignId::COLONY).required_tech(),
+            Some(TechId(2))
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -6354,6 +6434,7 @@ mod tests {
     #[test]
     fn colony_ship_requires_shipyard_to_queue() {
         let mut engine = Engine::new(42);
+        unlock_habitat_seeding(&mut engine);
         let colony_id = engine
             .state
             .colonies
@@ -6407,6 +6488,7 @@ mod tests {
     #[test]
     fn colony_ship_allowed_when_shipyard_present() {
         let mut engine = Engine::new(42);
+        unlock_habitat_seeding(&mut engine);
         let colony_id = engine
             .state
             .colonies
@@ -6426,6 +6508,204 @@ mod tests {
             !events.iter().any(|e| e.is_error()),
             "Colony Ship must be accepted with a Shipyard, got errors: {:?}",
             events
+        );
+    }
+
+    #[test]
+    fn can_queue_valid_ship_with_shipyard_and_required_tech() {
+        use crate::state::ShipDesignId;
+
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId(2));
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Ship(ShipDesignId::COLONY),
+        }]);
+
+        assert!(!events.iter().any(|e| e.is_error()));
+        assert!(events.iter().any(
+            |e| matches!(e, Event::BuildQueued { item, .. } if *item == BuildItem::Ship(ShipDesignId::COLONY))
+        ));
+    }
+
+    #[test]
+    fn cannot_queue_ship_without_required_tech() {
+        use crate::state::ShipDesignId;
+
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Ship(ShipDesignId::COLONY),
+        }]);
+
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::Error { message } if message.contains("Habitat Seeding"))));
+    }
+
+    #[test]
+    fn cannot_queue_invalid_ship_design() {
+        use crate::state::ShipDesignId;
+
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Ship(ShipDesignId(999)),
+        }]);
+
+        assert!(events.iter().any(
+            |e| matches!(e, Event::Error { message } if message.contains("design 999 is invalid"))
+        ));
+    }
+
+    #[test]
+    fn completed_ship_has_correct_composition() {
+        use crate::state::ShipDesignId;
+
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
+
+        engine.apply_turn(vec![
+            Command::SetColonyFocus {
+                colony: colony_id,
+                prod_pct: 100,
+                research_pct: 0,
+            },
+            Command::QueueBuild {
+                colony: colony_id,
+                item: BuildItem::Ship(ShipDesignId::SCOUT),
+            },
+        ]);
+
+        let initial_fleet_ids: std::collections::BTreeSet<_> =
+            engine.state.fleets.keys().copied().collect();
+        for _ in 0..6 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let new_fleet = engine
+            .state
+            .fleets
+            .values()
+            .find(|f| !initial_fleet_ids.contains(&f.id))
+            .expect("new fleet should be created");
+        let design = ShipDesignId::SCOUT.record().unwrap();
+        assert_eq!(new_fleet.kind, design.fleet_kind);
+        assert_eq!(new_fleet.ships, design.ships);
+        assert_eq!(new_fleet.strength, design.strength);
+    }
+
+    #[test]
+    fn mixed_production_queue_processes_deterministically() {
+        use crate::state::ShipDesignId;
+
+        let mut a = Engine::new(4242);
+        let mut b = Engine::new(4242);
+
+        for engine in [&mut a, &mut b] {
+            let colony_id = ColonyId(1);
+            engine
+                .state
+                .empires
+                .get_mut(&engine.state.player_empire)
+                .unwrap()
+                .research
+                .completed
+                .extend([TechId(2), TechId(7)]);
+            give_colony_shipyard(engine, colony_id);
+            engine.apply_turn(vec![
+                Command::SetColonyFocus {
+                    colony: colony_id,
+                    prod_pct: 100,
+                    research_pct: 0,
+                },
+                Command::QueueBuild {
+                    colony: colony_id,
+                    item: BuildItem::SurfaceStructure(BuildingType::AquacultureBay),
+                },
+                Command::QueueBuild {
+                    colony: colony_id,
+                    item: BuildItem::OrbitalStructure(crate::state::OrbitalStructureType::Shipyard),
+                },
+                Command::QueueBuild {
+                    colony: colony_id,
+                    item: BuildItem::Ship(ShipDesignId::SCOUT),
+                },
+            ]);
+        }
+
+        for _ in 0..30 {
+            let ev_a = a.apply_turn(vec![Command::EndTurn]);
+            let ev_b = b.apply_turn(vec![Command::EndTurn]);
+            assert_eq!(
+                ev_a, ev_b,
+                "events must match for deterministic queue processing"
+            );
+        }
+        assert_eq!(
+            a.state, b.state,
+            "states must match for deterministic queue processing"
+        );
+    }
+
+    #[test]
+    fn ship_completion_event_order_is_deterministic() {
+        use crate::state::ShipDesignId;
+
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
+        engine.apply_turn(vec![
+            Command::SetColonyFocus {
+                colony: colony_id,
+                prod_pct: 100,
+                research_pct: 0,
+            },
+            Command::QueueBuild {
+                colony: colony_id,
+                item: BuildItem::Ship(ShipDesignId::SCOUT),
+            },
+        ]);
+
+        let mut completion_events = Vec::new();
+        for _ in 0..6 {
+            completion_events = engine.apply_turn(vec![Command::EndTurn]);
+            if completion_events
+                .iter()
+                .any(|e| matches!(e, Event::BuildCompleted { .. }))
+            {
+                break;
+            }
+        }
+
+        let build_idx = completion_events
+            .iter()
+            .position(|e| matches!(e, Event::BuildCompleted { .. }))
+            .expect("BuildCompleted must be emitted");
+        let fleet_idx = completion_events
+            .iter()
+            .position(|e| matches!(e, Event::FleetCreated { .. }))
+            .expect("FleetCreated must be emitted");
+        assert!(
+            build_idx < fleet_idx,
+            "BuildCompleted must be emitted before FleetCreated"
         );
     }
 

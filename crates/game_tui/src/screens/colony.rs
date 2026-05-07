@@ -359,17 +359,31 @@ fn render_production_queue(
                 .unwrap_or(bar_width as u64)
                 .min(bar_width as u64) as usize;
             lines.push(Line::from(vec![
-                Span::styled(format!(" {} ", item.name()), Theme::accent_style()),
+                Span::styled(
+                    format!(" {} ({}) ", item.name(), item.category_name()),
+                    Theme::accent_style(),
+                ),
                 Span::styled(
                     format!("[{}{}]", "=".repeat(filled), " ".repeat(bar_width - filled)),
                     Theme::muted_style(),
                 ),
-                Span::raw(format!(" {}/{}", accumulated, cost)),
+                Span::raw(format!(
+                    " {}/{} ({}pp left)",
+                    accumulated,
+                    cost,
+                    cost.saturating_sub(accumulated)
+                )),
             ]));
         } else {
             lines.push(Line::from(vec![
                 Span::styled("   ", Style::default()),
-                Span::raw(format!("{}. {} ({}pp)", i + 1, item.name(), cost)),
+                Span::raw(format!(
+                    "{}. [{}] {} ({}pp)",
+                    i + 1,
+                    item.category_name(),
+                    item.name(),
+                    cost
+                )),
             ]));
         }
     }
@@ -426,8 +440,8 @@ fn render_build_picker(
     // Build the combined list: surface buildings, orbital structures, then ships
     let surface_count = BuildingType::all().len();
     let orbital_count = OrbitalStructureType::all().len();
-    let ship_items: &[BuildItem] = &[BuildItem::Scout, BuildItem::Colony];
-    let total_count = surface_count + orbital_count + ship_items.len();
+    let ship_count = game_core::all_ship_designs().len();
+    let total_count = surface_count + orbital_count + ship_count;
     let cursor = if total_count > 0 {
         app_state.colony_build_cursor % total_count
     } else {
@@ -500,19 +514,29 @@ fn render_build_picker(
         )]));
     }
 
-    // Ships section
+    // Ships section — iterate over all_ship_designs() directly to avoid per-frame allocation
     lines.push(Line::from(vec![Span::styled(
         " Ships",
         Theme::muted_style(),
     )]));
-    for (i, ship_item) in ship_items.iter().enumerate() {
+    for (i, design) in game_core::all_ship_designs().iter().enumerate() {
+        let ship_item = BuildItem::Ship(design.id);
         let idx = surface_count + orbital_count + i;
         let is_selected = idx == cursor;
         let prefix = if is_selected { ">" } else { " " };
-        let lock_tag = if has_shipyard { "" } else { " [NO SHIPYARD]" };
+        let tech_unlocked = design
+            .required_tech
+            .map(|t| completed_techs.contains(&t))
+            .unwrap_or(true);
+        let lock_tag = match (has_shipyard, tech_unlocked) {
+            (true, true) => "",
+            (false, true) => " [NO SHIPYARD]",
+            (true, false) => " [LOCKED]",
+            (false, false) => " [NO SHIPYARD][LOCKED]",
+        };
         let style = if is_selected {
             Theme::highlight_style()
-        } else if has_shipyard {
+        } else if has_shipyard && tech_unlocked {
             Theme::default_style()
         } else {
             Theme::muted_style()
@@ -522,7 +546,7 @@ fn render_build_picker(
                 " {} [{:>3}pp] {}{}",
                 prefix,
                 ship_item.cost(),
-                ship_item.name(),
+                design.name,
                 lock_tag
             ),
             style,
@@ -792,5 +816,63 @@ mod tests {
             !content.contains("LOCKED"),
             "LOCKED badge must not appear when Orbital Engineering is researched"
         );
+    }
+
+    #[test]
+    fn production_queue_shows_item_type_and_progress() {
+        use game_core::{BuildItem, Command, ShipDesignId};
+
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut engine = Engine::new(42);
+        let colony_id = *engine.state.colonies.keys().next().unwrap();
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .orbital_installations
+            .push(game_core::OrbitalStructureType::Shipyard);
+
+        engine.apply_turn(vec![
+            Command::QueueBuild {
+                colony: colony_id,
+                item: BuildItem::SurfaceStructure(BuildingType::AquacultureBay),
+            },
+            Command::QueueBuild {
+                colony: colony_id,
+                item: BuildItem::Ship(ShipDesignId::SCOUT),
+            },
+        ]);
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .accumulated_production = 17;
+
+        let app_state = AppState {
+            selected_colony: Some(colony_id),
+            ..Default::default()
+        };
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_colony(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(content.contains("Surface"));
+        assert!(content.contains("[Ship]"));
+        assert!(content.contains("17/60"));
     }
 }

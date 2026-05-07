@@ -69,8 +69,8 @@ impl ShipTemplate {
         vec![
             ShipTemplate {
                 name: "Scout".to_string(),
-                build_item: BuildItem::Scout,
-                cost: BuildItem::Scout.cost(),
+                build_item: BuildItem::Ship(game_core::ShipDesignId::SCOUT),
+                cost: BuildItem::Ship(game_core::ShipDesignId::SCOUT).cost(),
                 attack: 1,
                 defense: 1,
                 speed: 3,
@@ -78,8 +78,8 @@ impl ShipTemplate {
             },
             ShipTemplate {
                 name: "Colony Ship".to_string(),
-                build_item: BuildItem::Colony,
-                cost: BuildItem::Colony.cost(),
+                build_item: BuildItem::Ship(game_core::ShipDesignId::COLONY),
+                cost: BuildItem::Ship(game_core::ShipDesignId::COLONY).cost(),
                 attack: 0,
                 defense: 1,
                 speed: 2,

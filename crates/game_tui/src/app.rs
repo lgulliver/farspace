@@ -333,8 +333,9 @@ impl App {
 
     /// Total number of items in the build picker (surface buildings + orbital structures + ships)
     fn all_build_item_count() -> usize {
-        // Ships: Scout and Colony Ship
-        BuildingType::all().len() + OrbitalStructureType::all().len() + 2
+        BuildingType::all().len()
+            + OrbitalStructureType::all().len()
+            + game_core::all_ship_designs().len()
     }
 
     /// Try to enter the colony screen for the selected star.
@@ -488,24 +489,24 @@ impl App {
 
         let surface_buildings = BuildingType::all();
         let orbital_structures = OrbitalStructureType::all();
-        // Ships listed in the picker: Scout then Colony Ship
-        const SHIP_ITEMS: &[game_core::BuildItem] =
-            &[game_core::BuildItem::Scout, game_core::BuildItem::Colony];
+        let ship_designs = game_core::all_ship_designs();
 
-        let total = surface_buildings.len() + orbital_structures.len() + SHIP_ITEMS.len();
+        let total = surface_buildings.len() + orbital_structures.len() + ship_designs.len();
         if total == 0 {
             return;
         }
         let cursor = self.state.colony_build_cursor % total;
 
         let item = if cursor < surface_buildings.len() {
-            game_core::BuildItem::Structure(surface_buildings[cursor])
+            game_core::BuildItem::SurfaceStructure(surface_buildings[cursor])
         } else if cursor < surface_buildings.len() + orbital_structures.len() {
             game_core::BuildItem::OrbitalStructure(
                 orbital_structures[cursor - surface_buildings.len()],
             )
         } else {
-            SHIP_ITEMS[cursor - surface_buildings.len() - orbital_structures.len()]
+            game_core::BuildItem::Ship(
+                ship_designs[cursor - surface_buildings.len() - orbital_structures.len()].id,
+            )
         };
 
         self.pending_commands.push(Command::QueueBuild {
@@ -1948,6 +1949,16 @@ mod tests {
             .unwrap()
             .orbital_installations
             .push(OrbitalStructureType::Shipyard);
+        app.engine
+            .as_mut()
+            .unwrap()
+            .state
+            .empires
+            .get_mut(&game_core::EmpireId(1))
+            .unwrap()
+            .research
+            .completed
+            .push(game_core::TechId(2));
         app.engine.as_mut().unwrap().apply_turn(vec![
             Command::QueueBuild {
                 colony: colony_id,

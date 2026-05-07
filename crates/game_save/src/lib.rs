@@ -432,6 +432,14 @@ mod tests {
             .unwrap()
             .orbital_installations
             .push(OrbitalStructureType::Shipyard);
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .completed
+            .push(game_core::TechId(2));
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
             item: game_core::BuildItem::Colony,
@@ -546,6 +554,14 @@ mod tests {
             .unwrap()
             .orbital_installations
             .push(OrbitalStructureType::Shipyard);
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .completed
+            .push(game_core::TechId(2));
 
         engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
@@ -899,6 +915,42 @@ mod tests {
                 .buildings
                 .contains(&game_core::BuildingType::ScienceNexus),
             "ScienceNexus must survive save/load round-trip"
+        );
+    }
+
+    #[test]
+    fn save_load_preserves_mixed_production_queue() {
+        use game_core::{BuildItem, ColonyId, OrbitalStructureType, ShipDesignId};
+
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        {
+            let colony = engine
+                .state
+                .colonies
+                .get_mut(&colony_id)
+                .expect("player colony must exist");
+            colony.build_queue = vec![
+                BuildItem::SurfaceStructure(game_core::BuildingType::ScienceNexus),
+                BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard),
+                BuildItem::Ship(ShipDesignId::SCOUT),
+            ];
+            colony.accumulated_production = 37;
+        }
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        let original_colony = engine.state.colonies.get(&colony_id).unwrap();
+        let loaded_colony = loaded.colonies.get(&colony_id).unwrap();
+        assert_eq!(
+            loaded_colony.build_queue, original_colony.build_queue,
+            "mixed production queue must survive save/load"
+        );
+        assert_eq!(
+            loaded_colony.accumulated_production, original_colony.accumulated_production,
+            "accumulated production must survive save/load"
         );
     }
 

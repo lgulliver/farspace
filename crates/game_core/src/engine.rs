@@ -104,6 +104,8 @@ impl Engine {
                 build_queue: Vec::new(),
                 accumulated_production: 0,
                 buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
             },
         );
 
@@ -123,6 +125,8 @@ impl Engine {
                 build_queue: Vec::new(),
                 accumulated_production: 0,
                 buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
             },
         );
 
@@ -1054,6 +1058,8 @@ impl Engine {
             build_queue: Vec::new(),
             accumulated_production: 0,
             buildings: Vec::new(),
+            surface_installations: Vec::new(),
+            orbital_installations: Vec::new(),
         };
         self.state.colonies.insert(colony_id, new_colony);
 
@@ -1676,6 +1682,8 @@ mod tests {
                 build_queue: Vec::new(),
                 accumulated_production: 0,
                 buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
             },
         );
 
@@ -1722,6 +1730,8 @@ mod tests {
                 build_queue: vec![BuildItem::Scout],
                 accumulated_production: 0,
                 buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
             },
         );
 
@@ -1790,6 +1800,8 @@ mod tests {
                 build_queue: Vec::new(),
                 accumulated_production: 0,
                 buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
             },
         );
 
@@ -4506,6 +4518,7 @@ mod tests {
                 planets: vec![Planet {
                     name: "Alpha I".to_string(),
                     size: PlanetSize::Medium,
+                    class: crate::state::PlanetClass::Terran,
                     colony: Some(ColonyId(1)),
                     habitable: true,
                 }],
@@ -4524,6 +4537,7 @@ mod tests {
                 planets: vec![Planet {
                     name: "Beta I".to_string(),
                     size: PlanetSize::Medium,
+                    class: crate::state::PlanetClass::Terran,
                     colony: Some(ColonyId(2)),
                     habitable: true,
                 }],
@@ -4573,6 +4587,8 @@ mod tests {
                 build_queue: Vec::new(),
                 accumulated_production: 0,
                 buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
             },
         );
 
@@ -4591,6 +4607,8 @@ mod tests {
                 build_queue: Vec::new(),
                 accumulated_production: 0,
                 buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
             },
         );
 
@@ -4665,6 +4683,7 @@ mod tests {
                 planets: vec![crate::state::Planet {
                     name: "Alpha I".to_string(),
                     size: crate::state::PlanetSize::Medium,
+                    class: crate::state::PlanetClass::Terran,
                     colony: Some(ColonyId(1)),
                     habitable: true,
                 }],
@@ -4681,6 +4700,7 @@ mod tests {
                 planets: vec![crate::state::Planet {
                     name: "Beta I".to_string(),
                     size: crate::state::PlanetSize::Medium,
+                    class: crate::state::PlanetClass::Terran,
                     colony: Some(ColonyId(2)),
                     habitable: true,
                 }],
@@ -4724,6 +4744,8 @@ mod tests {
                 build_queue: Vec::new(),
                 accumulated_production: 0,
                 buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
             },
         );
         state.colonies.insert(
@@ -4740,6 +4762,8 @@ mod tests {
                 build_queue: Vec::new(),
                 accumulated_production: 0,
                 buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
             },
         );
         // Player scout at player star — will scout the AI star
@@ -4905,6 +4929,7 @@ mod tests {
                 planets: vec![Planet {
                     name: "Home I".to_string(),
                     size: PlanetSize::Medium,
+                    class: crate::state::PlanetClass::Terran,
                     colony: Some(ColonyId(1)),
                     habitable: true,
                 }],
@@ -4922,12 +4947,14 @@ mod tests {
                     Planet {
                         name: "Target I".to_string(),
                         size: PlanetSize::Medium,
+                        class: crate::state::PlanetClass::Terran,
                         colony: Some(ColonyId(2)),
                         habitable: true,
                     },
                     Planet {
                         name: "Target II".to_string(),
                         size: PlanetSize::Small,
+                        class: crate::state::PlanetClass::Terran,
                         colony: Some(ColonyId(3)),
                         habitable: true,
                     },
@@ -4962,6 +4989,8 @@ mod tests {
                 build_queue: Vec::new(),
                 accumulated_production: 0,
                 buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
             },
         );
         state.colonies.insert(
@@ -4978,6 +5007,8 @@ mod tests {
                 build_queue: Vec::new(),
                 accumulated_production: 0,
                 buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
             },
         );
         state.colonies.insert(
@@ -4994,6 +5025,8 @@ mod tests {
                 build_queue: Vec::new(),
                 accumulated_production: 0,
                 buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
             },
         );
         state.fleets.insert(

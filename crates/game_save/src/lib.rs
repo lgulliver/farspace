@@ -901,4 +901,58 @@ mod tests {
             "Empty explored_stars must survive save/load"
         );
     }
+
+    /// Planet classes and infrastructure tracking are preserved in save/load round-trip.
+    #[test]
+    fn save_load_preserves_planet_classes_and_infrastructure() {
+        let engine = Engine::new(42);
+        let original = engine.state.clone();
+
+        // Verify original has planet classes
+        let mut original_classes = Vec::new();
+        for star in original.stars.values() {
+            for planet in &star.planets {
+                original_classes.push(planet.class);
+            }
+        }
+        assert!(!original_classes.is_empty(), "Galaxy should have planets");
+
+        // Verify original colonies have infrastructure tracking fields
+        for colony in original.colonies.values() {
+            // These fields should exist and be serializable
+            let _surface = &colony.surface_installations;
+            let _orbital = &colony.orbital_installations;
+        }
+
+        // Save and load
+        let saved = save(&original).expect("Save should succeed");
+        let loaded = load(&saved).expect("Load should succeed");
+
+        // Verify planet classes are preserved
+        let mut loaded_classes = Vec::new();
+        for star in loaded.stars.values() {
+            for planet in &star.planets {
+                loaded_classes.push(planet.class);
+            }
+        }
+        assert_eq!(
+            original_classes, loaded_classes,
+            "Planet classes must be preserved in save/load"
+        );
+
+        // Verify infrastructure tracking is preserved
+        for (col_id, colony) in &loaded.colonies {
+            let original_colony = &original.colonies[col_id];
+            assert_eq!(
+                colony.surface_installations, original_colony.surface_installations,
+                "Surface installations must be preserved for colony {:?}",
+                col_id
+            );
+            assert_eq!(
+                colony.orbital_installations, original_colony.orbital_installations,
+                "Orbital installations must be preserved for colony {:?}",
+                col_id
+            );
+        }
+    }
 }

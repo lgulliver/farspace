@@ -70,6 +70,16 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // v7 -> v8: Fleet.strength (u32, default 1) and Fleet.integrity (u32, default 100)
             // added for combat auto-resolve.  Both rely on serde defaults — nothing to populate
             // explicitly.  Existing fleets will have full health and base strength on load.
+            migrate(SaveFile {
+                version: 8,
+                state: save.state,
+            })
+        }
+        8 => {
+            // v8 -> v9: Planet.class (PlanetClass, default Terran) and Colony.surface_installations /
+            // orbital_installations (Vec<BuildingType>, default empty) added for infrastructure system.
+            // Both fields rely on serde defaults — nothing to populate explicitly.
+            // Existing planets will default to Terran class; colonies start with no installed infrastructure.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,

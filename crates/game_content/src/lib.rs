@@ -135,7 +135,7 @@ pub fn base_production(size: PlanetSize) -> u64 {
         PlanetSize::Small => 8,
         PlanetSize::Medium => 12,
         PlanetSize::Large => 16,
-        PlanetSize::Huge => 20,
+        PlanetSize::Massive => 20,
     }
 }
 
@@ -166,6 +166,6 @@ mod tests {
 
     #[test]
     fn base_production_values() {
-        assert!(base_production(PlanetSize::Huge) > base_production(PlanetSize::Tiny));
+        assert!(base_production(PlanetSize::Massive) > base_production(PlanetSize::Tiny));
     }
 }

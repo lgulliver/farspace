@@ -113,6 +113,18 @@ fn render_colony_stats(
     // Maintenance cost from buildings at this colony
     let building_maint: i64 = colony.buildings.iter().map(|b| b.maintenance_cost()).sum();
 
+    // Get planet size for infrastructure slot capacity
+    let (surface_used, surface_max, orbital_used, orbital_max) = planet
+        .map(|p| {
+            (
+                colony.surface_installations.len() as u32,
+                p.size.surface_slots() as u32,
+                colony.orbital_installations.len() as u32,
+                p.size.orbital_slots() as u32,
+            )
+        })
+        .unwrap_or((0, 0, 0, 0));
+
     let lines = vec![
         Line::from(vec![Span::styled(planet_name, Theme::title_style())]),
         Line::from(vec![
@@ -135,6 +147,21 @@ fn render_colony_stats(
             Span::styled("Food/turn  : ", Theme::muted_style()),
             Span::styled(format!("+{}/turn", food_out), Theme::accent_style()),
         ]),
+        Line::from(vec![
+            Span::styled("Surface    : ", Theme::muted_style()),
+            Span::styled(
+                format!("{}/{}", surface_used, surface_max),
+                Theme::accent_style(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Orbital    : ", Theme::muted_style()),
+            Span::styled(
+                format!("{}/{}", orbital_used, orbital_max),
+                Theme::accent_style(),
+            ),
+        ]),
+        Line::from(""),
         Line::from(vec![
             Span::styled("Industry   : ", Theme::muted_style()),
             Span::styled(format!("{}/turn", industry), Theme::accent_style()),

@@ -230,6 +230,8 @@ fn ai_colonize(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Even
             build_queue: Vec::new(),
             accumulated_production: 0,
             buildings: Vec::new(),
+            surface_installations: Vec::new(),
+            orbital_installations: Vec::new(),
         };
         state.colonies.insert(colony_id, new_colony);
 

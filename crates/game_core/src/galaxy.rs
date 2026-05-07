@@ -1,6 +1,6 @@
 //! Galaxy generation
 
-use crate::state::{Planet, PlanetSize, SpectralClass, Star, StarId};
+use crate::state::{Planet, PlanetClass, PlanetSize, SpectralClass, Star, StarId};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use std::collections::BTreeSet;
@@ -60,9 +60,14 @@ pub fn generate_galaxy(seed: u64, star_count: usize) -> Vec<Star> {
             .map(|i| {
                 let planet_name = format!("{} {}", name, ROMAN_NUMERALS[i]);
                 let size = *PlanetSize::all().choose(&mut rng).unwrap();
+                // Assign class deterministically based on star_id + planet index
+                // to avoid consuming extra RNG calls that would break fixed-seed tests
+                let class_idx = (id * 37 + i * 11) % PlanetClass::all().len();
+                let class = PlanetClass::all()[class_idx];
                 Planet {
                     name: planet_name,
                     size,
+                    class,
                     colony: None,
                     habitable: true,
                 }

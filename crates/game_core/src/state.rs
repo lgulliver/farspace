@@ -137,6 +137,44 @@ impl SpectralClass {
     }
 }
 
+/// Geological class of a planet, affecting resource and habitability profiles
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum PlanetClass {
+    Terran,
+    Desert,
+    Oceanic,
+    Volcanic,
+    Frozen,
+    Barren,
+}
+
+impl PlanetClass {
+    /// Returns all planet classes for random selection
+    pub fn all() -> &'static [PlanetClass] {
+        &[
+            PlanetClass::Terran,
+            PlanetClass::Desert,
+            PlanetClass::Oceanic,
+            PlanetClass::Volcanic,
+            PlanetClass::Frozen,
+            PlanetClass::Barren,
+        ]
+    }
+
+    /// Human-readable name for this planet class
+    pub fn name(&self) -> &'static str {
+        match self {
+            PlanetClass::Terran => "Terran",
+            PlanetClass::Desert => "Desert",
+            PlanetClass::Oceanic => "Oceanic",
+            PlanetClass::Volcanic => "Volcanic",
+            PlanetClass::Frozen => "Frozen",
+            PlanetClass::Barren => "Barren",
+        }
+    }
+}
+
 /// Size category for a planet
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -145,7 +183,7 @@ pub enum PlanetSize {
     Small,
     Medium,
     Large,
-    Huge,
+    Massive,
 }
 
 impl PlanetSize {
@@ -156,7 +194,7 @@ impl PlanetSize {
             PlanetSize::Small,
             PlanetSize::Medium,
             PlanetSize::Large,
-            PlanetSize::Huge,
+            PlanetSize::Massive,
         ]
     }
 
@@ -167,7 +205,29 @@ impl PlanetSize {
             PlanetSize::Small => 4,
             PlanetSize::Medium => 8,
             PlanetSize::Large => 12,
-            PlanetSize::Huge => 16,
+            PlanetSize::Massive => 16,
+        }
+    }
+
+    /// Number of surface infrastructure slots available on this planet
+    pub fn surface_slots(&self) -> usize {
+        match self {
+            PlanetSize::Tiny => 3,
+            PlanetSize::Small => 5,
+            PlanetSize::Medium => 7,
+            PlanetSize::Large => 10,
+            PlanetSize::Massive => 14,
+        }
+    }
+
+    /// Number of orbital infrastructure slots available around this planet
+    pub fn orbital_slots(&self) -> usize {
+        match self {
+            PlanetSize::Tiny => 1,
+            PlanetSize::Small => 1,
+            PlanetSize::Medium => 2,
+            PlanetSize::Large => 3,
+            PlanetSize::Massive => 4,
         }
     }
 }
@@ -178,10 +238,18 @@ impl PlanetSize {
 pub struct Planet {
     pub name: String,
     pub size: PlanetSize,
+    /// Geological classification of this planet
+    #[cfg_attr(feature = "serde", serde(default = "default_planet_class"))]
+    pub class: PlanetClass,
     pub colony: Option<ColonyId>,
     /// Whether this planet can support a colony
     #[cfg_attr(feature = "serde", serde(default = "default_true"))]
     pub habitable: bool,
+}
+
+#[cfg(feature = "serde")]
+fn default_planet_class() -> PlanetClass {
+    PlanetClass::Terran
 }
 
 #[cfg(feature = "serde")]
@@ -339,6 +407,38 @@ pub struct Colony {
     /// Completed permanent buildings at this colony
     #[cfg_attr(feature = "serde", serde(default))]
     pub buildings: Vec<BuildingType>,
+    /// Infrastructure occupying surface building slots
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub surface_installations: Vec<BuildingType>,
+    /// Infrastructure occupying orbital slots
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub orbital_installations: Vec<BuildingType>,
+}
+
+impl Colony {
+    /// Check if a building can be placed on this colony's surface
+    pub fn can_place_surface_building(&self, planet_size: PlanetSize) -> bool {
+        self.surface_installations.len() < planet_size.surface_slots()
+    }
+
+    /// Check if a building can be placed in orbit around this colony's planet
+    pub fn can_place_orbital_installation(&self, planet_size: PlanetSize) -> bool {
+        self.orbital_installations.len() < planet_size.orbital_slots()
+    }
+
+    /// Get the number of available surface slots
+    pub fn available_surface_slots(&self, planet_size: PlanetSize) -> usize {
+        planet_size
+            .surface_slots()
+            .saturating_sub(self.surface_installations.len())
+    }
+
+    /// Get the number of available orbital slots
+    pub fn available_orbital_slots(&self, planet_size: PlanetSize) -> usize {
+        planet_size
+            .orbital_slots()
+            .saturating_sub(self.orbital_installations.len())
+    }
 }
 
 /// The role of a fleet
@@ -613,7 +713,7 @@ mod tests {
     #[test]
     fn planet_size_capacities() {
         assert_eq!(PlanetSize::Tiny.base_capacity(), 2);
-        assert_eq!(PlanetSize::Huge.base_capacity(), 16);
+        assert_eq!(PlanetSize::Massive.base_capacity(), 16);
     }
 
     #[test]
@@ -654,7 +754,7 @@ mod tests {
         let all = PlanetSize::all();
         assert_eq!(all.len(), 5);
         assert!(all.contains(&PlanetSize::Tiny));
-        assert!(all.contains(&PlanetSize::Huge));
+        assert!(all.contains(&PlanetSize::Massive));
     }
 
     #[test]
@@ -959,5 +1059,95 @@ mod tests {
     fn game_state_default_has_empty_fleet_missions() {
         let state = GameState::default();
         assert!(state.fleet_missions.is_empty());
+    }
+
+    #[test]
+    fn planet_class_all_contains_all_variants() {
+        let all = PlanetClass::all();
+        assert_eq!(all.len(), 6);
+        assert!(all.contains(&PlanetClass::Terran));
+        assert!(all.contains(&PlanetClass::Desert));
+        assert!(all.contains(&PlanetClass::Oceanic));
+        assert!(all.contains(&PlanetClass::Volcanic));
+        assert!(all.contains(&PlanetClass::Frozen));
+        assert!(all.contains(&PlanetClass::Barren));
+    }
+
+    #[test]
+    fn planet_class_names_are_non_empty() {
+        for class in PlanetClass::all() {
+            assert!(!class.name().is_empty());
+        }
+    }
+
+    #[test]
+    fn planet_size_infrastructure_capacities() {
+        assert_eq!(PlanetSize::Tiny.surface_slots(), 3);
+        assert_eq!(PlanetSize::Tiny.orbital_slots(), 1);
+        assert_eq!(PlanetSize::Small.surface_slots(), 5);
+        assert_eq!(PlanetSize::Small.orbital_slots(), 1);
+        assert_eq!(PlanetSize::Medium.surface_slots(), 7);
+        assert_eq!(PlanetSize::Medium.orbital_slots(), 2);
+        assert_eq!(PlanetSize::Large.surface_slots(), 10);
+        assert_eq!(PlanetSize::Large.orbital_slots(), 3);
+        assert_eq!(PlanetSize::Massive.surface_slots(), 14);
+        assert_eq!(PlanetSize::Massive.orbital_slots(), 4);
+    }
+
+    #[test]
+    fn colony_surface_slot_availability_starts_empty() {
+        let colony = Colony {
+            id: ColonyId(1),
+            star: StarId(1),
+            planet_index: 0,
+            owner: EmpireId(1),
+            population: 10,
+            production: 10,
+            prod_pct: 50,
+            research_pct: 50,
+            build_queue: Vec::new(),
+            accumulated_production: 0,
+            buildings: Vec::new(),
+            surface_installations: Vec::new(),
+            orbital_installations: Vec::new(),
+        };
+
+        assert!(colony.can_place_surface_building(PlanetSize::Medium));
+        assert!(colony.can_place_orbital_installation(PlanetSize::Medium));
+        assert_eq!(colony.available_surface_slots(PlanetSize::Medium), 7);
+        assert_eq!(colony.available_orbital_slots(PlanetSize::Medium), 2);
+    }
+
+    #[test]
+    fn colony_surface_slots_fill_and_reject_overflow() {
+        let mut colony = Colony {
+            id: ColonyId(1),
+            star: StarId(1),
+            planet_index: 0,
+            owner: EmpireId(1),
+            population: 10,
+            production: 10,
+            prod_pct: 50,
+            research_pct: 50,
+            build_queue: Vec::new(),
+            accumulated_production: 0,
+            buildings: Vec::new(),
+            surface_installations: vec![BuildingType::FabricationYard],
+            orbital_installations: Vec::new(),
+        };
+
+        // With 1 surface building on Tiny (capacity 3), we have 2 left
+        assert!(colony.can_place_surface_building(PlanetSize::Tiny));
+        assert_eq!(colony.available_surface_slots(PlanetSize::Tiny), 2);
+
+        // Fill to capacity
+        colony
+            .surface_installations
+            .push(BuildingType::ScienceNexus);
+        colony
+            .surface_installations
+            .push(BuildingType::FabricationYard);
+        assert!(!colony.can_place_surface_building(PlanetSize::Tiny));
+        assert_eq!(colony.available_surface_slots(PlanetSize::Tiny), 0);
     }
 }

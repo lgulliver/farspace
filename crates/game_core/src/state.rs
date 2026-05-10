@@ -147,9 +147,9 @@ pub fn all_ship_designs() -> &'static [ShipDesignRecord] {
 }
 
 impl ShipDesignId {
-pub const SCOUT: ShipDesignId = ShipDesignId(1);
-pub const COLONY: ShipDesignId = ShipDesignId(2);
-pub const SCIENCE: ShipDesignId = ShipDesignId(3);
+    pub const SCOUT: ShipDesignId = ShipDesignId(1);
+    pub const COLONY: ShipDesignId = ShipDesignId(2);
+    pub const SCIENCE: ShipDesignId = ShipDesignId(3);
 
     /// All design IDs in deterministic display order, derived from `all_ship_designs()`
     /// to ensure both stay in sync automatically.
@@ -1131,7 +1131,10 @@ mod tests {
         assert_eq!(BuildItem::Ship(ShipDesignId::SCIENCE).cost(), 100);
         assert_eq!(BuildItem::Ship(ShipDesignId::COLONY).cost(), 200);
         assert_eq!(BuildItem::Scout.cost(), 50);
-        assert_eq!(BuildItem::Ship(ShipDesignId::SCIENCE).name(), "Science Ship");
+        assert_eq!(
+            BuildItem::Ship(ShipDesignId::SCIENCE).name(),
+            "Science Ship"
+        );
         assert_eq!(BuildItem::Colony.cost(), 200);
         assert_eq!(BuildItem::Outpost.cost(), 100);
         assert_eq!(
@@ -1203,7 +1206,10 @@ mod tests {
     fn build_item_names() {
         assert_eq!(BuildItem::Ship(ShipDesignId::SCOUT).name(), "Scout");
         assert_eq!(BuildItem::Ship(ShipDesignId::COLONY).name(), "Colony Ship");
-        assert_eq!(BuildItem::Ship(ShipDesignId::SCIENCE).name(), "Science Ship");
+        assert_eq!(
+            BuildItem::Ship(ShipDesignId::SCIENCE).name(),
+            "Science Ship"
+        );
         assert_eq!(BuildItem::Scout.name(), "Scout");
         assert_eq!(BuildItem::Colony.name(), "Colony Ship");
         assert_eq!(BuildItem::Outpost.name(), "Outpost");

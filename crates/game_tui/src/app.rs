@@ -331,6 +331,9 @@ impl App {
             KeyCode::Esc => {
                 self.state.active = Screen::SectorMap;
             }
+            KeyCode::Enter => {
+                self.try_enter_colony();
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 if planet_count > 0 {
                     self.state.selected_planet_index =
@@ -1717,7 +1720,10 @@ mod tests {
         second_colony.planet_index = 1;
         second_colony.accumulated_production = 0;
         second_colony.build_queue.clear();
-        engine.state.colonies.insert(second_colony_id, second_colony);
+        engine
+            .state
+            .colonies
+            .insert(second_colony_id, second_colony);
 
         let star = engine
             .state
@@ -1767,7 +1773,10 @@ mod tests {
         second_colony.planet_index = 1;
         second_colony.accumulated_production = 0;
         second_colony.build_queue.clear();
-        engine.state.colonies.insert(second_colony_id, second_colony);
+        engine
+            .state
+            .colonies
+            .insert(second_colony_id, second_colony);
 
         let star = engine
             .state
@@ -1788,6 +1797,69 @@ mod tests {
 
         assert_eq!(app.state.active, Screen::Colony);
         assert_eq!(app.state.selected_colony, Some(second_colony_id));
+    }
+
+    #[test]
+    fn enter_key_in_system_view_enters_selected_planet_colony() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let engine = app.engine.as_ref().unwrap();
+        let player_empire = engine.state.player_empire;
+        let home_colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find(|(_, c)| c.owner == player_empire)
+            .map(|(id, _)| *id)
+            .expect("player colony should exist");
+        let home_star_id = engine.state.colonies[&home_colony_id].star;
+
+        app.state.active = Screen::System;
+        app.state.selected_star = Some(home_star_id);
+        app.state.selected_planet_index = engine.state.colonies[&home_colony_id].planet_index;
+        app.state.selected_colony = None;
+
+        app.handle_key(key(KeyCode::Enter));
+
+        assert_eq!(app.state.active, Screen::Colony);
+        assert_eq!(app.state.selected_colony, Some(home_colony_id));
+    }
+
+    #[test]
+    fn enter_key_in_system_view_keeps_system_without_player_colony() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let engine = app.engine.as_ref().unwrap();
+        let player_empire = engine.state.player_empire;
+        let target_star = engine
+            .state
+            .stars
+            .iter()
+            .find(|(_, s)| {
+                s.planets.iter().all(|p| {
+                    p.colony.is_none_or(|cid| {
+                        engine
+                            .state
+                            .colonies
+                            .get(&cid)
+                            .is_none_or(|c| c.owner != player_empire)
+                    })
+                })
+            })
+            .map(|(id, _)| *id)
+            .expect("need a star without a player colony");
+
+        app.state.active = Screen::System;
+        app.state.selected_star = Some(target_star);
+        app.state.selected_planet_index = 0;
+        app.state.selected_colony = None;
+
+        app.handle_key(key(KeyCode::Enter));
+
+        assert_eq!(app.state.active, Screen::System);
+        assert!(app.state.selected_colony.is_none());
     }
 
     #[test]

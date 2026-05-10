@@ -1125,10 +1125,7 @@ impl Engine {
         }
 
         if fleet.kind != FleetKind::Scout {
-            events.push(Event::error(format!(
-                "Fleet {} is not a scout",
-                fleet_id.0
-            )));
+            events.push(Event::error(format!("Fleet {} is not a scout", fleet_id.0)));
             return;
         }
 
@@ -1586,7 +1583,7 @@ impl Engine {
             .fleets
             .iter()
             .filter(|(fid, f)| {
-                    **fid != arrived_fleet_id
+                **fid != arrived_fleet_id
                     && f.location == star_id
                     && f.owner != arrived_owner
                     && !self.state.fleet_missions.contains_key(*fid)
@@ -7266,7 +7263,10 @@ mod tests {
             .planets
             .iter()
             .all(|p| p.surveyed);
-        assert!(!all_surveyed, "scout exploration should not fully survey planets");
+        assert!(
+            !all_surveyed,
+            "scout exploration should not fully survey planets"
+        );
     }
 
     #[test]

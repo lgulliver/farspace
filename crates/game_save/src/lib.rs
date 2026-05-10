@@ -391,8 +391,10 @@ mod tests {
             destination: dest,
         }]);
 
-        // Advance enough turns for the scout to arrive (up to 10 turns for any distance)
-        for _ in 0..10 {
+        // Use the actual computed duration (+ 1 buffer) so the test is tightly coupled to
+        // the travel formula rather than relying on an arbitrary upper bound.
+        let total_duration = engine.state.scout_missions[&game_core::FleetId(1)].total_duration;
+        for _ in 0..=total_duration {
             engine.apply_turn(vec![Command::EndTurn]);
         }
 

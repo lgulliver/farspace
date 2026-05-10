@@ -3721,8 +3721,10 @@ mod tests {
             destination: dest,
         }]);
 
-        // Advance up to 10 turns — more than enough for any possible distance
-        for _ in 0..10 {
+        // Use the actual computed duration (+ 1 buffer) so the test is tightly coupled to
+        // the travel formula rather than relying on an arbitrary upper bound.
+        let total_duration = engine.state.scout_missions[&fleet_id].total_duration;
+        for _ in 0..=total_duration {
             engine.apply_turn(vec![Command::EndTurn]);
         }
 

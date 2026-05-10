@@ -189,7 +189,8 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
 /// Render interpolated position indicators for fleets currently travelling within the sector.
 ///
 /// This is purely cosmetic: positions are linearly interpolated between origin and destination
-/// using `turns_remaining / total_duration`.  The game state is never modified.
+/// using `elapsed / total_duration`, where `elapsed = total_duration - turns_remaining`.
+/// The game state is never modified.
 fn render_travelling_fleets(
     frame: &mut Frame,
     game_state: &GameState,

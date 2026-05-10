@@ -273,9 +273,9 @@ fn render_system_details(
         } else {
             format!("Colony {}", colony_id.0)
         }
-        } else {
-            "Uncolonized".to_string()
-        };
+    } else {
+        "Uncolonized".to_string()
+    };
     lines.push(Line::from(vec![
         Span::styled("Status: ", Theme::muted_style()),
         Span::raw(colony_line),

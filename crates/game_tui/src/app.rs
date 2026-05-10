@@ -1720,7 +1720,10 @@ mod tests {
         second_colony.planet_index = 1;
         second_colony.accumulated_production = 0;
         second_colony.build_queue.clear();
-        engine.state.colonies.insert(second_colony_id, second_colony);
+        engine
+            .state
+            .colonies
+            .insert(second_colony_id, second_colony);
 
         let star = engine
             .state
@@ -1770,7 +1773,10 @@ mod tests {
         second_colony.planet_index = 1;
         second_colony.accumulated_production = 0;
         second_colony.build_queue.clear();
-        engine.state.colonies.insert(second_colony_id, second_colony);
+        engine
+            .state
+            .colonies
+            .insert(second_colony_id, second_colony);
 
         let star = engine
             .state

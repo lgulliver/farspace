@@ -39,7 +39,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
         ],
         Screen::System => vec![
             ("[j/k]", "Select Planet"),
-            ("[Enter]", "Open Player Colony"),
+            ("[Enter]", "Open Selected/First Player Colony"),
             ("[S]", "Survey"),
             ("[C]", "Colonize Selected"),
             ("[e/t]", "End Turn"),

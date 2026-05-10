@@ -24,6 +24,7 @@ pub(crate) const SURVEY_TURNS: u32 = 2;
 /// * dist  ≤ 1000 →  2 turns (medium-range)
 /// * dist  > 1000 →  3 turns (long-range, far sectors)
 const FLEET_TRAVEL_SPEED: f64 = 500.0;
+/// Direct hyperspace lanes reduce duration to `ceil(base_turns / 2)`.
 const HYPERSPACE_TRAVEL_DIVISOR: u32 = 2;
 
 /// Return the number of travel turns for a fleet moving the given squared Euclidean distance.

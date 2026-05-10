@@ -194,6 +194,8 @@ pub fn generate_hyperspace_lanes(
                 let sq = dx * dx + dy * dy;
                 let base = HyperspaceLane::new(a.id, b.id).expect("distinct stars");
                 // Deterministic seed-based tie-break for equal-distance pairs.
+                // Pack normalized endpoints into a stable 64-bit value and xor with seed
+                // so different seeds may pick different (still deterministic) equal-length lanes.
                 let tie_break = ((seed ^ ((base.a.0 << 32) | base.b.0)) & 0xFFFF) as i64;
                 let candidate = (sq * 65_536 + tie_break, base.a, base.b);
                 if best.is_none_or(|current| candidate < current) {
@@ -213,8 +215,9 @@ pub fn generate_hyperspace_lanes(
 }
 
 fn adjacent_sector_pairs(sectors: &[Sector]) -> Vec<(SectorId, SectorId)> {
-    // Sector centers are generated on a deterministic sparse grid. Treat sectors
-    // with center distance <= 600 units as adjacent.
+    // Sector centers are generated on a deterministic sparse grid where
+    // immediate neighbors are roughly 400-600 units apart and non-neighbors are larger.
+    // Treating <=600 as adjacent keeps links local without over-connecting distant sectors.
     const ADJACENT_SECTOR_MAX_SQ_DIST: i64 = 600 * 600;
     let mut pairs = Vec::new();
     for i in 0..sectors.len() {

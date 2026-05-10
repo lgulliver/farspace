@@ -281,6 +281,8 @@ fn draw_overview_line(
 ) {
     let (x0, y0) = start;
     let (x1, y1) = end;
+    // One sample roughly every 30 world units yields visually continuous but subtle
+    // lane lines at typical terminal sizes without overdraw.
     let steps = ((x1 - x0).abs().max((y1 - y0).abs()) / 30.0)
         .ceil()
         .max(1.0) as i32;

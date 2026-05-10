@@ -391,8 +391,8 @@ mod tests {
             destination: dest,
         }]);
 
-        // Advance enough turns for the scout to arrive (SCOUT_TRAVEL_TURNS = 3)
-        for _ in 0..3 {
+        // Advance enough turns for the scout to arrive (up to 10 turns for any distance)
+        for _ in 0..10 {
             engine.apply_turn(vec![Command::EndTurn]);
         }
 

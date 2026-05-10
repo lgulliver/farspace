@@ -47,6 +47,11 @@ pub struct AppState {
     pub research_cursor: usize,
     pub log: EventLog,
     pub quit: bool,
+    /// Monotonically-increasing frame counter, incremented once per render loop iteration.
+    /// Used only for low-frequency UI animations; never affects simulation state.
+    pub tick_count: u64,
+    /// When true, all fleet travel animations are suppressed (accessibility / low-motion).
+    pub reduced_motion: bool,
 }
 
 impl App {
@@ -128,6 +133,8 @@ impl App {
     pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
         while !self.state.quit {
             terminal.draw(|frame| self.render(frame))?;
+            // Increment animation tick counter each render frame (wraps safely at u64::MAX)
+            self.state.tick_count = self.state.tick_count.wrapping_add(1);
 
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
@@ -2420,13 +2427,15 @@ mod tests {
             .keys()
             .find(|id| !engine.state.explored_stars.contains(id))
             .expect("Unexplored star needed");
-        use game_core::{FleetId, ScoutMission};
+        use game_core::{FleetId, ScoutMission, StarId};
         engine.state.scout_missions.insert(
             FleetId(1),
             ScoutMission {
                 fleet: FleetId(1),
                 destination: dest,
                 turns_remaining: 3,
+                origin: StarId(0),
+                total_duration: 3,
             },
         );
 

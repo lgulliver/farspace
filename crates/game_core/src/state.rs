@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Unique identifier for a star system
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct StarId(pub u64);
 
@@ -884,6 +884,12 @@ pub struct ScoutMission {
     pub destination: StarId,
     /// Turns remaining until the scout arrives
     pub turns_remaining: u32,
+    /// Origin star system (for progress tracking and animation)
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub origin: StarId,
+    /// Total travel duration in turns (for progress calculation)
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub total_duration: u32,
 }
 
 /// A planet survey mission executed by a science fleet
@@ -910,6 +916,12 @@ pub struct FleetMission {
     pub destination: StarId,
     /// Turns remaining until the fleet arrives
     pub turns_remaining: u32,
+    /// Origin star system (for progress tracking and animation)
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub origin: StarId,
+    /// Total travel duration in turns (for progress calculation)
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub total_duration: u32,
 }
 
 /// Where a fleet currently is or is headed
@@ -1355,6 +1367,8 @@ mod tests {
             fleet: FleetId(1),
             destination: StarId(5),
             turns_remaining: 3,
+            origin: StarId(0),
+            total_duration: 3,
         };
         assert_eq!(mission.fleet, FleetId(1));
         assert_eq!(mission.destination, StarId(5));
@@ -1391,6 +1405,8 @@ mod tests {
                 fleet: FleetId(1),
                 destination: StarId(2),
                 turns_remaining: 2,
+                origin: StarId(0),
+                total_duration: 2,
             },
         );
         assert_ne!(state_a, state_b);
@@ -1426,6 +1442,8 @@ mod tests {
                 fleet: FleetId(1),
                 destination: StarId(2),
                 turns_remaining: 2,
+                origin: StarId(0),
+                total_duration: 2,
             },
         );
         assert_ne!(state_a, state_b);
@@ -1437,6 +1455,8 @@ mod tests {
             fleet: FleetId(3),
             destination: StarId(7),
             turns_remaining: 2,
+            origin: StarId(1),
+            total_duration: 2,
         };
         assert_eq!(mission.fleet, FleetId(3));
         assert_eq!(mission.destination, StarId(7));
@@ -1485,6 +1505,8 @@ mod tests {
                 fleet: FleetId(1),
                 destination: StarId(9),
                 turns_remaining: 2,
+                origin: StarId(5),
+                total_duration: 2,
             },
         );
         match state.fleet_location(FleetId(1)) {
@@ -1520,6 +1542,8 @@ mod tests {
                 fleet: FleetId(1),
                 destination: StarId(11),
                 turns_remaining: 3,
+                origin: StarId(5),
+                total_duration: 3,
             },
         );
         match state.fleet_location(FleetId(1)) {

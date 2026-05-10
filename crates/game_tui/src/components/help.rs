@@ -85,7 +85,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("j / ↓", "Select next planet"),
             HelpEntry::Binding("k / ↑", "Select previous planet"),
             HelpEntry::Section("Actions"),
-            HelpEntry::Binding("Enter", "Open colony view for selected player colony"),
+            HelpEntry::Binding("Enter", "Open selected colony (player-owned only)"),
             HelpEntry::Binding("S", "Survey selected planet with science ship"),
             HelpEntry::Binding(
                 "C",

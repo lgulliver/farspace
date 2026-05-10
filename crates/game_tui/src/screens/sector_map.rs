@@ -7,7 +7,7 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{GameState, SectorId, StarId};
+use game_core::{GameState, SectorId, StarId, TechId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -127,6 +127,8 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
         .values()
         .map(|m| m.destination)
         .collect();
+
+    render_known_lanes_in_sector(frame, game_state, app_state, sector_id, &bounds);
 
     // Render star cells
     for star in &stars_in_sector {
@@ -302,6 +304,10 @@ fn render_local_legend(frame: &mut Frame, area: Rect) {
         Span::styled(" Scout  ", Theme::dim_border_style()),
         Span::styled("~", Style::default().fg(Color::Cyan)),
         Span::styled(" Fleet  ", Theme::dim_border_style()),
+        Span::styled("·", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Lane  ", Theme::dim_border_style()),
+        Span::styled("•", Style::default().fg(Color::LightCyan)),
+        Span::styled(" Usable Lane  ", Theme::dim_border_style()),
         Span::styled("►", Style::default().fg(Color::Magenta)),
         Span::styled(" Moving", Theme::dim_border_style()),
     ];
@@ -387,6 +393,96 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
     }
 
     frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
+}
+
+fn render_known_lanes_in_sector(
+    frame: &mut Frame,
+    game_state: &GameState,
+    app_state: &AppState,
+    sector_id: SectorId,
+    bounds: &MapBounds,
+) {
+    let player_has_cartography = game_state
+        .empires
+        .get(&game_state.player_empire)
+        .is_some_and(|e| {
+            e.research
+                .completed
+                .contains(&TechId::HYPERSPACE_CARTOGRAPHY)
+        });
+
+    let highlighted_lane = app_state.selected_star.and_then(|destination| {
+        let origin = game_state
+            .fleets
+            .values()
+            .find(|fleet| {
+                fleet.owner == game_state.player_empire
+                    && !game_state.scout_missions.contains_key(&fleet.id)
+                    && !game_state.survey_missions.contains_key(&fleet.id)
+                    && !game_state.fleet_missions.contains_key(&fleet.id)
+            })
+            .map(|fleet| fleet.location)?;
+        if origin == destination {
+            return None;
+        }
+        game_core::HyperspaceLane::new(origin, destination)
+            .filter(|lane| game_state.known_hyperspace_lanes.contains(lane))
+            .filter(|_| player_has_cartography)
+    });
+
+    for lane in &game_state.known_hyperspace_lanes {
+        let Some(a) = game_state.stars.get(&lane.a) else {
+            continue;
+        };
+        let Some(b) = game_state.stars.get(&lane.b) else {
+            continue;
+        };
+        if a.sector != sector_id || b.sector != sector_id {
+            continue;
+        }
+
+        let is_highlight = highlighted_lane == Some(*lane);
+        let style = if is_highlight {
+            Style::default().fg(Color::LightCyan)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        let glyph = if is_highlight { '•' } else { '·' };
+        draw_world_line(
+            frame,
+            (a.x as f64, a.y as f64),
+            (b.x as f64, b.y as f64),
+            bounds,
+            glyph,
+            style,
+        );
+    }
+}
+
+fn draw_world_line(
+    frame: &mut Frame,
+    start: (f64, f64),
+    end: (f64, f64),
+    bounds: &MapBounds,
+    glyph: char,
+    style: Style,
+) {
+    let (x0, y0) = start;
+    let (x1, y1) = end;
+    let steps = ((x1 - x0).abs().max((y1 - y0).abs()) / 30.0)
+        .ceil()
+        .max(1.0) as i32;
+    for step in 0..=steps {
+        let t = step as f64 / steps as f64;
+        let wx = x0 + (x1 - x0) * t;
+        let wy = y0 + (y1 - y0) * t;
+        if let Some((x, y)) = world_to_screen_f(wx, wy, bounds) {
+            frame.render_widget(
+                Paragraph::new(glyph.to_string()).style(style),
+                Rect::new(x, y, 1, 1),
+            );
+        }
+    }
 }
 
 #[cfg(test)]

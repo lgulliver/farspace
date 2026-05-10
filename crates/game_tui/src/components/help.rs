@@ -52,6 +52,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("l / →", "Move selection right"),
             HelpEntry::Section("Actions"),
             HelpEntry::Binding("Enter", "Enter selected sector (Sector Map)"),
+            HelpEntry::Binding("L", "Toggle inter-sector hyperspace lane overlay"),
             HelpEntry::Binding("r", "Open research screen"),
             HelpEntry::Binding("D", "Open diplomacy screen"),
             HelpEntry::Binding("E / T", "End turn (AI acts automatically)"),

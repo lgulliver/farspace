@@ -10,6 +10,7 @@ use crate::AppState;
 use game_core::{GameState, SectorId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -41,7 +42,13 @@ pub fn render_sector_overview(
 
     let (map_area, right_area) = split_horizontal(main_area, 55);
 
-    render_sector_map(frame, map_area, game_state, app_state.selected_sector);
+    render_sector_map(
+        frame,
+        map_area,
+        game_state,
+        app_state.selected_sector,
+        app_state.show_inter_sector_lanes,
+    );
 
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -64,6 +71,7 @@ fn render_sector_map(
     area: Rect,
     game_state: &GameState,
     selected_sector: Option<SectorId>,
+    show_inter_sector_lanes: bool,
 ) {
     let block = Block::default()
         .title(" Galaxy — Sector Overview ")
@@ -80,6 +88,10 @@ fn render_sector_map(
 
     if map_width <= 0 || map_height <= 0 {
         return;
+    }
+
+    if show_inter_sector_lanes {
+        render_inter_sector_lanes(frame, inner, game_state, map_width, map_height);
     }
 
     for sector in game_state.sectors.values() {
@@ -127,6 +139,8 @@ fn render_map_legend(frame: &mut Frame, area: Rect) {
         Span::styled(" Sel  ", Theme::dim_border_style()),
         Span::styled("*n", Theme::default_style()),
         Span::styled(" Sector (n stars)", Theme::dim_border_style()),
+        Span::styled("  ·", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Inter-sector lane", Theme::dim_border_style()),
     ];
 
     let legend = Paragraph::new(Line::from(spans)).style(Theme::muted_style());
@@ -209,6 +223,84 @@ fn count_systems_in_sector(game_state: &GameState, sector_id: SectorId) -> usize
         .values()
         .filter(|s| s.sector == sector_id)
         .count()
+}
+
+fn render_inter_sector_lanes(
+    frame: &mut Frame,
+    inner: Rect,
+    game_state: &GameState,
+    map_width: i32,
+    map_height: i32,
+) {
+    let bounds = OverviewBounds {
+        inner,
+        map_width,
+        map_height,
+    };
+    for lane in &game_state.known_hyperspace_lanes {
+        let Some(a_star) = game_state.stars.get(&lane.a) else {
+            continue;
+        };
+        let Some(b_star) = game_state.stars.get(&lane.b) else {
+            continue;
+        };
+        if a_star.sector == b_star.sector {
+            continue;
+        }
+
+        let Some(a_sector) = game_state.sectors.get(&a_star.sector) else {
+            continue;
+        };
+        let Some(b_sector) = game_state.sectors.get(&b_star.sector) else {
+            continue;
+        };
+        draw_overview_line(
+            frame,
+            &bounds,
+            (a_sector.x as f64, a_sector.y as f64),
+            (b_sector.x as f64, b_sector.y as f64),
+            '·',
+            Style::default().fg(Color::DarkGray),
+        );
+    }
+}
+
+struct OverviewBounds {
+    inner: Rect,
+    map_width: i32,
+    map_height: i32,
+}
+
+fn draw_overview_line(
+    frame: &mut Frame,
+    bounds: &OverviewBounds,
+    start: (f64, f64),
+    end: (f64, f64),
+    glyph: char,
+    style: Style,
+) {
+    let (x0, y0) = start;
+    let (x1, y1) = end;
+    let steps = ((x1 - x0).abs().max((y1 - y0).abs()) / 30.0)
+        .ceil()
+        .max(1.0) as i32;
+    for step in 0..=steps {
+        let t = step as f64 / steps as f64;
+        let wx = x0 + (x1 - x0) * t;
+        let wy = y0 + (y1 - y0) * t;
+        let screen_x = ((wx + 500.0) * bounds.map_width as f64 / 1000.0).round() as i32;
+        let screen_y = ((wy + 500.0) * bounds.map_height as f64 / 1000.0).round() as i32;
+        let clamped_x = screen_x.clamp(0, bounds.map_width.saturating_sub(1));
+        let clamped_y = screen_y.clamp(0, bounds.map_height.saturating_sub(1));
+        let x = bounds.inner.x + clamped_x as u16;
+        let y = bounds.inner.y + clamped_y as u16;
+        if x < bounds.inner.x + bounds.inner.width && y < bounds.inner.y + bounds.inner.height {
+            frame.render_widget(
+                Paragraph::new(glyph.to_string()).style(style),
+                Rect::new(x, y, 1, 1),
+            );
+        }
+    }
 }
 
 #[cfg(test)]

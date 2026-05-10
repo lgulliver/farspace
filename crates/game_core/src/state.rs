@@ -35,6 +35,10 @@ pub struct FleetId(pub u64);
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TechId(pub u32);
 
+impl TechId {
+    pub const HYPERSPACE_CARTOGRAPHY: TechId = TechId(8);
+}
+
 /// Unique identifier for a ship design template.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -97,6 +101,12 @@ pub fn all_techs() -> &'static [TechRecord] {
             description:
                 "Advanced construction techniques for assembling large structures in orbit.",
             cost: 150,
+        },
+        TechRecord {
+            id: TechId::HYPERSPACE_CARTOGRAPHY,
+            name: "Hyperspace Cartography",
+            description: "Stabilized hyperspace charts reveal and enable rapid lane transit.",
+            cost: 140,
         },
     ]
 }
@@ -386,6 +396,36 @@ pub struct Sector {
     pub name: String,
     pub x: i32,
     pub y: i32,
+}
+
+/// A direct hyperspace lane between two star systems.
+///
+/// Lane endpoints are normalized to ascending `StarId` order for deterministic
+/// equality, ordering, and serialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct HyperspaceLane {
+    pub a: StarId,
+    pub b: StarId,
+}
+
+impl HyperspaceLane {
+    /// Create a normalized lane. Returns `None` for self-links.
+    pub fn new(a: StarId, b: StarId) -> Option<Self> {
+        if a == b {
+            return None;
+        }
+        if a < b {
+            Some(Self { a, b })
+        } else {
+            Some(Self { a: b, b: a })
+        }
+    }
+
+    /// Return true when this lane links the two provided stars (order agnostic).
+    pub fn connects(&self, from: StarId, to: StarId) -> bool {
+        Self::new(from, to) == Some(*self)
+    }
 }
 
 /// An empire (player or AI)
@@ -986,6 +1026,12 @@ pub struct GameState {
     /// Empires not present in this map are implicitly `Unknown`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub diplomacy: BTreeMap<EmpireId, RelationshipStatus>,
+    /// All generated hyperspace lanes in this galaxy.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub hyperspace_lanes: BTreeSet<HyperspaceLane>,
+    /// Hyperspace lanes known to the player empire (discovery state).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub known_hyperspace_lanes: BTreeSet<HyperspaceLane>,
 }
 
 impl GameState {
@@ -1051,6 +1097,8 @@ impl PartialEq for GameState {
             && self.ai_empire == other.ai_empire
             && self.ai_explored_stars == other.ai_explored_stars
             && self.diplomacy == other.diplomacy
+            && self.hyperspace_lanes == other.hyperspace_lanes
+            && self.known_hyperspace_lanes == other.known_hyperspace_lanes
     }
 }
 
@@ -1099,6 +1147,8 @@ impl Default for GameState {
             ai_empire: None,
             ai_explored_stars: BTreeSet::new(),
             diplomacy: BTreeMap::new(),
+            hyperspace_lanes: BTreeSet::new(),
+            known_hyperspace_lanes: BTreeSet::new(),
         }
     }
 }
@@ -1128,6 +1178,16 @@ mod tests {
         let id3 = SectorId(43);
         assert_eq!(id1, id2);
         assert_ne!(id1, id3);
+    }
+
+    #[test]
+    fn hyperspace_lane_normalizes_endpoint_order() {
+        let lane = HyperspaceLane::new(StarId(9), StarId(2)).expect("distinct stars");
+        assert_eq!(lane.a, StarId(2));
+        assert_eq!(lane.b, StarId(9));
+        assert!(lane.connects(StarId(9), StarId(2)));
+        assert!(lane.connects(StarId(2), StarId(9)));
+        assert!(HyperspaceLane::new(StarId(7), StarId(7)).is_none());
     }
 
     #[test]
@@ -1302,12 +1362,16 @@ mod tests {
     }
 
     #[test]
-    fn all_techs_returns_seven_entries() {
+    fn all_techs_returns_eight_entries() {
         let techs = all_techs();
-        assert_eq!(techs.len(), 7);
+        assert_eq!(techs.len(), 8);
         assert!(
             techs.iter().any(|t| t.name == "Orbital Engineering"),
             "Orbital Engineering tech must be present"
+        );
+        assert!(
+            techs.iter().any(|t| t.name == "Hyperspace Cartography"),
+            "Hyperspace Cartography tech must be present"
         );
     }
 

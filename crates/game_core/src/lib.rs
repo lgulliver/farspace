@@ -17,7 +17,7 @@ pub use engine::Engine;
 pub use events::Event;
 pub use state::{
     all_ship_designs, all_techs, BuildItem, BuildingType, Colony, ColonyId, ColonyRole, Empire,
-    EmpireId, Fleet, FleetId, FleetKind, FleetLocation, FleetMission, GameState,
+    EmpireId, Fleet, FleetId, FleetKind, FleetLocation, FleetMission, GameState, HyperspaceLane,
     OrbitalStructureType, Planet, PlanetClass, PlanetSize, ProductionItem, RelationshipStatus,
     ResearchState, RoleModifiers, ScoutMission, Sector, SectorId, ShipDesignId, ShipDesignRecord,
     SpectralClass, Star, StarId, SurveyMission, TechId, TechRecord,

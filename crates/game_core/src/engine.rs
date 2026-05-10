@@ -3,11 +3,11 @@
 use crate::commands::Command;
 use crate::deterministic::sorted_colony_ids;
 use crate::events::Event;
-use crate::galaxy::{find_home_star, generate_galaxy};
+use crate::galaxy::{find_home_star, generate_galaxy, generate_hyperspace_lanes};
 use crate::state::{
     all_techs, BuildItem, Colony, ColonyId, ColonyRole, Empire, EmpireId, Fleet, FleetId,
-    FleetKind, FleetMission, GameState, RelationshipStatus, ResearchState, ScoutMission,
-    ShipDesignId, StarId, SurveyMission, TechId,
+    FleetKind, FleetMission, GameState, HyperspaceLane, RelationshipStatus, ResearchState,
+    ScoutMission, ShipDesignId, StarId, SurveyMission, TechId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -24,6 +24,7 @@ pub(crate) const SURVEY_TURNS: u32 = 2;
 /// * dist  ≤ 1000 →  2 turns (medium-range)
 /// * dist  > 1000 →  3 turns (long-range, far sectors)
 const FLEET_TRAVEL_SPEED: f64 = 500.0;
+const HYPERSPACE_TRAVEL_DIVISOR: u32 = 2;
 
 /// Return the number of travel turns for a fleet moving the given squared Euclidean distance.
 ///
@@ -35,6 +36,10 @@ const FLEET_TRAVEL_SPEED: f64 = 500.0;
 pub(crate) fn fleet_travel_turns(squared_distance: i64) -> u32 {
     let dist = (squared_distance as f64).sqrt();
     ((dist / FLEET_TRAVEL_SPEED).ceil() as u32).max(1)
+}
+
+fn lane_travel_turns(base_turns: u32) -> u32 {
+    base_turns.div_ceil(HYPERSPACE_TRAVEL_DIVISOR).max(1)
 }
 
 /// The game engine processes commands and manages game state
@@ -197,6 +202,15 @@ impl Engine {
         // Determine initially explored stars for player and AI
         let explored_stars = initial_explored_stars(stars_vec, home_star_id);
         let ai_explored_stars = initial_explored_stars(stars_vec, ai_home_star_id);
+        let hyperspace_lanes: BTreeSet<HyperspaceLane> =
+            generate_hyperspace_lanes(seed, &galaxy.sectors, stars_vec)
+                .into_iter()
+                .collect();
+        let known_hyperspace_lanes = hyperspace_lanes
+            .iter()
+            .copied()
+            .filter(|lane| explored_stars.contains(&lane.a) && explored_stars.contains(&lane.b))
+            .collect();
 
         let state = GameState {
             seed,
@@ -218,6 +232,8 @@ impl Engine {
             ai_empire: Some(ai_empire_id),
             ai_explored_stars,
             diplomacy: BTreeMap::new(),
+            hyperspace_lanes,
+            known_hyperspace_lanes,
         };
 
         Engine { state }
@@ -226,6 +242,71 @@ impl Engine {
     /// Create an engine from existing state
     pub fn from_state(state: GameState) -> Self {
         Engine { state }
+    }
+
+    fn has_tech(&self, empire_id: EmpireId, tech: TechId) -> bool {
+        self.state
+            .empires
+            .get(&empire_id)
+            .is_some_and(|e| e.research.completed.contains(&tech))
+    }
+
+    fn empire_knows_lane(&self, empire_id: EmpireId, lane: HyperspaceLane) -> bool {
+        if empire_id == self.state.player_empire {
+            return self.state.known_hyperspace_lanes.contains(&lane);
+        }
+        if Some(empire_id) == self.state.ai_empire {
+            return self.state.ai_explored_stars.contains(&lane.a)
+                && self.state.ai_explored_stars.contains(&lane.b);
+        }
+        false
+    }
+
+    fn can_use_lane_for_route(&self, empire_id: EmpireId, from: StarId, to: StarId) -> bool {
+        let Some(lane) = HyperspaceLane::new(from, to) else {
+            return false;
+        };
+        if !self.state.hyperspace_lanes.contains(&lane) {
+            return false;
+        }
+        if !self.empire_knows_lane(empire_id, lane) {
+            return false;
+        }
+        if !self.has_tech(empire_id, TechId::HYPERSPACE_CARTOGRAPHY) {
+            return false;
+        }
+        true
+    }
+
+    fn travel_turns_with_lanes(
+        &self,
+        empire_id: EmpireId,
+        from: StarId,
+        to: StarId,
+    ) -> (u32, bool) {
+        let src = self.state.stars.get(&from).expect("origin star must exist");
+        let dst = self
+            .state
+            .stars
+            .get(&to)
+            .expect("destination star must exist");
+        let dx = (dst.x - src.x) as i64;
+        let dy = (dst.y - src.y) as i64;
+        let base_turns = fleet_travel_turns(dx * dx + dy * dy);
+        if !self.can_use_lane_for_route(empire_id, from, to) {
+            return (base_turns, false);
+        }
+        (lane_travel_turns(base_turns), true)
+    }
+
+    fn refresh_known_hyperspace_lanes(&mut self) {
+        for lane in &self.state.hyperspace_lanes {
+            if self.state.explored_stars.contains(&lane.a)
+                && self.state.explored_stars.contains(&lane.b)
+            {
+                self.state.known_hyperspace_lanes.insert(*lane);
+            }
+        }
     }
 
     /// Apply a list of commands and return generated events
@@ -526,6 +607,9 @@ impl Engine {
                         empire.research.progress = overflow;
                     }
                     events.push(Event::ResearchCompleted { tech: tech_id });
+                    if tech_id == TechId::HYPERSPACE_CARTOGRAPHY {
+                        events.push(Event::HyperspaceCartographyUnlocked { empire: *empire_id });
+                    }
                 } else {
                     if let Some(empire) = self.state.empires.get_mut(empire_id) {
                         empire.research.progress = new_progress;
@@ -699,6 +783,9 @@ impl Engine {
             }
         }
 
+        // Discovery update: any lane whose endpoints are both explored becomes known.
+        self.refresh_known_hyperspace_lanes();
+
         // Run AI turn decisions (before advancing the turn counter)
         if let Some(ai_empire_id) = self.state.ai_empire {
             let ai_events = crate::ai::run_ai_turn(&mut self.state, ai_empire_id);
@@ -860,19 +947,9 @@ impl Engine {
             return;
         }
 
-        // Calculate travel time from distance
-        let (src_x, src_y) = {
-            let src = self.state.stars.get(&from).unwrap();
-            (src.x, src.y)
-        };
-        let (dst_x, dst_y) = {
-            let dst = self.state.stars.get(&destination).unwrap();
-            (dst.x, dst.y)
-        };
-        let dx = (dst_x - src_x) as i64;
-        let dy = (dst_y - src_y) as i64;
-        let sq_dist = dx * dx + dy * dy;
-        let turns = fleet_travel_turns(sq_dist);
+        // Calculate travel time from distance, with direct-lane bonus when available.
+        let (turns, used_lane) =
+            self.travel_turns_with_lanes(self.state.player_empire, from, destination);
 
         // Create the fleet mission
         self.state.fleet_missions.insert(
@@ -892,6 +969,14 @@ impl Engine {
             to: destination,
             turns_remaining: turns,
         });
+        if used_lane {
+            events.push(Event::HyperspaceLaneUsed {
+                empire: self.state.player_empire,
+                fleet: fleet_id,
+                from,
+                to: destination,
+            });
+        }
     }
 
     fn process_queue_build(
@@ -1179,15 +1264,10 @@ impl Engine {
             return;
         }
 
-        // Calculate travel time from distance
+        // Calculate travel time from distance, with direct-lane bonus when available.
         let origin = fleet.location;
-        let turns = {
-            let src = self.state.stars.get(&origin).unwrap();
-            let dst = self.state.stars.get(&destination).unwrap();
-            let dx = (dst.x - src.x) as i64;
-            let dy = (dst.y - src.y) as i64;
-            fleet_travel_turns(dx * dx + dy * dy)
-        };
+        let (turns, used_lane) =
+            self.travel_turns_with_lanes(self.state.player_empire, origin, destination);
 
         // Create the scout mission
         self.state.scout_missions.insert(
@@ -1206,6 +1286,14 @@ impl Engine {
             destination,
             turns_remaining: turns,
         });
+        if used_lane {
+            events.push(Event::HyperspaceLaneUsed {
+                empire: self.state.player_empire,
+                fleet: fleet_id,
+                from: origin,
+                to: destination,
+            });
+        }
     }
 
     fn process_survey_planet(
@@ -5044,6 +5132,8 @@ mod tests {
             ai_empire: Some(ai_id),
             ai_explored_stars: BTreeSet::new(),
             diplomacy: BTreeMap::new(),
+            hyperspace_lanes: BTreeSet::new(),
+            known_hyperspace_lanes: BTreeSet::new(),
         };
 
         // Player star
@@ -5219,6 +5309,8 @@ mod tests {
             ai_empire: Some(ai_id),
             ai_explored_stars: BTreeSet::new(),
             diplomacy: BTreeMap::new(),
+            hyperspace_lanes: BTreeSet::new(),
+            known_hyperspace_lanes: BTreeSet::new(),
         };
 
         // Populate stars, empires, colonies, fleet
@@ -5481,6 +5573,8 @@ mod tests {
             ai_empire: Some(ai1),
             ai_explored_stars: BTreeSet::new(),
             diplomacy: BTreeMap::new(),
+            hyperspace_lanes: BTreeSet::new(),
+            known_hyperspace_lanes: BTreeSet::new(),
         };
 
         // Two AI empires each have a colony at target_star
@@ -7496,6 +7590,183 @@ mod tests {
         let dur_a = engine_a.state.scout_missions[&fleet_id].total_duration;
         let dur_b = engine_b.state.scout_missions[&fleet_id].total_duration;
         assert_eq!(dur_a, dur_b, "Same seed must produce same travel duration");
+    }
+
+    #[test]
+    fn same_seed_produces_same_hyperspace_lanes() {
+        let engine_a = Engine::new(42);
+        let engine_b = Engine::new(42);
+        assert_eq!(
+            engine_a.state.hyperspace_lanes,
+            engine_b.state.hyperspace_lanes
+        );
+    }
+
+    #[test]
+    fn lane_travel_is_unavailable_before_hyperspace_cartography() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+        let from = engine.state.fleets[&fleet_id].location;
+        let destination = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != from)
+            .expect("need explored destination");
+        let lane = crate::state::HyperspaceLane::new(from, destination).expect("distinct stars");
+        engine.state.hyperspace_lanes.insert(lane);
+        engine.state.known_hyperspace_lanes.insert(lane);
+
+        let src = &engine.state.stars[&from];
+        let dst = &engine.state.stars[&destination];
+        let dx = (dst.x - src.x) as i64;
+        let dy = (dst.y - src.y) as i64;
+        let base_turns = fleet_travel_turns(dx * dx + dy * dy);
+
+        let events = engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination,
+        }]);
+        let turns = engine.state.fleet_missions[&fleet_id].turns_remaining;
+        assert_eq!(turns, base_turns);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::HyperspaceLaneUsed { .. })),
+            "lane usage event must not fire before tech unlock"
+        );
+    }
+
+    #[test]
+    fn lane_travel_is_faster_after_hyperspace_cartography() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+        let from = engine.state.fleets[&fleet_id].location;
+        let destination = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != from)
+            .expect("need explored destination");
+        let lane = crate::state::HyperspaceLane::new(from, destination).expect("distinct stars");
+        engine.state.hyperspace_lanes.insert(lane);
+        engine.state.known_hyperspace_lanes.insert(lane);
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .expect("player empire exists")
+            .research
+            .completed
+            .push(TechId::HYPERSPACE_CARTOGRAPHY);
+
+        let src = &engine.state.stars[&from];
+        let dst = &engine.state.stars[&destination];
+        let dx = (dst.x - src.x) as i64;
+        let dy = (dst.y - src.y) as i64;
+        let base_turns = fleet_travel_turns(dx * dx + dy * dy);
+
+        let events = engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination,
+        }]);
+        let turns = engine.state.fleet_missions[&fleet_id].turns_remaining;
+        assert!(turns <= lane_travel_turns(base_turns));
+        assert!(turns < base_turns || base_turns == 1);
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::HyperspaceLaneUsed {
+                    fleet,
+                    from: evt_from,
+                    to: evt_to,
+                    ..
+                } if *fleet == fleet_id && *evt_from == from && *evt_to == destination
+            )),
+            "lane usage event should be emitted when lane bonus applies"
+        );
+    }
+
+    #[test]
+    fn no_lane_travel_still_uses_normal_distance_formula() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+        let from = engine.state.fleets[&fleet_id].location;
+        let destination = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&id| id != from)
+            .expect("need explored destination");
+        let lane = crate::state::HyperspaceLane::new(from, destination).expect("distinct stars");
+        engine.state.hyperspace_lanes.remove(&lane);
+        engine.state.known_hyperspace_lanes.remove(&lane);
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .expect("player empire exists")
+            .research
+            .completed
+            .push(TechId::HYPERSPACE_CARTOGRAPHY);
+
+        let src = &engine.state.stars[&from];
+        let dst = &engine.state.stars[&destination];
+        let dx = (dst.x - src.x) as i64;
+        let dy = (dst.y - src.y) as i64;
+        let base_turns = fleet_travel_turns(dx * dx + dy * dy);
+
+        engine.apply_turn(vec![Command::MoveFleet {
+            fleet: fleet_id,
+            destination,
+        }]);
+        let turns = engine.state.fleet_missions[&fleet_id].turns_remaining;
+        assert_eq!(turns, base_turns);
+    }
+
+    #[test]
+    fn hyperspace_lane_usage_events_are_deterministic() {
+        let mut engine_a = Engine::new(42);
+        let mut engine_b = Engine::new(42);
+        for engine in [&mut engine_a, &mut engine_b] {
+            let fleet_id = FleetId(1);
+            let from = engine.state.fleets[&fleet_id].location;
+            let destination = *engine
+                .state
+                .explored_stars
+                .iter()
+                .find(|&&id| id != from)
+                .expect("need explored destination");
+            let lane =
+                crate::state::HyperspaceLane::new(from, destination).expect("distinct stars");
+            engine.state.hyperspace_lanes.insert(lane);
+            engine.state.known_hyperspace_lanes.insert(lane);
+            engine
+                .state
+                .empires
+                .get_mut(&engine.state.player_empire)
+                .expect("player empire exists")
+                .research
+                .completed
+                .push(TechId::HYPERSPACE_CARTOGRAPHY);
+        }
+
+        let cmd = {
+            let from = engine_a.state.fleets[&FleetId(1)].location;
+            let destination = *engine_a
+                .state
+                .explored_stars
+                .iter()
+                .find(|&&id| id != from)
+                .unwrap();
+            Command::MoveFleet {
+                fleet: FleetId(1),
+                destination,
+            }
+        };
+        let a = engine_a.apply_turn(vec![cmd.clone()]);
+        let b = engine_b.apply_turn(vec![cmd]);
+        assert_eq!(a, b);
     }
 
     #[test]

@@ -16,6 +16,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::SectorOverview => vec![
             ("[hjkl/←↓↑→]", "Move"),
             ("[Enter]", "Sector Map"),
+            ("[L]", "Toggle Lanes"),
             ("[r]", "Research"),
             ("[D]", "Diplomacy"),
             ("[E/T]", "End Turn"),

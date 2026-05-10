@@ -418,6 +418,42 @@ mod tests {
     }
 
     #[test]
+    fn save_load_preserves_hyperspace_lane_state() {
+        use game_core::{HyperspaceLane, TechId};
+
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        engine
+            .state
+            .empires
+            .get_mut(&player)
+            .expect("player empire exists")
+            .research
+            .completed
+            .push(TechId::HYPERSPACE_CARTOGRAPHY);
+
+        let mut explored = engine.state.explored_stars.iter().copied();
+        let a = explored.next().expect("need first explored star");
+        let b = explored.next().expect("need second explored star");
+        let lane = HyperspaceLane::new(a, b).expect("distinct stars");
+        engine.state.hyperspace_lanes.insert(lane);
+        engine.state.known_hyperspace_lanes.insert(lane);
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert_eq!(engine.state.hyperspace_lanes, loaded.hyperspace_lanes);
+        assert_eq!(
+            engine.state.known_hyperspace_lanes,
+            loaded.known_hyperspace_lanes
+        );
+        assert!(loaded.empires[&player]
+            .research
+            .completed
+            .contains(&TechId::HYPERSPACE_CARTOGRAPHY));
+    }
+
+    #[test]
     fn save_load_preserves_active_scout_mission() {
         use game_core::{Command, FleetId, ScoutMission};
 

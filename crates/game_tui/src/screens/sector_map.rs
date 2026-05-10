@@ -196,8 +196,11 @@ fn render_travelling_fleets(
     sector_id: SectorId,
     bounds: &MapBounds,
 ) {
-    let indicator_style = Style::default()
+    let fleet_indicator_style = Style::default()
         .fg(Color::Magenta)
+        .add_modifier(Modifier::BOLD);
+    let scout_indicator_style = Style::default()
+        .fg(Color::Yellow)
         .add_modifier(Modifier::BOLD);
 
     // Fleet missions (explored-star movement)
@@ -223,7 +226,7 @@ fn render_travelling_fleets(
 
         if let Some((x, y)) = world_to_screen_f(wx, wy, bounds) {
             frame.render_widget(
-                Paragraph::new("►").style(indicator_style),
+                Paragraph::new("►").style(fleet_indicator_style),
                 Rect::new(x, y, 1, 1),
             );
         }
@@ -251,11 +254,7 @@ fn render_travelling_fleets(
 
         if let Some((x, y)) = world_to_screen_f(wx, wy, bounds) {
             frame.render_widget(
-                Paragraph::new("►").style(
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Paragraph::new("►").style(scout_indicator_style),
                 Rect::new(x, y, 1, 1),
             );
         }

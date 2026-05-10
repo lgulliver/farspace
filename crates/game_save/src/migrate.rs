@@ -138,6 +138,18 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // v14 -> v15: GameState.survey_missions added (serde default = empty).
             // Science ships are encoded as FleetKind::Science, which old saves can load
             // as long as the new field defaults to empty.
+            migrate(SaveFile {
+                version: 15,
+                state: save.state,
+            })
+        }
+        15 => {
+            // v15 -> v16: ScoutMission.origin, ScoutMission.total_duration,
+            // FleetMission.origin, and FleetMission.total_duration added.
+            // All four fields carry serde defaults (StarId(0) and 0 respectively)
+            // so existing missions deserialise safely.  Animation will show no
+            // interpolation for old in-flight missions, which is an acceptable
+            // visual-only trade-off.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -467,6 +479,19 @@ mod tests {
         let migrated = migrate(v14_save).expect("v14 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
         assert!(migrated.state.survey_missions.is_empty());
+    }
+
+    #[test]
+    fn migrate_v15_to_v16_preserves_missions_with_defaults() {
+        // v15 saves have ScoutMission/FleetMission without origin/total_duration.
+        // Migration should succeed; new fields default safely via serde.
+        let state = GameState::default();
+        let v15_save = SaveFile { version: 15, state };
+        let migrated = migrate(v15_save).expect("v15 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        // Both mission maps empty in default state — just check it round-trips
+        assert!(migrated.state.scout_missions.is_empty());
+        assert!(migrated.state.fleet_missions.is_empty());
     }
 
     #[test]

@@ -7,10 +7,10 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{GameState, StarId};
+use game_core::{GameState, SectorId, StarId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -106,8 +106,15 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
     let min_y = stars_in_sector.iter().map(|s| s.y).min().unwrap_or(-100);
     let max_y = stars_in_sector.iter().map(|s| s.y).max().unwrap_or(100);
 
-    let range_x = (max_x - min_x).max(1);
-    let range_y = (max_y - min_y).max(1);
+    let bounds = MapBounds {
+        min_x,
+        min_y,
+        range_x: (max_x - min_x).max(1),
+        range_y: (max_y - min_y).max(1),
+        map_width,
+        map_height,
+        inner,
+    };
 
     let scout_destinations: std::collections::BTreeSet<StarId> = game_state
         .scout_missions
@@ -121,19 +128,11 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
         .map(|m| m.destination)
         .collect();
 
+    // Render star cells
     for star in &stars_in_sector {
-        let rel_x = star.x - min_x;
-        let rel_y = star.y - min_y;
-
-        let screen_x = ((rel_x * map_width) / range_x).clamp(0, map_width - 1);
-        let screen_y = ((rel_y * map_height) / range_y).clamp(0, map_height - 1);
-
-        let x = inner.x + screen_x as u16;
-        let y = inner.y + screen_y as u16;
-
-        if x >= inner.x + inner.width || y >= inner.y + inner.height {
+        let Some((x, y)) = world_to_screen_f(star.x as f64, star.y as f64, &bounds) else {
             continue;
-        }
+        };
 
         let is_selected = app_state.selected_star == Some(star.id);
         let is_explored = game_state.explored_stars.contains(&star.id);
@@ -146,14 +145,14 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
             (
                 '+',
                 Style::default()
-                    .fg(ratatui::style::Color::Yellow)
+                    .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             )
         } else if fleet_en_route {
             (
                 '~',
                 Style::default()
-                    .fg(ratatui::style::Color::Cyan)
+                    .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             )
         } else if is_explored {
@@ -169,11 +168,125 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
         frame.render_widget(star_widget, Rect::new(x, y, 1, 1));
     }
 
+    // Render in-transit fleet indicators (cosmetic only, no game state effect).
+    // Visible when reduced_motion is false and the mission is within this sector.
+    if !app_state.reduced_motion {
+        // Low-frequency blink: show indicator every other ~5-tick window (≈500 ms at 100 ms/tick)
+        let show_indicator = (app_state.tick_count / 5).is_multiple_of(2);
+        if show_indicator {
+            render_travelling_fleets(frame, game_state, sector_id, &bounds);
+        }
+    }
+
     if inner.height >= 2 && inner.width >= 10 {
         render_local_legend(
             frame,
             Rect::new(inner.x, inner.y + inner.height - 1, inner.width, 1),
         );
+    }
+}
+
+/// Render interpolated position indicators for fleets currently travelling within the sector.
+///
+/// This is purely cosmetic: positions are linearly interpolated between origin and destination
+/// using `elapsed / total_duration`, where `elapsed = total_duration - turns_remaining`.
+/// The game state is never modified.
+fn render_travelling_fleets(
+    frame: &mut Frame,
+    game_state: &GameState,
+    sector_id: SectorId,
+    bounds: &MapBounds,
+) {
+    let fleet_indicator_style = Style::default()
+        .fg(Color::Magenta)
+        .add_modifier(Modifier::BOLD);
+    let scout_indicator_style = Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD);
+
+    // Fleet missions (explored-star movement)
+    for mission in game_state.fleet_missions.values() {
+        let origin = match game_state.stars.get(&mission.origin) {
+            Some(s) if s.sector == sector_id => s,
+            _ => continue,
+        };
+        let destination = match game_state.stars.get(&mission.destination) {
+            Some(s) if s.sector == sector_id => s,
+            _ => continue,
+        };
+        if mission.total_duration == 0 {
+            continue;
+        }
+        // progress: 0.0 (just departed) → 1.0 (arrived)
+        let elapsed = mission
+            .total_duration
+            .saturating_sub(mission.turns_remaining) as f64;
+        let progress = (elapsed / mission.total_duration as f64).clamp(0.0, 1.0);
+        let wx = origin.x as f64 + (destination.x as f64 - origin.x as f64) * progress;
+        let wy = origin.y as f64 + (destination.y as f64 - origin.y as f64) * progress;
+
+        if let Some((x, y)) = world_to_screen_f(wx, wy, bounds) {
+            frame.render_widget(
+                Paragraph::new("►").style(fleet_indicator_style),
+                Rect::new(x, y, 1, 1),
+            );
+        }
+    }
+
+    // Scout missions (unexplored-star scouting)
+    for mission in game_state.scout_missions.values() {
+        let origin = match game_state.stars.get(&mission.origin) {
+            Some(s) if s.sector == sector_id => s,
+            _ => continue,
+        };
+        let destination = match game_state.stars.get(&mission.destination) {
+            Some(s) if s.sector == sector_id => s,
+            _ => continue,
+        };
+        if mission.total_duration == 0 {
+            continue;
+        }
+        let elapsed = mission
+            .total_duration
+            .saturating_sub(mission.turns_remaining) as f64;
+        let progress = (elapsed / mission.total_duration as f64).clamp(0.0, 1.0);
+        let wx = origin.x as f64 + (destination.x as f64 - origin.x as f64) * progress;
+        let wy = origin.y as f64 + (destination.y as f64 - origin.y as f64) * progress;
+
+        if let Some((x, y)) = world_to_screen_f(wx, wy, bounds) {
+            frame.render_widget(
+                Paragraph::new("►").style(scout_indicator_style),
+                Rect::new(x, y, 1, 1),
+            );
+        }
+    }
+}
+
+/// Parameters describing the bounds of the local sector map viewport.
+struct MapBounds {
+    min_x: i32,
+    min_y: i32,
+    range_x: i32,
+    range_y: i32,
+    map_width: i32,
+    map_height: i32,
+    inner: Rect,
+}
+
+/// Map floating-point world coordinates to a terminal cell within the viewport.
+fn world_to_screen_f(wx: f64, wy: f64, b: &MapBounds) -> Option<(u16, u16)> {
+    let rel_x = wx - b.min_x as f64;
+    let rel_y = wy - b.min_y as f64;
+    let screen_x = ((rel_x * b.map_width as f64) / b.range_x as f64).round() as i32;
+    let screen_y = ((rel_y * b.map_height as f64) / b.range_y as f64).round() as i32;
+    let screen_x = screen_x.clamp(0, b.map_width - 1);
+    let screen_y = screen_y.clamp(0, b.map_height - 1);
+    let x = b.inner.x + screen_x as u16;
+    let y = b.inner.y + screen_y as u16;
+    if x >= b.inner.x + b.inner.width || y >= b.inner.y + b.inner.height {
+        None
+    } else {
+        Some((x, y))
     }
 }
 
@@ -185,10 +298,12 @@ fn render_local_legend(frame: &mut Frame, area: Rect) {
         Span::styled(" Explored  ", Theme::dim_border_style()),
         Span::styled("?", Theme::muted_style()),
         Span::styled(" Unknown  ", Theme::dim_border_style()),
-        Span::styled("+", Style::default().fg(ratatui::style::Color::Yellow)),
+        Span::styled("+", Style::default().fg(Color::Yellow)),
         Span::styled(" Scout  ", Theme::dim_border_style()),
-        Span::styled("~", Style::default().fg(ratatui::style::Color::Cyan)),
-        Span::styled(" Fleet", Theme::dim_border_style()),
+        Span::styled("~", Style::default().fg(Color::Cyan)),
+        Span::styled(" Fleet  ", Theme::dim_border_style()),
+        Span::styled("►", Style::default().fg(Color::Magenta)),
+        Span::styled(" Moving", Theme::dim_border_style()),
     ];
 
     let legend = Paragraph::new(Line::from(spans)).style(Theme::muted_style());
@@ -345,6 +460,50 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_sector_map(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn animation_rendering_does_not_mutate_game_state() {
+        // Cosmetic animation must never change game state.
+        let (mut app_state, game_state) = create_app_with_sector();
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        // Capture state before rendering at different tick counts
+        let state_before = game_state.clone();
+
+        for tick in 0u64..15 {
+            app_state.tick_count = tick;
+            terminal
+                .draw(|frame| {
+                    let area = frame.area();
+                    render_sector_map(frame, area, &app_state, &game_state);
+                })
+                .unwrap();
+        }
+
+        // Game state must be completely unchanged
+        assert_eq!(
+            game_state, state_before,
+            "Rendering with animation ticks must not change game state"
+        );
+    }
+
+    #[test]
+    fn reduced_motion_suppresses_animation() {
+        // When reduced_motion = true the render must still succeed without panic.
+        let (mut app_state, game_state) = create_app_with_sector();
+        app_state.reduced_motion = true;
+
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_sector_map(frame, area, &app_state, &game_state);
             })
             .unwrap();
     }

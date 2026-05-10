@@ -9,7 +9,7 @@
 //! 4. Colonize with any idle colonizer at an AI-explored star
 //! 5. Assign colony roles based on planet class (once, deterministically)
 
-use crate::engine::SCOUT_TRAVEL_TURNS;
+use crate::engine::fleet_travel_turns;
 use crate::events::Event;
 use crate::state::{
     all_techs, BuildItem, BuildingType, Colony, ColonyId, ColonyRole, EmpireId, FleetId, FleetKind,
@@ -187,12 +187,22 @@ fn pick_build_item(
 
 fn ai_dispatch_scouts(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Event>) {
     if let Some((fleet_id, destination)) = pick_scout_target(state, empire_id) {
+        let origin = state.fleets[&fleet_id].location;
+        let turns = {
+            let src = state.stars.get(&origin).unwrap();
+            let dst = state.stars.get(&destination).unwrap();
+            let dx = (dst.x - src.x) as i64;
+            let dy = (dst.y - src.y) as i64;
+            fleet_travel_turns(dx * dx + dy * dy)
+        };
         state.scout_missions.insert(
             fleet_id,
             ScoutMission {
                 fleet: fleet_id,
                 destination,
-                turns_remaining: SCOUT_TRAVEL_TURNS,
+                turns_remaining: turns,
+                origin,
+                total_duration: turns,
             },
         );
         events.push(Event::AiScoutDispatched {

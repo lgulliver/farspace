@@ -238,10 +238,10 @@ fn render_inter_sector_lanes(
         map_height,
     };
     for lane in &game_state.known_hyperspace_lanes {
-        let Some(a_star) = game_state.stars.get(&lane.a) else {
+        let Some(a_star) = game_state.stars.get(&lane.a()) else {
             continue;
         };
-        let Some(b_star) = game_state.stars.get(&lane.b) else {
+        let Some(b_star) = game_state.stars.get(&lane.b()) else {
             continue;
         };
         if a_star.sector == b_star.sector {

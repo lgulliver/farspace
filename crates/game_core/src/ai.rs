@@ -9,7 +9,7 @@
 //! 4. Colonize with any idle colonizer at an AI-explored star
 //! 5. Assign colony roles based on planet class (once, deterministically)
 
-use crate::engine::fleet_travel_turns;
+use crate::engine::travel_turns_with_lanes;
 use crate::events::Event;
 use crate::state::{
     all_techs, BuildItem, BuildingType, Colony, ColonyId, ColonyRole, EmpireId, FleetId, FleetKind,
@@ -188,13 +188,7 @@ fn pick_build_item(
 fn ai_dispatch_scouts(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Event>) {
     if let Some((fleet_id, destination)) = pick_scout_target(state, empire_id) {
         let origin = state.fleets[&fleet_id].location;
-        let turns = {
-            let src = state.stars.get(&origin).unwrap();
-            let dst = state.stars.get(&destination).unwrap();
-            let dx = (dst.x - src.x) as i64;
-            let dy = (dst.y - src.y) as i64;
-            fleet_travel_turns(dx * dx + dy * dy)
-        };
+        let (turns, used_lane) = travel_turns_with_lanes(state, empire_id, origin, destination);
         state.scout_missions.insert(
             fleet_id,
             ScoutMission {
@@ -205,6 +199,14 @@ fn ai_dispatch_scouts(state: &mut GameState, empire_id: EmpireId, events: &mut V
                 total_duration: turns,
             },
         );
+        if used_lane {
+            events.push(Event::HyperspaceLaneUsed {
+                empire: empire_id,
+                fleet: fleet_id,
+                from: origin,
+                to: destination,
+            });
+        }
         events.push(Event::AiScoutDispatched {
             empire: empire_id,
             fleet: fleet_id,
@@ -826,6 +828,67 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, Event::AiScoutDispatched { empire, .. } if *empire == ai)),
             "AiScoutDispatched event must be emitted"
+        );
+    }
+
+    #[test]
+    fn ai_scout_uses_lane_bonus_after_hyperspace_cartography() {
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+        engine
+            .state
+            .empires
+            .get_mut(&ai)
+            .expect("AI empire exists")
+            .research
+            .completed
+            .push(TechId::HYPERSPACE_CARTOGRAPHY);
+
+        let (fleet_id, destination) =
+            pick_scout_target(&engine.state, ai).expect("AI should have scout target");
+        let origin = engine.state.fleets[&fleet_id].location;
+
+        let all_star_ids: Vec<StarId> = engine.state.stars.keys().copied().collect();
+        for star_id in all_star_ids {
+            if star_id != destination {
+                engine.state.ai_explored_stars.insert(star_id);
+            }
+        }
+
+        let (ox, oy) = {
+            let origin_star = engine.state.stars.get(&origin).expect("origin star exists");
+            (origin_star.x, origin_star.y)
+        };
+        if let Some(dest_star) = engine.state.stars.get_mut(&destination) {
+            dest_star.x = ox + 1200;
+            dest_star.y = oy;
+        }
+
+        let lane = crate::state::HyperspaceLane::new(origin, destination).expect("distinct stars");
+        engine.state.hyperspace_lanes.insert(lane);
+
+        let base_turns = crate::engine::fleet_travel_turns(1_440_000);
+        let expected_lane_turns = base_turns.div_ceil(2).max(1);
+
+        let mut events = Vec::new();
+        ai_dispatch_scouts(&mut engine.state, ai, &mut events);
+        let mission = engine
+            .state
+            .scout_missions
+            .get(&fleet_id)
+            .expect("AI scout mission should exist");
+        assert_eq!(mission.total_duration, expected_lane_turns);
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::HyperspaceLaneUsed {
+                    empire,
+                    fleet,
+                    from,
+                    to,
+                } if *empire == ai && *fleet == fleet_id && *from == origin && *to == destination
+            )),
+            "AI lane usage should emit HyperspaceLaneUsed"
         );
     }
 

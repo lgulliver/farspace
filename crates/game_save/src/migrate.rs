@@ -173,7 +173,8 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                 .iter()
                 .copied()
                 .filter(|lane| {
-                    state.explored_stars.contains(&lane.a) && state.explored_stars.contains(&lane.b)
+                    state.explored_stars.contains(&lane.a())
+                        && state.explored_stars.contains(&lane.b())
                 })
                 .collect();
 
@@ -539,8 +540,8 @@ mod tests {
                 .state
                 .known_hyperspace_lanes
                 .iter()
-                .all(|lane| migrated.state.explored_stars.contains(&lane.a)
-                    && migrated.state.explored_stars.contains(&lane.b)),
+                .all(|lane| migrated.state.explored_stars.contains(&lane.a())
+                    && migrated.state.explored_stars.contains(&lane.b())),
             "known lane set must only contain fully explored endpoints"
         );
     }

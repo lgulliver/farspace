@@ -405,8 +405,8 @@ pub struct Sector {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct HyperspaceLane {
-    pub a: StarId,
-    pub b: StarId,
+    a: StarId,
+    b: StarId,
 }
 
 impl HyperspaceLane {
@@ -425,6 +425,18 @@ impl HyperspaceLane {
     /// Return true when this lane links the two provided stars (order agnostic).
     pub fn connects(&self, from: StarId, to: StarId) -> bool {
         Self::new(from, to) == Some(*self)
+    }
+
+    pub fn a(&self) -> StarId {
+        self.a
+    }
+
+    pub fn b(&self) -> StarId {
+        self.b
+    }
+
+    pub fn endpoints(&self) -> (StarId, StarId) {
+        (self.a, self.b)
     }
 }
 
@@ -1183,8 +1195,8 @@ mod tests {
     #[test]
     fn hyperspace_lane_normalizes_endpoint_order() {
         let lane = HyperspaceLane::new(StarId(9), StarId(2)).expect("distinct stars");
-        assert_eq!(lane.a, StarId(2));
-        assert_eq!(lane.b, StarId(9));
+        assert_eq!(lane.a(), StarId(2));
+        assert_eq!(lane.b(), StarId(9));
         assert!(lane.connects(StarId(9), StarId(2)));
         assert!(lane.connects(StarId(2), StarId(9)));
         assert!(HyperspaceLane::new(StarId(7), StarId(7)).is_none());

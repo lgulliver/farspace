@@ -431,10 +431,10 @@ fn render_known_lanes_in_sector(
     });
 
     for lane in &game_state.known_hyperspace_lanes {
-        let Some(a) = game_state.stars.get(&lane.a) else {
+        let Some(a) = game_state.stars.get(&lane.a()) else {
             continue;
         };
-        let Some(b) = game_state.stars.get(&lane.b) else {
+        let Some(b) = game_state.stars.get(&lane.b()) else {
             continue;
         };
         if a.sector != sector_id || b.sector != sector_id {

@@ -196,8 +196,8 @@ pub fn generate_hyperspace_lanes(
                 // Deterministic seed-based tie-break for equal-distance pairs.
                 // Pack normalized endpoints into a stable 64-bit value and xor with seed
                 // so different seeds may pick different (still deterministic) equal-length lanes.
-                let tie_break = ((seed ^ ((base.a.0 << 32) | base.b.0)) & 0xFFFF) as i64;
-                let candidate = (sq * 65_536 + tie_break, base.a, base.b);
+                let tie_break = ((seed ^ ((base.a().0 << 32) | base.b().0)) & 0xFFFF) as i64;
+                let candidate = (sq * 65_536 + tie_break, base.a(), base.b());
                 if best.is_none_or(|current| candidate < current) {
                     best = Some(candidate);
                 }
@@ -568,9 +568,9 @@ mod tests {
         let lanes = generate_hyperspace_lanes(8, &gal.sectors, &gal.stars);
         let star_ids: BTreeSet<StarId> = gal.stars.iter().map(|s| s.id).collect();
         for lane in lanes {
-            assert!(star_ids.contains(&lane.a));
-            assert!(star_ids.contains(&lane.b));
-            assert_ne!(lane.a, lane.b);
+            assert!(star_ids.contains(&lane.a()));
+            assert!(star_ids.contains(&lane.b()));
+            assert_ne!(lane.a(), lane.b());
         }
     }
 }

@@ -384,10 +384,17 @@ fn render_colony_table(
 
     let selected = app_state.overview_cursor.min(rows.len().saturating_sub(1));
     let max_rows = inner.height.saturating_sub(2) as usize;
+    let start = if max_rows == 0 {
+        0
+    } else {
+        selected.saturating_sub(max_rows.saturating_sub(1))
+    };
+    let end = (start + max_rows).min(rows.len());
 
-    for (idx, row) in rows.iter().take(max_rows).enumerate() {
-        let prefix = if idx == selected { ">" } else { " " };
-        let style = if idx == selected {
+    for (idx, row) in rows[start..end].iter().enumerate() {
+        let absolute_idx = start + idx;
+        let prefix = if absolute_idx == selected { ">" } else { " " };
+        let style = if absolute_idx == selected {
             Theme::highlight_style()
         } else {
             Theme::default_style()

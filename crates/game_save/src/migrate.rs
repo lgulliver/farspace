@@ -150,9 +150,37 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // so existing missions deserialise safely.  Animation will show no
             // interpolation for old in-flight missions, which is an acceptable
             // visual-only trade-off.
+            migrate(SaveFile {
+                version: 16,
+                state: save.state,
+            })
+        }
+        16 => {
+            // v16 -> v17: GameState.hyperspace_lanes and
+            // GameState.known_hyperspace_lanes added.
+            //
+            // Populate deterministic lane topology from seed + sectors + stars and
+            // derive player-known lanes from current explored stars.
+            let mut state = save.state;
+            let sectors: Vec<_> = state.sectors.values().cloned().collect();
+            let stars: Vec<_> = state.stars.values().cloned().collect();
+            state.hyperspace_lanes =
+                game_core::galaxy::generate_hyperspace_lanes(state.seed, &sectors, &stars)
+                    .into_iter()
+                    .collect();
+            state.known_hyperspace_lanes = state
+                .hyperspace_lanes
+                .iter()
+                .copied()
+                .filter(|lane| {
+                    state.explored_stars.contains(&lane.a())
+                        && state.explored_stars.contains(&lane.b())
+                })
+                .collect();
+
             Ok(SaveFile {
                 version: CURRENT_VERSION,
-                state: save.state,
+                state,
             })
         }
         _ => Err(SaveError::UnsupportedVersion {
@@ -492,6 +520,30 @@ mod tests {
         // Both mission maps empty in default state — just check it round-trips
         assert!(migrated.state.scout_missions.is_empty());
         assert!(migrated.state.fleet_missions.is_empty());
+    }
+
+    #[test]
+    fn migrate_v16_to_v17_populates_hyperspace_lanes() {
+        let mut state = game_core::Engine::new(42).state;
+        state.hyperspace_lanes.clear();
+        state.known_hyperspace_lanes.clear();
+
+        let v16_save = SaveFile { version: 16, state };
+        let migrated = migrate(v16_save).expect("v16 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        assert!(
+            !migrated.state.hyperspace_lanes.is_empty(),
+            "lane topology should be regenerated from save state"
+        );
+        assert!(
+            migrated
+                .state
+                .known_hyperspace_lanes
+                .iter()
+                .all(|lane| migrated.state.explored_stars.contains(&lane.a())
+                    && migrated.state.explored_stars.contains(&lane.b())),
+            "known lane set must only contain fully explored endpoints"
+        );
     }
 
     #[test]

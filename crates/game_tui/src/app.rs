@@ -33,6 +33,8 @@ pub struct AppState {
     pub show_search: bool,
     pub selected_sector: Option<SectorId>,
     pub selected_star: Option<StarId>,
+    /// Toggle for rendering inter-sector hyperspace lanes on galaxy overview.
+    pub show_inter_sector_lanes: bool,
     /// Selected planet index when inspecting a system
     pub selected_planet_index: usize,
     /// Currently viewed colony (set when entering the colony screen)
@@ -266,6 +268,11 @@ impl App {
 
         if key.code == KeyCode::Char('D') {
             self.state.active = Screen::Diplomacy;
+            return;
+        }
+
+        if key.code == KeyCode::Char('L') {
+            self.state.show_inter_sector_lanes = !self.state.show_inter_sector_lanes;
             return;
         }
 

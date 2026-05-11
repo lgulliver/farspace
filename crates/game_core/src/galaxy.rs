@@ -1,11 +1,11 @@
 //! Galaxy generation
 
 use crate::state::{
-    Planet, PlanetClass, PlanetSize, Sector, SectorId, SpectralClass, Star, StarId,
+    HyperspaceLane, Planet, PlanetClass, PlanetSize, Sector, SectorId, SpectralClass, Star, StarId,
 };
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Sector name prefixes (original IP)
 const SECTOR_NAME_PREFIXES: &[&str] = &[
@@ -129,6 +129,112 @@ pub fn generate_galaxy(seed: u64, star_count: usize) -> GeneratedGalaxy {
     }
 
     GeneratedGalaxy { sectors, stars }
+}
+
+/// Generate sparse deterministic hyperspace lanes for the provided galaxy.
+///
+/// v1 model:
+/// - at most one intra-sector lane per sector (closest pair)
+/// - at most one inter-sector lane per adjacent sector pair (closest cross-pair)
+pub fn generate_hyperspace_lanes(
+    seed: u64,
+    sectors: &[Sector],
+    stars: &[Star],
+) -> Vec<HyperspaceLane> {
+    let mut lanes = BTreeSet::new();
+    if stars.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut stars_by_sector: BTreeMap<SectorId, Vec<&Star>> = BTreeMap::new();
+    for star in stars {
+        stars_by_sector.entry(star.sector).or_default().push(star);
+    }
+    for stars_in_sector in stars_by_sector.values_mut() {
+        stars_in_sector.sort_by_key(|s| s.id);
+    }
+
+    // One closest pair per sector.
+    for stars_in_sector in stars_by_sector.values() {
+        let mut best: Option<(i64, StarId, StarId)> = None;
+        for i in 0..stars_in_sector.len() {
+            for j in (i + 1)..stars_in_sector.len() {
+                let a = stars_in_sector[i];
+                let b = stars_in_sector[j];
+                let dx = (a.x - b.x) as i64;
+                let dy = (a.y - b.y) as i64;
+                let sq = dx * dx + dy * dy;
+                let candidate = (sq, a.id.min(b.id), a.id.max(b.id));
+                if best.is_none_or(|current| candidate < current) {
+                    best = Some(candidate);
+                }
+            }
+        }
+        if let Some((_, a, b)) = best {
+            if let Some(lane) = HyperspaceLane::new(a, b) {
+                lanes.insert(lane);
+            }
+        }
+    }
+
+    // One closest pair per adjacent sector pair.
+    for (sa, sb) in adjacent_sector_pairs(sectors) {
+        let Some(a_stars) = stars_by_sector.get(&sa) else {
+            continue;
+        };
+        let Some(b_stars) = stars_by_sector.get(&sb) else {
+            continue;
+        };
+
+        let mut best: Option<(i64, StarId, StarId)> = None;
+        for a in a_stars {
+            for b in b_stars {
+                let dx = (a.x - b.x) as i64;
+                let dy = (a.y - b.y) as i64;
+                let sq = dx * dx + dy * dy;
+                let base = HyperspaceLane::new(a.id, b.id).expect("distinct stars");
+                // Deterministic seed-based tie-break for equal-distance pairs.
+                // Pack normalized endpoints into a stable 64-bit value and xor with seed
+                // so different seeds may pick different (still deterministic) equal-length lanes.
+                let tie_break = ((seed ^ ((base.a().0 << 32) | base.b().0)) & 0xFFFF) as i64;
+                let candidate = (sq * 65_536 + tie_break, base.a(), base.b());
+                if best.is_none_or(|current| candidate < current) {
+                    best = Some(candidate);
+                }
+            }
+        }
+
+        if let Some((_, a, b)) = best {
+            if let Some(lane) = HyperspaceLane::new(a, b) {
+                lanes.insert(lane);
+            }
+        }
+    }
+
+    lanes.into_iter().collect()
+}
+
+fn adjacent_sector_pairs(sectors: &[Sector]) -> Vec<(SectorId, SectorId)> {
+    // Sector centers are generated on a deterministic sparse grid where
+    // immediate neighbors are roughly 400-600 units apart and non-neighbors are larger.
+    // Treating <=600 as adjacent keeps links local without over-connecting distant sectors.
+    const ADJACENT_SECTOR_MAX_SQ_DIST: i64 = 600 * 600;
+    let mut pairs = Vec::new();
+    for i in 0..sectors.len() {
+        for j in (i + 1)..sectors.len() {
+            let a = &sectors[i];
+            let b = &sectors[j];
+            let dx = (a.x - b.x) as i64;
+            let dy = (a.y - b.y) as i64;
+            let sq = dx * dx + dy * dy;
+            if sq <= ADJACENT_SECTOR_MAX_SQ_DIST {
+                pairs.push((a.id.min(b.id), a.id.max(b.id)));
+            }
+        }
+    }
+    pairs.sort();
+    pairs.dedup();
+    pairs
 }
 
 /// Generate sector center positions in a grid pattern
@@ -445,6 +551,26 @@ mod tests {
                 coords.insert((sector.x, sector.y)),
                 "Duplicate sector coordinates found"
             );
+        }
+    }
+
+    #[test]
+    fn hyperspace_lane_generation_is_reproducible() {
+        let gal = generate_galaxy(42, 30);
+        let lanes_a = generate_hyperspace_lanes(42, &gal.sectors, &gal.stars);
+        let lanes_b = generate_hyperspace_lanes(42, &gal.sectors, &gal.stars);
+        assert_eq!(lanes_a, lanes_b);
+    }
+
+    #[test]
+    fn hyperspace_lanes_connect_valid_distinct_systems() {
+        let gal = generate_galaxy(8, 30);
+        let lanes = generate_hyperspace_lanes(8, &gal.sectors, &gal.stars);
+        let star_ids: BTreeSet<StarId> = gal.stars.iter().map(|s| s.id).collect();
+        for lane in lanes {
+            assert!(star_ids.contains(&lane.a()));
+            assert!(star_ids.contains(&lane.b()));
+            assert_ne!(lane.a(), lane.b());
         }
     }
 }

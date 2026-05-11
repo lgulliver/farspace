@@ -53,6 +53,8 @@ pub enum Event {
     },
     /// A technology research was completed
     ResearchCompleted { tech: TechId },
+    /// Hyperspace Cartography was completed, enabling lane travel for known lanes
+    HyperspaceCartographyUnlocked { empire: EmpireId },
     /// A scout fleet has been dispatched toward an unexplored system
     ScoutDispatched {
         fleet: FleetId,
@@ -79,6 +81,13 @@ pub enum Event {
     },
     /// A fleet has arrived at its destination
     FleetArrived { fleet: FleetId, star: StarId },
+    /// A fleet used a direct hyperspace lane for transit
+    HyperspaceLaneUsed {
+        empire: EmpireId,
+        fleet: FleetId,
+        from: StarId,
+        to: StarId,
+    },
     /// A colonization attempt has started for a specific target planet
     ColonizationStarted {
         empire: EmpireId,
@@ -254,6 +263,12 @@ impl Event {
             Event::ResearchCompleted { tech } => {
                 format!("Research complete: tech {}", tech.0)
             }
+            Event::HyperspaceCartographyUnlocked { empire } => {
+                format!(
+                    "Empire {} unlocked Hyperspace Cartography — known lanes are now usable",
+                    empire.0
+                )
+            }
             Event::ScoutDispatched {
                 fleet,
                 destination,
@@ -301,6 +316,17 @@ impl Event {
             }
             Event::FleetArrived { fleet, star } => {
                 format!("Fleet {} arrived at system {}", fleet.0, star.0)
+            }
+            Event::HyperspaceLaneUsed {
+                empire,
+                fleet,
+                from,
+                to,
+            } => {
+                format!(
+                    "Empire {}: Fleet {} used hyperspace lane {} ↔ {}",
+                    empire.0, fleet.0, from.0, to.0
+                )
             }
             Event::ColonizationStarted {
                 empire,

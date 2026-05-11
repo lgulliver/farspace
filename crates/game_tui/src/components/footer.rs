@@ -19,6 +19,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("[L]", "Toggle Lanes"),
             ("[r]", "Research"),
             ("[D]", "Diplomacy"),
+            ("[O]", "Overview"),
             ("[E/T]", "End Turn"),
             ("[?]", "Help"),
             ("[:]", "Command"),
@@ -30,6 +31,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("[c]", "Colony"),
             ("[r]", "Research"),
             ("[D]", "Diplomacy"),
+            ("[O]", "Overview"),
             ("[S]", "Scout"),
             ("[M]", "Move Fleet"),
             ("[E/T]", "End Turn"),
@@ -43,6 +45,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
             ("[Enter]", "Open Selected/First Player Colony"),
             ("[S]", "Survey"),
             ("[C]", "Colonize Selected"),
+            ("[O]", "Overview"),
             ("[e/t]", "End Turn"),
             ("[?]", "Help"),
             ("[Esc]", "Back"),
@@ -50,19 +53,31 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::Colony => vec![
             ("[j/k]", "Select"),
             ("[Enter]", "Queue"),
+            ("[O]", "Overview"),
             ("[e/t]", "End Turn"),
             ("[?]", "Help"),
+            ("[Esc]", "Back"),
+        ],
+        Screen::EmpireOverview => vec![
+            ("[j/k]", "Select"),
+            ("[s]", "Sort"),
+            ("[/]", "Filter"),
+            ("[Enter]", "Colony"),
+            ("[S]", "System"),
+            ("[e/t]", "End Turn"),
             ("[Esc]", "Back"),
         ],
         Screen::Research => vec![
             ("[j/k]", "Navigate"),
             ("[Enter]", "Select Tech"),
+            ("[O]", "Overview"),
             ("[e/t]", "End Turn"),
             ("[?]", "Help"),
             ("[Esc]", "Back"),
         ],
         Screen::Diplomacy => vec![
             ("[e/t/Enter]", "End Turn"),
+            ("[O]", "Overview"),
             ("[?]", "Help"),
             ("[Esc]", "Back"),
         ],
@@ -171,6 +186,19 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_footer(frame, area, &Screen::Research);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_footer_empire_overview() {
+        let backend = TestBackend::new(80, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_footer(frame, area, &Screen::EmpireOverview);
             })
             .unwrap();
     }

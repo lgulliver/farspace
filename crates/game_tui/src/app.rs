@@ -2,6 +2,7 @@
 
 use crate::components::{render_help, render_palette, EventLog};
 use crate::keys::KeyMap;
+use crate::screens::empire_overview::{derive_empire_overview, OverviewSort};
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
@@ -47,6 +48,14 @@ pub struct AppState {
     pub colony_role_panel_active: bool,
     /// Cursor index for the tech list on the research screen
     pub research_cursor: usize,
+    /// Cursor index for selected row on empire overview
+    pub overview_cursor: usize,
+    /// Current sort mode for empire overview
+    pub overview_sort: OverviewSort,
+    /// Optional overview filter query
+    pub overview_filter: String,
+    /// Whether filter input mode is active on the overview screen
+    pub overview_filter_input: bool,
     pub log: EventLog,
     pub quit: bool,
     /// Monotonically-increasing frame counter, incremented once per render loop iteration.
@@ -223,6 +232,12 @@ impl App {
             return;
         }
 
+        if key.code == KeyCode::Char('O') && self.engine.is_some() {
+            self.state.active = Screen::EmpireOverview;
+            self.state.overview_filter_input = false;
+            return;
+        }
+
         // Screen-specific handling
         match self.state.active {
             Screen::Menu => self.handle_menu_key(key),
@@ -230,6 +245,7 @@ impl App {
             Screen::SectorMap => self.handle_sector_map_key(key),
             Screen::System => self.handle_system_key(key),
             Screen::Colony => self.handle_colony_key(key),
+            Screen::EmpireOverview => self.handle_empire_overview_key(key),
             Screen::Research => self.handle_research_key(key),
             Screen::Diplomacy => self.handle_diplomacy_key(key),
         }
@@ -426,6 +442,132 @@ impl App {
                 }
             }
         }
+    }
+
+    fn handle_empire_overview_key(&mut self, key: KeyEvent) {
+        if self.state.overview_filter_input {
+            match key.code {
+                KeyCode::Esc => {
+                    self.state.overview_filter_input = false;
+                }
+                KeyCode::Enter => {
+                    self.state.overview_filter_input = false;
+                }
+                KeyCode::Backspace => {
+                    self.state.overview_filter.pop();
+                    self.state.overview_cursor = 0;
+                }
+                KeyCode::Char(c) => {
+                    self.state.overview_filter.push(c);
+                    self.state.overview_cursor = 0;
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        let visible_count = self
+            .engine
+            .as_ref()
+            .map(|engine| {
+                derive_empire_overview(
+                    &engine.state,
+                    engine.state.player_empire,
+                    self.state.overview_sort,
+                    &self.state.overview_filter,
+                )
+                .rows
+                .len()
+            })
+            .unwrap_or(0);
+
+        match key.code {
+            KeyCode::Esc => {
+                self.state.active = Screen::SectorMap;
+                self.state.overview_filter_input = false;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if visible_count > 0 {
+                    self.state.overview_cursor = (self.state.overview_cursor + 1) % visible_count;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if visible_count > 0 {
+                    self.state.overview_cursor =
+                        (self.state.overview_cursor + visible_count - 1) % visible_count;
+                }
+            }
+            KeyCode::Enter => {
+                self.jump_overview_to_colony();
+            }
+            KeyCode::Char('S') => {
+                self.jump_overview_to_system();
+            }
+            KeyCode::Char('s') => {
+                self.state.overview_sort = self.state.overview_sort.next();
+                self.state.overview_cursor = 0;
+            }
+            _ if KeyMap::is_search(key) => {
+                self.state.overview_filter_input = true;
+            }
+            _ => {
+                if KeyMap::is_end_turn(key) && key.code != KeyCode::Enter {
+                    self.end_turn();
+                }
+            }
+        }
+    }
+
+    fn jump_overview_to_colony(&mut self) {
+        let (star_id, planet_index, colony_id) = {
+            let engine = match &self.engine {
+                Some(e) => e,
+                None => return,
+            };
+            let data = derive_empire_overview(
+                &engine.state,
+                engine.state.player_empire,
+                self.state.overview_sort,
+                &self.state.overview_filter,
+            );
+            if data.rows.is_empty() {
+                return;
+            }
+            let selected = self.state.overview_cursor.min(data.rows.len().saturating_sub(1));
+            let row = &data.rows[selected];
+            (row.star_id, row.planet_index, row.colony_id)
+        };
+
+        self.state.selected_star = Some(star_id);
+        self.state.selected_planet_index = planet_index;
+        self.state.selected_colony = Some(colony_id);
+        self.state.colony_build_cursor = 0;
+        self.state.active = Screen::Colony;
+    }
+
+    fn jump_overview_to_system(&mut self) {
+        let (star_id, planet_index) = {
+            let engine = match &self.engine {
+                Some(e) => e,
+                None => return,
+            };
+            let data = derive_empire_overview(
+                &engine.state,
+                engine.state.player_empire,
+                self.state.overview_sort,
+                &self.state.overview_filter,
+            );
+            if data.rows.is_empty() {
+                return;
+            }
+            let selected = self.state.overview_cursor.min(data.rows.len().saturating_sub(1));
+            let row = &data.rows[selected];
+            (row.star_id, row.planet_index)
+        };
+
+        self.state.selected_star = Some(star_id);
+        self.state.selected_planet_index = planet_index;
+        self.state.active = Screen::System;
     }
 
     /// Total number of items in the build picker (surface buildings + orbital structures + ships)
@@ -1241,6 +1383,65 @@ mod tests {
 
         app.handle_key(key(KeyCode::Enter));
         assert_eq!(app.state.active, Screen::System);
+    }
+
+    #[test]
+    fn o_key_opens_empire_overview() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::SectorMap;
+
+        app.handle_key(key(KeyCode::Char('O')));
+
+        assert_eq!(app.state.active, Screen::EmpireOverview);
+    }
+
+    #[test]
+    fn overview_enter_opens_selected_colony() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::EmpireOverview;
+        app.state.overview_cursor = 0;
+
+        let expected_colony = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == app.engine.as_ref().unwrap().state.player_empire)
+            .map(|c| c.id)
+            .expect("player colony should exist");
+
+        app.handle_key(key(KeyCode::Enter));
+
+        assert_eq!(app.state.active, Screen::Colony);
+        assert_eq!(app.state.selected_colony, Some(expected_colony));
+    }
+
+    #[test]
+    fn overview_s_opens_selected_system() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::EmpireOverview;
+        app.state.overview_cursor = 0;
+
+        let expected_star = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == app.engine.as_ref().unwrap().state.player_empire)
+            .map(|c| c.star)
+            .expect("player colony should exist");
+
+        app.handle_key(key(KeyCode::Char('S')));
+
+        assert_eq!(app.state.active, Screen::System);
+        assert_eq!(app.state.selected_star, Some(expected_star));
     }
 
     #[test]

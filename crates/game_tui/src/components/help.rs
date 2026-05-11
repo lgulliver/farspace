@@ -31,6 +31,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::SectorMap => " Sector Map Help ",
         Screen::System => " System View Help ",
         Screen::Colony => " Colony Help ",
+        Screen::EmpireOverview => " Empire Overview Help ",
         Screen::Research => " Research Help ",
         Screen::Diplomacy => " Diplomacy Help ",
     };
@@ -57,6 +58,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("D", "Open diplomacy screen"),
             HelpEntry::Binding("E / T", "End turn (AI acts automatically)"),
             HelpEntry::Section("Global"),
+            HelpEntry::Binding("O", "Open empire overview"),
             HelpEntry::Binding(":", "Command palette (save · load)"),
             HelpEntry::Binding("?", "Toggle this help"),
             HelpEntry::Binding("Q", "Quit"),
@@ -76,6 +78,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("M", "Move idle fleet to selected explored system"),
             HelpEntry::Binding("E / T", "End turn (AI acts automatically)"),
             HelpEntry::Section("Global"),
+            HelpEntry::Binding("O", "Open empire overview"),
             HelpEntry::Binding(":", "Command palette (save · load)"),
             HelpEntry::Binding("?", "Toggle this help"),
             HelpEntry::Binding("Esc", "Return to Galaxy Overview"),
@@ -94,6 +97,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
+            HelpEntry::Binding("O", "Open empire overview"),
             HelpEntry::Binding(":", "Command palette (save · load)"),
             HelpEntry::Binding("?", "Toggle this help"),
             HelpEntry::Binding("Esc", "Return to Sector Map"),
@@ -110,6 +114,23 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
+            HelpEntry::Binding("O", "Open empire overview"),
+            HelpEntry::Binding(":", "Command palette (save · load)"),
+            HelpEntry::Binding("?", "Toggle this help"),
+            HelpEntry::Binding("Esc", "Return to Sector Map"),
+        ],
+        Screen::EmpireOverview => vec![
+            HelpEntry::Section("Navigation"),
+            HelpEntry::Binding("j / ↓", "Select next colony"),
+            HelpEntry::Binding("k / ↑", "Select previous colony"),
+            HelpEntry::Binding("s", "Cycle sort mode"),
+            HelpEntry::Binding("/", "Filter colonies"),
+            HelpEntry::Section("Actions"),
+            HelpEntry::Binding("Enter", "Open selected colony"),
+            HelpEntry::Binding("S", "Open selected system"),
+            HelpEntry::Binding("e / t", "End turn"),
+            HelpEntry::Section("Global"),
+            HelpEntry::Binding("O", "Open empire overview"),
             HelpEntry::Binding(":", "Command palette (save · load)"),
             HelpEntry::Binding("?", "Toggle this help"),
             HelpEntry::Binding("Esc", "Return to Sector Map"),
@@ -122,6 +143,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("Enter", "Select highlighted technology"),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
+            HelpEntry::Binding("O", "Open empire overview"),
             HelpEntry::Binding(":", "Command palette (save · load)"),
             HelpEntry::Binding("?", "Toggle this help"),
             HelpEntry::Binding("Esc", "Return to Sector Map"),
@@ -130,6 +152,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Actions"),
             HelpEntry::Binding("e / t / Enter", "End turn"),
             HelpEntry::Section("Global"),
+            HelpEntry::Binding("O", "Open empire overview"),
             HelpEntry::Binding(":", "Command palette (save · load)"),
             HelpEntry::Binding("?", "Toggle this help"),
             HelpEntry::Binding("Esc", "Return to Sector Map"),
@@ -247,6 +270,19 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_help(frame, area, &Screen::Research);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_help_empire_overview() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_help(frame, area, &Screen::EmpireOverview);
             })
             .unwrap();
     }

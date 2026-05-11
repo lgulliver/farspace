@@ -533,7 +533,10 @@ impl App {
             if data.rows.is_empty() {
                 return;
             }
-            let selected = self.state.overview_cursor.min(data.rows.len().saturating_sub(1));
+            let selected = self
+                .state
+                .overview_cursor
+                .min(data.rows.len().saturating_sub(1));
             let row = &data.rows[selected];
             (row.star_id, row.planet_index, row.colony_id)
         };
@@ -560,7 +563,10 @@ impl App {
             if data.rows.is_empty() {
                 return;
             }
-            let selected = self.state.overview_cursor.min(data.rows.len().saturating_sub(1));
+            let selected = self
+                .state
+                .overview_cursor
+                .min(data.rows.len().saturating_sub(1));
             let row = &data.rows[selected];
             (row.star_id, row.planet_index)
         };

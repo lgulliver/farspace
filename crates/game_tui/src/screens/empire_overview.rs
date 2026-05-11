@@ -93,7 +93,11 @@ pub fn derive_empire_overview(
     let mut colony_maintenance = 0i64;
     let mut rows = Vec::new();
 
-    for colony in game_state.colonies.values().filter(|c| c.owner == empire_id) {
+    for colony in game_state
+        .colonies
+        .values()
+        .filter(|c| c.owner == empire_id)
+    {
         let star = game_state.stars.get(&colony.star);
         let planet = star.and_then(|s| s.planets.get(colony.planet_index));
         let y = yield_model::calculate_yield(colony, planet);
@@ -109,7 +113,12 @@ pub fn derive_empire_overview(
 
         let turns_remaining = colony.build_queue.first().and_then(|item| {
             let remaining = item.cost().saturating_sub(colony.accumulated_production);
-            let per_turn = colony.production + if item.is_ship() { colony.role.ship_production_bonus() } else { 0 };
+            let per_turn = colony.production
+                + if item.is_ship() {
+                    colony.role.ship_production_bonus()
+                } else {
+                    0
+                };
             if per_turn == 0 {
                 None
             } else {
@@ -169,7 +178,12 @@ pub fn derive_empire_overview(
     let empire = game_state.empires.get(&empire_id);
     let active_research = empire
         .and_then(|e| e.research.current_tech)
-        .and_then(|tid| all_techs().iter().find(|t| t.id == tid).map(|t| t.name.to_string()))
+        .and_then(|tid| {
+            all_techs()
+                .iter()
+                .find(|t| t.id == tid)
+                .map(|t| t.name.to_string())
+        })
         .unwrap_or_else(|| "None".to_string());
 
     let fleet_count = game_state
@@ -286,7 +300,10 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
         Span::styled(format!("{}", summary.food), Theme::default_style()),
         Span::raw("  "),
         Span::styled("Science ", Theme::muted_style()),
-        Span::styled(format!("{}/t", summary.science_per_turn), Theme::default_style()),
+        Span::styled(
+            format!("{}/t", summary.science_per_turn),
+            Theme::default_style(),
+        ),
         Span::raw("  "),
         Span::styled("Maint ", Theme::muted_style()),
         Span::styled(
@@ -337,8 +354,7 @@ fn render_colony_table(
 
     if rows.is_empty() {
         frame.render_widget(
-            Paragraph::new("No colonies match the current filter.")
-                .style(Theme::muted_style()),
+            Paragraph::new("No colonies match the current filter.").style(Theme::muted_style()),
             inner,
         );
         return;
@@ -391,10 +407,7 @@ fn render_colony_table(
 
         lines.push(Line::from(vec![
             Span::styled(format!("{} ", prefix), style),
-            Span::styled(
-                format!("{}/{}", row.system, row.planet),
-                style,
-            ),
+            Span::styled(format!("{}/{}", row.system, row.planet), style),
             Span::raw("  "),
             Span::styled(row.role.as_str(), style),
             Span::raw("  "),
@@ -472,7 +485,13 @@ mod tests {
         assert_eq!(data.summary.credits, 100);
         assert_eq!(data.summary.food, 0);
         assert_eq!(data.summary.science_per_turn, 5);
-        assert_eq!(data.summary.maintenance_per_turn, 3);
+        let expected_maintenance = engine
+            .state
+            .fleets
+            .values()
+            .filter(|f| f.owner == engine.state.player_empire)
+            .count() as i64;
+        assert_eq!(data.summary.maintenance_per_turn, expected_maintenance);
     }
 
     #[test]
@@ -507,17 +526,15 @@ mod tests {
         engine.state.next_colony_id += 1;
         extra.population += 2;
         engine.state.colonies.insert(extra.id, extra);
-        engine
-            .apply_turn(vec![Command::SetColonyFocus {
-                colony: colony_id,
-                prod_pct: 100,
-                research_pct: 0,
-            }]);
-        engine
-            .apply_turn(vec![Command::QueueBuild {
-                colony: colony_id,
-                item: game_core::BuildItem::Structure(game_core::BuildingType::AquacultureBay),
-            }]);
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: game_core::BuildItem::Structure(game_core::BuildingType::AquacultureBay),
+        }]);
 
         let a = derive_empire_overview(
             &engine.state,

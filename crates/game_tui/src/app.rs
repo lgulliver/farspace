@@ -2,7 +2,7 @@
 
 use crate::components::{render_help, render_palette, EventLog};
 use crate::keys::KeyMap;
-use crate::screens::empire_overview::{derive_empire_overview, OverviewSort};
+use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData, OverviewSort};
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
@@ -466,20 +466,15 @@ impl App {
             return;
         }
 
-        let visible_count = self
-            .engine
-            .as_ref()
-            .map(|engine| {
-                derive_empire_overview(
-                    &engine.state,
-                    engine.state.player_empire,
-                    self.state.overview_sort,
-                    &self.state.overview_filter,
-                )
-                .rows
-                .len()
-            })
-            .unwrap_or(0);
+        let overview_data = self.engine.as_ref().map(|engine| {
+            derive_empire_overview(
+                &engine.state,
+                engine.state.player_empire,
+                self.state.overview_sort,
+                &self.state.overview_filter,
+            )
+        });
+        let visible_count = overview_data.as_ref().map(|d| d.rows.len()).unwrap_or(0);
 
         match key.code {
             KeyCode::Esc => {
@@ -498,10 +493,10 @@ impl App {
                 }
             }
             KeyCode::Enter => {
-                self.jump_overview_to_colony();
+                self.jump_overview_to_colony(overview_data.as_ref());
             }
             KeyCode::Char('S') => {
-                self.jump_overview_to_system();
+                self.jump_overview_to_system(overview_data.as_ref());
             }
             KeyCode::Char('s') => {
                 self.state.overview_sort = self.state.overview_sort.next();
@@ -518,28 +513,17 @@ impl App {
         }
     }
 
-    fn jump_overview_to_colony(&mut self) {
-        let (star_id, planet_index, colony_id) = {
-            let engine = match &self.engine {
-                Some(e) => e,
-                None => return,
-            };
-            let data = derive_empire_overview(
-                &engine.state,
-                engine.state.player_empire,
-                self.state.overview_sort,
-                &self.state.overview_filter,
-            );
-            if data.rows.is_empty() {
-                return;
-            }
-            let selected = self
-                .state
-                .overview_cursor
-                .min(data.rows.len().saturating_sub(1));
-            let row = &data.rows[selected];
-            (row.star_id, row.planet_index, row.colony_id)
+    fn jump_overview_to_colony(&mut self, data: Option<&EmpireOverviewData>) {
+        let data = match data {
+            Some(d) if !d.rows.is_empty() => d,
+            _ => return,
         };
+        let selected = self
+            .state
+            .overview_cursor
+            .min(data.rows.len().saturating_sub(1));
+        let row = &data.rows[selected];
+        let (star_id, planet_index, colony_id) = (row.star_id, row.planet_index, row.colony_id);
 
         self.state.selected_star = Some(star_id);
         self.state.selected_planet_index = planet_index;
@@ -548,28 +532,17 @@ impl App {
         self.state.active = Screen::Colony;
     }
 
-    fn jump_overview_to_system(&mut self) {
-        let (star_id, planet_index) = {
-            let engine = match &self.engine {
-                Some(e) => e,
-                None => return,
-            };
-            let data = derive_empire_overview(
-                &engine.state,
-                engine.state.player_empire,
-                self.state.overview_sort,
-                &self.state.overview_filter,
-            );
-            if data.rows.is_empty() {
-                return;
-            }
-            let selected = self
-                .state
-                .overview_cursor
-                .min(data.rows.len().saturating_sub(1));
-            let row = &data.rows[selected];
-            (row.star_id, row.planet_index)
+    fn jump_overview_to_system(&mut self, data: Option<&EmpireOverviewData>) {
+        let data = match data {
+            Some(d) if !d.rows.is_empty() => d,
+            _ => return,
         };
+        let selected = self
+            .state
+            .overview_cursor
+            .min(data.rows.len().saturating_sub(1));
+        let row = &data.rows[selected];
+        let (star_id, planet_index) = (row.star_id, row.planet_index);
 
         self.state.selected_star = Some(star_id);
         self.state.selected_planet_index = planet_index;

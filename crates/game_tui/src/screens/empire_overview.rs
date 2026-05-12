@@ -5,7 +5,7 @@ use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{all_techs, yield_model, ColonyId, EmpireId, GameState, StarId};
+use game_core::{all_techs, yield_model, Colony, ColonyId, EmpireId, GameState, StarId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
@@ -65,7 +65,8 @@ pub struct ColonyOverviewRow {
     pub housing: u64,
     pub stability: u8,
     pub food_balance: i64,
-    pub industry_output: i64,
+    pub economic_industry_output: i64,
+    pub build_output_per_turn: u64,
     pub current_production: String,
     pub turns_remaining: Option<u64>,
     pub warnings: Vec<&'static str>,
@@ -75,6 +76,25 @@ impl ColonyOverviewRow {
     fn warning_count(&self) -> usize {
         self.warnings.len()
     }
+}
+
+fn colony_build_output_per_turn(colony: &Colony) -> u64 {
+    colony
+        .build_queue
+        .first()
+        .map(|item| {
+            colony.production
+                + if item.is_ship() {
+                    colony.role.ship_production_bonus()
+                } else {
+                    0
+                }
+        })
+        .unwrap_or(colony.production)
+}
+
+fn stability_has_yield_penalty(stability: u8) -> bool {
+    (stability as i64 - 100) / 10 < 0
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,14 +131,11 @@ pub fn derive_empire_overview(
             .map(|item| item.name().to_string())
             .unwrap_or_else(|| "Idle".to_string());
 
+        let build_output_per_turn = colony_build_output_per_turn(colony);
+
         let turns_remaining = colony.build_queue.first().and_then(|item| {
             let remaining = item.cost().saturating_sub(colony.accumulated_production);
-            let per_turn = colony.production
-                + if item.is_ship() {
-                    colony.role.ship_production_bonus()
-                } else {
-                    0
-                };
+            let per_turn = build_output_per_turn;
             if per_turn == 0 {
                 None
             } else {
@@ -128,7 +145,7 @@ pub fn derive_empire_overview(
 
         let food_balance = y.food - y.food_consumed;
         let mut warnings = Vec::new();
-        if colony.stability < 100 {
+        if stability_has_yield_penalty(colony.stability) {
             warnings.push("Low stability");
         }
         if food_balance < 0 {
@@ -156,7 +173,8 @@ pub fn derive_empire_overview(
             housing,
             stability: colony.stability,
             food_balance,
-            industry_output: y.industry,
+            economic_industry_output: y.industry,
+            build_output_per_turn,
             current_production,
             turns_remaining,
             warnings,
@@ -373,7 +391,9 @@ fn render_colony_table(
         Span::raw("  "),
         Span::styled("Food", Theme::title_style()),
         Span::raw("  "),
-        Span::styled("Ind", Theme::title_style()),
+        Span::styled("EcoInd", Theme::title_style()),
+        Span::raw("  "),
+        Span::styled("Build", Theme::title_style()),
         Span::raw("  "),
         Span::styled("Production", Theme::title_style()),
         Span::raw("  "),
@@ -383,7 +403,7 @@ fn render_colony_table(
     ]));
 
     let selected = app_state.overview_cursor.min(rows.len().saturating_sub(1));
-    let max_rows = inner.height.saturating_sub(2) as usize;
+    let max_rows = inner.height.saturating_sub(1) as usize;
     let start = if max_rows == 0 {
         0
     } else {
@@ -424,7 +444,9 @@ fn render_colony_table(
             Span::raw("  "),
             Span::styled(format!("{:+}", row.food_balance), style),
             Span::raw("  "),
-            Span::styled(format!("{}", row.industry_output), style),
+            Span::styled(format!("{}", row.economic_industry_output), style),
+            Span::raw("  "),
+            Span::styled(format!("{}", row.build_output_per_turn), style),
             Span::raw("  "),
             Span::styled(row.current_production.as_str(), style),
             Span::raw("  "),
@@ -506,7 +528,7 @@ mod tests {
         let mut engine = Engine::new(42);
         let colony_id = *engine.state.colonies.keys().next().unwrap();
         let colony = engine.state.colonies.get_mut(&colony_id).unwrap();
-        colony.stability = 95;
+        colony.stability = 89;
         colony.build_queue.clear();
 
         let data = derive_empire_overview(
@@ -522,6 +544,27 @@ mod tests {
             .expect("colony row should exist");
         assert!(row.warnings.contains(&"Low stability"));
         assert!(row.warnings.contains(&"Queue idle"));
+    }
+
+    #[test]
+    fn minor_stability_drop_without_penalty_is_not_flagged() {
+        let mut engine = Engine::new(42);
+        let colony_id = *engine.state.colonies.keys().next().unwrap();
+        let colony = engine.state.colonies.get_mut(&colony_id).unwrap();
+        colony.stability = 95;
+
+        let data = derive_empire_overview(
+            &engine.state,
+            engine.state.player_empire,
+            OverviewSort::Name,
+            "",
+        );
+        let row = data
+            .rows
+            .iter()
+            .find(|r| r.colony_id == colony_id)
+            .expect("colony row should exist");
+        assert!(!row.warnings.contains(&"Low stability"));
     }
 
     #[test]

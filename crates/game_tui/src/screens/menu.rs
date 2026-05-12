@@ -35,10 +35,9 @@ pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
     let (_header_area, main_area, footer_area) = compose_layout(area);
 
     // Footer shows keyboard hints for the menu screen
-    let menu_hint = app_state
-        .status_message
-        .as_deref()
-        .or(Some("Quickstart: N, Enter, r, Enter, then S/C in system view."));
+    let menu_hint = app_state.status_message.as_deref().or(Some(
+        "Quickstart: N, Enter, r, Enter, then S/C in system view.",
+    ));
     render_footer(frame, footer_area, &Screen::Menu, menu_hint);
 
     // Center the menu box vertically within the main area
@@ -86,7 +85,10 @@ pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
             Span::raw(" Quit"),
         ]),
         Line::from(""),
-        Line::from(vec![Span::styled("First Turn Quickstart", Theme::title_style())]),
+        Line::from(vec![Span::styled(
+            "First Turn Quickstart",
+            Theme::title_style(),
+        )]),
         Line::from("  1) [N] New Game"),
         Line::from("  2) [Enter] to open Sector Map and pick a star"),
         Line::from("  3) [Enter] in a system, then [S] survey and [C] colonize"),

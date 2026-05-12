@@ -94,7 +94,8 @@ impl App {
                 .to_string(),
         );
         self.state.status_message = Some(
-            "First turn: Enter sector map, scout systems, choose research, queue a build.".to_string(),
+            "First turn: Enter sector map, scout systems, choose research, queue a build."
+                .to_string(),
         );
 
         self.engine = Some(engine);

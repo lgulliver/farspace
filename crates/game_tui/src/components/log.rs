@@ -119,7 +119,9 @@ fn format_log_entry(entry: &str) -> Option<String> {
     let lower = entry.to_ascii_lowercase();
     let prefix = if lower.starts_with("error:") {
         "✖ "
-    } else if lower.starts_with("warning:") || lower.contains(" shortage") || lower.contains(" deficit")
+    } else if lower.starts_with("warning:")
+        || lower.contains(" shortage")
+        || lower.contains(" deficit")
     {
         "⚠ "
     } else if lower.starts_with("turn ") && lower.contains(" report:") {
@@ -301,10 +303,18 @@ mod tests {
 
     #[test]
     fn low_signal_entries_are_filtered() {
-        assert!(is_low_signal_entry("Colony 1 produced 3 credits, 2 research, 1 food"));
-        assert!(is_low_signal_entry("Empire 1 generated 6 science this turn"));
-        assert!(is_low_signal_entry("AI Empire 2: queued Shipyard at colony 4"));
-        assert!(!is_low_signal_entry("Turn 3 report: explored 1, surveyed 0"));
+        assert!(is_low_signal_entry(
+            "Colony 1 produced 3 credits, 2 research, 1 food"
+        ));
+        assert!(is_low_signal_entry(
+            "Empire 1 generated 6 science this turn"
+        ));
+        assert!(is_low_signal_entry(
+            "AI Empire 2: queued Shipyard at colony 4"
+        ));
+        assert!(!is_low_signal_entry(
+            "Turn 3 report: explored 1, surveyed 0"
+        ));
     }
 
     #[test]

@@ -27,7 +27,7 @@ pub const FIELD_SEED: usize = 2;
 /// Render the new game setup screen.
 pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState) {
     let (_header_area, main_area, footer_area) = compose_layout(area);
-    render_footer(frame, footer_area, &Screen::NewGameSetup);
+    render_footer(frame, footer_area, &Screen::NewGameSetup, None);
 
     // Center the setup box vertically and horizontally
     let v_chunks = Layout::default()

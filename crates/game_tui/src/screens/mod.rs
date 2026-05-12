@@ -40,7 +40,7 @@ impl Screen {
         game_state: Option<&GameState>,
     ) {
         match self {
-            Screen::Menu => menu::render_menu(frame, area),
+            Screen::Menu => menu::render_menu(frame, area, app_state),
             Screen::NewGameSetup => new_game_setup::render_new_game_setup(frame, area, app_state),
             Screen::SectorOverview => {
                 if let Some(state) = game_state {

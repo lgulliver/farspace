@@ -61,58 +61,126 @@ impl EventLog {
     }
 }
 
-/// Categorise a log entry and return an appropriate style.
-///
-/// Priority order (first match wins):
-/// 1. `Error:` prefix → error (red)
-/// 2. Turn / game-start keywords → accent (cyan)
-/// 3. Research keywords → success (green)
-/// 4. Colony / colonize keywords → accent (cyan)  (`"colon"` catches colony/colonize/colonization)
-/// 5. Scout keywords → yellow
-/// 6. Fleet / ship keywords → light-blue
-/// 7. Diplomacy / contact keywords → magenta
-/// 8. Everything else → muted (dark-gray)
-fn log_entry_style(entry: &str) -> Style {
-    let lower = entry.to_ascii_lowercase();
-    if lower.starts_with("error:") {
-        Theme::error_style()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LogClass {
+    LowSignal,
+    Error,
+    Warning,
+    TurnReport,
+    TurnFlow,
+    Research,
+    Survey,
+    Colony,
+    Scout,
+    Fleet,
+    SaveLoad,
+    Diplomacy,
+    Other,
+}
+
+fn classify_log_entry(lower: &str) -> LogClass {
+    if (lower.starts_with("colony ") && lower.contains(" produced "))
+        || (lower.starts_with("empire ") && lower.contains(" generated "))
+        || lower.starts_with("ai empire ")
+    {
+        LogClass::LowSignal
+    } else if lower.starts_with("error:") {
+        LogClass::Error
+    } else if lower.starts_with("warning:")
+        || lower.contains(" shortage")
+        || lower.contains(" deficit")
+    {
+        LogClass::Warning
+    } else if lower.starts_with("turn ") && lower.contains(" report:") {
+        LogClass::TurnReport
     } else if lower.starts_with("turn ")
         || lower.starts_with("game started")
         || lower.starts_with("game saved")
         || lower.starts_with("game loaded")
     {
-        Theme::accent_style()
+        LogClass::TurnFlow
     } else if lower.contains("research") || lower.contains("technology") || lower.contains("tech ")
     {
-        Theme::success_style()
+        LogClass::Research
     } else if lower.contains("survey") {
-        Theme::accent_style()
-    } else if lower.contains("colon") {
-        // "colon" is a deliberate substring that matches colony/colonize/colonization
-        Theme::accent_style()
+        LogClass::Survey
+    } else if lower.contains("colony") || lower.contains("coloniz") {
+        LogClass::Colony
     } else if lower.contains("scout") || lower.contains("explored") {
-        Style::default().fg(ratatui::style::Color::Yellow)
+        LogClass::Scout
     } else if lower.contains("fleet")
         || lower.contains("ship")
         || lower.contains("depart")
         || lower.contains("arriv")
     {
-        Style::default().fg(ratatui::style::Color::LightBlue)
+        LogClass::Fleet
+    } else if lower.contains("save:") || lower.contains("load:") {
+        LogClass::SaveLoad
     } else if lower.contains("contact") || lower.contains("diplomacy") || lower.contains("empire") {
-        Style::default().fg(ratatui::style::Color::LightMagenta)
+        LogClass::Diplomacy
     } else {
-        Theme::muted_style()
+        LogClass::Other
+    }
+}
+
+fn style_for_class(class: LogClass) -> Style {
+    match class {
+        LogClass::LowSignal => Theme::muted_style(),
+        LogClass::Error => Theme::error_style(),
+        LogClass::Warning => Theme::warning_style(),
+        LogClass::TurnReport | LogClass::TurnFlow | LogClass::Survey | LogClass::Colony => {
+            Theme::accent_style()
+        }
+        LogClass::Research => Theme::success_style(),
+        LogClass::Scout => Style::default().fg(ratatui::style::Color::Yellow),
+        LogClass::Fleet => Style::default().fg(ratatui::style::Color::LightBlue),
+        LogClass::SaveLoad => Theme::accent_style(),
+        LogClass::Diplomacy => Style::default().fg(ratatui::style::Color::LightMagenta),
+        LogClass::Other => Theme::muted_style(),
+    }
+}
+
+fn prefix_for_class(class: LogClass) -> &'static str {
+    match class {
+        LogClass::LowSignal => "",
+        LogClass::Error => "✖ ",
+        LogClass::Warning => "⚠ ",
+        LogClass::TurnReport => "📊 ",
+        LogClass::TurnFlow => "⏵ ",
+        LogClass::Research => "✓ ",
+        LogClass::Survey => "◌ ",
+        LogClass::Colony => "◎ ",
+        LogClass::Scout | LogClass::Fleet => "➤ ",
+        LogClass::SaveLoad => "💾 ",
+        LogClass::Diplomacy | LogClass::Other => "• ",
     }
 }
 
 /// Render the event log
 pub fn render_log(frame: &mut Frame, area: Rect, log: &EventLog) {
     let visible_lines = (area.height.saturating_sub(2)) as usize;
-    let entries = log.last_n(visible_lines);
+    let formatted: Vec<(String, Style)> = log
+        .last_n(log.len())
+        .iter()
+        .filter_map(|entry| {
+            let lower = entry.to_ascii_lowercase();
+            let class = classify_log_entry(&lower);
+            if class == LogClass::LowSignal {
+                None
+            } else {
+                Some((
+                    format!("{}{}", prefix_for_class(class), entry),
+                    style_for_class(class),
+                ))
+            }
+        })
+        .collect();
+    let start = formatted.len().saturating_sub(visible_lines);
+    let entries = &formatted[start..];
 
     let lines: Vec<Line> = entries
         .iter()
-        .map(|entry| Line::from(Span::styled(entry.clone(), log_entry_style(entry))))
+        .map(|(entry, style)| Line::from(Span::styled(entry.clone(), *style)))
         .collect();
 
     let paragraph = Paragraph::new(lines)
@@ -132,6 +200,26 @@ mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+
+    fn test_style(entry: &str) -> Style {
+        let lower = entry.to_ascii_lowercase();
+        style_for_class(classify_log_entry(&lower))
+    }
+
+    fn test_is_low_signal(entry: &str) -> bool {
+        let lower = entry.to_ascii_lowercase();
+        classify_log_entry(&lower) == LogClass::LowSignal
+    }
+
+    fn test_format_entry(entry: &str) -> Option<String> {
+        let lower = entry.to_ascii_lowercase();
+        let class = classify_log_entry(&lower);
+        if class == LogClass::LowSignal {
+            None
+        } else {
+            Some(format!("{}{}", prefix_for_class(class), entry))
+        }
+    }
 
     #[test]
     fn event_log_push_and_retrieve() {
@@ -180,56 +268,62 @@ mod tests {
 
     #[test]
     fn error_prefix_uses_error_style() {
-        let style = log_entry_style("Error: bad thing happened");
+        let style = test_style("Error: bad thing happened");
         assert_eq!(style.fg, Theme::error_style().fg);
     }
 
     #[test]
     fn turn_prefix_uses_accent_style() {
-        let style = log_entry_style("Turn 5 begins.");
+        let style = test_style("Turn 5 begins.");
         assert_eq!(style.fg, Theme::accent_style().fg);
     }
 
     #[test]
     fn research_keyword_uses_success_style() {
-        let style = log_entry_style("Research complete: Propulsion I");
+        let style = test_style("Research complete: Propulsion I");
         assert_eq!(style.fg, Theme::success_style().fg);
     }
 
     #[test]
     fn colony_keyword_uses_accent_style() {
-        let style = log_entry_style("Colony founded on Kerenthis III");
+        let style = test_style("Colony founded on Kerenthis III");
         assert_eq!(style.fg, Theme::accent_style().fg);
     }
 
     #[test]
     fn scout_keyword_uses_yellow() {
-        let style = log_entry_style("Scout arrived at Velara");
+        let style = test_style("Scout arrived at Velara");
         assert_eq!(style.fg, Some(ratatui::style::Color::Yellow));
     }
 
     #[test]
     fn survey_keyword_uses_accent_style() {
-        let style = log_entry_style("Survey started for orbit 2");
+        let style = test_style("Survey started for orbit 2");
         assert_eq!(style.fg, Theme::accent_style().fg);
     }
 
     #[test]
     fn fleet_keyword_uses_light_blue() {
-        let style = log_entry_style("Fleet 2 departed home system");
+        let style = test_style("Fleet 2 departed home system");
         assert_eq!(style.fg, Some(ratatui::style::Color::LightBlue));
     }
 
     #[test]
     fn unknown_entry_uses_muted_style() {
-        let style = log_entry_style("Some unrecognised event happened");
+        let style = test_style("Some unrecognised event happened");
         assert_eq!(style.fg, Theme::muted_style().fg);
     }
 
     #[test]
     fn game_saved_uses_accent_style() {
-        let style = log_entry_style("Game saved.");
+        let style = test_style("Game saved.");
         assert_eq!(style.fg, Theme::accent_style().fg);
+    }
+
+    #[test]
+    fn warning_entry_uses_warning_style() {
+        let style = test_style("WARNING: Empire 1 food shortage — deficit 2");
+        assert_eq!(style.fg, Theme::warning_style().fg);
     }
 
     #[test]
@@ -252,5 +346,67 @@ mod tests {
                 render_log(frame, frame.area(), &log);
             })
             .unwrap();
+    }
+
+    #[test]
+    fn low_signal_entries_are_filtered() {
+        assert!(test_is_low_signal(
+            "Colony 1 produced 3 credits, 2 research, 1 food"
+        ));
+        assert!(test_is_low_signal("Empire 1 generated 6 science this turn"));
+        assert!(test_is_low_signal(
+            "AI Empire 2: queued Shipyard at colony 4"
+        ));
+        assert!(!test_is_low_signal("Turn 3 report: explored 1, surveyed 0"));
+    }
+
+    #[test]
+    fn formatted_entries_get_visual_prefixes() {
+        assert_eq!(
+            test_format_entry("Turn 4 report: explored 1, surveyed 1").unwrap(),
+            "📊 Turn 4 report: explored 1, surveyed 1"
+        );
+        assert_eq!(
+            test_format_entry("Error: bad command").unwrap(),
+            "✖ Error: bad command"
+        );
+        assert_eq!(
+            test_format_entry("Research complete: tech 2").unwrap(),
+            "✓ Research complete: tech 2"
+        );
+    }
+
+    #[test]
+    fn render_log_filters_low_signal_entries() {
+        let backend = TestBackend::new(100, 8);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut log = EventLog::new();
+        log.push("Colony 1 produced 3 credits, 2 research, 1 food".to_string());
+        log.push("Empire 1 generated 6 science this turn".to_string());
+        log.push("AI Empire 2: queued Shipyard at colony 4".to_string());
+        log.push("Turn 3 report: explored 1, surveyed 0".to_string());
+
+        terminal
+            .draw(|frame| {
+                render_log(frame, frame.area(), &log);
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer();
+        let rendered: String = (0..8u16)
+            .flat_map(|y| {
+                (0..100u16).map(move |x| {
+                    buf.cell((x, y))
+                        .and_then(|c| c.symbol().chars().next())
+                        .unwrap_or(' ')
+                })
+            })
+            .collect();
+
+        assert!(!rendered.contains("produced"));
+        assert!(!rendered.contains("generated"));
+        assert!(!rendered.contains("AI Empire"));
+        assert!(rendered.contains("Turn 3 report"));
     }
 }

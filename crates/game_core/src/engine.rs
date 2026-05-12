@@ -260,10 +260,9 @@ impl Engine {
         }
 
         // Update each AI home star's planet 0 to reference its colony
-        for (i, &ai_empire_id) in ai_empire_ids.iter().enumerate() {
+        for (i, _ai_empire_id) in ai_empire_ids.iter().enumerate() {
             let ai_colony_id = ColonyId(2 + i as u64);
             let ai_home_star_id = ai_home_star_ids[i];
-            let _ = ai_empire_id; // used in colony owner above
             if let Some(star) = stars.get_mut(&ai_home_star_id) {
                 if let Some(planet) = star.planets.get_mut(0) {
                     planet.colony = Some(ai_colony_id);

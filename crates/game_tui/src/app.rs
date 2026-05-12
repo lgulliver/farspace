@@ -447,7 +447,17 @@ impl App {
 
     /// Build a `ScenarioSetup` from the current setup screen state and start the game.
     fn start_game_from_setup(&mut self) {
-        let seed: u64 = self.state.setup_seed_str.parse().unwrap_or(42);
+        let seed: u64 = match self.state.setup_seed_str.parse() {
+            Ok(v) => v,
+            Err(_) => {
+                self.state.log.push(format!(
+                    "Invalid seed '{}' — using 0",
+                    self.state.setup_seed_str
+                ));
+                self.state.setup_seed_str = "0".to_string();
+                0
+            }
+        };
         let setup = ScenarioSetup {
             seed,
             galaxy_size: self.state.setup_galaxy_size,

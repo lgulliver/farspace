@@ -59,7 +59,7 @@ pub fn generate_planet_specials_and_resources(
         .wrapping_add(planet_index as u64 * 999_983);
     let mut planet_rng = ChaCha8Rng::seed_from_u64(planet_seed);
 
-    // ~40% chance of a special
+    // ~40% chance of a special (102 / 256 ≈ 0.398)
     let specials = if planet_rng.gen::<u8>() < 102 {
         let idx = planet_rng.gen_range(0..PlanetSpecial::all().len());
         vec![PlanetSpecial::all()[idx]]
@@ -67,7 +67,7 @@ pub fn generate_planet_specials_and_resources(
         vec![]
     };
 
-    // ~30% chance of a strategic resource
+    // ~30% chance of a strategic resource (77 / 256 ≈ 0.301)
     let resources = if planet_rng.gen::<u8>() < 77 {
         let idx = planet_rng.gen_range(0..StrategicResource::all().len());
         vec![StrategicResource::all()[idx]]

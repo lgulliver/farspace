@@ -356,7 +356,7 @@ fn render_system_details(
                     let mission = game_state.survey_missions.get(&fleet.id);
                     match mission {
                         Some(mission) => format!(
-                            "  Science Ship {} (Surveying orbit {}{})",
+                            "  Science Ship {} (Surveying orbit {}){}",
                             fleet.id.0,
                             mission.planet_index + 1,
                             order_label

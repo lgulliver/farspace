@@ -1367,7 +1367,7 @@ impl App {
         }
 
         format!(
-            "Turn {} galactic report: explored {}, surveyed {}, colonized {}, research {}, arrivals {}, warnings {}, errors {}.",
+            "Turn {} global summary (all empires): explored {}, surveyed {}, colonized {}, research {}, arrivals {}, warnings {}, errors {}.",
             turn,
             explored,
             surveyed,
@@ -1954,7 +1954,7 @@ mod tests {
         ];
 
         let report = App::build_end_turn_report(12, &events);
-        assert!(report.contains("Turn 12 galactic report"));
+        assert!(report.contains("Turn 12 global summary (all empires)"));
         assert!(report.contains("explored 1"));
         assert!(report.contains("surveyed 1"));
         assert!(report.contains("colonized 1"));
@@ -1969,7 +1969,7 @@ mod tests {
         let report = App::build_end_turn_report(3, &[]);
         assert_eq!(
             report,
-            "Turn 3 galactic report: explored 0, surveyed 0, colonized 0, research 0, arrivals 0, warnings 0, errors 0."
+            "Turn 3 global summary (all empires): explored 0, surveyed 0, colonized 0, research 0, arrivals 0, warnings 0, errors 0."
         );
     }
 

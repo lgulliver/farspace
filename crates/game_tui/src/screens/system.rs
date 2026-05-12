@@ -311,24 +311,57 @@ fn render_system_details(
         Span::raw(colony_line),
     ]));
 
+    // Show rally point for player-owned colony at this planet
+    if let Some(colony_id) = planet.colony {
+        if let Some(colony) = game_state.colonies.get(&colony_id) {
+            if colony.owner == game_state.player_empire {
+                let rally_text = match colony.rally_point {
+                    Some(star_id) => {
+                        let sname = game_state
+                            .stars
+                            .get(&star_id)
+                            .map(|s| s.name.as_str())
+                            .unwrap_or("Unknown");
+                        format!("{} ({})", sname, star_id.0)
+                    }
+                    None => "None".to_string(),
+                };
+                lines.push(Line::from(vec![
+                    Span::styled("Rally:  ", Theme::muted_style()),
+                    Span::styled(rally_text, Theme::accent_style()),
+                ]));
+            }
+        }
+    }
+
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("Fleets:", Theme::title_style())));
     if fleets_here.is_empty() {
         lines.push(Line::from(Span::styled("  None", Theme::muted_style())));
     } else {
         for fleet in fleets_here {
+            let order_label = match game_state.fleet_orders.get(&fleet.id) {
+                Some(game_core::FleetOrder::Hold) => " [Hold]".to_string(),
+                Some(game_core::FleetOrder::MoveToSystem(star_id)) => {
+                    format!(" [→ {}]", star_id.0)
+                }
+                None => String::new(),
+            };
             let label = match fleet.kind {
-                FleetKind::Colonizer => format!("  Colony Ship {}", fleet.id.0),
-                FleetKind::Scout => format!("  Scout {}", fleet.id.0),
+                FleetKind::Colonizer => {
+                    format!("  Colony Ship {}{}", fleet.id.0, order_label)
+                }
+                FleetKind::Scout => format!("  Scout {}{}", fleet.id.0, order_label),
                 FleetKind::Science => {
                     let mission = game_state.survey_missions.get(&fleet.id);
                     match mission {
                         Some(mission) => format!(
-                            "  Science Ship {} (Surveying orbit {})",
+                            "  Science Ship {} (Surveying orbit {}{})",
                             fleet.id.0,
-                            mission.planet_index + 1
+                            mission.planet_index + 1,
+                            order_label
                         ),
-                        None => format!("  Science Ship {}", fleet.id.0),
+                        None => format!("  Science Ship {}{}", fleet.id.0, order_label),
                     }
                 }
             };

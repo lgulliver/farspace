@@ -142,6 +142,7 @@ mod tests {
             orbital_installations: Vec::new(),
             stability: 100,
             role: crate::state::ColonyRole::Balanced,
+            rally_point: None,
         }
     }
 

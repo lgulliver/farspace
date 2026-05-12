@@ -38,7 +38,7 @@ impl Screen {
         game_state: Option<&GameState>,
     ) {
         match self {
-            Screen::Menu => menu::render_menu(frame, area),
+            Screen::Menu => menu::render_menu(frame, area, app_state),
             Screen::SectorOverview => {
                 if let Some(state) = game_state {
                     sector_overview::render_sector_overview(frame, area, app_state, state);

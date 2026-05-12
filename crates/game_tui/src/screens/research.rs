@@ -1,6 +1,6 @@
 //! Research screen
 
-use crate::components::{render_footer, render_header};
+use crate::components::{derive_header_data, render_footer, render_header};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
@@ -60,21 +60,8 @@ pub fn render_research(
 ) {
     let (header_area, main_area, footer_area) = compose_layout(area);
 
-    let empire = game_state.empires.get(&game_state.player_empire);
-    let (credits, food, research_pts, empire_name) = match empire {
-        Some(e) => (e.credits, e.food, e.research_points, e.name.as_str()),
-        None => (0, 0, 0, "Unknown"),
-    };
-
-    render_header(
-        frame,
-        header_area,
-        game_state.turn,
-        empire_name,
-        credits,
-        food,
-        research_pts,
-    );
+    let header_data = derive_header_data(game_state);
+    render_header(frame, header_area, &header_data);
 
     // Split: 60% list, 40% detail/progress
     let (list_area, right_area) = split_horizontal(main_area, 60);
@@ -82,7 +69,11 @@ pub fn render_research(
     render_tech_list(frame, list_area, app_state, game_state);
     render_research_detail_and_status(frame, right_area, app_state, game_state);
 
-    render_footer(frame, footer_area, &Screen::Research);
+    let hint = app_state
+        .status_message
+        .as_deref()
+        .unwrap_or("Pick an available tech with Enter so science has an active target.");
+    render_footer(frame, footer_area, &Screen::Research, Some(hint));
 }
 
 fn tech_status(game_state: &GameState, tech: &TechRecord) -> TechStatus {

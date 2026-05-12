@@ -28,6 +28,13 @@ const FLEET_TRAVEL_SPEED: f64 = 500.0;
 /// Direct hyperspace lanes reduce duration to `ceil(base_turns / 2)`.
 const HYPERSPACE_TRAVEL_DIVISOR: u32 = 2;
 
+#[derive(Debug, Clone, Copy, Default)]
+struct YieldBonuses {
+    credits: i64,
+    science: i64,
+    food: i64,
+}
+
 /// Return the number of travel turns for a fleet moving the given squared Euclidean distance.
 ///
 /// Formula: `turns = max(1, ceil(sqrt(sq_dist) / FLEET_TRAVEL_SPEED))`
@@ -391,6 +398,23 @@ impl Engine {
         // Credit maintenance from buildings and orbital structures per colony
         let mut empire_colony_maintenance: std::collections::BTreeMap<EmpireId, i64> =
             std::collections::BTreeMap::new();
+        // Precompute per-colony tech yield bonuses per empire once for this turn.
+        let empire_tech_yield_bonus_per_colony: std::collections::BTreeMap<EmpireId, YieldBonuses> =
+            self.state
+                .empires
+                .iter()
+                .map(|(empire_id, empire)| {
+                    let completed = &empire.research.completed;
+                    (
+                        *empire_id,
+                        YieldBonuses {
+                            credits: tech_yield_bonus_per_colony(completed, YieldType::Credits),
+                            science: tech_yield_bonus_per_colony(completed, YieldType::Science),
+                            food: tech_yield_bonus_per_colony(completed, YieldType::Food),
+                        },
+                    )
+                })
+                .collect();
 
         for colony_id in colony_ids {
             // Get colony data needed for yield calculation and build queue
@@ -423,23 +447,14 @@ impl Engine {
                 crate::yield_model::calculate_yield(colony, planet.as_ref())
             };
 
-            let (credits_bonus, science_bonus, food_bonus) = self
-                .state
-                .empires
+            let bonuses = empire_tech_yield_bonus_per_colony
                 .get(&owner)
-                .map(|empire| {
-                    let completed = &empire.research.completed;
-                    (
-                        tech_yield_bonus_per_colony(completed, YieldType::Credits),
-                        tech_yield_bonus_per_colony(completed, YieldType::Science),
-                        tech_yield_bonus_per_colony(completed, YieldType::Food),
-                    )
-                })
-                .unwrap_or((0, 0, 0));
+                .copied()
+                .unwrap_or_default();
 
-            let credits = colony_yield.credits + credits_bonus;
-            let research = colony_yield.science + science_bonus;
-            let food = colony_yield.food + food_bonus;
+            let credits = colony_yield.credits + bonuses.credits;
+            let research = colony_yield.science + bonuses.science;
+            let food = colony_yield.food + bonuses.food;
 
             // Update empire credits and lifetime research total
             if let Some(empire) = self.state.empires.get_mut(&owner) {

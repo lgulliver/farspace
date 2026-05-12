@@ -397,7 +397,7 @@ mod tests {
 
         assert_eq!(
             before, after,
-            "available tech set/order must be preserved via active+completed round-trip state"
+            "available tech set/order must be preserved via completed-tech round-trip state"
         );
     }
 

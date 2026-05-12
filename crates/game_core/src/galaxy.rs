@@ -45,9 +45,14 @@ pub struct GeneratedGalaxy {
 /// the existing galaxy RNG sequence is not disturbed.  The same seed always produces the same
 /// specials and resources for every planet.
 ///
+/// Seed mixing uses `wrapping_add` with prime multipliers:
+/// `planet_seed = galaxy_seed + star_id * 1_000_003 + planet_index * 999_983`
+/// (all operations wrapping).  This gives a unique seed per (galaxy, star, planet) triple
+/// without any external state or wall-clock input.
+///
 /// Probability model (v1):
-/// - ~40% chance a planet has one special
-/// - ~30% chance a planet has one strategic resource
+/// - ~40% chance a planet has one special  (102/256 ≈ 0.398)
+/// - ~30% chance a planet has one strategic resource  (77/256 ≈ 0.301)
 pub fn generate_planet_specials_and_resources(
     galaxy_seed: u64,
     star_id: StarId,
@@ -652,17 +657,24 @@ mod tests {
 
     #[test]
     fn planet_specials_differ_by_planet_index() {
-        // Planets within the same star should not all have identical specials.
+        // Verify that planet_index is meaningfully incorporated into the seed by checking
+        // that across a range of indices at least two distinct (specials, resources) pairs
+        // are produced.  If all 10 outputs were identical it would mean planet_index has no
+        // effect on the sub-RNG seed.
         let seed = 42u64;
         let star_id = StarId(5);
-        let (s0, r0) = generate_planet_specials_and_resources(seed, star_id, 0);
-        let (s1, r1) = generate_planet_specials_and_resources(seed, star_id, 1);
-        let (s2, r2) = generate_planet_specials_and_resources(seed, star_id, 2);
-        // At least two of the three should differ (very unlikely to all be identical).
-        let all_same = s0 == s1 && s0 == s2 && r0 == r1 && r0 == r2;
+        let outputs: Vec<_> = (0..10)
+            .map(|i| generate_planet_specials_and_resources(seed, star_id, i))
+            .collect();
+        // Count how many outputs differ from the first one.
+        let first = &outputs[0];
+        let distinct_count = outputs.iter().filter(|o| *o != first).count();
         assert!(
-            !all_same,
-            "planets within a system should not always have identical specials"
+            distinct_count > 0,
+            "planet_index must produce variation: all 10 planet indices for \
+             seed={}, star_id={} produced identical (specials, resources) output",
+            seed,
+            star_id.0
         );
     }
 

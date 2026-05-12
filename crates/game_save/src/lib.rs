@@ -1307,9 +1307,11 @@ mod tests {
     fn migration_v17_to_v18_populates_specials_and_resources() {
         use crate::migrate::migrate;
         use crate::schema::SaveFile;
+        use game_core::galaxy::generate_planet_specials_and_resources;
 
         // Build a v17 state using Engine::new so the galaxy is fully populated.
         let engine = Engine::new(42);
+        let seed = engine.state.seed;
         let mut state = engine.state;
 
         // Blank out specials/resources to simulate a pre-v18 save.
@@ -1322,33 +1324,26 @@ mod tests {
 
         let v17_save = SaveFile { version: 17, state };
         let migrated = migrate(v17_save).expect("migration should succeed");
-
-        // After migration every star's planets should have had specials/resources regenerated.
-        let total_with_specials: usize = migrated
-            .state
-            .stars
-            .values()
-            .flat_map(|s| s.planets.iter())
-            .filter(|p| !p.specials.is_empty())
-            .count();
-        let total_with_resources: usize = migrated
-            .state
-            .stars
-            .values()
-            .flat_map(|s| s.planets.iter())
-            .filter(|p| !p.resources.is_empty())
-            .count();
-
-        // With seed=42 and 20 stars averaging ~2.5 planets we get ~50 planets.
-        // At 40% special rate and 30% resource rate, at least a few should appear.
-        assert!(
-            total_with_specials > 0,
-            "migration should regenerate at least some planet specials"
-        );
-        assert!(
-            total_with_resources > 0,
-            "migration should regenerate at least some planet resources"
-        );
         assert_eq!(migrated.version, crate::schema::CURRENT_VERSION);
+
+        // Assert that every planet has exactly the specials and resources that
+        // generate_planet_specials_and_resources produces for (seed, star_id, planet_index).
+        // This is a deterministic assertion that does not depend on probability.
+        for (star_id, star) in &migrated.state.stars {
+            for (planet_index, planet) in star.planets.iter().enumerate() {
+                let (expected_specials, expected_resources) =
+                    generate_planet_specials_and_resources(seed, *star_id, planet_index);
+                assert_eq!(
+                    planet.specials, expected_specials,
+                    "star {} planet {}: migrated specials must equal generate_planet_specials_and_resources output",
+                    star_id.0, planet_index
+                );
+                assert_eq!(
+                    planet.resources, expected_resources,
+                    "star {} planet {}: migrated resources must equal generate_planet_specials_and_resources output",
+                    star_id.0, planet_index
+                );
+            }
+        }
     }
 }

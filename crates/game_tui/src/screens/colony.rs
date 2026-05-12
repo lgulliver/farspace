@@ -197,6 +197,25 @@ fn render_colony_stats(
             Span::styled("  Res focus: ", Theme::muted_style()),
             Span::raw(format!("{}%", colony.research_pct)),
         ]),
+        Line::from(""),
+        {
+            let rally_text = match colony.rally_point {
+                Some(star_id) => {
+                    let star_name = game_state
+                        .stars
+                        .get(&star_id)
+                        .map(|s| s.name.as_str())
+                        .unwrap_or("Unknown");
+                    format!("{} ({})", star_name, star_id.0)
+                }
+                None => "None".to_string(),
+            };
+            Line::from(vec![
+                Span::styled("Rally Point: ", Theme::muted_style()),
+                Span::styled(rally_text, Theme::accent_style()),
+                Span::styled("  [R]set [X]clear", Theme::dim_border_style()),
+            ])
+        },
     ];
 
     // Show active specials/resources for this colonized, surveyed planet.

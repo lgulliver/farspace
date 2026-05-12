@@ -205,9 +205,16 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                     // ancient_ruins_collected stays false (default) — no history available.
                 }
             }
+            migrate(SaveFile { version: 18, state })
+        }
+        18 => {
+            // v18 -> v19: Colony.rally_point (Option<StarId>, default None) and
+            // GameState.fleet_orders (BTreeMap<FleetId, FleetOrder>, default empty) added.
+            // Both fields carry serde defaults — nothing to populate explicitly.
+            // Existing colonies start without a rally point; existing fleets start with no order.
             Ok(SaveFile {
                 version: CURRENT_VERSION,
-                state,
+                state: save.state,
             })
         }
         _ => Err(SaveError::UnsupportedVersion {

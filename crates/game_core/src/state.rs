@@ -1306,6 +1306,13 @@ pub struct Colony {
     /// Specialisation role for this colony.  Defaults to `Balanced` (no modifiers).
     #[cfg_attr(feature = "serde", serde(default))]
     pub role: ColonyRole,
+    /// Rally point for newly produced ships at this colony.
+    ///
+    /// When set, every ship that completes production here automatically receives
+    /// a `MoveToSystem` order toward this star.  Ships are never auto-routed to
+    /// the colony's own star (such an entry is silently ignored).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub rally_point: Option<StarId>,
 }
 
 impl Colony {
@@ -1337,6 +1344,39 @@ impl Colony {
     pub fn has_shipyard(&self) -> bool {
         self.orbital_installations
             .contains(&OrbitalStructureType::Shipyard)
+    }
+}
+
+/// A persistent standing order assigned to a fleet (v1 semantics).
+///
+/// Orders are stored in `GameState.fleet_orders` and are used for display
+/// and tracking purposes.  The current v1 engine behaviour is:
+///
+/// * `Hold` – recorded as a standing order; displayed in the fleet list.
+///   The engine does **not** yet consult `Hold` orders when processing rally-point
+///   routing; that suppression is a planned v2 feature.
+/// * `MoveToSystem` – when set on an idle fleet via `Command::SetFleetOrder`, a
+///   `FleetMission` is started immediately toward the target star.  The order is
+///   cleared automatically when that specific mission resolves (fleet arrives).
+///   When set by `maybe_route_to_rally_point` for a newly produced ship, the same
+///   mission-starts-immediately behaviour applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum FleetOrder {
+    /// Hold position.  Displayed in the fleet list; Hold suppression of rally routing
+    /// is planned for a future release and is not yet active.
+    Hold,
+    /// Move (or continue moving) toward a specific star system.
+    MoveToSystem(StarId),
+}
+
+impl FleetOrder {
+    /// Short display label used in the fleet list.
+    pub fn label(&self) -> &'static str {
+        match self {
+            FleetOrder::Hold => "Hold",
+            FleetOrder::MoveToSystem(_) => "Moving",
+        }
     }
 }
 
@@ -1509,6 +1549,11 @@ pub struct GameState {
     /// Hyperspace lanes known to the player empire (discovery state).
     #[cfg_attr(feature = "serde", serde(default))]
     pub known_hyperspace_lanes: BTreeSet<HyperspaceLane>,
+    /// Persistent standing orders keyed by fleet ID.
+    ///
+    /// A fleet with no entry here has no explicit order and is considered idle.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub fleet_orders: BTreeMap<FleetId, FleetOrder>,
 }
 
 impl GameState {
@@ -1576,6 +1621,7 @@ impl PartialEq for GameState {
             && self.diplomacy == other.diplomacy
             && self.hyperspace_lanes == other.hyperspace_lanes
             && self.known_hyperspace_lanes == other.known_hyperspace_lanes
+            && self.fleet_orders == other.fleet_orders
     }
 }
 
@@ -1626,6 +1672,7 @@ impl Default for GameState {
             diplomacy: BTreeMap::new(),
             hyperspace_lanes: BTreeSet::new(),
             known_hyperspace_lanes: BTreeSet::new(),
+            fleet_orders: BTreeMap::new(),
         }
     }
 }
@@ -2254,6 +2301,7 @@ mod tests {
             orbital_installations: Vec::new(),
             stability: 100,
             role: ColonyRole::Balanced,
+            rally_point: None,
         };
 
         assert!(colony.can_place_surface_building(PlanetSize::Medium));
@@ -2280,6 +2328,7 @@ mod tests {
             orbital_installations: Vec::new(),
             stability: 100,
             role: ColonyRole::Balanced,
+            rally_point: None,
         };
 
         // With 1 surface building on Tiny (capacity 3), we have 2 left

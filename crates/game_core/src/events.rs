@@ -1,6 +1,8 @@
 //! Events emitted by the game engine
 
-use crate::state::{BuildItem, ColonyId, ColonyRole, EmpireId, FleetId, StarId, TechId};
+use crate::state::{
+    BuildItem, ColonyId, ColonyRole, EmpireId, FleetId, FleetOrder, StarId, TechId,
+};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -189,6 +191,20 @@ pub enum Event {
         empire: EmpireId,
         colony: ColonyId,
         role: ColonyRole,
+    },
+    /// A rally point was set for a colony
+    RallyPointSet { colony: ColonyId, star: StarId },
+    /// The rally point for a colony was cleared
+    RallyPointCleared { colony: ColonyId },
+    /// A standing fleet order was set
+    FleetOrderSet { fleet: FleetId, order: FleetOrder },
+    /// A newly produced ship was automatically routed toward the colony's rally point
+    ShipRoutedToRallyPoint {
+        fleet: FleetId,
+        colony: ColonyId,
+        from: StarId,
+        to: StarId,
+        turns_remaining: u32,
     },
 }
 
@@ -480,6 +496,30 @@ impl Event {
                     empire.0,
                     colony.0,
                     role.name()
+                )
+            }
+            Event::RallyPointSet { colony, star } => {
+                format!("Colony {}: rally point set to system {}", colony.0, star.0)
+            }
+            Event::RallyPointCleared { colony } => {
+                format!("Colony {}: rally point cleared", colony.0)
+            }
+            Event::FleetOrderSet { fleet, order } => match order {
+                FleetOrder::Hold => format!("Fleet {}: order set to Hold", fleet.0),
+                FleetOrder::MoveToSystem(star) => {
+                    format!("Fleet {}: order set — moving to system {}", fleet.0, star.0)
+                }
+            },
+            Event::ShipRoutedToRallyPoint {
+                fleet,
+                colony,
+                from: _,
+                to,
+                turns_remaining,
+            } => {
+                format!(
+                    "Fleet {} (from colony {}) routed to rally point system {} ({} turns)",
+                    fleet.0, colony.0, to.0, turns_remaining
                 )
             }
         }

@@ -64,6 +64,12 @@ pub struct AppState {
     pub tick_count: u64,
     /// When true, all fleet travel animations are suppressed (accessibility / low-motion).
     pub reduced_motion: bool,
+    /// Colony for which a rally point is being picked.
+    ///
+    /// When `Some`, the sector map shows a prompt and pressing 'R' or Enter
+    /// while navigating will confirm the selected star as the rally destination.
+    /// Pressing Esc cancels.
+    pub pending_rally_colony: Option<ColonyId>,
 }
 
 impl App {
@@ -133,6 +139,9 @@ impl App {
                 Ok(()) => self.state.log.push("Game loaded.".to_string()),
                 Err(e) => self.state.log.push(e),
             },
+            "clear-rally" => {
+                self.clear_rally_point();
+            }
             other => {
                 self.state
                     .log
@@ -299,6 +308,29 @@ impl App {
     }
 
     fn handle_sector_map_key(&mut self, key: KeyEvent) {
+        // Rally-point picking mode: 'R' or Enter confirms, Esc cancels
+        if self.state.pending_rally_colony.is_some() {
+            match key.code {
+                KeyCode::Esc => {
+                    self.state.pending_rally_colony = None;
+                    self.state
+                        .log
+                        .push("Rally point selection cancelled.".to_string());
+                    return;
+                }
+                KeyCode::Char('R') | KeyCode::Enter => {
+                    self.confirm_rally_point();
+                    return;
+                }
+                _ => {}
+            }
+            // Allow normal navigation in pick mode
+            if let Some((dx, dy)) = KeyMap::movement(key) {
+                self.move_star_selection_in_sector(dx, dy);
+            }
+            return;
+        }
+
         if key.code == KeyCode::Esc {
             self.state.active = Screen::SectorOverview;
             return;
@@ -435,6 +467,22 @@ impl App {
                 } else {
                     self.queue_building();
                 }
+            }
+            // R: start rally-point picking — return to Sector Map in pick mode
+            KeyCode::Char('R') => {
+                if let Some(colony_id) = self.state.selected_colony {
+                    self.state.pending_rally_colony = Some(colony_id);
+                    self.state.active = Screen::SectorMap;
+                    self.state.selected_colony = None;
+                    self.state.colony_role_panel_active = false;
+                    self.state.log.push(
+                        "Select a star and press R to set rally point. Esc to cancel.".to_string(),
+                    );
+                }
+            }
+            // X: clear rally point for the active colony
+            KeyCode::Char('X') => {
+                self.clear_rally_point();
             }
             // End turn from colony screen
             _ => {
@@ -758,6 +806,64 @@ impl App {
         });
 
         let commands = std::mem::take(&mut self.pending_commands);
+        let engine = match &mut self.engine {
+            Some(e) => e,
+            None => return,
+        };
+        let events = engine.apply_turn(commands);
+        for event in events {
+            self.state.log.push(event.to_log_message());
+        }
+    }
+
+    /// Confirm the selected star as the rally point for `pending_rally_colony`.
+    fn confirm_rally_point(&mut self) {
+        let colony_id = match self.state.pending_rally_colony.take() {
+            Some(id) => id,
+            None => return,
+        };
+        let star_id = match self.state.selected_star {
+            Some(id) => id,
+            None => {
+                self.state
+                    .log
+                    .push("No star selected for rally point.".to_string());
+                return;
+            }
+        };
+
+        let commands = vec![Command::SetRallyPoint {
+            colony: colony_id,
+            star: star_id,
+        }];
+        let engine = match &mut self.engine {
+            Some(e) => e,
+            None => return,
+        };
+        let events = engine.apply_turn(commands);
+        for event in events {
+            self.state.log.push(event.to_log_message());
+        }
+    }
+
+    /// Clear the rally point for the currently selected colony (or the pending rally colony).
+    fn clear_rally_point(&mut self) {
+        let colony_id = self
+            .state
+            .selected_colony
+            .or(self.state.pending_rally_colony);
+        let colony_id = match colony_id {
+            Some(id) => id,
+            None => {
+                self.state
+                    .log
+                    .push("No colony selected for rally clear.".to_string());
+                return;
+            }
+        };
+        self.state.pending_rally_colony = None;
+
+        let commands = vec![Command::ClearRallyPoint { colony: colony_id }];
         let engine = match &mut self.engine {
             Some(e) => e,
             None => return,

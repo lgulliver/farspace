@@ -7,8 +7,8 @@ use crate::screens::research::ordered_research_techs;
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
-    BuildingType, ColonyId, ColonyRole, Command, Engine, FleetId, FleetKind, OrbitalStructureType,
-    SectorId, StarId, TechId,
+    BuildingType, ColonyId, ColonyRole, Command, Engine, Event as CoreEvent, FleetId, FleetKind,
+    OrbitalStructureType, SectorId, StarId, TechId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -64,6 +64,8 @@ pub struct AppState {
     pub tick_count: u64,
     /// When true, all fleet travel animations are suppressed (accessibility / low-motion).
     pub reduced_motion: bool,
+    /// Status line shown in contextual footer hints.
+    pub status_message: Option<String>,
 }
 
 impl App {
@@ -87,6 +89,13 @@ impl App {
 
         // Add initial log entry
         self.state.log.push("Game started".to_string());
+        self.state.log.push(
+            "What to do next: Enter Sector Map, scout (S), survey (System:S), then colonize (C)."
+                .to_string(),
+        );
+        self.state.status_message = Some(
+            "First turn: Enter sector map, scout systems, choose research, queue a build.".to_string(),
+        );
 
         self.engine = Some(engine);
         self.state.active = Screen::SectorOverview;
@@ -126,17 +135,31 @@ impl App {
         let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);
         match cmd {
             "save" => match self.save_game(&path) {
-                Ok(()) => self.state.log.push("Game saved.".to_string()),
-                Err(e) => self.state.log.push(e),
+                Ok(()) => {
+                    let msg = format!("Save: wrote {}", path.display());
+                    self.state.log.push(msg.clone());
+                    self.state.status_message = Some(msg);
+                }
+                Err(e) => {
+                    self.state.log.push(e.clone());
+                    self.state.status_message = Some(e);
+                }
             },
             "load" => match self.load_game(&path) {
-                Ok(()) => self.state.log.push("Game loaded.".to_string()),
-                Err(e) => self.state.log.push(e),
+                Ok(()) => {
+                    let msg = format!("Load: loaded {}", path.display());
+                    self.state.log.push(msg.clone());
+                    self.state.status_message = Some(msg);
+                }
+                Err(e) => {
+                    self.state.log.push(e.clone());
+                    self.state.status_message = Some(e);
+                }
             },
             other => {
-                self.state
-                    .log
-                    .push(format!("Error: Unknown command: {}", other));
+                let msg = format!("Error: Unknown command: {}", other);
+                self.state.log.push(msg.clone());
+                self.state.status_message = Some(msg);
             }
         }
     }
@@ -260,8 +283,15 @@ impl App {
         } else if KeyMap::is_load_game(key) {
             let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);
             match self.load_game(&path) {
-                Ok(()) => self.state.log.push("Game loaded.".to_string()),
-                Err(e) => self.state.log.push(e),
+                Ok(()) => {
+                    let msg = format!("Load: loaded {}", path.display());
+                    self.state.log.push(msg.clone());
+                    self.state.status_message = Some(msg);
+                }
+                Err(e) => {
+                    self.state.log.push(e.clone());
+                    self.state.status_message = Some(e);
+                }
             }
         }
     }
@@ -316,7 +346,11 @@ impl App {
         }
 
         if key.code == KeyCode::Char('c') {
-            self.try_enter_colony();
+            if !self.try_enter_colony() {
+                let msg = "Unavailable: open colony — no player colony in selected system.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+            }
             return;
         }
 
@@ -363,7 +397,11 @@ impl App {
                 self.state.active = Screen::SectorMap;
             }
             KeyCode::Enter => {
-                self.try_enter_colony();
+                if !self.try_enter_colony() {
+                    let msg = "Unavailable: open colony — no player colony in selected system.";
+                    self.state.log.push(msg.to_string());
+                    self.state.status_message = Some(msg.to_string());
+                }
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 if planet_count > 0 {
@@ -384,7 +422,11 @@ impl App {
                 self.survey_selected_planet();
             }
             KeyCode::Char('c') => {
-                self.try_enter_colony();
+                if !self.try_enter_colony() {
+                    let msg = "Unavailable: open colony — no player colony in selected system.";
+                    self.state.log.push(msg.to_string());
+                    self.state.status_message = Some(msg.to_string());
+                }
             }
             _ => {
                 if KeyMap::is_end_turn(key) && key.code != KeyCode::Enter {
@@ -517,7 +559,12 @@ impl App {
     fn jump_overview_to_colony(&mut self, data: Option<&EmpireOverviewData>) {
         let data = match data {
             Some(d) if !d.rows.is_empty() => d,
-            _ => return,
+            _ => {
+                let msg = "Unavailable: open colony — no colonies match current overview filter.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            }
         };
         let selected = self
             .state
@@ -536,7 +583,12 @@ impl App {
     fn jump_overview_to_system(&mut self, data: Option<&EmpireOverviewData>) {
         let data = match data {
             Some(d) if !d.rows.is_empty() => d,
-            _ => return,
+            _ => {
+                let msg = "Unavailable: open system — no colonies match current overview filter.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            }
         };
         let selected = self
             .state
@@ -668,11 +720,17 @@ impl App {
         // Collect the tech_id first using a scoped borrow
         let tech_id: TechId = {
             if self.engine.is_none() {
+                let msg = "Unavailable: select research — no game in progress.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
                 return;
             }
 
             let ordered = ordered_research_techs();
             if ordered.is_empty() {
+                let msg = "Unavailable: select research — no technologies are defined.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
                 return;
             }
             let cursor = self.state.research_cursor % ordered.len();
@@ -697,7 +755,12 @@ impl App {
     fn queue_building(&mut self) {
         let colony_id = match self.state.selected_colony {
             Some(id) => id,
-            None => return,
+            None => {
+                let msg = "Unavailable: queue build — no colony selected.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            }
         };
 
         let surface_buildings = BuildingType::all();
@@ -706,6 +769,9 @@ impl App {
 
         let total = surface_buildings.len() + orbital_structures.len() + ship_designs.len();
         if total == 0 {
+            let msg = "Unavailable: queue build — no build items available.";
+            self.state.log.push(msg.to_string());
+            self.state.status_message = Some(msg.to_string());
             return;
         }
         let cursor = self.state.colony_build_cursor % total;
@@ -742,11 +808,19 @@ impl App {
     fn set_colony_role(&mut self) {
         let colony_id = match self.state.selected_colony {
             Some(id) => id,
-            None => return,
+            None => {
+                let msg = "Unavailable: set role — no colony selected.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            }
         };
 
         let roles = ColonyRole::all();
         if roles.is_empty() {
+            let msg = "Unavailable: set role — no colony roles are defined.";
+            self.state.log.push(msg.to_string());
+            self.state.status_message = Some(msg.to_string());
             return;
         }
         let cursor = self.state.colony_role_cursor % roles.len();
@@ -981,9 +1055,12 @@ impl App {
         let events = engine.apply_turn(commands);
 
         // Add events to log
+        let report = Self::build_end_turn_report(engine.state.turn, &events);
         for event in events {
             self.state.log.push(event.to_log_message());
         }
+        self.state.log.push(report.clone());
+        self.state.status_message = Some(report);
     }
 
     /// Dispatch an available scout fleet to the currently selected star system.
@@ -992,7 +1069,9 @@ impl App {
         let star_id = match self.state.selected_star {
             Some(id) => id,
             None => {
-                self.state.log.push("No star selected.".to_string());
+                let msg = "Unavailable: dispatch scout — no star selected.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
                 return;
             }
         };
@@ -1020,9 +1099,9 @@ impl App {
         let fleet_id = match fleet_id {
             Some(id) => id,
             None => {
-                self.state
-                    .log
-                    .push("No scout available to dispatch.".to_string());
+                let msg = "Unavailable: dispatch scout — no idle scout is available.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
                 return;
             }
         };
@@ -1049,7 +1128,9 @@ impl App {
         let star_id = match self.state.selected_star {
             Some(id) => id,
             None => {
-                self.state.log.push("No star selected.".to_string());
+                let msg = "Unavailable: move fleet — no star selected.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
                 return;
             }
         };
@@ -1076,9 +1157,9 @@ impl App {
         let fleet_id = match fleet_id {
             Some(id) => id,
             None => {
-                self.state
-                    .log
-                    .push("No idle fleet available to move.".to_string());
+                let msg = "Unavailable: move fleet — no idle fleet is available.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
                 return;
             }
         };
@@ -1105,7 +1186,9 @@ impl App {
         let star_id = match self.state.selected_star {
             Some(id) => id,
             None => {
-                self.state.log.push("No star selected.".to_string());
+                let msg = "Unavailable: colonize — no star selected.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
                 return;
             }
         };
@@ -1134,9 +1217,9 @@ impl App {
         let fleet_id = match fleet_id {
             Some(id) => id,
             None => {
-                self.state
-                    .log
-                    .push("No idle colonizer fleet present at selected system.".to_string());
+                let msg = "Unavailable: colonize — no idle colonizer at selected system.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
                 return;
             }
         };
@@ -1155,9 +1238,9 @@ impl App {
         };
 
         if planet_count == 0 {
-            self.state
-                .log
-                .push("Selected system has no planets.".to_string());
+            let msg = "Unavailable: colonize — selected system has no planets.";
+            self.state.log.push(msg.to_string());
+            self.state.status_message = Some(msg.to_string());
             return;
         }
         let planet_index = self.state.selected_planet_index.min(planet_count - 1);
@@ -1184,7 +1267,9 @@ impl App {
         let star_id = match self.state.selected_star {
             Some(id) => id,
             None => {
-                self.state.log.push("No star selected.".to_string());
+                let msg = "Unavailable: survey — no star selected.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
                 return;
             }
         };
@@ -1212,9 +1297,9 @@ impl App {
         let fleet_id = match fleet_id {
             Some(id) => id,
             None => {
-                self.state
-                    .log
-                    .push("No science ship available to survey.".to_string());
+                let msg = "Unavailable: survey — no idle science ship at selected system.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
                 return;
             }
         };
@@ -1233,9 +1318,9 @@ impl App {
         };
 
         if planet_count == 0 {
-            self.state
-                .log
-                .push("Selected system has no planets.".to_string());
+            let msg = "Unavailable: survey — selected system has no planets.";
+            self.state.log.push(msg.to_string());
+            self.state.status_message = Some(msg.to_string());
             return;
         }
 
@@ -1256,6 +1341,41 @@ impl App {
         for event in events {
             self.state.log.push(event.to_log_message());
         }
+    }
+
+    fn build_end_turn_report(turn: u32, events: &[CoreEvent]) -> String {
+        let mut explored = 0usize;
+        let mut surveyed = 0usize;
+        let mut colonized = 0usize;
+        let mut research_completed = 0usize;
+        let mut fleets_arrived = 0usize;
+        let mut warnings = 0usize;
+        let mut errors = 0usize;
+
+        for event in events {
+            match event {
+                CoreEvent::SystemExplored { .. } => explored += 1,
+                CoreEvent::PlanetSurveyCompleted { .. } => surveyed += 1,
+                CoreEvent::ColonizationCompleted { .. } => colonized += 1,
+                CoreEvent::ResearchCompleted { .. } => research_completed += 1,
+                CoreEvent::FleetArrived { .. } => fleets_arrived += 1,
+                CoreEvent::FoodShortage { .. } | CoreEvent::CreditDeficit { .. } => warnings += 1,
+                CoreEvent::Error { .. } => errors += 1,
+                _ => {}
+            }
+        }
+
+        format!(
+            "Turn {} report: explored {}, surveyed {}, colonized {}, research {}, arrivals {}, warnings {}, errors {}.",
+            turn,
+            explored,
+            surveyed,
+            colonized,
+            research_completed,
+            fleets_arrived,
+            warnings,
+            errors
+        )
     }
 }
 

@@ -1,6 +1,6 @@
 //! Empire overview screen
 
-use crate::components::{render_footer, render_header};
+use crate::components::{derive_header_data, render_footer, render_header};
 use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
@@ -269,21 +269,8 @@ pub fn render_empire_overview(
     game_state: &GameState,
 ) {
     let (header_area, main_area, footer_area) = compose_layout(area);
-    let empire = game_state.empires.get(&game_state.player_empire);
-    let (credits, food, research, empire_name) = match empire {
-        Some(e) => (e.credits, e.food, e.research_points, e.name.as_str()),
-        None => (0, 0, 0, "Unknown"),
-    };
-
-    render_header(
-        frame,
-        header_area,
-        game_state.turn,
-        empire_name,
-        credits,
-        food,
-        research,
-    );
+    let header_data = derive_header_data(game_state);
+    render_header(frame, header_area, &header_data);
 
     let data = derive_empire_overview(
         game_state,
@@ -299,7 +286,11 @@ pub fn render_empire_overview(
 
     render_summary(frame, chunks[0], &data.summary);
     render_colony_table(frame, chunks[1], app_state, &data.rows);
-    render_footer(frame, footer_area, &Screen::EmpireOverview);
+    let hint = app_state
+        .status_message
+        .as_deref()
+        .unwrap_or("Use Enter to open colony and S to jump to its system for direct actions.");
+    render_footer(frame, footer_area, &Screen::EmpireOverview, Some(hint));
 }
 
 fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary) {

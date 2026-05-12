@@ -1,6 +1,6 @@
 //! Colony detail screen
 
-use crate::components::{render_footer, render_header};
+use crate::components::{derive_header_data, render_footer, render_header};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
@@ -20,21 +20,8 @@ use ratatui::{
 pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let (header_area, main_area, footer_area) = compose_layout(area);
 
-    let empire = game_state.empires.get(&game_state.player_empire);
-    let (credits, food, research, empire_name) = match empire {
-        Some(e) => (e.credits, e.food, e.research_points, e.name.as_str()),
-        None => (0, 0, 0, "Unknown"),
-    };
-
-    render_header(
-        frame,
-        header_area,
-        game_state.turn,
-        empire_name,
-        credits,
-        food,
-        research,
-    );
+    let header_data = derive_header_data(game_state);
+    render_header(frame, header_area, &header_data);
 
     // Split main area left (colony info+buildings) / right (queue+role+picker) at 50%
     let (left_area, right_area) = split_horizontal(main_area, 50);
@@ -62,7 +49,11 @@ pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
     render_role_selector(frame, right_chunks[1], app_state, game_state);
     render_build_picker(frame, right_chunks[2], app_state, game_state);
 
-    render_footer(frame, footer_area, &Screen::Colony);
+    let hint = app_state
+        .status_message
+        .as_deref()
+        .unwrap_or("Use Tab to switch panels, then Enter to set role or queue production.");
+    render_footer(frame, footer_area, &Screen::Colony, Some(hint));
 }
 
 /// Render colony statistics panel

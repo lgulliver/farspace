@@ -105,14 +105,59 @@ fn log_entry_style(entry: &str) -> Style {
     }
 }
 
+fn is_low_signal_entry(entry: &str) -> bool {
+    let lower = entry.to_ascii_lowercase();
+    (lower.starts_with("colony ") && lower.contains(" produced "))
+        || (lower.starts_with("empire ") && lower.contains(" generated "))
+        || lower.starts_with("ai empire ")
+}
+
+fn format_log_entry(entry: &str) -> Option<String> {
+    if is_low_signal_entry(entry) {
+        return None;
+    }
+    let lower = entry.to_ascii_lowercase();
+    let prefix = if lower.starts_with("error:") {
+        "✖ "
+    } else if lower.starts_with("warning:") || lower.contains(" shortage") || lower.contains(" deficit")
+    {
+        "⚠ "
+    } else if lower.starts_with("turn ") && lower.contains(" report:") {
+        "📊 "
+    } else if lower.starts_with("turn ") {
+        "⏵ "
+    } else if lower.contains("research complete") {
+        "✓ "
+    } else if lower.contains("colon") {
+        "◎ "
+    } else if lower.contains("survey") {
+        "◌ "
+    } else if lower.contains("scout") || lower.contains("fleet") {
+        "➤ "
+    } else if lower.contains("save:") || lower.contains("load:") {
+        "💾 "
+    } else {
+        "• "
+    };
+    Some(format!("{}{}", prefix, entry))
+}
+
 /// Render the event log
 pub fn render_log(frame: &mut Frame, area: Rect, log: &EventLog) {
     let visible_lines = (area.height.saturating_sub(2)) as usize;
-    let entries = log.last_n(visible_lines);
+    let formatted: Vec<(String, Style)> = log
+        .last_n(log.len())
+        .iter()
+        .filter_map(|entry| {
+            format_log_entry(entry).map(|rendered| (rendered, log_entry_style(entry)))
+        })
+        .collect();
+    let start = formatted.len().saturating_sub(visible_lines);
+    let entries = &formatted[start..];
 
     let lines: Vec<Line> = entries
         .iter()
-        .map(|entry| Line::from(Span::styled(entry.clone(), log_entry_style(entry))))
+        .map(|(entry, style)| Line::from(Span::styled(entry.clone(), *style)))
         .collect();
 
     let paragraph = Paragraph::new(lines)
@@ -252,5 +297,29 @@ mod tests {
                 render_log(frame, frame.area(), &log);
             })
             .unwrap();
+    }
+
+    #[test]
+    fn low_signal_entries_are_filtered() {
+        assert!(is_low_signal_entry("Colony 1 produced 3 credits, 2 research, 1 food"));
+        assert!(is_low_signal_entry("Empire 1 generated 6 science this turn"));
+        assert!(is_low_signal_entry("AI Empire 2: queued Shipyard at colony 4"));
+        assert!(!is_low_signal_entry("Turn 3 report: explored 1, surveyed 0"));
+    }
+
+    #[test]
+    fn formatted_entries_get_visual_prefixes() {
+        assert_eq!(
+            format_log_entry("Turn 4 report: explored 1, surveyed 1").unwrap(),
+            "📊 Turn 4 report: explored 1, surveyed 1"
+        );
+        assert_eq!(
+            format_log_entry("Error: bad command").unwrap(),
+            "✖ Error: bad command"
+        );
+        assert_eq!(
+            format_log_entry("Research complete: tech 2").unwrap(),
+            "✓ Research complete: tech 2"
+        );
     }
 }

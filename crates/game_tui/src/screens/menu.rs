@@ -4,6 +4,7 @@ use crate::components::render_footer;
 use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
+use crate::AppState;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     text::{Line, Span},
@@ -23,18 +24,22 @@ const TITLE_LINES: &[&str] = &[
     "  ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝╚══════╝",
 ];
 
-/// Height of the menu box: 1 (padding) + 6 (title) + 1 (gap) + 5 (items) + 2 (border) = 15
-const MENU_BOX_HEIGHT: u16 = 15;
+/// Height of the menu box with title, actions, and quickstart guidance.
+const MENU_BOX_HEIGHT: u16 = 24;
 
 /// Width of the menu box: wide enough for the 66-char title plus borders/padding
 const MENU_BOX_WIDTH: u16 = 70;
 
 /// Render the main menu
-pub fn render_menu(frame: &mut Frame, area: Rect) {
+pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
     let (_header_area, main_area, footer_area) = compose_layout(area);
 
     // Footer shows keyboard hints for the menu screen
-    render_footer(frame, footer_area, &Screen::Menu);
+    let menu_hint = app_state
+        .status_message
+        .as_deref()
+        .or(Some("Quickstart: N, Enter, r, Enter, then S/C in system view."));
+    render_footer(frame, footer_area, &Screen::Menu, menu_hint);
 
     // Center the menu box vertically within the main area
     let v_chunks = Layout::default()
@@ -80,6 +85,13 @@ pub fn render_menu(frame: &mut Frame, area: Rect) {
             Span::styled("[Q]", Theme::title_style()),
             Span::raw(" Quit"),
         ]),
+        Line::from(""),
+        Line::from(vec![Span::styled("First Turn Quickstart", Theme::title_style())]),
+        Line::from("  1) [N] New Game"),
+        Line::from("  2) [Enter] to open Sector Map and pick a star"),
+        Line::from("  3) [Enter] in a system, then [S] survey and [C] colonize"),
+        Line::from("  4) [r] research and [Enter] to choose active tech"),
+        Line::from("  5) [:] then save / load"),
     ]);
 
     let paragraph = Paragraph::new(menu_items)
@@ -113,7 +125,7 @@ mod tests {
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| render_menu(frame, frame.area()))
+            .draw(|frame| render_menu(frame, frame.area(), &AppState::default()))
             .unwrap();
         terminal.backend().buffer().clone()
     }

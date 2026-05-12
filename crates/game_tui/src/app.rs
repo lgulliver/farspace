@@ -654,21 +654,12 @@ impl App {
         }
     }
 
-    /// Returns the number of technologies available (not yet completed) for the player empire.
+    /// Returns the number of technologies in the tree.
     fn available_tech_count(&self) -> usize {
-        let engine = match &self.engine {
-            Some(e) => e,
-            None => return 0,
-        };
-        let completed = engine
-            .state
-            .empires
-            .get(&engine.state.player_empire)
-            .map(|e| &e.research.completed);
-        all_techs()
-            .iter()
-            .filter(|t| completed.map(|c| !c.contains(&t.id)).unwrap_or(true))
-            .count()
+        if self.engine.is_none() {
+            return 0;
+        }
+        all_techs().len()
     }
 
     /// Select the highlighted technology for research
@@ -680,23 +671,12 @@ impl App {
                 None => return,
             };
 
-            let empire = match engine.state.empires.get(&engine.state.player_empire) {
-                Some(e) => e,
-                None => return,
-            };
-
             let all = all_techs();
-            let available: Vec<_> = all
-                .iter()
-                .filter(|t| !empire.research.completed.contains(&t.id))
-                .collect();
-
-            if available.is_empty() {
+            if all.is_empty() {
                 return;
             }
-
-            let cursor = self.state.research_cursor % available.len();
-            available[cursor].id
+            let cursor = self.state.research_cursor % all.len();
+            all[cursor].id
         };
 
         self.pending_commands

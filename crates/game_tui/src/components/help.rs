@@ -137,10 +137,10 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         ],
         Screen::Research => vec![
             HelpEntry::Section("Navigation"),
-            HelpEntry::Binding("j / ↓", "Move cursor down"),
-            HelpEntry::Binding("k / ↑", "Move cursor up"),
+            HelpEntry::Binding("j / ↓", "Move cursor through technology tree"),
+            HelpEntry::Binding("k / ↑", "Move cursor through technology tree"),
             HelpEntry::Section("Actions"),
-            HelpEntry::Binding("Enter", "Select highlighted technology"),
+            HelpEntry::Binding("Enter", "Set highlighted tech as active research"),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O", "Open empire overview"),

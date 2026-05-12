@@ -308,7 +308,7 @@ impl App {
     }
 
     fn handle_sector_map_key(&mut self, key: KeyEvent) {
-        // Rally-point picking mode: 'R' confirms, Esc cancels
+        // Rally-point picking mode: 'R' or Enter confirms, Esc cancels
         if self.state.pending_rally_colony.is_some() {
             match key.code {
                 KeyCode::Esc => {
@@ -318,7 +318,7 @@ impl App {
                         .push("Rally point selection cancelled.".to_string());
                     return;
                 }
-                KeyCode::Char('R') => {
+                KeyCode::Char('R') | KeyCode::Enter => {
                     self.confirm_rally_point();
                     return;
                 }

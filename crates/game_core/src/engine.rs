@@ -806,10 +806,13 @@ impl Engine {
                     fleet.location = destination;
                 }
 
-                // Clear any MoveToSystem fleet order now that the fleet has arrived.
+                // Clear a MoveToSystem fleet order only when its target matches the
+                // mission that just completed.  This prevents accidentally removing a
+                // standing order that was issued for a *different* destination while
+                // a previous mission (scout/survey/earlier move) was already in flight.
                 if matches!(
                     self.state.fleet_orders.get(&fleet_id),
-                    Some(FleetOrder::MoveToSystem(_))
+                    Some(FleetOrder::MoveToSystem(s)) if *s == destination
                 ) {
                     self.state.fleet_orders.remove(&fleet_id);
                 }
@@ -1081,7 +1084,7 @@ impl Engine {
     /// Silently skips routing when:
     /// * The rally point equals the production star (no movement required).
     /// * The rally point star has not yet been explored.
-    /// * The fleet already has an active mission (defensive guard).
+    /// * The fleet already has an active `FleetMission` (defensive guard).
     fn maybe_route_to_rally_point(
         &mut self,
         fleet_id: FleetId,
@@ -1109,6 +1112,13 @@ impl Engine {
 
         // Rally star must still exist (defensive)
         if !self.state.stars.contains_key(&rally_star) {
+            return;
+        }
+
+        // Do not overwrite an existing mission (defensive guard described in the doc comment).
+        // In practice this guard is never triggered for freshly produced fleets, but it
+        // protects against corrupted state on load.
+        if self.state.fleet_missions.contains_key(&fleet_id) {
             return;
         }
 

@@ -1347,15 +1347,24 @@ impl Colony {
     }
 }
 
-/// A persistent standing order assigned to a fleet.
+/// A persistent standing order assigned to a fleet (v1 semantics).
 ///
-/// Orders influence engine behaviour at the end of each turn.
-/// * `Hold` – the fleet stays at its current location and ignores rally-point routing.
-/// * `MoveToSystem` – the fleet is instructed to move toward the given star system when idle.
+/// Orders are stored in `GameState.fleet_orders` and are used for display
+/// and tracking purposes.  The current v1 engine behaviour is:
+///
+/// * `Hold` – recorded as a standing order; displayed in the fleet list.
+///   The engine does **not** yet consult `Hold` orders when processing rally-point
+///   routing; that suppression is a planned v2 feature.
+/// * `MoveToSystem` – when set on an idle fleet via `Command::SetFleetOrder`, a
+///   `FleetMission` is started immediately toward the target star.  The order is
+///   cleared automatically when that specific mission resolves (fleet arrives).
+///   When set by `maybe_route_to_rally_point` for a newly produced ship, the same
+///   mission-starts-immediately behaviour applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum FleetOrder {
-    /// Explicitly hold position — suppresses automatic rally routing.
+    /// Hold position.  Displayed in the fleet list; Hold suppression of rally routing
+    /// is planned for a future release and is not yet active.
     Hold,
     /// Move (or continue moving) toward a specific star system.
     MoveToSystem(StarId),

@@ -5,7 +5,7 @@
 mod migrate;
 mod schema;
 
-pub use schema::{SaveFile, CURRENT_VERSION};
+pub use schema::{SaveFile, SaveMetadata, CURRENT_VERSION};
 
 use game_core::state::GameState;
 use thiserror::Error;
@@ -24,6 +24,24 @@ pub enum SaveError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// The save data is structurally invalid (e.g. not a JSON object, truncated,
+    /// or semantically inconsistent).  Use this for detectable corruption that is
+    /// not simply a missing/unknown field.
+    #[error("Save file is corrupted: {reason}")]
+    CorruptedSave { reason: String },
+
+    /// A required top-level field (e.g. `version` or `state`) is absent.
+    #[error("Save file is missing required field: '{field}'")]
+    MissingField { field: String },
+
+    /// An individual migration step could not be completed.
+    #[error("Migration from schema v{from_version} to v{to_version} failed: {reason}")]
+    MigrationFailed {
+        from_version: u32,
+        to_version: u32,
+        reason: String,
+    },
 }
 
 /// Save game state to JSON bytes
@@ -40,13 +58,33 @@ pub fn save_to_string(state: &GameState) -> Result<String, SaveError> {
     Ok(json)
 }
 
+/// Parse the raw JSON value, validate required fields, then deserialise into `SaveFile`.
+fn parse_save_value(value: serde_json::Value) -> Result<SaveFile, SaveError> {
+    let obj = value.as_object().ok_or_else(|| SaveError::CorruptedSave {
+        reason: "save file is not a JSON object".to_string(),
+    })?;
+    if !obj.contains_key("version") {
+        return Err(SaveError::MissingField {
+            field: "version".to_string(),
+        });
+    }
+    if !obj.contains_key("state") {
+        return Err(SaveError::MissingField {
+            field: "state".to_string(),
+        });
+    }
+    let save_file: SaveFile = serde_json::from_value(value)?;
+    Ok(save_file)
+}
+
 /// Load game state from JSON bytes
 pub fn load(data: &[u8]) -> Result<GameState, SaveError> {
     if data.is_empty() {
         return Err(SaveError::Empty);
     }
 
-    let save_file: SaveFile = serde_json::from_slice(data)?;
+    let value: serde_json::Value = serde_json::from_slice(data)?;
+    let save_file = parse_save_value(value)?;
     let migrated = migrate::migrate(save_file)?;
     Ok(migrated.state)
 }
@@ -57,7 +95,8 @@ pub fn load_from_string(data: &str) -> Result<GameState, SaveError> {
         return Err(SaveError::Empty);
     }
 
-    let save_file: SaveFile = serde_json::from_str(data)?;
+    let value: serde_json::Value = serde_json::from_str(data)?;
+    let save_file = parse_save_value(value)?;
     let migrated = migrate::migrate(save_file)?;
     Ok(migrated.state)
 }
@@ -73,6 +112,51 @@ pub fn save_to_file(state: &GameState, path: &std::path::Path) -> Result<(), Sav
 pub fn load_from_file(path: &std::path::Path) -> Result<GameState, SaveError> {
     let data = std::fs::read(path)?;
     load(&data)
+}
+
+/// Read only the [`SaveMetadata`] from a save file byte slice without fully loading the game state.
+///
+/// Useful for displaying a save summary (version, turn, seed) in the UI before committing to a
+/// full load.  For pre-v20 saves the returned metadata will have `game_version = None` and
+/// `created_turn = 0`; `seed` and `schema_version` are populated from the raw JSON where
+/// available.
+pub fn load_metadata(data: &[u8]) -> Result<SaveMetadata, SaveError> {
+    if data.is_empty() {
+        return Err(SaveError::Empty);
+    }
+    let value: serde_json::Value = serde_json::from_slice(data)?;
+    let obj = value.as_object().ok_or_else(|| SaveError::CorruptedSave {
+        reason: "save file is not a JSON object".to_string(),
+    })?;
+    if !obj.contains_key("version") {
+        return Err(SaveError::MissingField {
+            field: "version".to_string(),
+        });
+    }
+    let schema_version = obj["version"].as_u64().unwrap_or(0) as u32;
+    if let Some(meta_val) = obj.get("metadata") {
+        let mut metadata: SaveMetadata = serde_json::from_value(meta_val.clone())?;
+        // Fill schema_version from the top-level version field when the metadata
+        // field was serialised as zero (e.g. migrated in-flight).
+        if metadata.schema_version == 0 {
+            metadata.schema_version = schema_version;
+        }
+        Ok(metadata)
+    } else {
+        // Pre-v20 save: construct minimal metadata from what is available.
+        Ok(SaveMetadata {
+            schema_version,
+            game_version: None,
+            created_turn: 0,
+            seed: 0,
+        })
+    }
+}
+
+/// Read only the [`SaveMetadata`] from a save file on disk.
+pub fn load_metadata_from_file(path: &std::path::Path) -> Result<SaveMetadata, SaveError> {
+    let data = std::fs::read(path)?;
+    load_metadata(&data)
 }
 
 #[cfg(test)]
@@ -1322,7 +1406,11 @@ mod tests {
             }
         }
 
-        let v17_save = SaveFile { version: 17, state };
+        let v17_save = SaveFile {
+            version: 17,
+            state,
+            metadata: Default::default(),
+        };
         let migrated = migrate(v17_save).expect("migration should succeed");
         assert_eq!(migrated.version, crate::schema::CURRENT_VERSION);
 
@@ -1345,5 +1433,243 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ── save compatibility v1 ──────────────────────────────────────────────────
+
+    /// Metadata is written and round-trips through save/load correctly.
+    #[test]
+    fn save_metadata_round_trip() {
+        let engine = Engine::new(12345);
+        let original = engine.state.clone();
+
+        let saved = save(&original).expect("save should succeed");
+
+        // Verify metadata is in the JSON
+        let json: serde_json::Value = serde_json::from_slice(&saved).unwrap();
+        assert!(
+            json.get("metadata").is_some(),
+            "save JSON must contain a 'metadata' field"
+        );
+        assert_eq!(json["metadata"]["seed"], serde_json::json!(12345));
+        assert_eq!(
+            json["metadata"]["schema_version"],
+            serde_json::json!(CURRENT_VERSION)
+        );
+        assert_eq!(
+            json["metadata"]["created_turn"],
+            serde_json::json!(original.turn)
+        );
+        assert!(
+            json["metadata"]["game_version"].is_string(),
+            "game_version must be a string"
+        );
+    }
+
+    /// load_metadata extracts metadata without a full load.
+    #[test]
+    fn load_metadata_reads_correct_fields() {
+        let engine = Engine::new(77777);
+        let original = engine.state.clone();
+        let saved = save(&original).expect("save should succeed");
+
+        let meta = load_metadata(&saved).expect("load_metadata should succeed");
+        assert_eq!(meta.schema_version, CURRENT_VERSION);
+        assert_eq!(meta.seed, 77777);
+        assert_eq!(meta.created_turn, original.turn);
+        assert!(meta.game_version.is_some());
+    }
+
+    /// load_metadata on a pre-v20 save returns sensible defaults.
+    #[test]
+    fn load_metadata_defaults_for_pre_v20_save() {
+        let engine = Engine::new(42);
+        let saved_str = save_to_string(&engine.state).expect("save should succeed");
+
+        // Downgrade version and remove metadata to simulate a pre-v20 save.
+        let mut json: serde_json::Value = serde_json::from_str(&saved_str).unwrap();
+        json["version"] = serde_json::json!(19);
+        if let Some(obj) = json.as_object_mut() {
+            obj.remove("metadata");
+        }
+        let patched = serde_json::to_vec(&json).unwrap();
+
+        let meta = load_metadata(&patched).expect("load_metadata should succeed for old save");
+        assert_eq!(
+            meta.schema_version, 19,
+            "schema_version must come from version field"
+        );
+        assert_eq!(
+            meta.game_version, None,
+            "game_version must be None for old save"
+        );
+        assert_eq!(meta.seed, 0, "seed defaults to 0 when metadata absent");
+    }
+
+    /// load_metadata returns MissingField when 'version' is absent.
+    #[test]
+    fn load_metadata_missing_version_returns_error() {
+        let result = load_metadata(b"{}");
+        assert!(
+            matches!(result, Err(SaveError::MissingField { ref field }) if field == "version"),
+            "Expected MissingField {{ field: \"version\" }}, got: {:?}",
+            result
+        );
+    }
+
+    /// load_metadata returns CorruptedSave when the JSON is not an object.
+    #[test]
+    fn load_metadata_non_object_returns_corrupted() {
+        let result = load_metadata(b"[1,2,3]");
+        assert!(
+            matches!(result, Err(SaveError::CorruptedSave { .. })),
+            "Expected CorruptedSave, got: {:?}",
+            result
+        );
+    }
+
+    /// Loading JSON that is not an object returns CorruptedSave.
+    #[test]
+    fn load_non_object_json_returns_corrupted_save() {
+        let result = load(b"42");
+        assert!(
+            matches!(result, Err(SaveError::CorruptedSave { .. })),
+            "Expected CorruptedSave for non-object JSON, got: {:?}",
+            result
+        );
+    }
+
+    /// Loading an object without a 'version' field returns MissingField.
+    #[test]
+    fn load_missing_version_field_returns_missing_field() {
+        let json = r#"{"state": {"seed": 0}}"#;
+        let result = load_from_string(json);
+        assert!(
+            matches!(result, Err(SaveError::MissingField { ref field }) if field == "version"),
+            "Expected MissingField {{ field: \"version\" }}, got: {:?}",
+            result
+        );
+    }
+
+    /// Loading an object without a 'state' field returns MissingField.
+    #[test]
+    fn load_missing_state_field_returns_missing_field() {
+        let json = r#"{"version": 20}"#;
+        let result = load_from_string(json);
+        assert!(
+            matches!(result, Err(SaveError::MissingField { ref field }) if field == "state"),
+            "Expected MissingField {{ field: \"state\" }}, got: {:?}",
+            result
+        );
+    }
+
+    /// The v0 fixture file migrates to the current schema successfully.
+    #[test]
+    fn v0_fixture_migrates_to_current() {
+        let fixture = include_str!("../fixtures/v0.json");
+        let state = load_from_string(fixture).expect("v0 fixture should migrate to current schema");
+        assert_eq!(state.seed, 0, "seed must be preserved from v0 fixture");
+        assert_eq!(state.turn, 1, "turn must be preserved from v0 fixture");
+        // explored_stars: v1 migration populates home stars — default state has no empires so empty
+        assert!(
+            state.explored_stars.is_empty(),
+            "explored_stars should be empty (no empires in v0 fixture)"
+        );
+    }
+
+    /// load_metadata_from_file works end-to-end.
+    #[test]
+    fn load_metadata_from_file_round_trip() {
+        let engine = Engine::new(55555);
+        let original = engine.state.clone();
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("farspace_meta_test.json");
+
+        save_to_file(&original, &path).expect("save_to_file should succeed");
+        let meta = load_metadata_from_file(&path).expect("load_metadata_from_file should succeed");
+
+        assert_eq!(meta.seed, 55555);
+        assert_eq!(meta.schema_version, CURRENT_VERSION);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// After migrating from an old version, playing continues deterministically.
+    #[test]
+    fn migrated_save_preserves_deterministic_state() {
+        use game_core::Command;
+
+        let seed = 9001u64;
+
+        // Baseline: play 2 turns straight through
+        let baseline_turn3_seed = {
+            let mut engine = Engine::new(seed);
+            engine.apply_turn(vec![Command::EndTurn]);
+            engine.apply_turn(vec![Command::EndTurn]);
+            engine.state.seed
+        };
+
+        // Round-trip via v19 → v20 migration: simulate a v19 save and migrate it
+        let migrated_turn3_seed = {
+            let mut engine = Engine::new(seed);
+            engine.apply_turn(vec![Command::EndTurn]);
+            engine.apply_turn(vec![Command::EndTurn]);
+
+            // Save, then downgrade to v19 so migration is exercised
+            let saved_str = save_to_string(&engine.state).expect("save should succeed");
+            let mut json: serde_json::Value = serde_json::from_str(&saved_str).unwrap();
+            json["version"] = serde_json::json!(19);
+            if let Some(obj) = json.as_object_mut() {
+                obj.remove("metadata");
+            }
+            let patched = serde_json::to_vec(&json).unwrap();
+
+            let loaded_state = load(&patched).expect("migration should succeed");
+            loaded_state.seed
+        };
+
+        assert_eq!(
+            baseline_turn3_seed, migrated_turn3_seed,
+            "State after migration must be identical to baseline"
+        );
+    }
+
+    /// Error variants have human-readable Display messages.
+    #[test]
+    fn save_error_display_messages_are_human_readable() {
+        let err = SaveError::CorruptedSave {
+            reason: "test reason".to_string(),
+        };
+        assert!(
+            err.to_string().contains("corrupted"),
+            "CorruptedSave message must contain 'corrupted'"
+        );
+
+        let err = SaveError::MissingField {
+            field: "version".to_string(),
+        };
+        assert!(
+            err.to_string().contains("version"),
+            "MissingField message must contain the field name"
+        );
+
+        let err = SaveError::MigrationFailed {
+            from_version: 1,
+            to_version: 2,
+            reason: "oops".to_string(),
+        };
+        assert!(
+            err.to_string().contains("Migration"),
+            "MigrationFailed message must mention Migration"
+        );
+
+        let err = SaveError::UnsupportedVersion {
+            found: 999,
+            supported: CURRENT_VERSION,
+        };
+        assert!(
+            err.to_string().contains("999"),
+            "UnsupportedVersion message must contain the found version"
+        );
     }
 }

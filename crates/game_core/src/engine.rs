@@ -5,9 +5,10 @@ use crate::deterministic::sorted_colony_ids;
 use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy, generate_hyperspace_lanes};
 use crate::state::{
-    all_techs, BuildItem, Colony, ColonyId, ColonyRole, Empire, EmpireId, Fleet, FleetId,
-    FleetKind, FleetMission, GameState, HyperspaceLane, RelationshipStatus, ResearchState,
-    ScoutMission, ShipDesignId, StarId, SurveyMission, TechId,
+    all_techs, is_tech_available, tech_by_id, tech_yield_bonus_per_colony, BuildItem, Colony,
+    ColonyId, ColonyRole, Empire, EmpireId, Fleet, FleetId, FleetKind, FleetMission, GameState,
+    HyperspaceLane, RelationshipStatus, ResearchState, ScoutMission, ShipDesignId, StarId,
+    SurveyMission, TechId, YieldType,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -26,6 +27,13 @@ pub(crate) const SURVEY_TURNS: u32 = 2;
 const FLEET_TRAVEL_SPEED: f64 = 500.0;
 /// Direct hyperspace lanes reduce duration to `ceil(base_turns / 2)`.
 const HYPERSPACE_TRAVEL_DIVISOR: u32 = 2;
+
+#[derive(Debug, Clone, Copy, Default)]
+struct YieldBonuses {
+    credits: i64,
+    science: i64,
+    food: i64,
+}
 
 /// Return the number of travel turns for a fleet moving the given squared Euclidean distance.
 ///
@@ -390,6 +398,23 @@ impl Engine {
         // Credit maintenance from buildings and orbital structures per colony
         let mut empire_colony_maintenance: std::collections::BTreeMap<EmpireId, i64> =
             std::collections::BTreeMap::new();
+        // Precompute per-colony tech yield bonuses per empire once for this turn.
+        let empire_tech_yield_bonus_per_colony: std::collections::BTreeMap<EmpireId, YieldBonuses> =
+            self.state
+                .empires
+                .iter()
+                .map(|(empire_id, empire)| {
+                    let completed = &empire.research.completed;
+                    (
+                        *empire_id,
+                        YieldBonuses {
+                            credits: tech_yield_bonus_per_colony(completed, YieldType::Credits),
+                            science: tech_yield_bonus_per_colony(completed, YieldType::Science),
+                            food: tech_yield_bonus_per_colony(completed, YieldType::Food),
+                        },
+                    )
+                })
+                .collect();
 
         for colony_id in colony_ids {
             // Get colony data needed for yield calculation and build queue
@@ -422,8 +447,14 @@ impl Engine {
                 crate::yield_model::calculate_yield(colony, planet.as_ref())
             };
 
-            let credits = colony_yield.credits;
-            let research = colony_yield.science;
+            let bonuses = empire_tech_yield_bonus_per_colony
+                .get(&owner)
+                .copied()
+                .unwrap_or_default();
+
+            let credits = colony_yield.credits + bonuses.credits;
+            let research = colony_yield.science + bonuses.science;
+            let food = colony_yield.food + bonuses.food;
 
             // Update empire credits and lifetime research total
             if let Some(empire) = self.state.empires.get_mut(&owner) {
@@ -434,7 +465,7 @@ impl Engine {
             // Accumulate per-empire totals
             *empire_research.entry(owner).or_insert(0) += research;
             *empire_credits_income.entry(owner).or_insert(0) += credits;
-            *empire_food_produced.entry(owner).or_insert(0) += colony_yield.food;
+            *empire_food_produced.entry(owner).or_insert(0) += food;
             *empire_food_consumed.entry(owner).or_insert(0) += colony_yield.food_consumed;
             *empire_colony_maintenance.entry(owner).or_insert(0) += colony_yield.maintenance;
 
@@ -442,7 +473,7 @@ impl Engine {
                 colony: colony_id,
                 credits,
                 research,
-                food: colony_yield.food,
+                food,
                 industry: colony_yield.industry,
                 maintenance: colony_yield.maintenance,
             });
@@ -1150,11 +1181,13 @@ impl Engine {
         let empire_id = self.state.player_empire;
 
         // Validate tech exists
-        let tech_exists = all_techs().iter().any(|t| t.id == tech_id);
-        if !tech_exists {
-            events.push(Event::error(format!("Tech {} not found", tech_id.0)));
-            return;
-        }
+        let tech = match tech_by_id(tech_id) {
+            Some(t) => t,
+            None => {
+                events.push(Event::error(format!("Tech {} not found", tech_id.0)));
+                return;
+            }
+        };
 
         // Validate empire exists
         let empire = match self.state.empires.get(&empire_id) {
@@ -1171,6 +1204,27 @@ impl Engine {
                 "Tech {} is already completed",
                 tech_id.0
             )));
+            return;
+        }
+
+        // Validate prerequisites are satisfied.
+        if !is_tech_available(&empire.research.completed, tech_id) {
+            let missing: Vec<&str> = tech
+                .prerequisites
+                .iter()
+                .filter(|req| !empire.research.completed.contains(req))
+                .filter_map(|req| tech_by_id(*req).map(|t| t.name))
+                .collect();
+            let message = if missing.is_empty() {
+                format!("Tech {} is locked", tech_id.0)
+            } else {
+                format!(
+                    "Tech {} is locked — requires {}",
+                    tech_id.0,
+                    missing.join(", ")
+                )
+            };
+            events.push(Event::error(message));
             return;
         }
 
@@ -2631,6 +2685,47 @@ mod tests {
         let events = engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
 
         assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn select_research_with_unmet_prerequisites_emits_error() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+
+        // Drift Mapping requires Neutrino Sensors.
+        let events = engine.apply_turn(vec![Command::SelectResearch { tech: TechId(6) }]);
+
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::Error { message } if message.contains("locked"))),
+            "locked technology selection must emit an error"
+        );
+    }
+
+    #[test]
+    fn completed_prerequisite_unlocks_dependent_research_selection() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId(3));
+
+        let events = engine.apply_turn(vec![Command::SelectResearch { tech: TechId(6) }]);
+
+        assert!(
+            !events.iter().any(|e| e.is_error()),
+            "tech should be selectable once prerequisites are completed"
+        );
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::ResearchSelected { tech } if *tech == TechId(6))));
     }
 
     #[test]
@@ -6780,7 +6875,7 @@ mod tests {
         assert!(
             techs
                 .iter()
-                .any(|t| t.id == TechId(7) && t.name == "Orbital Engineering"),
+                .any(|t| t.id == TechId::ORBITAL_ENGINEERING && t.name == "Orbital Engineering"),
             "Orbital Engineering must be TechId(7)"
         );
     }
@@ -6790,7 +6885,7 @@ mod tests {
         use crate::state::OrbitalStructureType;
         let ot = OrbitalStructureType::Shipyard;
         assert_eq!(ot.name(), "Shipyard");
-        assert_eq!(ot.required_tech(), Some(TechId(7)));
+        assert_eq!(ot.required_tech(), Some(TechId::ORBITAL_ENGINEERING));
         assert!(ot.cost() > 0, "cost must be positive");
         assert!(ot.maintenance_cost() > 0, "maintenance must be positive");
     }
@@ -6799,7 +6894,7 @@ mod tests {
     fn build_item_orbital_structure_required_tech_matches() {
         use crate::state::{OrbitalStructureType, ShipDesignId};
         let item = BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard);
-        assert_eq!(item.required_tech(), Some(TechId(7)));
+        assert_eq!(item.required_tech(), Some(TechId::ORBITAL_ENGINEERING));
         // Surface structures have no required tech
         assert_eq!(
             BuildItem::Structure(BuildingType::FabricationYard).required_tech(),
@@ -6808,7 +6903,11 @@ mod tests {
         assert_eq!(BuildItem::Scout.required_tech(), None);
         assert_eq!(
             BuildItem::Ship(ShipDesignId::COLONY).required_tech(),
-            Some(TechId(2))
+            Some(TechId::HABITAT_SEEDING)
+        );
+        assert_eq!(
+            BuildItem::Ship(ShipDesignId::SCIENCE).required_tech(),
+            Some(TechId::SURVEY_DRONES)
         );
     }
 
@@ -6945,7 +7044,7 @@ mod tests {
             .unwrap()
             .research
             .completed
-            .push(TechId(2));
+            .push(TechId::HABITAT_SEEDING);
 
         let events = engine.apply_turn(vec![Command::QueueBuild {
             colony: colony_id,
@@ -6974,6 +7073,41 @@ mod tests {
         assert!(events
             .iter()
             .any(|e| matches!(e, Event::Error { message } if message.contains("Habitat Seeding"))));
+    }
+
+    #[test]
+    fn science_ship_unlock_requires_survey_drones() {
+        use crate::state::ShipDesignId;
+
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
+
+        let locked_events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Ship(ShipDesignId::SCIENCE),
+        }]);
+        assert!(locked_events
+            .iter()
+            .any(|e| matches!(e, Event::Error { message } if message.contains("Survey Drones"))));
+
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId::SURVEY_DRONES);
+
+        let unlocked_events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Ship(ShipDesignId::SCIENCE),
+        }]);
+        assert!(
+            !unlocked_events.iter().any(|e| e.is_error()),
+            "Science Ship should be queueable after Survey Drones"
+        );
     }
 
     #[test]

@@ -36,7 +36,10 @@ pub struct FleetId(pub u64);
 pub struct TechId(pub u32);
 
 impl TechId {
+    pub const HABITAT_SEEDING: TechId = TechId(2);
+    pub const ORBITAL_ENGINEERING: TechId = TechId(7);
     pub const HYPERSPACE_CARTOGRAPHY: TechId = TechId(8);
+    pub const SURVEY_DRONES: TechId = TechId(12);
 }
 
 /// Unique identifier for a ship design template.
@@ -50,7 +53,123 @@ pub struct TechRecord {
     pub id: TechId,
     pub name: &'static str,
     pub description: &'static str,
+    pub domain: TechDomain,
+    pub tier: TechTier,
+    pub prerequisites: &'static [TechId],
+    pub unlocks: &'static [TechUnlock],
     pub cost: i64,
+}
+
+/// High-level technology research domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TechDomain {
+    Exploration,
+    Engineering,
+    Military,
+    Economy,
+    Biology,
+}
+
+impl TechDomain {
+    pub fn name(&self) -> &'static str {
+        match self {
+            TechDomain::Exploration => "Exploration",
+            TechDomain::Engineering => "Engineering",
+            TechDomain::Military => "Military",
+            TechDomain::Economy => "Economy",
+            TechDomain::Biology => "Biology",
+        }
+    }
+}
+
+/// Coarse progression tier for a technology.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TechTier {
+    I,
+    II,
+    III,
+}
+
+impl TechTier {
+    pub fn label(&self) -> &'static str {
+        match self {
+            TechTier::I => "Tier I",
+            TechTier::II => "Tier II",
+            TechTier::III => "Tier III",
+        }
+    }
+}
+
+/// Non-item capabilities unlocked by technology completion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TechCapability {
+    PlanetarySurvey,
+    HyperspaceLaneTravel,
+}
+
+impl TechCapability {
+    pub fn name(&self) -> &'static str {
+        match self {
+            TechCapability::PlanetarySurvey => "Planetary Survey",
+            TechCapability::HyperspaceLaneTravel => "Hyperspace Lane Travel",
+        }
+    }
+}
+
+/// Resource type affected by a yield-improvement tech unlock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum YieldType {
+    Credits,
+    Science,
+    Food,
+}
+
+impl YieldType {
+    pub fn name(&self) -> &'static str {
+        match self {
+            YieldType::Credits => "Credits",
+            YieldType::Science => "Science",
+            YieldType::Food => "Food",
+        }
+    }
+}
+
+/// Things a technology can unlock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TechUnlock {
+    Structure(BuildingType),
+    OrbitalStructure(OrbitalStructureType),
+    ShipDesign(ShipDesignId),
+    Capability(TechCapability),
+    YieldImprovement {
+        yield_type: YieldType,
+        amount_per_colony: i64,
+    },
+}
+
+impl TechUnlock {
+    pub fn description(&self) -> String {
+        match self {
+            TechUnlock::Structure(bt) => format!("Structure: {}", bt.name()),
+            TechUnlock::OrbitalStructure(ot) => format!("Orbital Structure: {}", ot.name()),
+            TechUnlock::ShipDesign(design) => {
+                let name = design
+                    .record()
+                    .map(|r| r.name)
+                    .unwrap_or("Unknown Ship Design");
+                format!("Ship Design: {name}")
+            }
+            TechUnlock::Capability(cap) => format!("Capability: {}", cap.name()),
+            TechUnlock::YieldImprovement {
+                yield_type,
+                amount_per_colony,
+            } => format!(
+                "Yield: +{} {} per colony",
+                amount_per_colony,
+                yield_type.name()
+            ),
+        }
+    }
 }
 
 /// All researchable technologies available in the game.
@@ -62,12 +181,20 @@ pub fn all_techs() -> &'static [TechRecord] {
             id: TechId(1),
             name: "Void Propulsion",
             description: "Efficient sublight drives harnessing vacuum energy gradients.",
+            domain: TechDomain::Exploration,
+            tier: TechTier::I,
+            prerequisites: &[],
+            unlocks: &[TechUnlock::ShipDesign(ShipDesignId::SCOUT)],
             cost: 50,
         },
         TechRecord {
-            id: TechId(2),
+            id: TechId::HABITAT_SEEDING,
             name: "Habitat Seeding",
             description: "Rapid colony establishment protocols for marginal worlds.",
+            domain: TechDomain::Biology,
+            tier: TechTier::I,
+            prerequisites: &[],
+            unlocks: &[TechUnlock::ShipDesign(ShipDesignId::COLONY)],
             cost: 80,
         },
         TechRecord {
@@ -75,40 +202,157 @@ pub fn all_techs() -> &'static [TechRecord] {
             name: "Neutrino Sensors",
             description:
                 "Deep-penetrating sensor arrays that detect matter through interference patterns.",
+            domain: TechDomain::Exploration,
+            tier: TechTier::I,
+            prerequisites: &[],
+            unlocks: &[],
             cost: 60,
         },
         TechRecord {
             id: TechId(4),
             name: "Kinetic Barriers",
             description: "Directed kinetic deflection fields for hull protection.",
+            domain: TechDomain::Military,
+            tier: TechTier::I,
+            prerequisites: &[],
+            unlocks: &[],
             cost: 100,
         },
         TechRecord {
             id: TechId(5),
             name: "Lattice Processing",
             description: "Crystalline processor arrays with massively parallel throughput.",
+            domain: TechDomain::Engineering,
+            tier: TechTier::I,
+            prerequisites: &[],
+            unlocks: &[TechUnlock::YieldImprovement {
+                yield_type: YieldType::Science,
+                amount_per_colony: 1,
+            }],
             cost: 120,
         },
         TechRecord {
             id: TechId(6),
             name: "Drift Mapping",
             description: "Predictive navigation charts derived from gravitational drift analysis.",
+            domain: TechDomain::Exploration,
+            tier: TechTier::II,
+            prerequisites: &[TechId(3)],
+            unlocks: &[],
             cost: 90,
         },
         TechRecord {
-            id: TechId(7),
+            id: TechId::ORBITAL_ENGINEERING,
             name: "Orbital Engineering",
             description:
                 "Advanced construction techniques for assembling large structures in orbit.",
+            domain: TechDomain::Engineering,
+            tier: TechTier::II,
+            prerequisites: &[TechId(5)],
+            unlocks: &[TechUnlock::OrbitalStructure(OrbitalStructureType::Shipyard)],
             cost: 150,
         },
         TechRecord {
             id: TechId::HYPERSPACE_CARTOGRAPHY,
             name: "Hyperspace Cartography",
             description: "Stabilized hyperspace charts reveal and enable rapid lane transit.",
+            domain: TechDomain::Exploration,
+            tier: TechTier::III,
+            prerequisites: &[TechId(6)],
+            unlocks: &[TechUnlock::Capability(TechCapability::HyperspaceLaneTravel)],
             cost: 140,
         },
+        TechRecord {
+            id: TechId(9),
+            name: "Xenobiotic Adaptation",
+            description: "Adaptive bioengineering tuned for multi-biome colony resilience.",
+            domain: TechDomain::Biology,
+            tier: TechTier::II,
+            prerequisites: &[TechId::HABITAT_SEEDING],
+            unlocks: &[TechUnlock::YieldImprovement {
+                yield_type: YieldType::Food,
+                amount_per_colony: 1,
+            }],
+            cost: 100,
+        },
+        TechRecord {
+            id: TechId(10),
+            name: "Colonial Logistics",
+            description: "Interstellar freight coordination improves local economic efficiency.",
+            domain: TechDomain::Economy,
+            tier: TechTier::II,
+            prerequisites: &[TechId::HABITAT_SEEDING, TechId(5)],
+            unlocks: &[TechUnlock::YieldImprovement {
+                yield_type: YieldType::Credits,
+                amount_per_colony: 1,
+            }],
+            cost: 120,
+        },
+        TechRecord {
+            id: TechId(11),
+            name: "Battle Doctrine",
+            description: "Codified fleet engagement protocols for coordinated strike planning.",
+            domain: TechDomain::Military,
+            tier: TechTier::II,
+            prerequisites: &[TechId(4)],
+            unlocks: &[],
+            cost: 130,
+        },
+        TechRecord {
+            id: TechId::SURVEY_DRONES,
+            name: "Survey Drones",
+            description: "Autonomous orbital probes accelerate planetary reconnaissance workflows.",
+            domain: TechDomain::Exploration,
+            tier: TechTier::II,
+            prerequisites: &[TechId(3)],
+            unlocks: &[
+                TechUnlock::ShipDesign(ShipDesignId::SCIENCE),
+                TechUnlock::Capability(TechCapability::PlanetarySurvey),
+            ],
+            cost: 95,
+        },
     ]
+}
+
+/// Resolve a technology ID to a known tech record.
+pub fn tech_by_id(tech_id: TechId) -> Option<&'static TechRecord> {
+    all_techs().iter().find(|t| t.id == tech_id)
+}
+
+/// Returns true if a technology is currently researchable for the given completed set.
+pub fn is_tech_available(completed: &[TechId], tech_id: TechId) -> bool {
+    let Some(tech) = tech_by_id(tech_id) else {
+        return false;
+    };
+    if completed.contains(&tech_id) {
+        return false;
+    }
+    tech.prerequisites.iter().all(|req| completed.contains(req))
+}
+
+/// Deterministic list of currently available technologies.
+pub fn available_tech_ids(completed: &[TechId]) -> Vec<TechId> {
+    all_techs()
+        .iter()
+        .filter(|tech| is_tech_available(completed, tech.id))
+        .map(|tech| tech.id)
+        .collect()
+}
+
+/// Sum all per-colony yield bonuses unlocked by completed technologies.
+pub fn tech_yield_bonus_per_colony(completed: &[TechId], yield_type: YieldType) -> i64 {
+    all_techs()
+        .iter()
+        .filter(|tech| completed.contains(&tech.id))
+        .flat_map(|tech| tech.unlocks.iter())
+        .filter_map(|unlock| match unlock {
+            TechUnlock::YieldImprovement {
+                yield_type: unlocked,
+                amount_per_colony,
+            } if *unlocked == yield_type => Some(*amount_per_colony),
+            _ => None,
+        })
+        .sum()
 }
 
 /// Static record describing a constructible ship design.
@@ -142,7 +386,7 @@ pub fn all_ship_designs() -> &'static [ShipDesignRecord] {
             fleet_kind: FleetKind::Colonizer,
             ships: 1,
             strength: 1,
-            required_tech: Some(TechId(2)),
+            required_tech: Some(TechId::HABITAT_SEEDING),
         },
         ShipDesignRecord {
             id: ShipDesignId::SCIENCE,
@@ -151,7 +395,7 @@ pub fn all_ship_designs() -> &'static [ShipDesignRecord] {
             fleet_kind: FleetKind::Science,
             ships: 1,
             strength: 1,
-            required_tech: None,
+            required_tech: Some(TechId::SURVEY_DRONES),
         },
     ]
 }
@@ -575,7 +819,7 @@ impl OrbitalStructureType {
     /// Technology required to construct this orbital structure, if any
     pub fn required_tech(&self) -> Option<TechId> {
         match self {
-            OrbitalStructureType::Shipyard => Some(TechId(7)),
+            OrbitalStructureType::Shipyard => Some(TechId::ORBITAL_ENGINEERING),
         }
     }
 }
@@ -1374,9 +1618,9 @@ mod tests {
     }
 
     #[test]
-    fn all_techs_returns_eight_entries() {
+    fn all_techs_returns_twelve_entries() {
         let techs = all_techs();
-        assert_eq!(techs.len(), 8);
+        assert_eq!(techs.len(), 12);
         assert!(
             techs.iter().any(|t| t.name == "Orbital Engineering"),
             "Orbital Engineering tech must be present"
@@ -1409,6 +1653,54 @@ mod tests {
             assert!(!tech.name.is_empty());
             assert!(!tech.description.is_empty());
         }
+    }
+
+    #[test]
+    fn tech_with_no_prerequisites_is_available() {
+        assert!(
+            is_tech_available(&[], TechId(1)),
+            "tier-1 root tech should be available with no completed prerequisites"
+        );
+    }
+
+    #[test]
+    fn tech_with_unmet_prerequisites_is_locked() {
+        assert!(
+            !is_tech_available(&[], TechId(6)),
+            "Drift Mapping should be locked until Neutrino Sensors is completed"
+        );
+    }
+
+    #[test]
+    fn completed_prerequisite_unlocks_dependent_tech() {
+        assert!(
+            is_tech_available(&[TechId(3)], TechId(6)),
+            "completing Neutrino Sensors should unlock Drift Mapping"
+        );
+    }
+
+    #[test]
+    fn available_tech_ids_order_is_deterministic() {
+        let completed_unsorted = vec![TechId(5), TechId(2), TechId(3)];
+        let first = available_tech_ids(&completed_unsorted);
+        let second = available_tech_ids(&completed_unsorted);
+        assert_eq!(
+            first, second,
+            "available tech ordering must be deterministic"
+        );
+        assert_eq!(
+            first,
+            vec![
+                TechId(1),
+                TechId(4),
+                TechId(6),
+                TechId(7),
+                TechId(9),
+                TechId(10),
+                TechId(12),
+            ],
+            "available tech order should follow static deterministic tech definition order"
+        );
     }
 
     #[test]

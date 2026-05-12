@@ -373,6 +373,35 @@ mod tests {
     }
 
     #[test]
+    fn save_load_preserves_derived_available_tech_state() {
+        use game_core::{available_tech_ids, TechId};
+
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        {
+            let research = &mut engine.state.empires.get_mut(&player).unwrap().research;
+            research.current_tech = Some(TechId(6));
+            research.progress = 17;
+            research.completed.extend([TechId(3), TechId(5), TechId(2)]);
+        }
+
+        let before = {
+            let empire = engine.state.empires.get(&player).unwrap();
+            available_tech_ids(&empire.research.completed)
+        };
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+        let loaded_empire = loaded.empires.get(&loaded.player_empire).unwrap();
+        let after = available_tech_ids(&loaded_empire.research.completed);
+
+        assert_eq!(
+            before, after,
+            "available tech set/order must be preserved via completed-tech round-trip state"
+        );
+    }
+
+    #[test]
     fn save_load_preserves_explored_stars() {
         use game_core::{Command, FleetId};
 

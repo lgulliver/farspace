@@ -16,10 +16,12 @@ pub use commands::Command;
 pub use engine::Engine;
 pub use events::Event;
 pub use state::{
-    all_ship_designs, all_techs, BuildItem, BuildingType, Colony, ColonyId, ColonyRole, Empire,
+    all_ship_designs, all_techs, available_tech_ids, is_tech_available, tech_by_id,
+    tech_yield_bonus_per_colony, BuildItem, BuildingType, Colony, ColonyId, ColonyRole, Empire,
     EmpireId, Fleet, FleetId, FleetKind, FleetLocation, FleetMission, GameState, HyperspaceLane,
     OrbitalStructureType, Planet, PlanetClass, PlanetSize, ProductionItem, RelationshipStatus,
     ResearchState, RoleModifiers, ScoutMission, Sector, SectorId, ShipDesignId, ShipDesignRecord,
-    SpectralClass, Star, StarId, SurveyMission, TechId, TechRecord,
+    SpectralClass, Star, StarId, SurveyMission, TechCapability, TechDomain, TechId, TechRecord,
+    TechTier, TechUnlock, YieldType,
 };
 pub use yield_model::ColonyYield;

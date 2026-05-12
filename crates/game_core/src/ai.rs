@@ -1,7 +1,7 @@
 //! Deterministic AI opponent — rule-based decision engine
 //!
 //! The AI empire follows a fixed priority list each turn:
-//! 1. Select cheapest unresearched tech (if none active)
+//! 1. Select cheapest available (prerequisites satisfied) unresearched tech (if none active)
 //! 2. Queue builds for each owned colony with an empty queue
 //!    (FabricationYard first, then Shipyard if tech available, then Colony Ship, then Scout)
 //!    Ships are only queued when the colony has a Shipyard.
@@ -12,8 +12,8 @@
 use crate::engine::travel_turns_with_lanes;
 use crate::events::Event;
 use crate::state::{
-    all_techs, BuildItem, BuildingType, Colony, ColonyId, ColonyRole, EmpireId, FleetId, FleetKind,
-    GameState, OrbitalStructureType, PlanetClass, ScoutMission, StarId, TechId,
+    all_techs, is_tech_available, BuildItem, BuildingType, Colony, ColonyId, ColonyRole, EmpireId,
+    FleetId, FleetKind, GameState, OrbitalStructureType, PlanetClass, ScoutMission, StarId, TechId,
 };
 
 /// Run one AI decision pass for the given empire.
@@ -59,7 +59,7 @@ fn ai_select_research(state: &mut GameState, empire_id: EmpireId, events: &mut V
     });
 }
 
-/// Pick the cheapest unresearched tech.
+/// Pick the cheapest available (prerequisites met) unresearched tech.
 /// Returns `None` if the empire is already researching something.
 fn pick_research(state: &GameState, empire_id: EmpireId) -> Option<TechId> {
     let empire = state.empires.get(&empire_id)?;
@@ -69,7 +69,7 @@ fn pick_research(state: &GameState, empire_id: EmpireId) -> Option<TechId> {
     let completed = &empire.research.completed;
     let mut candidates: Vec<_> = all_techs()
         .iter()
-        .filter(|t| !completed.contains(&t.id))
+        .filter(|t| is_tech_available(completed, t.id))
         .collect();
     // Deterministic sort: cheapest first, tie-break by ascending TechId
     candidates.sort_by(|a, b| a.cost.cmp(&b.cost).then(a.id.cmp(&b.id)));

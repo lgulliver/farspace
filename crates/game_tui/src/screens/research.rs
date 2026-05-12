@@ -5,13 +5,51 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{all_techs, GameState};
+use game_core::{
+    all_techs, is_tech_available, tech_by_id, tech_yield_bonus_per_colony, Empire, GameState,
+    TechDomain, TechRecord, YieldType,
+};
 use ratatui::{
-    layout::Rect,
+    layout::{Constraint, Layout, Rect},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TechStatus {
+    Available,
+    Locked,
+    Active,
+    Completed,
+}
+
+impl TechStatus {
+    fn label(self) -> &'static str {
+        match self {
+            TechStatus::Available => "Available",
+            TechStatus::Locked => "Locked",
+            TechStatus::Active => "Active",
+            TechStatus::Completed => "Completed",
+        }
+    }
+}
+
+const TECH_DOMAIN_ORDER: [TechDomain; 5] = [
+    TechDomain::Exploration,
+    TechDomain::Engineering,
+    TechDomain::Military,
+    TechDomain::Economy,
+    TechDomain::Biology,
+];
+
+pub(crate) fn ordered_research_techs() -> Vec<&'static TechRecord> {
+    let all = all_techs();
+    TECH_DOMAIN_ORDER
+        .into_iter()
+        .flat_map(|domain| all.iter().filter(move |t| t.domain == domain))
+        .collect()
+}
 
 /// Render the research screen
 pub fn render_research(
@@ -38,80 +76,191 @@ pub fn render_research(
         research_pts,
     );
 
-    // Split: 60% tech list, 40% right panel (current research + completed)
+    // Split: 60% list, 40% detail/progress
     let (list_area, right_area) = split_horizontal(main_area, 60);
 
     render_tech_list(frame, list_area, app_state, game_state);
-    render_research_status(frame, right_area, game_state);
+    render_research_detail_and_status(frame, right_area, app_state, game_state);
 
     render_footer(frame, footer_area, &Screen::Research);
 }
 
-/// Render the list of available (not yet completed) technologies
+fn tech_status(game_state: &GameState, tech: &TechRecord) -> TechStatus {
+    let Some(empire) = game_state.empires.get(&game_state.player_empire) else {
+        return TechStatus::Locked;
+    };
+    if empire.research.completed.contains(&tech.id) {
+        return TechStatus::Completed;
+    }
+    if empire.research.current_tech == Some(tech.id) {
+        return TechStatus::Active;
+    }
+    if is_tech_available(&empire.research.completed, tech.id) {
+        TechStatus::Available
+    } else {
+        TechStatus::Locked
+    }
+}
+
+/// Render grouped technologies with status tags.
 fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let block = Block::default()
-        .title(" Available Technologies ")
+        .title(" Technology Tree ")
         .borders(Borders::ALL)
         .border_style(Theme::focused_border_style())
         .style(Theme::default_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let empire = match game_state.empires.get(&game_state.player_empire) {
-        Some(e) => e,
-        None => return,
-    };
-
-    let all = all_techs();
-    let available: Vec<_> = all
-        .iter()
-        .filter(|t| !empire.research.completed.contains(&t.id))
-        .collect();
-
-    if available.is_empty() {
-        let msg = Paragraph::new("All technologies researched!").style(Theme::accent_style());
-        frame.render_widget(msg, inner);
+    let ordered = ordered_research_techs();
+    if ordered.is_empty() {
+        frame.render_widget(Paragraph::new("No technologies defined."), inner);
         return;
     }
-
-    let cursor = app_state.research_cursor % available.len();
+    let cursor = app_state.research_cursor % ordered.len();
+    let selected_id = ordered[cursor].id;
     let mut lines = Vec::new();
 
-    for (i, tech) in available.iter().enumerate() {
-        let is_selected = i == cursor;
-        let is_current = empire.research.current_tech == Some(tech.id);
-
-        let prefix = if is_selected {
-            ">"
-        } else if is_current {
-            "·"
-        } else {
-            " "
-        };
-
-        let style = if is_selected {
-            Theme::highlight_style()
-        } else if is_current {
-            Theme::accent_style()
-        } else {
-            Theme::default_style()
-        };
-
-        lines.push(Line::from(vec![Span::styled(
-            format!(" {} [{:>3}rp] {} ", prefix, tech.cost, tech.name),
-            style,
-        )]));
-        lines.push(Line::from(vec![Span::styled(
-            format!("        {}", tech.description),
-            Theme::muted_style(),
-        )]));
+    for domain in TECH_DOMAIN_ORDER {
+        let domain_techs: Vec<_> = ordered
+            .iter()
+            .copied()
+            .filter(|t| t.domain == domain)
+            .collect();
+        if domain_techs.is_empty() {
+            continue;
+        }
+        lines.push(Line::from(Span::styled(
+            format!(" {} ", domain.name()),
+            Theme::title_style(),
+        )));
+        for tech in domain_techs {
+            let status = tech_status(game_state, tech);
+            let is_selected = tech.id == selected_id;
+            let prefix = if is_selected { ">" } else { " " };
+            let status_tag = match status {
+                TechStatus::Available => "[Available]",
+                TechStatus::Locked => "[Locked]",
+                TechStatus::Active => "[Active]",
+                TechStatus::Completed => "[Completed]",
+            };
+            let style = if is_selected {
+                Theme::highlight_style()
+            } else if matches!(status, TechStatus::Active | TechStatus::Completed) {
+                Theme::accent_style()
+            } else if status == TechStatus::Locked {
+                Theme::muted_style()
+            } else {
+                Theme::default_style()
+            };
+            lines.push(Line::from(Span::styled(
+                format!(
+                    " {} [{:>3}rp] {} ({}) {}",
+                    prefix,
+                    tech.cost,
+                    tech.name,
+                    tech.tier.label(),
+                    status_tag
+                ),
+                style,
+            )));
+        }
+        lines.push(Line::from(""));
     }
 
     let paragraph = Paragraph::new(lines).style(Theme::default_style());
     frame.render_widget(paragraph, inner);
 }
 
-/// Render the current research progress and completed techs panel
+/// Render selected-tech details and active/completed summary.
+fn render_research_detail_and_status(
+    frame: &mut Frame,
+    area: Rect,
+    app_state: &AppState,
+    game_state: &GameState,
+) {
+    let chunks =
+        Layout::vertical([Constraint::Percentage(62), Constraint::Percentage(38)]).split(area);
+    render_selected_tech_detail(frame, chunks[0], app_state, game_state);
+    render_research_status(frame, chunks[1], game_state);
+}
+
+fn render_selected_tech_detail(
+    frame: &mut Frame,
+    area: Rect,
+    app_state: &AppState,
+    game_state: &GameState,
+) {
+    let block = Block::default()
+        .title(" Technology Detail ")
+        .borders(Borders::ALL)
+        .style(Theme::default_style());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let ordered = ordered_research_techs();
+    if ordered.is_empty() {
+        frame.render_widget(Paragraph::new("No technology selected."), inner);
+        return;
+    }
+    let tech = ordered[app_state.research_cursor % ordered.len()];
+    let status = tech_status(game_state, tech);
+    let empire = game_state.empires.get(&game_state.player_empire);
+    let completed = empire
+        .map(|e| e.research.completed.as_slice())
+        .unwrap_or(&[]);
+    let mut lines = vec![
+        Line::from(Span::styled(tech.name, Theme::accent_style())),
+        Line::from(Span::styled(
+            format!(
+                "{} • {} • {} rp",
+                tech.domain.name(),
+                tech.tier.label(),
+                tech.cost
+            ),
+            Theme::muted_style(),
+        )),
+        Line::from(Span::styled(
+            format!("Status: {}", status.label()),
+            Theme::default_style(),
+        )),
+        Line::from(""),
+        Line::from(tech.description),
+        Line::from(""),
+        Line::from(Span::styled("Prerequisites", Theme::title_style())),
+    ];
+    if tech.prerequisites.is_empty() {
+        lines.push(Line::from(Span::styled("  None", Theme::muted_style())));
+    } else {
+        for req in tech.prerequisites {
+            let req_name = tech_by_id(*req).map(|t| t.name).unwrap_or("Unknown Tech");
+            let done = completed.contains(req);
+            let marker = if done { "✓" } else { "×" };
+            let style = if done {
+                Theme::accent_style()
+            } else {
+                Theme::muted_style()
+            };
+            lines.push(Line::from(Span::styled(
+                format!("  {} {}", marker, req_name),
+                style,
+            )));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("Unlocks", Theme::title_style())));
+    if tech.unlocks.is_empty() {
+        lines.push(Line::from(Span::styled("  None", Theme::muted_style())));
+    } else {
+        for unlock in tech.unlocks {
+            lines.push(Line::from(format!("  • {}", unlock.description())));
+        }
+    }
+
+    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
+}
+
+/// Render active progress and completed-tech summary.
 fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState) {
     let block = Block::default()
         .title(" Research Status ")
@@ -140,13 +289,8 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
             let progress = empire.research.progress;
             let cost = tech.cost;
 
-            // Calculate research per turn from colonies
-            let rp_per_turn: i64 = game_state
-                .colonies
-                .values()
-                .filter(|c| c.owner == game_state.player_empire)
-                .map(|c| (c.production as i64 * c.research_pct as i64) / 100)
-                .sum();
+            // Calculate research per turn using the same model path as the engine.
+            let rp_per_turn = player_research_per_turn(game_state, empire);
 
             let eta = if rp_per_turn > 0 {
                 let remaining = cost - progress;
@@ -194,7 +338,10 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("Completed", Theme::title_style())));
+    lines.push(Line::from(Span::styled(
+        "Completed Techs",
+        Theme::title_style(),
+    )));
     lines.push(Line::from(""));
 
     if empire.research.completed.is_empty() {
@@ -212,6 +359,22 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
 
     let paragraph = Paragraph::new(lines).style(Theme::default_style());
     frame.render_widget(paragraph, inner);
+}
+
+fn player_research_per_turn(game_state: &GameState, empire: &Empire) -> i64 {
+    let science_bonus = tech_yield_bonus_per_colony(&empire.research.completed, YieldType::Science);
+    game_state
+        .colonies
+        .values()
+        .filter(|c| c.owner == game_state.player_empire)
+        .map(|colony| {
+            let planet = game_state
+                .stars
+                .get(&colony.star)
+                .and_then(|s| s.planets.get(colony.planet_index));
+            game_core::yield_model::calculate_yield(colony, planet).science + science_bonus
+        })
+        .sum()
 }
 
 #[cfg(test)]

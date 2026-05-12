@@ -3,11 +3,12 @@
 use crate::components::{render_help, render_palette, EventLog};
 use crate::keys::KeyMap;
 use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData, OverviewSort};
+use crate::screens::research::ordered_research_techs;
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
-    all_techs, BuildingType, ColonyId, ColonyRole, Command, Engine, FleetId, FleetKind,
-    OrbitalStructureType, SectorId, StarId, TechId,
+    BuildingType, ColonyId, ColonyRole, Command, Engine, FleetId, FleetKind, OrbitalStructureType,
+    SectorId, StarId, TechId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -615,13 +616,13 @@ impl App {
             }
             // Navigate tech list
             KeyCode::Char('j') | KeyCode::Down => {
-                let count = self.available_tech_count();
+                let count = self.tech_tree_count();
                 if count > 0 {
                     self.state.research_cursor = (self.state.research_cursor + 1) % count;
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                let count = self.available_tech_count();
+                let count = self.tech_tree_count();
                 if count > 0 {
                     self.state.research_cursor =
                         (self.state.research_cursor + count.saturating_sub(1)) % count;
@@ -654,49 +655,28 @@ impl App {
         }
     }
 
-    /// Returns the number of technologies available (not yet completed) for the player empire.
-    fn available_tech_count(&self) -> usize {
-        let engine = match &self.engine {
-            Some(e) => e,
-            None => return 0,
-        };
-        let completed = engine
-            .state
-            .empires
-            .get(&engine.state.player_empire)
-            .map(|e| &e.research.completed);
-        all_techs()
-            .iter()
-            .filter(|t| completed.map(|c| !c.contains(&t.id)).unwrap_or(true))
-            .count()
+    /// Returns the number of technologies in the tree.
+    fn tech_tree_count(&self) -> usize {
+        if self.engine.is_none() {
+            return 0;
+        }
+        ordered_research_techs().len()
     }
 
     /// Select the highlighted technology for research
     fn select_research_tech(&mut self) {
         // Collect the tech_id first using a scoped borrow
         let tech_id: TechId = {
-            let engine = match &self.engine {
-                Some(e) => e,
-                None => return,
-            };
-
-            let empire = match engine.state.empires.get(&engine.state.player_empire) {
-                Some(e) => e,
-                None => return,
-            };
-
-            let all = all_techs();
-            let available: Vec<_> = all
-                .iter()
-                .filter(|t| !empire.research.completed.contains(&t.id))
-                .collect();
-
-            if available.is_empty() {
+            if self.engine.is_none() {
                 return;
             }
 
-            let cursor = self.state.research_cursor % available.len();
-            available[cursor].id
+            let ordered = ordered_research_techs();
+            if ordered.is_empty() {
+                return;
+            }
+            let cursor = self.state.research_cursor % ordered.len();
+            ordered[cursor].id
         };
 
         self.pending_commands

@@ -6,6 +6,18 @@ A deterministic, turn-based 4X space strategy game for the terminal.
 
 ---
 
+## Project Status
+
+FARSPACE is currently an **early playable alpha**.
+
+The game already supports a full turn loop (explore → survey → colonize → build → research → end turn), but many systems are still intentionally minimal or incomplete.
+
+- What works today: see [`docs/current-state.md`](docs/current-state.md)
+- Intended early progression: see [`docs/gameplay-loop.md`](docs/gameplay-loop.md)
+- Planned feature progression: see [`docs/roadmap.md`](docs/roadmap.md)
+
+---
+
 ## Architecture
 
 FARSPACE uses a strict headless-core / TUI-client separation:
@@ -59,6 +71,38 @@ target\release\farspace.exe
 
 ---
 
+## Play the Current Alpha
+
+### Quick start
+
+1. Run the binary.
+2. Press `N` for **New Game**.
+3. Use `hjkl`/arrow keys to move selection.
+4. Use `Enter` to move deeper into views (sector → system, etc.).
+5. Use `S` (contextual) for scouting/survey actions.
+6. Use `C` in System view to colonize when a valid colonizer is present.
+7. Use `r` to pick research, `O` for empire overview.
+8. Use `e`/`t` to end turn.
+
+### Useful global keys
+
+- `?` — contextual help
+- `:` — command palette (`save`, `load`)
+- `Q` / `Ctrl+C` — quit
+
+---
+
+## Known limitations
+
+- No final victory/endgame condition yet.
+- Diplomacy is first-contact visibility only (no treaties/stances UI yet).
+- No tactical combat; combat is deterministic auto-resolve summaries.
+- No ship design editor or dedicated fleet management screen (merge/split/stance).
+- New game setup options (seed/galaxy settings) are not exposed in UI yet.
+- No user-configurable keybindings/themes yet.
+
+---
+
 ## Development
 
 ```bash
@@ -82,9 +126,10 @@ Minimum required: **80%** (enforced by CI).
 ## Docs
 
 - [`docs/roadmap.md`](docs/roadmap.md) — phased feature plan
+- [`docs/current-state.md`](docs/current-state.md) — implemented systems, partial systems, and gaps
+- [`docs/gameplay-loop.md`](docs/gameplay-loop.md) — intended first-30-turn gameplay loop
 - [`docs/testing.md`](docs/testing.md) — testing standards and coverage policy
 - [`docs/skills/`](docs/skills/) — playbooks for common development tasks
 - [`docs/issues/`](docs/issues/) — initial issue drafts
 - [`docs/github-labels.md`](docs/github-labels.md) — label definitions
 - [`.github/copilot-instructions.md`](.github/copilot-instructions.md) — Copilot/agent guidance
-

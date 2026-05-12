@@ -1203,7 +1203,11 @@ impl Engine {
             let message = if missing.is_empty() {
                 format!("Tech {} is locked", tech_id.0)
             } else {
-                format!("Tech {} is locked — requires {}", tech_id.0, missing.join(", "))
+                format!(
+                    "Tech {} is locked — requires {}",
+                    tech_id.0,
+                    missing.join(", ")
+                )
             };
             events.push(Event::error(message));
             return;

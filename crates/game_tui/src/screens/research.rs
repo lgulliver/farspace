@@ -163,8 +163,8 @@ fn render_research_detail_and_status(
     app_state: &AppState,
     game_state: &GameState,
 ) {
-    let chunks = Layout::vertical([Constraint::Percentage(62), Constraint::Percentage(38)])
-        .split(area);
+    let chunks =
+        Layout::vertical([Constraint::Percentage(62), Constraint::Percentage(38)]).split(area);
     render_selected_tech_detail(frame, chunks[0], app_state, game_state);
     render_research_status(frame, chunks[1], game_state);
 }
@@ -196,7 +196,12 @@ fn render_selected_tech_detail(
     let mut lines = vec![
         Line::from(Span::styled(tech.name, Theme::accent_style())),
         Line::from(Span::styled(
-            format!("{} • {} • {} rp", tech.domain.name(), tech.tier.label(), tech.cost),
+            format!(
+                "{} • {} • {} rp",
+                tech.domain.name(),
+                tech.tier.label(),
+                tech.cost
+            ),
             Theme::muted_style(),
         )),
         Line::from(Span::styled(
@@ -326,7 +331,10 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("Completed Techs", Theme::title_style())));
+    lines.push(Line::from(Span::styled(
+        "Completed Techs",
+        Theme::title_style(),
+    )));
     lines.push(Line::from(""));
 
     if empire.research.completed.is_empty() {

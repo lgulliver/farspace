@@ -327,9 +327,7 @@ pub fn is_tech_available(completed: &[TechId], tech_id: TechId) -> bool {
     if completed.contains(&tech_id) {
         return false;
     }
-    tech.prerequisites
-        .iter()
-        .all(|req| completed.contains(req))
+    tech.prerequisites.iter().all(|req| completed.contains(req))
 }
 
 /// Deterministic list of currently available technologies.
@@ -1686,7 +1684,10 @@ mod tests {
         let completed_unsorted = vec![TechId(5), TechId(2), TechId(3)];
         let first = available_tech_ids(&completed_unsorted);
         let second = available_tech_ids(&completed_unsorted);
-        assert_eq!(first, second, "available tech ordering must be deterministic");
+        assert_eq!(
+            first, second,
+            "available tech ordering must be deterministic"
+        );
         assert_eq!(
             first,
             vec![

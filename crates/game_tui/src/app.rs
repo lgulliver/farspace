@@ -666,10 +666,9 @@ impl App {
     fn select_research_tech(&mut self) {
         // Collect the tech_id first using a scoped borrow
         let tech_id: TechId = {
-            let engine = match &self.engine {
-                Some(e) => e,
-                None => return,
-            };
+            if self.engine.is_none() {
+                return;
+            }
 
             let all = all_techs();
             if all.is_empty() {

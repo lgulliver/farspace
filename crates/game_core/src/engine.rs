@@ -9719,7 +9719,7 @@ mod tests {
     }
 
     #[test]
-    fn new_from_setup_invalid_ai_count_panics() {
+    fn validate_rejects_zero_ai_count() {
         use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
         let bad_setup = ScenarioSetup {
             seed: 1,
@@ -9730,5 +9730,19 @@ mod tests {
         };
         // validate() must catch invalid AI count
         assert!(bad_setup.validate().is_err());
+    }
+
+    #[test]
+    #[should_panic]
+    fn new_from_setup_invalid_ai_count_panics() {
+        use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+        let bad_setup = ScenarioSetup {
+            seed: 1,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 0, // invalid — new_from_setup should panic
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        };
+        let _ = Engine::new_from_setup(bad_setup);
     }
 }

@@ -1361,7 +1361,10 @@ mod tests {
         let engine = Engine::new_from_setup(setup.clone());
 
         let dir = std::env::temp_dir();
-        let path = dir.join("farspace_test_scenario_roundtrip.json");
+        let path = dir.join(format!(
+            "farspace_test_scenario_roundtrip_{}.json",
+            std::process::id()
+        ));
         save_to_file(&engine.state, &path).expect("save should succeed");
 
         let loaded = load_from_file(&path).expect("load should succeed");

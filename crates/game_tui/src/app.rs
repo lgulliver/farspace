@@ -85,6 +85,9 @@ pub struct AppState {
     pub setup_cursor: usize,
     /// Whether the seed text-edit mode is active.
     pub setup_seed_editing: bool,
+    /// Snapshot of `setup_seed_str` taken when seed editing begins, used to
+    /// restore the original value if the user presses Esc to discard changes.
+    pub setup_seed_pre_edit: String,
 }
 
 impl Default for AppState {
@@ -120,6 +123,7 @@ impl Default for AppState {
             setup_seed_str: "42".to_string(),
             setup_cursor: 0,
             setup_seed_editing: false,
+            setup_seed_pre_edit: String::new(),
         }
     }
 }
@@ -385,7 +389,8 @@ impl App {
         if self.state.setup_seed_editing {
             match key.code {
                 KeyCode::Esc => {
-                    // Cancel editing — restore the previous seed value.
+                    // Cancel editing — restore the value that was active when editing began.
+                    self.state.setup_seed_str = self.state.setup_seed_pre_edit.clone();
                     self.state.setup_seed_editing = false;
                 }
                 KeyCode::Enter => {
@@ -415,7 +420,8 @@ impl App {
             KeyCode::Enter => {
                 let cursor = self.state.setup_cursor;
                 if cursor == FIELD_SEED {
-                    // Enter edit mode for seed field.
+                    // Enter edit mode for seed field — snapshot the current value so Esc can restore it.
+                    self.state.setup_seed_pre_edit = self.state.setup_seed_str.clone();
                     self.state.setup_seed_editing = true;
                 } else {
                     // Start the game from the setup screen.

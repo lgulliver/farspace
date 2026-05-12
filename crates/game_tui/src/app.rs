@@ -1925,6 +1925,55 @@ mod tests {
     }
 
     #[test]
+    fn end_turn_report_counts_key_events() {
+        let events = vec![
+            CoreEvent::SystemExplored { star: StarId(1) },
+            CoreEvent::PlanetSurveyCompleted {
+                star: StarId(2),
+                planet_index: 0,
+            },
+            CoreEvent::ColonizationCompleted {
+                empire: game_core::EmpireId(1),
+                fleet: FleetId(9),
+                star: StarId(3),
+                planet_index: 1,
+                colony: ColonyId(77),
+            },
+            CoreEvent::ResearchCompleted { tech: TechId(4) },
+            CoreEvent::FleetArrived {
+                fleet: FleetId(8),
+                star: StarId(5),
+            },
+            CoreEvent::FoodShortage {
+                empire: game_core::EmpireId(1),
+                deficit: 2,
+            },
+            CoreEvent::Error {
+                message: "bad command".to_string(),
+            },
+        ];
+
+        let report = App::build_end_turn_report(12, &events);
+        assert!(report.contains("Turn 12 report"));
+        assert!(report.contains("explored 1"));
+        assert!(report.contains("surveyed 1"));
+        assert!(report.contains("colonized 1"));
+        assert!(report.contains("research 1"));
+        assert!(report.contains("arrivals 1"));
+        assert!(report.contains("warnings 1"));
+        assert!(report.contains("errors 1"));
+    }
+
+    #[test]
+    fn end_turn_report_handles_empty_event_list() {
+        let report = App::build_end_turn_report(3, &[]);
+        assert_eq!(
+            report,
+            "Turn 3 report: explored 0, surveyed 0, colonized 0, research 0, arrivals 0, warnings 0, errors 0."
+        );
+    }
+
+    #[test]
     fn galaxy_renders_with_log_entries() {
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();

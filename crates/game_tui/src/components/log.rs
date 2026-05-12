@@ -130,7 +130,7 @@ fn format_log_entry(entry: &str) -> Option<String> {
         "⏵ "
     } else if lower.contains("research complete") {
         "✓ "
-    } else if lower.contains("colon") {
+    } else if lower.contains("colony") || lower.contains("coloniz") {
         "◎ "
     } else if lower.contains("survey") {
         "◌ "
@@ -331,5 +331,39 @@ mod tests {
             format_log_entry("Research complete: tech 2").unwrap(),
             "✓ Research complete: tech 2"
         );
+    }
+
+    #[test]
+    fn render_log_filters_low_signal_entries() {
+        let backend = TestBackend::new(100, 8);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut log = EventLog::new();
+        log.push("Colony 1 produced 3 credits, 2 research, 1 food".to_string());
+        log.push("Empire 1 generated 6 science this turn".to_string());
+        log.push("AI Empire 2: queued Shipyard at colony 4".to_string());
+        log.push("Turn 3 report: explored 1, surveyed 0".to_string());
+
+        terminal
+            .draw(|frame| {
+                render_log(frame, frame.area(), &log);
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer();
+        let rendered: String = (0..8u16)
+            .flat_map(|y| {
+                (0..100u16).map(move |x| {
+                    buf.cell((x, y))
+                        .and_then(|c| c.symbol().chars().next())
+                        .unwrap_or(' ')
+                })
+            })
+            .collect();
+
+        assert!(!rendered.contains("produced"));
+        assert!(!rendered.contains("generated"));
+        assert!(!rendered.contains("AI Empire"));
+        assert!(rendered.contains("Turn 3 report"));
     }
 }

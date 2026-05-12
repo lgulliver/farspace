@@ -128,7 +128,7 @@ fn render_colony_stats(
         })
         .unwrap_or((0, 0, 0, 0));
 
-    let lines = vec![
+    let mut lines = vec![
         Line::from(vec![Span::styled(planet_name, Theme::title_style())]),
         Line::from(vec![
             Span::styled("Star: ", Theme::muted_style()),
@@ -198,6 +198,37 @@ fn render_colony_stats(
             Span::raw(format!("{}%", colony.research_pct)),
         ]),
     ];
+
+    // Show active specials/resources for this colonized, surveyed planet.
+    if let Some(p) = planet {
+        if p.surveyed && (!p.specials.is_empty() || !p.resources.is_empty()) {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Active Effects:",
+                Theme::title_style(),
+            )));
+            for special in &p.specials {
+                lines.push(Line::from(vec![
+                    Span::styled("  ★ ", Theme::accent_style()),
+                    Span::styled(special.name(), Theme::default_style()),
+                    Span::styled(
+                        format!(" ({})", special.description()),
+                        Theme::muted_style(),
+                    ),
+                ]));
+            }
+            for resource in &p.resources {
+                lines.push(Line::from(vec![
+                    Span::styled("  ◆ ", Theme::accent_style()),
+                    Span::styled(resource.name(), Theme::default_style()),
+                    Span::styled(
+                        format!(" ({})", resource.description()),
+                        Theme::muted_style(),
+                    ),
+                ]));
+            }
+        }
+    }
 
     let paragraph = Paragraph::new(lines).style(Theme::default_style());
     frame.render_widget(paragraph, inner);

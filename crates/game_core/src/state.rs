@@ -590,6 +590,201 @@ impl PlanetSize {
     }
 }
 
+/// Flat yield effect contributed by a planet special or strategic resource.
+///
+/// All fields default to zero.  Applied additively on top of the base yield
+/// calculated from population, buildings, planet class, and colony role.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct YieldEffect {
+    /// Flat industry bonus/penalty (applied before credit/science scaling).
+    pub industry: i64,
+    /// Flat science bonus/penalty per turn.
+    pub science: i64,
+    /// Flat credits bonus/penalty per turn.
+    pub credits: i64,
+    /// Flat food bonus/penalty per turn.
+    pub food: i64,
+    /// Flat maintenance delta per turn (negative = reduction).
+    pub maintenance: i64,
+}
+
+impl YieldEffect {
+    /// Combine two effects additively.
+    pub fn combine(self, other: YieldEffect) -> YieldEffect {
+        YieldEffect {
+            industry: self.industry + other.industry,
+            science: self.science + other.science,
+            credits: self.credits + other.credits,
+            food: self.food + other.food,
+            maintenance: self.maintenance + other.maintenance,
+        }
+    }
+}
+
+/// Discoverable planet special that modifies colony yield or triggers one-time events.
+///
+/// Specials are generated deterministically from the galaxy seed and hidden until
+/// survey is complete.  A colonized planet automatically benefits from its revealed
+/// specials.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum PlanetSpecial {
+    /// Rich mineral deposits boost industrial output.
+    MineralRich,
+    /// Abundant native life accelerates food production and population growth.
+    FertileBiosphere,
+    /// Remnants of a vanished civilisation — yields a science bonus and a one-time discovery event.
+    AncientRuins,
+    /// Resonant crystal lattices generate energy, boosting credits and science.
+    CrystalFormations,
+    /// Perpetual storm systems hamper agriculture and destabilise industry.
+    HostileWeather,
+    /// Reduced gravitational load makes orbital construction easier — industry bonus.
+    LowGravity,
+}
+
+impl PlanetSpecial {
+    /// All planet specials in deterministic order (used for random selection).
+    pub fn all() -> &'static [PlanetSpecial] {
+        &[
+            PlanetSpecial::MineralRich,
+            PlanetSpecial::FertileBiosphere,
+            PlanetSpecial::AncientRuins,
+            PlanetSpecial::CrystalFormations,
+            PlanetSpecial::HostileWeather,
+            PlanetSpecial::LowGravity,
+        ]
+    }
+
+    /// Short display name for this special.
+    pub fn name(&self) -> &'static str {
+        match self {
+            PlanetSpecial::MineralRich => "Mineral Rich",
+            PlanetSpecial::FertileBiosphere => "Fertile Biosphere",
+            PlanetSpecial::AncientRuins => "Ancient Ruins",
+            PlanetSpecial::CrystalFormations => "Crystal Formations",
+            PlanetSpecial::HostileWeather => "Hostile Weather",
+            PlanetSpecial::LowGravity => "Low Gravity",
+        }
+    }
+
+    /// One-line description of this special's effect.
+    pub fn description(&self) -> &'static str {
+        match self {
+            PlanetSpecial::MineralRich => "+2 industry",
+            PlanetSpecial::FertileBiosphere => "+2 food",
+            PlanetSpecial::AncientRuins => "+2 science, one-time discovery event",
+            PlanetSpecial::CrystalFormations => "+1 credits, +1 science",
+            PlanetSpecial::HostileWeather => "-1 food, -1 industry",
+            PlanetSpecial::LowGravity => "+2 industry",
+        }
+    }
+
+    /// Flat yield modifiers applied each turn to a colonized, surveyed planet.
+    pub fn yield_effect(&self) -> YieldEffect {
+        match self {
+            PlanetSpecial::MineralRich => YieldEffect {
+                industry: 2,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::FertileBiosphere => YieldEffect {
+                food: 2,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::AncientRuins => YieldEffect {
+                science: 2,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::CrystalFormations => YieldEffect {
+                credits: 1,
+                science: 1,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::HostileWeather => YieldEffect {
+                food: -1,
+                industry: -1,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::LowGravity => YieldEffect {
+                industry: 2,
+                ..YieldEffect::default()
+            },
+        }
+    }
+}
+
+/// Strategic resource presence on a planet — a capability modifier, not an inventory.
+///
+/// Resources are generated deterministically from the galaxy seed and hidden until
+/// survey is complete.  A colonized planet automatically benefits from its revealed
+/// resources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum StrategicResource {
+    /// Lightweight fusion fuel reduces fleet maintenance costs.
+    Helium3,
+    /// Exotic alloys enhance ship and industrial production.
+    RareMetals,
+    /// Dense nutrient cultures support rapid population growth.
+    BioCultures,
+    /// Hyper-ordered crystals amplify computational and hyperspace research.
+    QuantumCrystals,
+}
+
+impl StrategicResource {
+    /// All strategic resources in deterministic order (used for random selection).
+    pub fn all() -> &'static [StrategicResource] {
+        &[
+            StrategicResource::Helium3,
+            StrategicResource::RareMetals,
+            StrategicResource::BioCultures,
+            StrategicResource::QuantumCrystals,
+        ]
+    }
+
+    /// Short display name for this resource.
+    pub fn name(&self) -> &'static str {
+        match self {
+            StrategicResource::Helium3 => "Helium-3",
+            StrategicResource::RareMetals => "Rare Metals",
+            StrategicResource::BioCultures => "Bio-Cultures",
+            StrategicResource::QuantumCrystals => "Quantum Crystals",
+        }
+    }
+
+    /// One-line description of this resource's effect.
+    pub fn description(&self) -> &'static str {
+        match self {
+            StrategicResource::Helium3 => "-1 maintenance",
+            StrategicResource::RareMetals => "+1 industry",
+            StrategicResource::BioCultures => "+2 food",
+            StrategicResource::QuantumCrystals => "+2 science",
+        }
+    }
+
+    /// Flat yield modifiers applied each turn to a colonized, surveyed planet.
+    pub fn yield_effect(&self) -> YieldEffect {
+        match self {
+            StrategicResource::Helium3 => YieldEffect {
+                maintenance: -1,
+                ..YieldEffect::default()
+            },
+            StrategicResource::RareMetals => YieldEffect {
+                industry: 1,
+                ..YieldEffect::default()
+            },
+            StrategicResource::BioCultures => YieldEffect {
+                food: 2,
+                ..YieldEffect::default()
+            },
+            StrategicResource::QuantumCrystals => YieldEffect {
+                science: 2,
+                ..YieldEffect::default()
+            },
+        }
+    }
+}
+
 /// A planet within a star system
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -606,6 +801,32 @@ pub struct Planet {
     /// Whether this planet has been surveyed by the player.
     #[cfg_attr(feature = "serde", serde(default))]
     pub surveyed: bool,
+    /// Planet specials — hidden until surveyed.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub specials: Vec<PlanetSpecial>,
+    /// Strategic resources present on this planet — hidden until surveyed.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub resources: Vec<StrategicResource>,
+    /// Whether the one-time Ancient Ruins discovery event has already been emitted.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ancient_ruins_collected: bool,
+}
+
+/// Compute the total `YieldEffect` from all revealed specials and resources on a planet.
+///
+/// Returns zero-effect when the planet is not yet surveyed (specials remain hidden).
+pub fn planet_yield_effect(planet: &Planet) -> YieldEffect {
+    if !planet.surveyed {
+        return YieldEffect::default();
+    }
+    let mut total = YieldEffect::default();
+    for special in &planet.specials {
+        total = total.combine(special.yield_effect());
+    }
+    for resource in &planet.resources {
+        total = total.combine(resource.yield_effect());
+    }
+    total
 }
 
 #[cfg(feature = "serde")]

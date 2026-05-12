@@ -293,6 +293,7 @@ fn ai_colonize(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Even
             orbital_installations: Vec::new(),
             stability: 100,
             role,
+            rally_point: None,
         };
         state.colonies.insert(colony_id, new_colony);
 

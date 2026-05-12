@@ -53,6 +53,8 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Op
         Screen::Colony => vec![
             ("[j/k]", "Select"),
             ("[Enter]", "Queue"),
+            ("[R]", "Set Rally"),
+            ("[X]", "Clear Rally"),
             ("[O]", "Overview"),
             ("[e/t]", "End Turn"),
             ("[?]", "Help"),

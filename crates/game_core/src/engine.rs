@@ -6,9 +6,9 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy, generate_hyperspace_lanes};
 use crate::state::{
     all_techs, is_tech_available, tech_by_id, tech_yield_bonus_per_colony, BuildItem, Colony,
-    ColonyId, ColonyRole, Empire, EmpireId, Fleet, FleetId, FleetKind, FleetMission, GameState,
-    HyperspaceLane, RelationshipStatus, ResearchState, ScoutMission, ShipDesignId, StarId,
-    SurveyMission, TechId, YieldType,
+    ColonyId, ColonyRole, Empire, EmpireId, Fleet, FleetId, FleetKind, FleetMission, FleetOrder,
+    GameState, HyperspaceLane, RelationshipStatus, ResearchState, ScoutMission, ShipDesignId,
+    StarId, SurveyMission, TechId, YieldType,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -184,6 +184,7 @@ impl Engine {
                 orbital_installations: Vec::new(),
                 stability: 100,
                 role: ColonyRole::Balanced,
+                rally_point: None,
             },
         );
 
@@ -207,6 +208,7 @@ impl Engine {
                 orbital_installations: Vec::new(),
                 stability: 100,
                 role: ColonyRole::Balanced,
+                rally_point: None,
             },
         );
 
@@ -293,6 +295,7 @@ impl Engine {
             diplomacy: BTreeMap::new(),
             hyperspace_lanes,
             known_hyperspace_lanes,
+            fleet_orders: BTreeMap::new(),
         };
 
         Engine { state }
@@ -360,6 +363,15 @@ impl Engine {
                 }
                 Command::SetColonyRole { colony, role } => {
                     self.process_set_colony_role(colony, role, &mut events);
+                }
+                Command::SetRallyPoint { colony, star } => {
+                    self.process_set_rally_point(colony, star, &mut events);
+                }
+                Command::ClearRallyPoint { colony } => {
+                    self.process_clear_rally_point(colony, &mut events);
+                }
+                Command::SetFleetOrder { fleet, order } => {
+                    self.process_set_fleet_order(fleet, order, &mut events);
                 }
             }
         }
@@ -543,6 +555,9 @@ impl Engine {
                                     fleet: fleet_id,
                                     location: star_id,
                                 });
+                                self.maybe_route_to_rally_point(
+                                    fleet_id, colony_id, star_id, events,
+                                );
                             } else {
                                 // Defensive guard: QueueBuild validation rejects unknown design IDs,
                                 // so this should only occur if a corrupted save injected bad data.
@@ -577,6 +592,9 @@ impl Engine {
                                     fleet: fleet_id,
                                     location: star_id,
                                 });
+                                self.maybe_route_to_rally_point(
+                                    fleet_id, colony_id, star_id, events,
+                                );
                             }
                         }
                         BuildItem::SurfaceStructure(bt) | BuildItem::Structure(bt) => {
@@ -788,6 +806,17 @@ impl Engine {
                     fleet.location = destination;
                 }
 
+                // Clear a MoveToSystem fleet order only when its target matches the
+                // mission that just completed.  This prevents accidentally removing a
+                // standing order that was issued for a *different* destination while
+                // a previous mission (scout/survey/earlier move) was already in flight.
+                if matches!(
+                    self.state.fleet_orders.get(&fleet_id),
+                    Some(FleetOrder::MoveToSystem(s)) if *s == destination
+                ) {
+                    self.state.fleet_orders.remove(&fleet_id);
+                }
+
                 events.push(Event::FleetArrived {
                     fleet: fleet_id,
                     star: destination,
@@ -895,6 +924,243 @@ impl Engine {
             colony: colony_id,
             role,
         });
+    }
+
+    fn process_set_rally_point(
+        &mut self,
+        colony_id: ColonyId,
+        star_id: StarId,
+        events: &mut Vec<Event>,
+    ) {
+        // Validate colony exists and is player-owned
+        let colony = match self.state.colonies.get(&colony_id) {
+            Some(c) => c,
+            None => {
+                events.push(Event::error(format!("Colony {} not found", colony_id.0)));
+                return;
+            }
+        };
+        if colony.owner != self.state.player_empire {
+            events.push(Event::error("Colony not owned by player"));
+            return;
+        }
+
+        // Validate target star exists
+        if !self.state.stars.contains_key(&star_id) {
+            events.push(Event::error(format!(
+                "Rally point star {} not found",
+                star_id.0
+            )));
+            return;
+        }
+
+        // Apply the rally point
+        if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
+            colony.rally_point = Some(star_id);
+        }
+
+        events.push(Event::RallyPointSet {
+            colony: colony_id,
+            star: star_id,
+        });
+    }
+
+    fn process_clear_rally_point(&mut self, colony_id: ColonyId, events: &mut Vec<Event>) {
+        // Validate colony exists and is player-owned
+        let colony = match self.state.colonies.get(&colony_id) {
+            Some(c) => c,
+            None => {
+                events.push(Event::error(format!("Colony {} not found", colony_id.0)));
+                return;
+            }
+        };
+        if colony.owner != self.state.player_empire {
+            events.push(Event::error("Colony not owned by player"));
+            return;
+        }
+
+        if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
+            colony.rally_point = None;
+        }
+
+        events.push(Event::RallyPointCleared { colony: colony_id });
+    }
+
+    fn process_set_fleet_order(
+        &mut self,
+        fleet_id: FleetId,
+        order: FleetOrder,
+        events: &mut Vec<Event>,
+    ) {
+        // Validate fleet exists and is player-owned
+        let fleet = match self.state.fleets.get(&fleet_id) {
+            Some(f) => f,
+            None => {
+                events.push(Event::error(format!("Fleet {} not found", fleet_id.0)));
+                return;
+            }
+        };
+        if fleet.owner != self.state.player_empire {
+            events.push(Event::error("Fleet not owned by player"));
+            return;
+        }
+
+        // For MoveToSystem: validate the destination and start movement if idle
+        if let FleetOrder::MoveToSystem(destination) = order {
+            // Destination star must exist
+            if !self.state.stars.contains_key(&destination) {
+                events.push(Event::error(format!(
+                    "Destination star {} not found",
+                    destination.0
+                )));
+                return;
+            }
+            // Destination must be explored
+            if !self.state.explored_stars.contains(&destination) {
+                events.push(Event::error(format!(
+                    "Star {} is not explored — explore it first",
+                    destination.0
+                )));
+                return;
+            }
+            // Cannot order movement to the current location
+            let from = fleet.location;
+            if from == destination {
+                events.push(Event::error(format!(
+                    "Fleet {} is already at star {}",
+                    fleet_id.0, destination.0
+                )));
+                return;
+            }
+            // If the fleet is idle (no active missions), start a FleetMission immediately
+            let is_idle = !self.state.scout_missions.contains_key(&fleet_id)
+                && !self.state.survey_missions.contains_key(&fleet_id)
+                && !self.state.fleet_missions.contains_key(&fleet_id);
+            if is_idle {
+                let (turns, used_lane) = travel_turns_with_lanes(
+                    &self.state,
+                    self.state.player_empire,
+                    from,
+                    destination,
+                );
+                self.state.fleet_missions.insert(
+                    fleet_id,
+                    FleetMission {
+                        fleet: fleet_id,
+                        destination,
+                        turns_remaining: turns,
+                        origin: from,
+                        total_duration: turns,
+                    },
+                );
+                events.push(Event::FleetDeparted {
+                    fleet: fleet_id,
+                    from,
+                    to: destination,
+                    turns_remaining: turns,
+                });
+                if used_lane {
+                    events.push(Event::HyperspaceLaneUsed {
+                        empire: self.state.player_empire,
+                        fleet: fleet_id,
+                        from,
+                        to: destination,
+                    });
+                }
+            }
+        }
+
+        // Store the fleet order
+        self.state.fleet_orders.insert(fleet_id, order);
+        events.push(Event::FleetOrderSet {
+            fleet: fleet_id,
+            order,
+        });
+    }
+
+    /// If `colony_id` has a rally point set, auto-route the newly created `fleet_id`
+    /// (produced at `from_star`) toward that rally point.
+    ///
+    /// Silently skips routing when:
+    /// * The rally point equals the production star (no movement required).
+    /// * The rally point star has not yet been explored.
+    /// * The fleet already has an active `FleetMission` (defensive guard).
+    fn maybe_route_to_rally_point(
+        &mut self,
+        fleet_id: FleetId,
+        colony_id: ColonyId,
+        from_star: StarId,
+        events: &mut Vec<Event>,
+    ) {
+        let rally_star = match self.state.colonies.get(&colony_id) {
+            Some(c) => match c.rally_point {
+                Some(s) => s,
+                None => return,
+            },
+            None => return,
+        };
+
+        // No movement needed if rally is at the same star as production
+        if rally_star == from_star {
+            return;
+        }
+
+        // Only route to explored stars
+        if !self.state.explored_stars.contains(&rally_star) {
+            return;
+        }
+
+        // Rally star must still exist (defensive)
+        if !self.state.stars.contains_key(&rally_star) {
+            return;
+        }
+
+        // Do not overwrite an existing mission (defensive guard described in the doc comment).
+        // In practice this guard is never triggered for freshly produced fleets, but it
+        // protects against corrupted state on load.
+        if self.state.fleet_missions.contains_key(&fleet_id) {
+            return;
+        }
+
+        // Determine the empire owner of the fleet for lane calculation
+        let empire_id = match self.state.fleets.get(&fleet_id) {
+            Some(f) => f.owner,
+            None => return,
+        };
+
+        let (turns, used_lane) =
+            travel_turns_with_lanes(&self.state, empire_id, from_star, rally_star);
+
+        self.state.fleet_missions.insert(
+            fleet_id,
+            FleetMission {
+                fleet: fleet_id,
+                destination: rally_star,
+                turns_remaining: turns,
+                origin: from_star,
+                total_duration: turns,
+            },
+        );
+        // Set fleet order for tracking / display
+        self.state
+            .fleet_orders
+            .insert(fleet_id, FleetOrder::MoveToSystem(rally_star));
+
+        events.push(Event::ShipRoutedToRallyPoint {
+            fleet: fleet_id,
+            colony: colony_id,
+            from: from_star,
+            to: rally_star,
+            turns_remaining: turns,
+        });
+        if used_lane {
+            events.push(Event::HyperspaceLaneUsed {
+                empire: empire_id,
+                fleet: fleet_id,
+                from: from_star,
+                to: rally_star,
+            });
+        }
     }
 
     fn process_move_fleet(
@@ -1590,6 +1856,7 @@ impl Engine {
             orbital_installations: Vec::new(),
             stability: 100,
             role: ColonyRole::Balanced,
+            rally_point: None,
         };
         self.state.colonies.insert(colony_id, new_colony);
 
@@ -2282,6 +2549,7 @@ mod tests {
                 orbital_installations: Vec::new(),
                 stability: 100,
                 role: crate::state::ColonyRole::Balanced,
+                rally_point: None,
             },
         );
 
@@ -2332,6 +2600,7 @@ mod tests {
                 orbital_installations: Vec::new(),
                 stability: 100,
                 role: crate::state::ColonyRole::Balanced,
+                rally_point: None,
             },
         );
 
@@ -2405,6 +2674,7 @@ mod tests {
                 orbital_installations: Vec::new(),
                 stability: 100,
                 role: crate::state::ColonyRole::Balanced,
+                rally_point: None,
             },
         );
 
@@ -5278,6 +5548,7 @@ mod tests {
             diplomacy: BTreeMap::new(),
             hyperspace_lanes: BTreeSet::new(),
             known_hyperspace_lanes: BTreeSet::new(),
+            fleet_orders: BTreeMap::new(),
         };
 
         // Player star
@@ -5375,6 +5646,7 @@ mod tests {
                 orbital_installations: Vec::new(),
                 stability: 100,
                 role: crate::state::ColonyRole::Balanced,
+                rally_point: None,
             },
         );
 
@@ -5397,6 +5669,7 @@ mod tests {
                 orbital_installations: Vec::new(),
                 stability: 100,
                 role: crate::state::ColonyRole::Balanced,
+                rally_point: None,
             },
         );
 
@@ -5461,6 +5734,7 @@ mod tests {
             diplomacy: BTreeMap::new(),
             hyperspace_lanes: BTreeSet::new(),
             known_hyperspace_lanes: BTreeSet::new(),
+            fleet_orders: BTreeMap::new(),
         };
 
         // Populate stars, empires, colonies, fleet
@@ -5550,6 +5824,7 @@ mod tests {
                 orbital_installations: Vec::new(),
                 stability: 100,
                 role: crate::state::ColonyRole::Balanced,
+                rally_point: None,
             },
         );
         state.colonies.insert(
@@ -5570,6 +5845,7 @@ mod tests {
                 orbital_installations: Vec::new(),
                 stability: 100,
                 role: crate::state::ColonyRole::Balanced,
+                rally_point: None,
             },
         );
         // Player scout at player star — will scout the AI star
@@ -5731,6 +6007,7 @@ mod tests {
             diplomacy: BTreeMap::new(),
             hyperspace_lanes: BTreeSet::new(),
             known_hyperspace_lanes: BTreeSet::new(),
+            fleet_orders: BTreeMap::new(),
         };
 
         // Two AI empires each have a colony at target_star
@@ -5823,6 +6100,7 @@ mod tests {
                 orbital_installations: Vec::new(),
                 stability: 100,
                 role: crate::state::ColonyRole::Balanced,
+                rally_point: None,
             },
         );
         state.colonies.insert(
@@ -5843,6 +6121,7 @@ mod tests {
                 orbital_installations: Vec::new(),
                 stability: 100,
                 role: crate::state::ColonyRole::Balanced,
+                rally_point: None,
             },
         );
         state.colonies.insert(
@@ -5863,6 +6142,7 @@ mod tests {
                 orbital_installations: Vec::new(),
                 stability: 100,
                 role: crate::state::ColonyRole::Balanced,
+                rally_point: None,
             },
         );
         state.fleets.insert(
@@ -8482,6 +8762,7 @@ mod tests {
             orbital_installations: vec![],
             stability: 100,
             role: ColonyRole::Balanced,
+            rally_point: None,
         };
 
         let unsurveyed = Planet {
@@ -8658,5 +8939,485 @@ mod tests {
             survey_events_a, survey_events_b,
             "survey completion event order must be deterministic"
         );
+    }
+
+    // ─── Rally Point tests ───────────────────────────────────────────────────
+
+    /// Helper: get a second explored star from the player's perspective.
+    fn second_explored_star(engine: &Engine) -> Option<StarId> {
+        let home = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
+        engine
+            .state
+            .explored_stars
+            .iter()
+            .copied()
+            .find(|&id| id != home)
+    }
+
+    #[test]
+    fn set_valid_rally_point() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        // Use the home star as the rally target (it is always valid)
+        let home_star = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
+
+        let events = engine.apply_turn(vec![Command::SetRallyPoint {
+            colony: colony_id,
+            star: home_star,
+        }]);
+
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::RallyPointSet { colony, star }
+                    if *colony == colony_id && *star == home_star)),
+            "Expected RallyPointSet event"
+        );
+        assert_eq!(
+            engine.state.colonies.get(&colony_id).unwrap().rally_point,
+            Some(home_star)
+        );
+    }
+
+    #[test]
+    fn set_rally_point_to_unknown_star_fails() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let bogus_star = StarId(99999);
+
+        let events = engine.apply_turn(vec![Command::SetRallyPoint {
+            colony: colony_id,
+            star: bogus_star,
+        }]);
+
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Expected error for unknown star"
+        );
+        assert_eq!(
+            engine.state.colonies.get(&colony_id).unwrap().rally_point,
+            None
+        );
+    }
+
+    #[test]
+    fn set_rally_point_on_unowned_colony_fails() {
+        let mut engine = Engine::new(42);
+        let ai_colony_id = ColonyId(2); // AI-owned
+        let home_star = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
+
+        let events = engine.apply_turn(vec![Command::SetRallyPoint {
+            colony: ai_colony_id,
+            star: home_star,
+        }]);
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn clear_rally_point_works() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let home_star = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .home_star;
+
+        // Set then clear
+        engine.apply_turn(vec![Command::SetRallyPoint {
+            colony: colony_id,
+            star: home_star,
+        }]);
+        assert_eq!(
+            engine.state.colonies.get(&colony_id).unwrap().rally_point,
+            Some(home_star)
+        );
+
+        let events = engine.apply_turn(vec![Command::ClearRallyPoint { colony: colony_id }]);
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::RallyPointCleared { colony } if *colony == colony_id)));
+        assert_eq!(
+            engine.state.colonies.get(&colony_id).unwrap().rally_point,
+            None
+        );
+    }
+
+    #[test]
+    fn clear_rally_on_unowned_colony_fails() {
+        let mut engine = Engine::new(42);
+        let ai_colony_id = ColonyId(2);
+        let events = engine.apply_turn(vec![Command::ClearRallyPoint {
+            colony: ai_colony_id,
+        }]);
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn new_ship_stays_local_without_rally_point() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let home_star = engine.state.colonies.get(&colony_id).unwrap().star;
+
+        give_colony_shipyard(&mut engine, colony_id);
+
+        // Queue a Scout ship (cheapest)
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: crate::state::BuildItem::Ship(ShipDesignId::SCOUT),
+        }]);
+
+        // Pump enough production to complete immediately
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .production = 999;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        // Fleet must have been created
+        let fleet_created = events.iter().find_map(|e| match e {
+            Event::FleetCreated { fleet, location } if *location == home_star => Some(*fleet),
+            _ => None,
+        });
+        let new_fleet_id = fleet_created.expect("Fleet should be created at home star");
+
+        // No ShipRoutedToRallyPoint event
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::ShipRoutedToRallyPoint { .. })),
+            "Should not route without a rally point"
+        );
+        // Fleet should be idle at home star, no mission
+        assert!(!engine.state.fleet_missions.contains_key(&new_fleet_id));
+    }
+
+    #[test]
+    fn new_ship_routed_to_rally_point_when_configured() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let home_star = engine.state.colonies.get(&colony_id).unwrap().star;
+
+        // Find a second explored star to use as a rally point
+        let rally_star =
+            second_explored_star(&engine).expect("Need at least two explored stars for this test");
+        assert_ne!(rally_star, home_star);
+
+        // Set the rally point
+        engine.apply_turn(vec![Command::SetRallyPoint {
+            colony: colony_id,
+            star: rally_star,
+        }]);
+
+        give_colony_shipyard(&mut engine, colony_id);
+
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: crate::state::BuildItem::Ship(ShipDesignId::SCOUT),
+        }]);
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .production = 999;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        // ShipRoutedToRallyPoint should be emitted
+        let routed = events.iter().find(|e| {
+            matches!(e, Event::ShipRoutedToRallyPoint { colony, to, .. }
+                if *colony == colony_id && *to == rally_star)
+        });
+        assert!(routed.is_some(), "Should emit ShipRoutedToRallyPoint");
+
+        // The new fleet should have either an active mission or already have arrived
+        // (if rally star is 1 turn away, the mission resolves within the same EndTurn tick).
+        let new_fleet_id = events
+            .iter()
+            .find_map(|e| match e {
+                Event::FleetCreated { fleet, .. } => Some(*fleet),
+                _ => None,
+            })
+            .expect("Fleet should be created");
+
+        let mission_started = events.iter().any(|e| {
+            matches!(e, Event::ShipRoutedToRallyPoint { fleet, to, .. }
+                if *fleet == new_fleet_id && *to == rally_star)
+        });
+        assert!(
+            mission_started,
+            "Fleet should have been routed toward rally star"
+        );
+
+        // Either still en-route or already arrived (same-turn completion is valid)
+        let is_in_mission = engine.state.fleet_missions.contains_key(&new_fleet_id);
+        let arrived = events.iter().any(|e| {
+            matches!(e, Event::FleetArrived { fleet, star }
+                if *fleet == new_fleet_id && *star == rally_star)
+        });
+        assert!(
+            is_in_mission || arrived,
+            "Fleet should be en-route or arrived at rally star"
+        );
+    }
+
+    #[test]
+    fn rally_point_to_unexplored_star_does_not_route() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let home_star = engine.state.colonies.get(&colony_id).unwrap().star;
+
+        // Find an unexplored star
+        let unexplored = engine
+            .state
+            .stars
+            .keys()
+            .copied()
+            .find(|&id| !engine.state.explored_stars.contains(&id))
+            .expect("Need an unexplored star");
+
+        // We can force-set the rally point directly (bypassing command validation)
+        // to test the auto-route guard
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .rally_point = Some(unexplored);
+
+        give_colony_shipyard(&mut engine, colony_id);
+        engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: crate::state::BuildItem::Ship(ShipDesignId::SCOUT),
+        }]);
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .production = 999;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::ShipRoutedToRallyPoint { .. })),
+            "Should not route to unexplored star"
+        );
+        let new_fleet_id = events
+            .iter()
+            .find_map(|e| match e {
+                Event::FleetCreated { fleet, location } if *location == home_star => Some(*fleet),
+                _ => None,
+            })
+            .expect("Fleet should be created");
+        assert!(
+            !engine.state.fleet_missions.contains_key(&new_fleet_id),
+            "No mission should be created for unexplored rally target"
+        );
+    }
+
+    #[test]
+    fn fleet_order_set_hold() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let events = engine.apply_turn(vec![Command::SetFleetOrder {
+            fleet: fleet_id,
+            order: FleetOrder::Hold,
+        }]);
+
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::FleetOrderSet { fleet, order }
+                if *fleet == fleet_id && *order == FleetOrder::Hold)));
+        assert_eq!(
+            engine.state.fleet_orders.get(&fleet_id).copied(),
+            Some(FleetOrder::Hold)
+        );
+    }
+
+    #[test]
+    fn fleet_order_move_to_system_starts_mission() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let destination = second_explored_star(&engine).expect("Need a second explored star");
+
+        let events = engine.apply_turn(vec![Command::SetFleetOrder {
+            fleet: fleet_id,
+            order: FleetOrder::MoveToSystem(destination),
+        }]);
+
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::FleetOrderSet { .. })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::FleetDeparted { fleet, to, .. }
+                if *fleet == fleet_id && *to == destination)));
+        assert!(engine.state.fleet_missions.contains_key(&fleet_id));
+    }
+
+    #[test]
+    fn fleet_order_invalid_fleet_fails() {
+        let mut engine = Engine::new(42);
+        let bogus_fleet = FleetId(99999);
+
+        let events = engine.apply_turn(vec![Command::SetFleetOrder {
+            fleet: bogus_fleet,
+            order: FleetOrder::Hold,
+        }]);
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn fleet_order_invalid_destination_fails() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let events = engine.apply_turn(vec![Command::SetFleetOrder {
+            fleet: fleet_id,
+            order: FleetOrder::MoveToSystem(StarId(99999)),
+        }]);
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn fleet_order_cleared_on_arrival() {
+        let mut engine = Engine::new(42);
+        let fleet_id = FleetId(1);
+
+        let destination = second_explored_star(&engine).expect("Need a second explored star");
+
+        // Issue MoveToSystem order (starts mission immediately)
+        engine.apply_turn(vec![Command::SetFleetOrder {
+            fleet: fleet_id,
+            order: FleetOrder::MoveToSystem(destination),
+        }]);
+
+        assert!(engine.state.fleet_orders.contains_key(&fleet_id));
+
+        // Advance turns until the fleet arrives
+        for _ in 0..10 {
+            if !engine.state.fleet_missions.contains_key(&fleet_id) {
+                break;
+            }
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        assert!(
+            !engine.state.fleet_missions.contains_key(&fleet_id),
+            "Fleet should have arrived"
+        );
+        assert!(
+            !engine.state.fleet_orders.contains_key(&fleet_id),
+            "MoveToSystem order should be cleared after arrival"
+        );
+    }
+
+    #[test]
+    fn rally_point_and_fleet_order_persist_through_save_load() {
+        use crate::state::FleetOrder;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let home_star = engine.state.colonies.get(&colony_id).unwrap().star;
+
+        // Set a rally point
+        engine.apply_turn(vec![Command::SetRallyPoint {
+            colony: colony_id,
+            star: home_star,
+        }]);
+        // Set a Hold order on fleet 1
+        engine.apply_turn(vec![Command::SetFleetOrder {
+            fleet: FleetId(1),
+            order: FleetOrder::Hold,
+        }]);
+
+        // Serialize and deserialize
+        let json = serde_json::to_string(&engine.state).expect("Serialization must succeed");
+        let restored: crate::state::GameState =
+            serde_json::from_str(&json).expect("Deserialization must succeed");
+
+        assert_eq!(
+            restored.colonies.get(&colony_id).unwrap().rally_point,
+            Some(home_star),
+            "Rally point must survive save/load"
+        );
+        assert_eq!(
+            restored.fleet_orders.get(&FleetId(1)).copied(),
+            Some(FleetOrder::Hold),
+            "Fleet order must survive save/load"
+        );
+    }
+
+    #[test]
+    fn rally_point_order_processing_is_deterministic() {
+        // Run two independent engines with same seed and same commands;
+        // verify fleet routing events are identical.
+        let setup = |seed: u64| {
+            let mut engine = Engine::new(seed);
+            let colony_id = ColonyId(1);
+            let home_star = engine.state.colonies.get(&colony_id).unwrap().star;
+
+            let rally_star = engine
+                .state
+                .explored_stars
+                .iter()
+                .copied()
+                .find(|&id| id != home_star)
+                .unwrap();
+
+            engine.apply_turn(vec![Command::SetRallyPoint {
+                colony: colony_id,
+                star: rally_star,
+            }]);
+
+            engine
+                .state
+                .colonies
+                .get_mut(&colony_id)
+                .unwrap()
+                .production = 999;
+
+            give_colony_shipyard(&mut engine, colony_id);
+            engine.apply_turn(vec![Command::QueueBuild {
+                colony: colony_id,
+                item: crate::state::BuildItem::Ship(ShipDesignId::SCOUT),
+            }]);
+
+            let events = engine.apply_turn(vec![Command::EndTurn]);
+            let routing_events: Vec<_> = events
+                .iter()
+                .filter(|e| matches!(e, Event::ShipRoutedToRallyPoint { .. }))
+                .cloned()
+                .collect();
+            routing_events
+        };
+
+        let a = setup(42);
+        let b = setup(42);
+        assert_eq!(a, b, "Rally routing must be deterministic for same seed");
     }
 }

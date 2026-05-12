@@ -1,6 +1,6 @@
 //! Commands that can be issued to the game engine
 
-use crate::state::{BuildItem, ColonyId, ColonyRole, FleetId, StarId, TechId};
+use crate::state::{BuildItem, ColonyId, ColonyRole, FleetId, FleetOrder, StarId, TechId};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +40,12 @@ pub enum Command {
     },
     /// Assign a specialisation role to a player-owned colony
     SetColonyRole { colony: ColonyId, role: ColonyRole },
+    /// Set the rally point for a colony — newly produced ships will auto-route here
+    SetRallyPoint { colony: ColonyId, star: StarId },
+    /// Clear the rally point for a colony — newly produced ships will remain at their build star
+    ClearRallyPoint { colony: ColonyId },
+    /// Set a standing order on a fleet
+    SetFleetOrder { fleet: FleetId, order: FleetOrder },
 }
 
 #[cfg(test)]

@@ -216,7 +216,7 @@ pub fn all_techs() -> &'static [TechRecord] {
             tier: TechTier::I,
             prerequisites: &[],
             unlocks: &[],
-            cost: 90,
+            cost: 100,
         },
         TechRecord {
             id: TechId(5),
@@ -229,7 +229,7 @@ pub fn all_techs() -> &'static [TechRecord] {
                 yield_type: YieldType::Science,
                 amount_per_colony: 1,
             }],
-            cost: 110,
+            cost: 120,
         },
         TechRecord {
             id: TechId(6),
@@ -239,7 +239,7 @@ pub fn all_techs() -> &'static [TechRecord] {
             tier: TechTier::II,
             prerequisites: &[TechId(3)],
             unlocks: &[],
-            cost: 100,
+            cost: 90,
         },
         TechRecord {
             id: TechId::ORBITAL_ENGINEERING,

@@ -2,6 +2,7 @@
 
 pub mod colony;
 pub mod diplomacy;
+pub mod empire_overview;
 pub mod menu;
 pub mod research;
 pub mod sector_map;
@@ -22,6 +23,7 @@ pub enum Screen {
     SectorMap,
     System,
     Colony,
+    EmpireOverview,
     Research,
     Diplomacy,
 }
@@ -55,6 +57,11 @@ impl Screen {
             Screen::Colony => {
                 if let Some(state) = game_state {
                     colony::render_colony(frame, area, app_state, state);
+                }
+            }
+            Screen::EmpireOverview => {
+                if let Some(state) = game_state {
+                    empire_overview::render_empire_overview(frame, area, app_state, state);
                 }
             }
             Screen::Research => {

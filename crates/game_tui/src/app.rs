@@ -399,11 +399,9 @@ impl App {
                 KeyCode::Backspace => {
                     self.state.setup_seed_str.pop();
                 }
-                KeyCode::Char(c) if c.is_ascii_digit() => {
-                    // Limit to 18 digits to stay within u64::MAX (20 digits).
-                    if self.state.setup_seed_str.len() < 18 {
-                        self.state.setup_seed_str.push(c);
-                    }
+                // Limit to 18 digits to stay within u64::MAX (20 digits).
+                KeyCode::Char(c) if c.is_ascii_digit() && self.state.setup_seed_str.len() < 18 => {
+                    self.state.setup_seed_str.push(c);
                 }
                 _ => {}
             }

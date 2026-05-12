@@ -248,6 +248,36 @@ fn render_system_details(
                 planet.class.science_bonus()
             )),
         ]));
+        // Show planet specials (revealed after survey)
+        if planet.specials.is_empty() && planet.resources.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("Specials: ", Theme::muted_style()),
+                Span::styled("None", Theme::muted_style()),
+            ]));
+        } else {
+            if !planet.specials.is_empty() {
+                let specials_text: Vec<String> = planet
+                    .specials
+                    .iter()
+                    .map(|s| format!("{} ({})", s.name(), s.description()))
+                    .collect();
+                lines.push(Line::from(vec![
+                    Span::styled("Specials: ", Theme::muted_style()),
+                    Span::styled(specials_text.join(", "), Theme::accent_style()),
+                ]));
+            }
+            if !planet.resources.is_empty() {
+                let resources_text: Vec<String> = planet
+                    .resources
+                    .iter()
+                    .map(|r| format!("{} ({})", r.name(), r.description()))
+                    .collect();
+                lines.push(Line::from(vec![
+                    Span::styled("Resources: ", Theme::muted_style()),
+                    Span::styled(resources_text.join(", "), Theme::accent_style()),
+                ]));
+            }
+        }
     } else {
         lines.push(Line::from(vec![
             Span::styled("Class: ", Theme::muted_style()),

@@ -178,6 +178,33 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                 })
                 .collect();
 
+            migrate(SaveFile { version: 17, state })
+        }
+        17 => {
+            // v17 -> v18: Planet.specials (Vec<PlanetSpecial>), Planet.resources
+            // (Vec<StrategicResource>), and Planet.ancient_ruins_collected (bool) added.
+            //
+            // All three fields carry serde defaults (empty Vec / false) so existing saves
+            // deserialise safely.  We repopulate specials and resources deterministically
+            // from the galaxy seed so that old saves gain the new content immediately.
+            // ancient_ruins_collected stays false — already-surveyed ruins will passively
+            // provide the science bonus without re-emitting the discovery event.
+            let mut state = save.state;
+            let seed = state.seed;
+            for star in state.stars.values_mut() {
+                let star_id = star.id;
+                for (planet_index, planet) in star.planets.iter_mut().enumerate() {
+                    let (specials, resources) =
+                        game_core::galaxy::generate_planet_specials_and_resources(
+                            seed,
+                            star_id,
+                            planet_index,
+                        );
+                    planet.specials = specials;
+                    planet.resources = resources;
+                    // ancient_ruins_collected stays false (default) — no history available.
+                }
+            }
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state,

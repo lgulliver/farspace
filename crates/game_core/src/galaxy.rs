@@ -1,7 +1,8 @@
 //! Galaxy generation
 
 use crate::state::{
-    HyperspaceLane, Planet, PlanetClass, PlanetSize, Sector, SectorId, SpectralClass, Star, StarId,
+    HyperspaceLane, Planet, PlanetClass, PlanetSize, PlanetSpecial, Sector, SectorId,
+    SpectralClass, Star, StarId, StrategicResource,
 };
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
@@ -36,6 +37,50 @@ const ROMAN_NUMERALS: &[&str] = &["I", "II", "III", "IV", "V", "VI", "VII", "VII
 pub struct GeneratedGalaxy {
     pub sectors: Vec<Sector>,
     pub stars: Vec<Star>,
+}
+
+/// Deterministically generate planet specials and strategic resources for a single planet.
+///
+/// Uses a dedicated sub-RNG seeded from the galaxy seed, star ID, and planet index so that
+/// the existing galaxy RNG sequence is not disturbed.  The same seed always produces the same
+/// specials and resources for every planet.
+///
+/// Seed mixing uses `wrapping_add` with prime multipliers:
+/// `planet_seed = galaxy_seed + star_id * 1_000_003 + planet_index * 999_983`
+/// (all operations wrapping).  This gives a unique seed per (galaxy, star, planet) triple
+/// without any external state or wall-clock input.
+///
+/// Probability model (v1):
+/// - ~40% chance a planet has one special  (102/256 ≈ 0.398)
+/// - ~30% chance a planet has one strategic resource  (77/256 ≈ 0.301)
+pub fn generate_planet_specials_and_resources(
+    galaxy_seed: u64,
+    star_id: StarId,
+    planet_index: usize,
+) -> (Vec<PlanetSpecial>, Vec<StrategicResource>) {
+    // Derive a unique seed per planet without disturbing the main RNG.
+    let planet_seed = galaxy_seed
+        .wrapping_add(star_id.0.wrapping_mul(1_000_003))
+        .wrapping_add(planet_index as u64 * 999_983);
+    let mut planet_rng = ChaCha8Rng::seed_from_u64(planet_seed);
+
+    // ~40% chance of a special (102 / 256 ≈ 0.398)
+    let specials = if planet_rng.gen::<u8>() < 102 {
+        let idx = planet_rng.gen_range(0..PlanetSpecial::all().len());
+        vec![PlanetSpecial::all()[idx]]
+    } else {
+        vec![]
+    };
+
+    // ~30% chance of a strategic resource (77 / 256 ≈ 0.301)
+    let resources = if planet_rng.gen::<u8>() < 77 {
+        let idx = planet_rng.gen_range(0..StrategicResource::all().len());
+        vec![StrategicResource::all()[idx]]
+    } else {
+        vec![]
+    };
+
+    (specials, resources)
 }
 
 /// Generate a galaxy with the given seed and star count
@@ -106,6 +151,8 @@ pub fn generate_galaxy(seed: u64, star_count: usize) -> GeneratedGalaxy {
                 // to avoid consuming extra RNG calls that would break fixed-seed tests
                 let class_idx = (id * 37 + i * 11) % PlanetClass::all().len();
                 let class = PlanetClass::all()[class_idx];
+                let (specials, resources) =
+                    generate_planet_specials_and_resources(seed, StarId(id as u64), i);
                 Planet {
                     name: planet_name,
                     size,
@@ -113,6 +160,9 @@ pub fn generate_galaxy(seed: u64, star_count: usize) -> GeneratedGalaxy {
                     colony: None,
                     habitable: true,
                     surveyed: false,
+                    specials,
+                    resources,
+                    ancient_ruins_collected: false,
                 }
             })
             .collect();
@@ -572,5 +622,101 @@ mod tests {
             assert!(star_ids.contains(&lane.b()));
             assert_ne!(lane.a(), lane.b());
         }
+    }
+
+    // ── Planet specials and strategic resources ─────────────────────────────
+
+    #[test]
+    fn planet_specials_generation_is_reproducible() {
+        // Same seed always produces the same specials and resources for every planet.
+        let (specials_a, resources_a) = generate_planet_specials_and_resources(42, StarId(3), 0);
+        let (specials_b, resources_b) = generate_planet_specials_and_resources(42, StarId(3), 0);
+        assert_eq!(specials_a, specials_b, "specials must be deterministic");
+        assert_eq!(resources_a, resources_b, "resources must be deterministic");
+    }
+
+    #[test]
+    fn planet_specials_can_differ_by_seed() {
+        // Different seeds should produce at least some variation across all planets.
+        let gal1 = generate_galaxy(42, 30);
+        let gal2 = generate_galaxy(9999, 30);
+        let same_count = gal1
+            .stars
+            .iter()
+            .zip(gal2.stars.iter())
+            .flat_map(|(s1, s2)| s1.planets.iter().zip(s2.planets.iter()))
+            .filter(|(p1, p2)| p1.specials == p2.specials && p1.resources == p2.resources)
+            .count();
+        let total = gal1.stars.iter().map(|s| s.planets.len()).sum::<usize>();
+        // Not all planets may differ, but at least half should
+        assert!(
+            same_count < total,
+            "different seeds should produce different specials on at least some planets"
+        );
+    }
+
+    #[test]
+    fn planet_specials_differ_by_planet_index() {
+        // Verify that planet_index is meaningfully incorporated into the seed by checking
+        // that across a range of indices at least two distinct (specials, resources) pairs
+        // are produced.  If all 10 outputs were identical it would mean planet_index has no
+        // effect on the sub-RNG seed.
+        let seed = 42u64;
+        let star_id = StarId(5);
+        let outputs: Vec<_> = (0..10)
+            .map(|i| generate_planet_specials_and_resources(seed, star_id, i))
+            .collect();
+        // Count how many outputs differ from the first one.
+        let first = &outputs[0];
+        let distinct_count = outputs.iter().filter(|o| *o != first).count();
+        assert!(
+            distinct_count > 0,
+            "planet_index must produce variation: all 10 planet indices for \
+             seed={}, star_id={} produced identical (specials, resources) output",
+            seed,
+            star_id.0
+        );
+    }
+
+    #[test]
+    fn galaxy_generation_includes_planet_specials() {
+        // All generated planets must have specials/resources fields (even if empty).
+        let gal = generate_galaxy(42, 20);
+        let mut any_specials = false;
+        let mut any_resources = false;
+        for star in &gal.stars {
+            for planet in &star.planets {
+                if !planet.specials.is_empty() {
+                    any_specials = true;
+                }
+                if !planet.resources.is_empty() {
+                    any_resources = true;
+                }
+                // Fields must exist and ancient_ruins_collected always starts false
+                assert!(!planet.ancient_ruins_collected);
+            }
+        }
+        // With a 40% special rate over many planets, at least some should appear.
+        assert!(any_specials, "at least some planets should have specials");
+        // With a 30% resource rate over many planets, at least some should appear.
+        assert!(any_resources, "at least some planets should have resources");
+    }
+
+    #[test]
+    fn hostile_weather_is_a_valid_special() {
+        // Verify HostileWeather (a negative special) is included in the valid set.
+        assert!(
+            PlanetSpecial::all().contains(&PlanetSpecial::HostileWeather),
+            "HostileWeather must be in all()"
+        );
+        let effect = PlanetSpecial::HostileWeather.yield_effect();
+        assert!(
+            effect.food < 0,
+            "HostileWeather should impose a food penalty"
+        );
+        assert!(
+            effect.industry < 0,
+            "HostileWeather should impose an industry penalty"
+        );
     }
 }

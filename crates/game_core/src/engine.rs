@@ -1627,6 +1627,20 @@ impl Engine {
             if let Some(planet) = star.planets.get_mut(planet_index) {
                 if !planet.surveyed {
                     planet.surveyed = true;
+
+                    // Emit one-time Ancient Ruins discovery event (deterministic, no duplicates).
+                    let has_ruins = planet
+                        .specials
+                        .contains(&crate::state::PlanetSpecial::AncientRuins);
+                    let already_collected = planet.ancient_ruins_collected;
+                    if has_ruins && !already_collected {
+                        planet.ancient_ruins_collected = true;
+                        events.push(Event::AncientRuinsDiscovered {
+                            star: star_id,
+                            planet_index,
+                        });
+                    }
+
                     events.push(Event::PlanetSurveyCompleted {
                         star: star_id,
                         planet_index,
@@ -1886,7 +1900,9 @@ fn find_ai_home_star(stars: &[crate::state::Star], player_home: StarId) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{BuildingType, SectorId};
+    use crate::state::{
+        BuildingType, Planet, PlanetClass, PlanetSize, PlanetSpecial, SectorId, StrategicResource,
+    };
 
     /// Inject a Shipyard directly into a colony's orbital installations.
     /// Used to satisfy the "ships require a Shipyard" rule in tests that
@@ -4791,16 +4807,27 @@ mod tests {
         let mut engine = Engine::new(42);
         let empire_id = engine.state.player_empire;
 
-        // Starting colony: population = 10, no AquacultureBay
-        // Food produced = 10, consumed = 10 → net = 0
+        // Compute expected food net for the player's colony (accounts for planet specials).
+        let player_colony = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == empire_id)
+            .unwrap()
+            .clone();
+        let star = engine.state.stars.get(&player_colony.star).unwrap();
+        let planet = star.planets.get(player_colony.planet_index);
+        let y = crate::yield_model::calculate_yield(&player_colony, planet);
+        let expected_food_net = y.food - y.food_consumed;
+
         let initial_food = engine.state.empires[&empire_id].food;
         engine.apply_turn(vec![Command::EndTurn]);
         let after_food = engine.state.empires[&empire_id].food;
 
-        // Net food per turn = population - population = 0 (no aquaculture)
         assert_eq!(
-            after_food, initial_food,
-            "Food should be neutral with no AquacultureBay"
+            after_food - initial_food,
+            expected_food_net,
+            "Net food should match yield model (including planet specials)"
         );
     }
 
@@ -4938,14 +4965,26 @@ mod tests {
         let mut engine = Engine::new(42);
         let empire_id = engine.state.player_empire;
 
-        // Base: population=10, no buildings → net = 0 → food unchanged
+        // Compute expected food net for the player's colony (accounts for planet specials).
+        let player_colony = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == empire_id)
+            .unwrap()
+            .clone();
+        let star = engine.state.stars.get(&player_colony.star).unwrap();
+        let planet = star.planets.get(player_colony.planet_index);
+        let y = crate::yield_model::calculate_yield(&player_colony, planet);
+        let expected_net = y.food - y.food_consumed;
+
         let food_before = engine.state.empires[&empire_id].food;
         engine.apply_turn(vec![Command::EndTurn]);
         let food_after = engine.state.empires[&empire_id].food;
-        // food_produced = 10, food_consumed = 10
         assert_eq!(
-            food_after, food_before,
-            "Base food balance should be neutral"
+            food_after - food_before,
+            expected_net,
+            "Food net change should equal produced minus consumed (including planet specials)"
         );
     }
 
@@ -4994,10 +5033,24 @@ mod tests {
         let mut engine = Engine::new(42);
         let empire_id = engine.state.player_empire;
 
-        // The starting colony has population=10, which produces 10 food and consumes 10 food
-        // per turn — net zero.  We force the stockpile to -1 directly so that the engine
-        // emits a FoodShortage warning on the very next turn.
-        engine.state.empires.get_mut(&empire_id).unwrap().food = -1;
+        // Compute the maximum food net per turn for the player's single colony.
+        // This accounts for planet specials (e.g. FertileBiosphere, BioCultures).
+        let player_colony = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == empire_id)
+            .unwrap()
+            .clone();
+        let star = engine.state.stars.get(&player_colony.star).unwrap();
+        let planet = star.planets.get(player_colony.planet_index);
+        let y = crate::yield_model::calculate_yield(&player_colony, planet);
+        let food_net = y.food - y.food_consumed;
+
+        // Force the stockpile to be large enough below zero so it stays negative after
+        // one turn's production (worst case: all food specials active).
+        let deeply_negative = -(food_net.abs() + 10);
+        engine.state.empires.get_mut(&empire_id).unwrap().food = deeply_negative;
 
         let events = engine.apply_turn(vec![Command::EndTurn]);
 
@@ -5244,6 +5297,9 @@ mod tests {
                     colony: Some(ColonyId(1)),
                     habitable: true,
                     surveyed: true,
+                    specials: vec![],
+                    resources: vec![],
+                    ancient_ruins_collected: false,
                 }],
             },
         );
@@ -5265,6 +5321,9 @@ mod tests {
                     colony: Some(ColonyId(2)),
                     habitable: true,
                     surveyed: true,
+                    specials: vec![],
+                    resources: vec![],
+                    ancient_ruins_collected: false,
                 }],
             },
         );
@@ -5421,6 +5480,9 @@ mod tests {
                     colony: Some(ColonyId(1)),
                     habitable: true,
                     surveyed: true,
+                    specials: vec![],
+                    resources: vec![],
+                    ancient_ruins_collected: false,
                 }],
             },
         );
@@ -5440,6 +5502,9 @@ mod tests {
                     colony: Some(ColonyId(2)),
                     habitable: true,
                     surveyed: true,
+                    specials: vec![],
+                    resources: vec![],
+                    ancient_ruins_collected: false,
                 }],
             },
         );
@@ -5685,6 +5750,9 @@ mod tests {
                     colony: Some(ColonyId(1)),
                     habitable: true,
                     surveyed: true,
+                    specials: vec![],
+                    resources: vec![],
+                    ancient_ruins_collected: false,
                 }],
             },
         );
@@ -5705,6 +5773,9 @@ mod tests {
                         colony: Some(ColonyId(2)),
                         habitable: true,
                         surveyed: true,
+                        specials: vec![],
+                        resources: vec![],
+                        ancient_ruins_collected: false,
                     },
                     Planet {
                         name: "Target II".to_string(),
@@ -5713,6 +5784,9 @@ mod tests {
                         colony: Some(ColonyId(3)),
                         habitable: true,
                         surveyed: true,
+                        specials: vec![],
+                        resources: vec![],
+                        ancient_ruins_collected: false,
                     },
                 ],
             },
@@ -8213,6 +8287,376 @@ mod tests {
         assert!(
             arrival_ids[0] < arrival_ids[1],
             "Arrivals must be ordered by FleetId ascending"
+        );
+    }
+
+    // ── Planet specials / survey / Ancient Ruins ─────────────────────────────
+
+    /// Injecting a known special into a planet and completing a survey emits
+    /// AncientRuinsDiscovered exactly once.
+    #[test]
+    fn ancient_ruins_discovery_emitted_once_on_survey() {
+        let mut engine = Engine::new(42);
+        let empire_id = engine.state.player_empire;
+        let home = engine.state.empires[&empire_id].home_star;
+
+        // Pick a non-home explored star with an unsurveyed planet.
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&sid| sid != home)
+            .expect("need a non-home explored star");
+
+        // Give the first planet Ancient Ruins and ensure it's unsurveyed.
+        {
+            let star = engine.state.stars.get_mut(&target).unwrap();
+            star.planets[0].surveyed = false;
+            star.planets[0].ancient_ruins_collected = false;
+            star.planets[0].specials = vec![PlanetSpecial::AncientRuins];
+        }
+
+        // Place a Science Ship at the target star.
+        let science_fleet_id = FleetId(9991);
+        engine.state.fleets.insert(
+            science_fleet_id,
+            Fleet {
+                id: science_fleet_id,
+                owner: empire_id,
+                location: target,
+                ships: 1,
+                kind: FleetKind::Science,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        // Give the empire Survey Drones tech so the survey command is accepted.
+        engine
+            .state
+            .empires
+            .get_mut(&empire_id)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId::SURVEY_DRONES);
+
+        // Start the survey.
+        engine.apply_turn(vec![Command::SurveyPlanet {
+            fleet: science_fleet_id,
+            star: target,
+            planet_index: 0,
+        }]);
+
+        // Fast-forward survey to last turn.
+        engine
+            .state
+            .survey_missions
+            .get_mut(&science_fleet_id)
+            .unwrap()
+            .turns_remaining = 1;
+
+        // Complete the survey.
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        let ruins_events: Vec<_> = events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    Event::AncientRuinsDiscovered {
+                        star,
+                        planet_index: 0
+                    } if *star == target
+                )
+            })
+            .collect();
+        assert_eq!(
+            ruins_events.len(),
+            1,
+            "AncientRuinsDiscovered should be emitted exactly once"
+        );
+        // The planet's flag should now be set.
+        assert!(
+            engine.state.stars[&target].planets[0].ancient_ruins_collected,
+            "ancient_ruins_collected must be true after discovery"
+        );
+    }
+
+    /// Ancient Ruins discovery is not emitted again if the survey is somehow re-triggered.
+    #[test]
+    fn ancient_ruins_not_duplicated_on_re_survey() {
+        let mut engine = Engine::new(42);
+        let empire_id = engine.state.player_empire;
+        let home = engine.state.empires[&empire_id].home_star;
+
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&sid| sid != home)
+            .expect("need a non-home explored star");
+
+        // Planet already surveyed with ruins already collected.
+        {
+            let star = engine.state.stars.get_mut(&target).unwrap();
+            star.planets[0].surveyed = true;
+            star.planets[0].ancient_ruins_collected = true;
+            star.planets[0].specials = vec![PlanetSpecial::AncientRuins];
+        }
+
+        // Manually call complete_survey_at_star (via the engine).
+        engine
+            .state
+            .empires
+            .get_mut(&empire_id)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId::SURVEY_DRONES);
+
+        // Force the planet unsurveyed to allow re-survey command, then reset flag
+        {
+            let star = engine.state.stars.get_mut(&target).unwrap();
+            star.planets[0].surveyed = false; // allow re-survey
+                                              // ancient_ruins_collected stays true
+        }
+
+        let science_fleet_id = FleetId(9992);
+        engine.state.fleets.insert(
+            science_fleet_id,
+            Fleet {
+                id: science_fleet_id,
+                owner: empire_id,
+                location: target,
+                ships: 1,
+                kind: FleetKind::Science,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        engine.apply_turn(vec![Command::SurveyPlanet {
+            fleet: science_fleet_id,
+            star: target,
+            planet_index: 0,
+        }]);
+        engine
+            .state
+            .survey_missions
+            .get_mut(&science_fleet_id)
+            .unwrap()
+            .turns_remaining = 1;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        let ruins_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, Event::AncientRuinsDiscovered { .. }))
+            .collect();
+        assert_eq!(
+            ruins_events.len(),
+            0,
+            "AncientRuinsDiscovered must not be emitted again when already collected"
+        );
+    }
+
+    /// Unsurveyed planet hides specials/resources from yield calculation.
+    #[test]
+    fn unsurveyed_planet_specials_do_not_affect_colony_yield() {
+        use crate::yield_model::calculate_yield;
+
+        let colony = Colony {
+            id: ColonyId(99),
+            star: StarId(0),
+            planet_index: 0,
+            owner: EmpireId(1),
+            population: 10,
+            production: 10,
+            prod_pct: 50,
+            research_pct: 50,
+            build_queue: vec![],
+            accumulated_production: 0,
+            buildings: vec![],
+            surface_installations: vec![],
+            orbital_installations: vec![],
+            stability: 100,
+            role: ColonyRole::Balanced,
+        };
+
+        let unsurveyed = Planet {
+            name: "Unseen".to_string(),
+            size: PlanetSize::Medium,
+            class: PlanetClass::Terran,
+            colony: Some(ColonyId(99)),
+            habitable: true,
+            surveyed: false,
+            specials: vec![PlanetSpecial::MineralRich, PlanetSpecial::FertileBiosphere],
+            resources: vec![StrategicResource::QuantumCrystals],
+            ancient_ruins_collected: false,
+        };
+
+        let surveyed = Planet {
+            surveyed: true,
+            ..unsurveyed.clone()
+        };
+
+        let y_unsurveyed = calculate_yield(&colony, Some(&unsurveyed));
+        let y_surveyed = calculate_yield(&colony, Some(&surveyed));
+
+        assert_ne!(
+            y_unsurveyed.industry, y_surveyed.industry,
+            "industry should differ once surveyed (MineralRich)"
+        );
+        assert_ne!(
+            y_unsurveyed.food, y_surveyed.food,
+            "food should differ once surveyed (FertileBiosphere)"
+        );
+        assert_ne!(
+            y_unsurveyed.science, y_surveyed.science,
+            "science should differ once surveyed (QuantumCrystals)"
+        );
+
+        // Unsurveyed yield must match a planet with no specials.
+        let plain = Planet {
+            specials: vec![],
+            resources: vec![],
+            ..unsurveyed.clone()
+        };
+        let y_plain = calculate_yield(&colony, Some(&plain));
+        assert_eq!(
+            y_unsurveyed, y_plain,
+            "unsurveyed specials must produce same yield as no specials"
+        );
+    }
+
+    /// Planet survey event ordering is deterministic across multiple simultaneous surveys.
+    #[test]
+    fn survey_completion_event_ordering_is_deterministic() {
+        // Complete two surveys in the same turn; survey missions are processed in FleetId order.
+        let mut engine = Engine::new(42);
+        let empire_id = engine.state.player_empire;
+        let home = engine.state.empires[&empire_id].home_star;
+
+        engine
+            .state
+            .empires
+            .get_mut(&empire_id)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId::SURVEY_DRONES);
+
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&sid| sid != home)
+            .expect("need a non-home explored star");
+
+        // Inject two science ships at the target star.
+        for &(fleet_id, planet_idx) in &[(FleetId(9993), 0usize), (FleetId(9994), 1usize)] {
+            // Ensure the planet is unsurveyed and habitable.
+            if let Some(star) = engine.state.stars.get_mut(&target) {
+                if let Some(planet) = star.planets.get_mut(planet_idx) {
+                    planet.surveyed = false;
+                    planet.habitable = true;
+                }
+            }
+            engine.state.fleets.insert(
+                fleet_id,
+                Fleet {
+                    id: fleet_id,
+                    owner: empire_id,
+                    location: target,
+                    ships: 1,
+                    kind: FleetKind::Science,
+                    strength: 1,
+                    integrity: 100,
+                },
+            );
+            engine.apply_turn(vec![Command::SurveyPlanet {
+                fleet: fleet_id,
+                star: target,
+                planet_index: planet_idx,
+            }]);
+        }
+
+        // Force both surveys to complete next turn.
+        for &fleet_id in &[FleetId(9993), FleetId(9994)] {
+            if let Some(m) = engine.state.survey_missions.get_mut(&fleet_id) {
+                m.turns_remaining = 1;
+            }
+        }
+
+        let events_a = engine.apply_turn(vec![Command::EndTurn]);
+
+        // Reset and repeat — must produce identical event sequence.
+        let mut engine2 = Engine::new(42);
+        let empire_id2 = engine2.state.player_empire;
+        let home2 = engine2.state.empires[&empire_id2].home_star;
+
+        engine2
+            .state
+            .empires
+            .get_mut(&empire_id2)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId::SURVEY_DRONES);
+
+        let target2 = *engine2
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&sid| sid != home2)
+            .expect("need a non-home explored star");
+
+        for &(fleet_id, planet_idx) in &[(FleetId(9993), 0usize), (FleetId(9994), 1usize)] {
+            if let Some(star) = engine2.state.stars.get_mut(&target2) {
+                if let Some(planet) = star.planets.get_mut(planet_idx) {
+                    planet.surveyed = false;
+                    planet.habitable = true;
+                }
+            }
+            engine2.state.fleets.insert(
+                fleet_id,
+                Fleet {
+                    id: fleet_id,
+                    owner: empire_id2,
+                    location: target2,
+                    ships: 1,
+                    kind: FleetKind::Science,
+                    strength: 1,
+                    integrity: 100,
+                },
+            );
+            engine2.apply_turn(vec![Command::SurveyPlanet {
+                fleet: fleet_id,
+                star: target2,
+                planet_index: planet_idx,
+            }]);
+        }
+        for &fleet_id in &[FleetId(9993), FleetId(9994)] {
+            if let Some(m) = engine2.state.survey_missions.get_mut(&fleet_id) {
+                m.turns_remaining = 1;
+            }
+        }
+
+        let events_b = engine2.apply_turn(vec![Command::EndTurn]);
+
+        let survey_events_a: Vec<_> = events_a
+            .iter()
+            .filter(|e| matches!(e, Event::PlanetSurveyCompleted { .. }))
+            .collect();
+        let survey_events_b: Vec<_> = events_b
+            .iter()
+            .filter(|e| matches!(e, Event::PlanetSurveyCompleted { .. }))
+            .collect();
+
+        assert_eq!(
+            survey_events_a, survey_events_b,
+            "survey completion event order must be deterministic"
         );
     }
 }

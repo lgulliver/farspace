@@ -21,7 +21,7 @@
 //!
 //! * **Maintenance** — sum of per-building and per-orbital-structure costs
 
-use crate::state::{BuildingType, Colony, Planet}; // ColonyRole applied via colony.role.modifiers()
+use crate::state::{planet_yield_effect, BuildingType, Colony, Planet}; // ColonyRole applied via colony.role.modifiers()
 
 /// Computed economic yields for a colony in a single turn.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,13 +46,19 @@ pub struct ColonyYield {
 /// all planet-class bonuses default to zero, which is correct both in isolated
 /// unit tests and in any production path where a planet lookup fails (graceful
 /// degradation rather than a panic).
+///
+/// Planet specials and strategic resources are applied automatically when the
+/// planet has been surveyed (visibility gate) and a colony exists on it.
 pub fn calculate_yield(colony: &Colony, planet: Option<&Planet>) -> ColonyYield {
     let pop = colony.population as i64;
     let buildings = &colony.buildings;
     let orbitals = &colony.orbital_installations;
     let role_mod = colony.role.modifiers();
 
-    // Industry = population + FabricationYard × 2 + stability modifier + role modifier.
+    // Compute total special/resource yield effect (zero when planet is unsurveyed or absent).
+    let special_effect = planet.map(planet_yield_effect).unwrap_or_default();
+
+    // Industry = population + FabricationYard × 2 + stability modifier + role modifier + specials.
     // stability_modifier = (stability − 100) / 10; clamped at 0 to prevent
     // negative industry on heavily destabilised colonies.
     let fabrication_bonus: i64 = buildings
@@ -61,12 +67,17 @@ pub fn calculate_yield(colony: &Colony, planet: Option<&Planet>) -> ColonyYield 
         .count() as i64
         * 2;
     let stability_mod = (colony.stability as i64 - 100) / 10;
-    let industry = (pop + fabrication_bonus + stability_mod + role_mod.industry).max(0);
+    let industry =
+        (pop + fabrication_bonus + stability_mod + role_mod.industry + special_effect.industry)
+            .max(0);
 
-    // Credits = industry × prod_pct / 100 + role flat modifier.
-    let credits = ((industry * colony.prod_pct as i64) / 100 + role_mod.credits).max(0);
+    // Credits = industry × prod_pct / 100 + role flat modifier + special flat modifier.
+    let credits =
+        ((industry * colony.prod_pct as i64) / 100 + role_mod.credits + special_effect.credits)
+            .max(0);
 
-    // Science = industry × research_pct / 100 + ScienceNexus × population + planet bonus + role flat modifier.
+    // Science = industry × research_pct / 100 + ScienceNexus × population + planet bonus
+    //         + role flat modifier + special flat modifier.
     let nexus_count = buildings
         .iter()
         .filter(|b| **b == BuildingType::ScienceNexus)
@@ -75,22 +86,26 @@ pub fn calculate_yield(colony: &Colony, planet: Option<&Planet>) -> ColonyYield 
     let science = ((industry * colony.research_pct as i64) / 100
         + nexus_count * pop
         + planet_science_bonus
-        + role_mod.science)
+        + role_mod.science
+        + special_effect.science)
         .max(0);
 
-    // Food = population + planet food bonus + AquacultureBay × population + role flat modifier.
+    // Food = population + planet food bonus + AquacultureBay × population
+    //      + role flat modifier + special flat modifier.
     let aqua_count = buildings
         .iter()
         .filter(|b| **b == BuildingType::AquacultureBay)
         .count() as i64;
     let planet_food_bonus = planet.map(|p| p.class.food_bonus()).unwrap_or(0);
-    let food = pop + planet_food_bonus + aqua_count * pop + role_mod.food;
+    let food = pop + planet_food_bonus + aqua_count * pop + role_mod.food + special_effect.food;
     let food_consumed = pop;
 
-    // Maintenance = sum of building costs + sum of orbital structure costs + role surcharge.
+    // Maintenance = sum of building costs + sum of orbital structure costs
+    //             + role surcharge + special delta (negative delta reduces maintenance).
     let building_maint: i64 = buildings.iter().map(|b| b.maintenance_cost()).sum();
     let orbital_maint: i64 = orbitals.iter().map(|o| o.maintenance_cost()).sum();
-    let maintenance = building_maint + orbital_maint + role_mod.maintenance;
+    let maintenance =
+        (building_maint + orbital_maint + role_mod.maintenance + special_effect.maintenance).max(0);
 
     ColonyYield {
         industry,
@@ -138,6 +153,9 @@ mod tests {
             colony: Some(ColonyId(1)),
             habitable: true,
             surveyed: true,
+            specials: vec![],
+            resources: vec![],
+            ancient_ruins_collected: false,
         }
     }
 
@@ -222,6 +240,9 @@ mod tests {
             colony: Some(ColonyId(1)),
             habitable: true,
             surveyed: true,
+            specials: vec![],
+            resources: vec![],
+            ancient_ruins_collected: false,
         };
         let y = calculate_yield(&colony, Some(&planet));
 
@@ -238,6 +259,9 @@ mod tests {
             colony: Some(ColonyId(1)),
             habitable: true,
             surveyed: true,
+            specials: vec![],
+            resources: vec![],
+            ancient_ruins_collected: false,
         };
         let y = calculate_yield(&colony, Some(&planet));
 
@@ -302,6 +326,9 @@ mod tests {
             colony: Some(ColonyId(1)),
             habitable: false,
             surveyed: true,
+            specials: vec![],
+            resources: vec![],
+            ancient_ruins_collected: false,
         };
         let y = calculate_yield(&colony, Some(&planet));
 
@@ -468,5 +495,196 @@ mod tests {
         assert_eq!(y.credits, 0, "credits must not go below 0");
         // science = 1*0/100 + 2 = 2
         assert_eq!(y.science, 2);
+    }
+
+    // ── Planet specials and strategic resources ──────────────────────────────
+
+    fn planet_with_specials(
+        specials: Vec<crate::state::PlanetSpecial>,
+        resources: Vec<crate::state::StrategicResource>,
+        surveyed: bool,
+    ) -> Planet {
+        Planet {
+            name: "Test".to_string(),
+            size: PlanetSize::Medium,
+            class: PlanetClass::Terran,
+            colony: Some(ColonyId(1)),
+            habitable: true,
+            surveyed,
+            specials,
+            resources,
+            ancient_ruins_collected: false,
+        }
+    }
+
+    #[test]
+    fn unsurveyed_planet_hides_special_effects() {
+        use crate::state::PlanetSpecial;
+        // Mineral Rich normally gives +2 industry; must be hidden when not surveyed.
+        let colony = base_colony();
+        let unsurveyed = planet_with_specials(vec![PlanetSpecial::MineralRich], vec![], false);
+        let y = calculate_yield(&colony, Some(&unsurveyed));
+        assert_eq!(
+            y.industry, 10,
+            "MineralRich must not apply when planet is unsurveyed"
+        );
+    }
+
+    #[test]
+    fn surveyed_planet_applies_mineral_rich_bonus() {
+        use crate::state::PlanetSpecial;
+        let colony = base_colony();
+        let surveyed = planet_with_specials(vec![PlanetSpecial::MineralRich], vec![], true);
+        let y = calculate_yield(&colony, Some(&surveyed));
+        // industry = 10 + 2 (MineralRich) = 12
+        assert_eq!(
+            y.industry, 12,
+            "MineralRich should add +2 industry when surveyed"
+        );
+    }
+
+    #[test]
+    fn surveyed_planet_applies_fertile_biosphere_bonus() {
+        use crate::state::PlanetSpecial;
+        let colony = base_colony();
+        let surveyed = planet_with_specials(vec![PlanetSpecial::FertileBiosphere], vec![], true);
+        let y = calculate_yield(&colony, Some(&surveyed));
+        // food = 10 + 2 (FertileBiosphere) = 12
+        assert_eq!(
+            y.food, 12,
+            "FertileBiosphere should add +2 food when surveyed"
+        );
+    }
+
+    #[test]
+    fn surveyed_planet_applies_ancient_ruins_science_bonus() {
+        use crate::state::PlanetSpecial;
+        let colony = base_colony();
+        let surveyed = planet_with_specials(vec![PlanetSpecial::AncientRuins], vec![], true);
+        let y = calculate_yield(&colony, Some(&surveyed));
+        // science = 5 + 2 (AncientRuins) = 7
+        assert_eq!(
+            y.science, 7,
+            "AncientRuins should add +2 science when surveyed"
+        );
+    }
+
+    #[test]
+    fn surveyed_planet_applies_crystal_formations_bonus() {
+        use crate::state::PlanetSpecial;
+        let colony = base_colony();
+        let surveyed = planet_with_specials(vec![PlanetSpecial::CrystalFormations], vec![], true);
+        let y = calculate_yield(&colony, Some(&surveyed));
+        // credits = 5 + 1 (Crystal) = 6; science = 5 + 1 (Crystal) = 6
+        assert_eq!(
+            y.credits, 6,
+            "CrystalFormations should add +1 credits when surveyed"
+        );
+        assert_eq!(
+            y.science, 6,
+            "CrystalFormations should add +1 science when surveyed"
+        );
+    }
+
+    #[test]
+    fn surveyed_planet_applies_hostile_weather_penalties() {
+        use crate::state::PlanetSpecial;
+        let colony = base_colony();
+        let surveyed = planet_with_specials(vec![PlanetSpecial::HostileWeather], vec![], true);
+        let y = calculate_yield(&colony, Some(&surveyed));
+        // industry = 10 - 1 = 9; food = 10 - 1 = 9
+        assert_eq!(
+            y.industry, 9,
+            "HostileWeather should apply -1 industry penalty"
+        );
+        assert_eq!(y.food, 9, "HostileWeather should apply -1 food penalty");
+    }
+
+    #[test]
+    fn surveyed_planet_applies_low_gravity_bonus() {
+        use crate::state::PlanetSpecial;
+        let colony = base_colony();
+        let surveyed = planet_with_specials(vec![PlanetSpecial::LowGravity], vec![], true);
+        let y = calculate_yield(&colony, Some(&surveyed));
+        // industry = 10 + 2 = 12
+        assert_eq!(
+            y.industry, 12,
+            "LowGravity should add +2 industry when surveyed"
+        );
+    }
+
+    #[test]
+    fn surveyed_planet_applies_helium3_maintenance_reduction() {
+        use crate::state::{BuildingType, StrategicResource};
+        let mut colony = base_colony();
+        // Add a building so maintenance > 0 before the reduction
+        colony.buildings = vec![BuildingType::FabricationYard]; // maintenance = 1
+        let surveyed = planet_with_specials(vec![], vec![StrategicResource::Helium3], true);
+        let y = calculate_yield(&colony, Some(&surveyed));
+        // maintenance = 1 (FabricationYard) - 1 (Helium3) = 0 (clamped at 0)
+        assert_eq!(
+            y.maintenance, 0,
+            "Helium3 should reduce maintenance by 1 (clamped at 0)"
+        );
+    }
+
+    #[test]
+    fn surveyed_planet_applies_rare_metals_industry_bonus() {
+        use crate::state::StrategicResource;
+        let colony = base_colony();
+        let surveyed = planet_with_specials(vec![], vec![StrategicResource::RareMetals], true);
+        let y = calculate_yield(&colony, Some(&surveyed));
+        assert_eq!(
+            y.industry, 11,
+            "RareMetals should add +1 industry when surveyed"
+        );
+    }
+
+    #[test]
+    fn surveyed_planet_applies_bio_cultures_food_bonus() {
+        use crate::state::StrategicResource;
+        let colony = base_colony();
+        let surveyed = planet_with_specials(vec![], vec![StrategicResource::BioCultures], true);
+        let y = calculate_yield(&colony, Some(&surveyed));
+        assert_eq!(y.food, 12, "BioCultures should add +2 food when surveyed");
+    }
+
+    #[test]
+    fn surveyed_planet_applies_quantum_crystals_science_bonus() {
+        use crate::state::StrategicResource;
+        let colony = base_colony();
+        let surveyed = planet_with_specials(vec![], vec![StrategicResource::QuantumCrystals], true);
+        let y = calculate_yield(&colony, Some(&surveyed));
+        assert_eq!(
+            y.science, 7,
+            "QuantumCrystals should add +2 science when surveyed"
+        );
+    }
+
+    #[test]
+    fn special_and_resource_effects_stack() {
+        use crate::state::{PlanetSpecial, StrategicResource};
+        let colony = base_colony();
+        let surveyed = planet_with_specials(
+            vec![PlanetSpecial::MineralRich],
+            vec![StrategicResource::RareMetals],
+            true,
+        );
+        let y = calculate_yield(&colony, Some(&surveyed));
+        // industry = 10 + 2 (MineralRich) + 1 (RareMetals) = 13
+        assert_eq!(
+            y.industry, 13,
+            "specials and resources should stack additively"
+        );
+    }
+
+    #[test]
+    fn special_effects_are_deterministic() {
+        use crate::state::PlanetSpecial;
+        let colony = base_colony();
+        let planet = planet_with_specials(vec![PlanetSpecial::AncientRuins], vec![], true);
+        let y1 = calculate_yield(&colony, Some(&planet));
+        let y2 = calculate_yield(&colony, Some(&planet));
+        assert_eq!(y1, y2, "yield with specials must be deterministic");
     }
 }

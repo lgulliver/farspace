@@ -1265,4 +1265,85 @@ mod tests {
             );
         }
     }
+
+    /// Save/load round-trip preserves planet specials, resources, and ancient_ruins_collected.
+    #[test]
+    fn save_load_preserves_planet_specials_and_resources() {
+        use game_core::{PlanetSpecial, StrategicResource};
+
+        let mut engine = Engine::new(42);
+        // Inject known specials/resources into the first planet of the first star.
+        let star_id = *engine.state.stars.keys().next().unwrap();
+        {
+            let star = engine.state.stars.get_mut(&star_id).unwrap();
+            let planet = &mut star.planets[0];
+            planet.specials = vec![PlanetSpecial::MineralRich, PlanetSpecial::AncientRuins];
+            planet.resources = vec![StrategicResource::QuantumCrystals];
+            planet.ancient_ruins_collected = true;
+        }
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        let original_planet = &engine.state.stars[&star_id].planets[0];
+        let loaded_planet = &loaded.stars[&star_id].planets[0];
+
+        assert_eq!(
+            original_planet.specials, loaded_planet.specials,
+            "planet specials must survive save/load"
+        );
+        assert_eq!(
+            original_planet.resources, loaded_planet.resources,
+            "planet resources must survive save/load"
+        );
+        assert_eq!(
+            original_planet.ancient_ruins_collected, loaded_planet.ancient_ruins_collected,
+            "ancient_ruins_collected must survive save/load"
+        );
+    }
+
+    /// v17 → v18 migration populates specials and resources from seed.
+    #[test]
+    fn migration_v17_to_v18_populates_specials_and_resources() {
+        use crate::migrate::migrate;
+        use crate::schema::SaveFile;
+        use game_core::galaxy::generate_planet_specials_and_resources;
+
+        // Build a v17 state using Engine::new so the galaxy is fully populated.
+        let engine = Engine::new(42);
+        let seed = engine.state.seed;
+        let mut state = engine.state;
+
+        // Blank out specials/resources to simulate a pre-v18 save.
+        for star in state.stars.values_mut() {
+            for planet in star.planets.iter_mut() {
+                planet.specials = vec![];
+                planet.resources = vec![];
+            }
+        }
+
+        let v17_save = SaveFile { version: 17, state };
+        let migrated = migrate(v17_save).expect("migration should succeed");
+        assert_eq!(migrated.version, crate::schema::CURRENT_VERSION);
+
+        // Assert that every planet has exactly the specials and resources that
+        // generate_planet_specials_and_resources produces for (seed, star_id, planet_index).
+        // This is a deterministic assertion that does not depend on probability.
+        for (star_id, star) in &migrated.state.stars {
+            for (planet_index, planet) in star.planets.iter().enumerate() {
+                let (expected_specials, expected_resources) =
+                    generate_planet_specials_and_resources(seed, *star_id, planet_index);
+                assert_eq!(
+                    planet.specials, expected_specials,
+                    "star {} planet {}: migrated specials must equal generate_planet_specials_and_resources output",
+                    star_id.0, planet_index
+                );
+                assert_eq!(
+                    planet.resources, expected_resources,
+                    "star {} planet {}: migrated resources must equal generate_planet_specials_and_resources output",
+                    star_id.0, planet_index
+                );
+            }
+        }
+    }
 }

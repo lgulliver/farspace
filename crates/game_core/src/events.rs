@@ -72,6 +72,8 @@ pub enum Event {
     SystemExplored { star: StarId },
     /// Survey intel for a planet has been completed
     PlanetSurveyCompleted { star: StarId, planet_index: usize },
+    /// Ancient Ruins were discovered during a planetary survey (one-time per planet).
+    AncientRuinsDiscovered { star: StarId, planet_index: usize },
     /// A fleet has departed toward an explored system (multi-turn movement)
     FleetDeparted {
         fleet: FleetId,
@@ -299,6 +301,13 @@ impl Event {
             Event::PlanetSurveyCompleted { star, planet_index } => {
                 format!(
                     "Survey completed: system {} orbit {}",
+                    star.0,
+                    planet_index + 1
+                )
+            }
+            Event::AncientRuinsDiscovered { star, planet_index } => {
+                format!(
+                    "DISCOVERY: Ancient Ruins found at system {} orbit {} — +2 science per turn",
                     star.0,
                     planet_index + 1
                 )

@@ -155,7 +155,10 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Actions"),
             HelpEntry::Binding("Enter", "Open selected colony"),
             HelpEntry::Binding("S", "Open selected system"),
-            HelpEntry::Binding("Info", "Rows and summary include supply connectivity warnings"),
+            HelpEntry::Binding(
+                "Info",
+                "Rows and summary include supply connectivity warnings",
+            ),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O", "Open empire overview"),

@@ -351,7 +351,10 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
         Span::raw("  "),
         Span::styled("Supply C/I ", Theme::muted_style()),
         Span::styled(
-            format!("{}/{}", summary.connected_colonies, summary.isolated_colonies),
+            format!(
+                "{}/{}",
+                summary.connected_colonies, summary.isolated_colonies
+            ),
             if summary.isolated_colonies > 0 {
                 Theme::warning_style()
             } else {

@@ -411,7 +411,10 @@ impl Event {
                 )
             }
             Event::ColonyIsolated { colony } => {
-                format!("WARNING: Colony {} is now isolated from trade network", colony.0)
+                format!(
+                    "WARNING: Colony {} is now isolated from trade network",
+                    colony.0
+                )
             }
             Event::ColonyReconnected { colony } => {
                 format!("Colony {} reconnected to trade network", colony.0)

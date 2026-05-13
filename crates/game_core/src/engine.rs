@@ -9738,12 +9738,13 @@ mod tests {
                 _ => None,
             })
             .expect("new colony should produce");
-        assert_eq!(produced.2, 0, "isolated colonies should not share empire food");
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, Event::ColonyIsolated { colony } if *colony == colony_id))
+        assert_eq!(
+            produced.2, 0,
+            "isolated colonies should not share empire food"
         );
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::ColonyIsolated { colony } if *colony == colony_id)));
         assert_eq!(
             engine.state.colonies[&colony_id].stability,
             100 - ISOLATED_STABILITY_PENALTY
@@ -9771,7 +9772,8 @@ mod tests {
 
         let mut connected_engine = Engine::new(42);
         let connected_colony_id = add_far_player_colony(&mut connected_engine);
-        let home_star = connected_engine.state.empires[&connected_engine.state.player_empire].home_star;
+        let home_star =
+            connected_engine.state.empires[&connected_engine.state.player_empire].home_star;
         let far_star = connected_engine.state.colonies[&connected_colony_id].star;
         let lane = HyperspaceLane::new(home_star, far_star).expect("distinct stars");
         connected_engine.state.hyperspace_lanes.insert(lane);
@@ -9822,11 +9824,9 @@ mod tests {
         let far_star = engine.state.colonies[&colony_id].star;
 
         let first_turn_events = engine.apply_turn(vec![Command::EndTurn]);
-        assert!(
-            first_turn_events
-                .iter()
-                .any(|e| matches!(e, Event::ColonyIsolated { colony } if *colony == colony_id))
-        );
+        assert!(first_turn_events
+            .iter()
+            .any(|e| matches!(e, Event::ColonyIsolated { colony } if *colony == colony_id)));
 
         let lane = HyperspaceLane::new(home_star, far_star).expect("distinct stars");
         engine.state.hyperspace_lanes.insert(lane);
@@ -9841,11 +9841,9 @@ mod tests {
             .push(TechId::HYPERSPACE_CARTOGRAPHY);
 
         let second_turn_events = engine.apply_turn(vec![Command::EndTurn]);
-        assert!(
-            second_turn_events
-                .iter()
-                .any(|e| matches!(e, Event::ColonyReconnected { colony } if *colony == colony_id))
-        );
+        assert!(second_turn_events
+            .iter()
+            .any(|e| matches!(e, Event::ColonyReconnected { colony } if *colony == colony_id)));
     }
 
     // ── Scenario Setup / Engine::new_from_setup tests ─────────────────────

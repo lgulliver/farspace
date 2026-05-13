@@ -2024,9 +2024,11 @@ impl GameState {
     }
 
     fn empire_has_hyperspace_trade(&self, empire_id: EmpireId) -> bool {
-        self.empires
-            .get(&empire_id)
-            .is_some_and(|e| e.research.completed.contains(&TechId::HYPERSPACE_CARTOGRAPHY))
+        self.empires.get(&empire_id).is_some_and(|e| {
+            e.research
+                .completed
+                .contains(&TechId::HYPERSPACE_CARTOGRAPHY)
+        })
     }
 
     fn empire_can_use_trade_lane(&self, empire_id: EmpireId, lane: HyperspaceLane) -> bool {
@@ -3170,14 +3172,20 @@ mod tests {
     fn supply_connectivity_marks_capital_connected() {
         let state = make_supply_test_state();
         let supply = state.recompute_colony_supply();
-        assert_eq!(supply.get(&ColonyId(1)), Some(&ColonySupplyState::Connected));
+        assert_eq!(
+            supply.get(&ColonyId(1)),
+            Some(&ColonySupplyState::Connected)
+        );
     }
 
     #[test]
     fn supply_connectivity_marks_nearby_valid_route_connected() {
         let state = make_supply_test_state();
         let supply = state.recompute_colony_supply();
-        assert_eq!(supply.get(&ColonyId(2)), Some(&ColonySupplyState::Connected));
+        assert_eq!(
+            supply.get(&ColonyId(2)),
+            Some(&ColonySupplyState::Connected)
+        );
     }
 
     #[test]
@@ -3202,7 +3210,10 @@ mod tests {
             .push(TechId::HYPERSPACE_CARTOGRAPHY);
 
         let supply = state.recompute_colony_supply();
-        assert_eq!(supply.get(&ColonyId(3)), Some(&ColonySupplyState::Connected));
+        assert_eq!(
+            supply.get(&ColonyId(3)),
+            Some(&ColonySupplyState::Connected)
+        );
     }
 
     #[test]

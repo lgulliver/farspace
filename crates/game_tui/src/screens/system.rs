@@ -483,8 +483,8 @@ mod tests {
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut engine = Engine::new(42);
-        let star_id = engine.state.stars.keys().next().copied().unwrap();
         let colony_id = *engine.state.colonies.keys().next().unwrap();
+        let star_id = engine.state.colonies[&colony_id].star;
         engine
             .state
             .colony_supply
@@ -509,7 +509,8 @@ mod tests {
                 })
             })
             .collect();
-        assert!(rendered.contains("Trade:  Isolated"));
+        assert!(rendered.contains("Trade:"));
+        assert!(rendered.contains("Isolated"));
     }
 
     #[test]

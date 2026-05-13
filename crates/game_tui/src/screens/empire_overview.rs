@@ -349,7 +349,7 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
         Span::styled("Colonies ", Theme::muted_style()),
         Span::styled(format!("{}", summary.colony_count), Theme::default_style()),
         Span::raw("  "),
-        Span::styled("Supply C/I ", Theme::muted_style()),
+        Span::styled("Supply Connected/Isolated ", Theme::muted_style()),
         Span::styled(
             format!(
                 "{}/{}",

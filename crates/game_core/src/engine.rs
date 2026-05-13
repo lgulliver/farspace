@@ -61,6 +61,14 @@ fn lane_travel_turns(base_turns: u32) -> u32 {
     base_turns.div_ceil(HYPERSPACE_TRAVEL_DIVISOR).max(1)
 }
 
+fn apply_isolation_penalty(credits: i64, research: i64, _food: i64) -> (i64, i64, i64) {
+    (
+        credits * ISOLATED_YIELD_PERCENT / 100,
+        research * ISOLATED_YIELD_PERCENT / 100,
+        0,
+    )
+}
+
 fn has_tech(state: &GameState, empire_id: EmpireId, tech: TechId) -> bool {
     state
         .empires
@@ -509,7 +517,7 @@ impl Engine {
         let colony_ids = sorted_colony_ids(&self.state.colonies);
         let previous_supply = self.state.colony_supply.clone();
         self.refresh_colony_supply_statuses();
-        let supply_for_turn = self.state.colony_supply.clone();
+        let current_turn_supply = self.state.colony_supply.clone();
 
         // Track per-empire aggregates for this turn.
         // Keys are EmpireId; BTreeMap ensures deterministic iteration order.
@@ -601,14 +609,12 @@ impl Engine {
             // the ColonyProduced event so the UI can show "empire bonus" detail.
             let industry = colony_yield.industry + empire_def_mods.industry_per_colony;
             let is_connected = matches!(
-                supply_for_turn.get(&colony_id),
+                current_turn_supply.get(&colony_id),
                 Some(ColonySupplyState::Connected)
             );
 
             if !is_connected {
-                credits = credits * ISOLATED_YIELD_PERCENT / 100;
-                research = research * ISOLATED_YIELD_PERCENT / 100;
-                food = 0;
+                (credits, research, food) = apply_isolation_penalty(credits, research, food);
                 if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
                     colony.stability = colony.stability.saturating_sub(ISOLATED_STABILITY_PENALTY);
                 }

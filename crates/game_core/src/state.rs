@@ -1907,6 +1907,12 @@ pub struct GameState {
 }
 
 impl GameState {
+    // Trade-link distance thresholds in galaxy coordinate units.
+    //
+    // Stars are generated in roughly ±500 space on each axis.  We allow longer
+    // same-sector links (550 units) to keep nearby local colonies connected, and
+    // a tighter cross-sector threshold (325 units) so sector boundaries retain
+    // strategic weight unless bridged by hyperspace lanes.
     const TRADE_LINK_RANGE_SQ_SAME_SECTOR: i64 = 550 * 550;
     const TRADE_LINK_RANGE_SQ_CROSS_SECTOR: i64 = 325 * 325;
 

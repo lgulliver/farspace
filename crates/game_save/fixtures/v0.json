@@ -1,0 +1,20 @@
+{
+  "version": 0,
+  "state": {
+    "seed": 0,
+    "turn": 1,
+    "stars": {},
+    "empires": {},
+    "colonies": {},
+    "fleets": {},
+    "player_empire": 0,
+    "rng": {
+      "seed": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "stream": 0,
+      "word_pos": 0
+    },
+    "event_log": [],
+    "next_colony_id": 1,
+    "next_fleet_id": 1
+  }
+}

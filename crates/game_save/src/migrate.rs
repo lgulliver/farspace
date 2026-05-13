@@ -212,6 +212,20 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // GameState.fleet_orders (BTreeMap<FleetId, FleetOrder>, default empty) added.
             // Both fields carry serde defaults — nothing to populate explicitly.
             // Existing colonies start without a rally point; existing fleets start with no order.
+            migrate(SaveFile {
+                version: 19,
+                state: save.state,
+            })
+        }
+        19 => {
+            // v19 -> v20: GameState.scenario (Option<ScenarioSetup>, default None) and
+            // GameState.ai_empires (Vec<EmpireId>, default empty) added.
+            //
+            // Both fields carry serde defaults:
+            //   - scenario: None  (setup metadata not available for old saves)
+            //   - ai_empires: []  (empty — the legacy ai_empire field still drives AI turns
+            //     for saves migrated from v19; process_end_turn falls back to it when
+            //     ai_empires is empty)
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 state: save.state,
@@ -588,5 +602,19 @@ mod tests {
         };
         let result = migrate(save);
         assert!(matches!(result, Err(SaveError::UnsupportedVersion { .. })));
+    }
+
+    #[test]
+    fn migrate_v19_to_current_adds_scenario_and_ai_empires_defaults() {
+        // A v19 save without scenario/ai_empires fields should migrate cleanly
+        // and default those fields to None / empty respectively.
+        let state = GameState::default();
+        let v19_save = SaveFile { version: 19, state };
+        let migrated = migrate(v19_save).expect("v19 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        // scenario defaults to None for old saves
+        assert!(migrated.state.scenario.is_none());
+        // ai_empires defaults to empty for old saves
+        assert!(migrated.state.ai_empires.is_empty());
     }
 }

@@ -85,11 +85,23 @@ pub fn generate_planet_specials_and_resources(
 
 /// Generate a galaxy with the given seed and star count
 pub fn generate_galaxy(seed: u64, star_count: usize) -> GeneratedGalaxy {
+    let star_count = star_count.clamp(10, 100);
+    // Derive sector count from star count (roughly 1 sector per 10 stars, min 2, max 8)
+    let sector_count = ((star_count as f64 / 10.0).ceil() as usize).clamp(2, 8);
+    generate_galaxy_with_config(seed, star_count, sector_count)
+}
+
+/// Generate a galaxy with explicit star count and sector count.
+///
+/// `star_count` is clamped to `10..=100`; `sector_count` to `2..=8`.
+pub fn generate_galaxy_with_config(
+    seed: u64,
+    star_count: usize,
+    sector_count: usize,
+) -> GeneratedGalaxy {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let star_count = star_count.clamp(10, 100);
-
-    // Determine sector count based on star count (roughly 1 sector per 10 stars, min 2, max 8)
-    let sector_count = ((star_count as f64 / 10.0).ceil() as usize).clamp(2, 8);
+    let sector_count = sector_count.clamp(2, 8);
 
     // Generate sector positions in a grid-like pattern across the galaxy
     let sector_positions = generate_sector_positions(sector_count, &mut rng);

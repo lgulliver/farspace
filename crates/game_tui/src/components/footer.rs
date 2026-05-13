@@ -13,6 +13,13 @@ use ratatui::{
 pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Option<&str>) {
     let hints = match screen {
         Screen::Menu => vec![("[N]", "New Game"), ("[L]", "Load"), ("[Q]", "Quit")],
+        Screen::NewGameSetup => vec![
+            ("[j/k]", "Select Field"),
+            ("[h/l]", "Change Value"),
+            ("[Enter]", "Edit Seed / Start"),
+            ("[Esc]", "Back"),
+            ("[?]", "Help"),
+        ],
         Screen::SectorOverview => vec![
             ("[hjkl/←↓↑→]", "Move"),
             ("[Enter]", "Sector Map"),
@@ -131,6 +138,19 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_footer(frame, area, &Screen::Menu, None);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_footer_new_game_setup() {
+        let backend = TestBackend::new(80, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_footer(frame, area, &Screen::NewGameSetup, None);
             })
             .unwrap();
     }

@@ -8,7 +8,7 @@ use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
     BuildingType, ColonyId, ColonyRole, Command, Engine, Event as CoreEvent, FleetId, FleetKind,
-    OrbitalStructureType, SectorId, StarId, TechId,
+    GalaxySize, OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -25,7 +25,7 @@ pub struct App {
 }
 
 /// UI state
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AppState {
     pub active: Screen,
     pub show_help: bool,
@@ -72,6 +72,60 @@ pub struct AppState {
     /// while navigating will confirm the selected star as the rally destination.
     /// Pressing Esc cancels.
     pub pending_rally_colony: Option<ColonyId>,
+
+    // ── New Game Setup screen state ──────────────────────────────────────────
+    /// Galaxy size selected on the setup screen.
+    pub setup_galaxy_size: GalaxySize,
+    /// Number of AI empires selected on the setup screen (1–4).
+    pub setup_ai_count: u8,
+    /// Seed string shown on the setup screen (ASCII digits only).
+    pub setup_seed_str: String,
+    /// Which field is currently highlighted on the setup screen.
+    /// 0 = galaxy size, 1 = AI count, 2 = seed.
+    pub setup_cursor: usize,
+    /// Whether the seed text-edit mode is active.
+    pub setup_seed_editing: bool,
+    /// Snapshot of `setup_seed_str` taken when seed editing begins, used to
+    /// restore the original value if the user presses Esc to discard changes.
+    pub setup_seed_pre_edit: String,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        AppState {
+            active: Screen::default(),
+            show_help: false,
+            show_palette: false,
+            palette_input: String::new(),
+            search_input: String::new(),
+            show_search: false,
+            selected_sector: None,
+            selected_star: None,
+            show_inter_sector_lanes: false,
+            selected_planet_index: 0,
+            selected_colony: None,
+            colony_build_cursor: 0,
+            colony_role_cursor: 0,
+            colony_role_panel_active: false,
+            research_cursor: 0,
+            overview_cursor: 0,
+            overview_sort: OverviewSort::default(),
+            overview_filter: String::new(),
+            overview_filter_input: false,
+            log: EventLog::default(),
+            quit: false,
+            tick_count: 0,
+            reduced_motion: false,
+            status_message: None,
+            pending_rally_colony: None,
+            setup_galaxy_size: GalaxySize::Medium,
+            setup_ai_count: 1,
+            setup_seed_str: "42".to_string(),
+            setup_cursor: 0,
+            setup_seed_editing: false,
+            setup_seed_pre_edit: String::new(),
+        }
+    }
 }
 
 impl App {
@@ -84,17 +138,37 @@ impl App {
         }
     }
 
-    /// Start a new game with the given seed
+    /// Start a new game with the given seed (default setup, 1 AI empire).
     pub fn new_game(&mut self, seed: u64) {
-        let engine = Engine::new(seed);
+        let setup = ScenarioSetup::default_for_seed(seed);
+        self.new_game_from_setup(setup);
+    }
+
+    /// Start a new game from a `ScenarioSetup`.  Logs an error if the setup is invalid.
+    pub fn new_game_from_setup(&mut self, setup: ScenarioSetup) {
+        if let Err(e) = setup.validate() {
+            self.state.log.push(format!("Error: Invalid setup: {}", e));
+            return;
+        }
+        let engine = Engine::new_from_setup(setup);
 
         // Select the first sector and first star by default
         self.state.selected_sector = engine.state.sectors.keys().next().copied();
         self.state.selected_star = engine.state.stars.keys().next().copied();
         self.state.selected_planet_index = 0;
 
-        // Add initial log entry
-        self.state.log.push("Game started".to_string());
+        // Add initial log entry with setup summary and playability hints
+        let scenario_summary = if let Some(s) = &engine.state.scenario {
+            format!(
+                "Game started — {} galaxy, {} AI empire(s), seed {}",
+                s.galaxy_size.label(),
+                s.ai_empire_count,
+                s.seed,
+            )
+        } else {
+            "Game started".to_string()
+        };
+        self.state.log.push(scenario_summary);
         self.state.log.push(
             "What to do next: Enter Sector Map, scout (S), survey (System:S), then colonize (C)."
                 .to_string(),
@@ -275,6 +349,7 @@ impl App {
         // Screen-specific handling
         match self.state.active {
             Screen::Menu => self.handle_menu_key(key),
+            Screen::NewGameSetup => self.handle_new_game_setup_key(key),
             Screen::SectorOverview => self.handle_sector_overview_key(key),
             Screen::SectorMap => self.handle_sector_map_key(key),
             Screen::System => self.handle_system_key(key),
@@ -287,9 +362,8 @@ impl App {
 
     fn handle_menu_key(&mut self, key: KeyEvent) {
         if KeyMap::is_new_game(key) {
-            // Use a fixed default seed for deterministic, reproducible games.
-            // A user-configurable seed will be added via the command palette.
-            self.new_game(42);
+            // Navigate to the setup screen instead of directly starting a game.
+            self.state.active = Screen::NewGameSetup;
         } else if KeyMap::is_load_game(key) {
             let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);
             match self.load_game(&path) {
@@ -304,6 +378,130 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Handle keyboard input on the New Game Setup screen.
+    fn handle_new_game_setup_key(&mut self, key: KeyEvent) {
+        use crate::screens::new_game_setup::FIELD_SEED;
+        const NUM_FIELDS: usize = 3;
+
+        // Seed editing mode intercepts most keys.
+        if self.state.setup_seed_editing {
+            match key.code {
+                KeyCode::Esc => {
+                    // Cancel editing — restore the value that was active when editing began.
+                    self.state.setup_seed_str = self.state.setup_seed_pre_edit.clone();
+                    self.state.setup_seed_editing = false;
+                }
+                KeyCode::Enter => {
+                    // Confirm edit.
+                    self.state.setup_seed_editing = false;
+                    // Ensure seed string is valid (non-empty).
+                    if self.state.setup_seed_str.is_empty() {
+                        self.state.setup_seed_str = "0".to_string();
+                    }
+                }
+                KeyCode::Backspace => {
+                    self.state.setup_seed_str.pop();
+                }
+                // Limit to 18 digits to stay within u64::MAX (20 digits).
+                KeyCode::Char(c) if c.is_ascii_digit() && self.state.setup_seed_str.len() < 18 => {
+                    self.state.setup_seed_str.push(c);
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        match key.code {
+            KeyCode::Esc => {
+                self.state.active = Screen::Menu;
+            }
+            KeyCode::Enter => {
+                let cursor = self.state.setup_cursor;
+                if cursor == FIELD_SEED {
+                    // Enter edit mode for seed field — snapshot the current value so Esc can restore it.
+                    self.state.setup_seed_pre_edit = self.state.setup_seed_str.clone();
+                    self.state.setup_seed_editing = true;
+                } else {
+                    // Start the game from the setup screen.
+                    self.start_game_from_setup();
+                }
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.state.setup_cursor = (self.state.setup_cursor + 1) % NUM_FIELDS;
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.state.setup_cursor = (self.state.setup_cursor + NUM_FIELDS - 1) % NUM_FIELDS;
+            }
+            // Cycle left/decrease
+            KeyCode::Char('h') | KeyCode::Left | KeyCode::Char('-') => {
+                self.setup_cycle_field(false);
+            }
+            // Cycle right/increase
+            KeyCode::Char('l') | KeyCode::Right | KeyCode::Char('+') => {
+                self.setup_cycle_field(true);
+            }
+            KeyCode::Char('S') => {
+                // Start the game from the setup screen (shortcut).
+                self.start_game_from_setup();
+            }
+            _ => {}
+        }
+    }
+
+    /// Cycle the currently selected setup field forward (true) or backward (false).
+    fn setup_cycle_field(&mut self, forward: bool) {
+        use crate::screens::new_game_setup::{FIELD_AI_COUNT, FIELD_GALAXY_SIZE};
+        use game_core::GalaxySize;
+        let all_sizes = GalaxySize::all();
+        match self.state.setup_cursor {
+            FIELD_GALAXY_SIZE => {
+                let idx = all_sizes
+                    .iter()
+                    .position(|s| *s == self.state.setup_galaxy_size)
+                    .unwrap_or(0);
+                let new_idx = if forward {
+                    (idx + 1).min(all_sizes.len() - 1)
+                } else {
+                    idx.saturating_sub(1)
+                };
+                self.state.setup_galaxy_size = all_sizes[new_idx];
+            }
+            FIELD_AI_COUNT => {
+                if forward {
+                    if self.state.setup_ai_count < 4 {
+                        self.state.setup_ai_count += 1;
+                    }
+                } else if self.state.setup_ai_count > 1 {
+                    self.state.setup_ai_count -= 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Build a `ScenarioSetup` from the current setup screen state and start the game.
+    fn start_game_from_setup(&mut self) {
+        let seed: u64 = match self.state.setup_seed_str.parse() {
+            Ok(v) => v,
+            Err(_) => {
+                self.state.log.push(format!(
+                    "Invalid seed '{}' — using 0",
+                    self.state.setup_seed_str
+                ));
+                self.state.setup_seed_str = "0".to_string();
+                0
+            }
+        };
+        let setup = ScenarioSetup {
+            seed,
+            galaxy_size: self.state.setup_galaxy_size,
+            ai_empire_count: self.state.setup_ai_count,
+            sector_count_override: None,
+            difficulty: game_core::DifficultyLevel::Standard,
+        };
+        self.new_game_from_setup(setup);
     }
 
     fn handle_sector_overview_key(&mut self, key: KeyEvent) {

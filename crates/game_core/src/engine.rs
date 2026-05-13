@@ -3,12 +3,12 @@
 use crate::commands::Command;
 use crate::deterministic::sorted_colony_ids;
 use crate::events::Event;
-use crate::galaxy::{find_home_star, generate_galaxy, generate_hyperspace_lanes};
+use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hyperspace_lanes};
 use crate::state::{
     all_techs, is_tech_available, tech_by_id, tech_yield_bonus_per_colony, BuildItem, Colony,
     ColonyId, ColonyRole, Empire, EmpireId, Fleet, FleetId, FleetKind, FleetMission, FleetOrder,
-    GameState, HyperspaceLane, RelationshipStatus, ResearchState, ScoutMission, ShipDesignId,
-    StarId, SurveyMission, TechId, YieldType,
+    GameState, HyperspaceLane, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
+    ShipDesignId, StarId, SurveyMission, TechId, YieldType,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -62,9 +62,10 @@ fn empire_knows_lane(state: &GameState, empire_id: EmpireId, lane: HyperspaceLan
     if empire_id == state.player_empire {
         return state.known_hyperspace_lanes.contains(&lane);
     }
-    if Some(empire_id) == state.ai_empire {
-        // v1 does not track AI lane discovery separately; AI can reason over
-        // generated lane topology once it has the required technology.
+    // AI empires (any empire in ai_empires, or the legacy ai_empire field) can
+    // reason over the full lane topology once they have the required technology.
+    let is_ai = state.ai_empires.contains(&empire_id) || Some(empire_id) == state.ai_empire;
+    if is_ai {
         return true;
     }
     false
@@ -108,10 +109,26 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Create a new game engine with the given seed
+    /// Create a new game engine with the given seed (default setup, 1 AI empire).
     pub fn new(seed: u64) -> Self {
+        Self::new_from_setup(ScenarioSetup::default_for_seed(seed))
+    }
+
+    /// Create a new game engine from a validated `ScenarioSetup`.
+    ///
+    /// # Panics
+    /// Panics if the setup is invalid (call `setup.validate()` first).
+    pub fn new_from_setup(setup: ScenarioSetup) -> Self {
+        setup
+            .validate()
+            .expect("ScenarioSetup must be valid before calling Engine::new_from_setup");
+        let seed = setup.seed;
+        let star_count = setup.effective_star_count();
+        let sector_count = setup.effective_sector_count();
+        let ai_count = setup.ai_empire_count as usize;
+
         let rng = ChaCha8Rng::seed_from_u64(seed);
-        let galaxy = generate_galaxy(seed, 20);
+        let galaxy = generate_galaxy_with_config(seed, star_count, sector_count);
 
         let mut sectors = BTreeMap::new();
         for sector in &galaxy.sectors {
@@ -130,13 +147,24 @@ impl Engine {
             find_home_star(stars_vec).expect("Galaxy should have at least one habitable star");
         let home_star_id = home_star.id;
 
-        // Find the AI home star: farthest habitable star from the player
-        let ai_home_star_id = find_ai_home_star(stars_vec, home_star_id)
-            .expect("Galaxy must have at least two habitable stars");
+        // Find home stars for each AI empire (spread maximally across galaxy)
+        let ai_home_star_ids = find_ai_home_stars(stars_vec, home_star_id, ai_count);
+        assert!(
+            ai_home_star_ids.len() == ai_count,
+            "Galaxy does not have enough habitable stars for {} AI empires",
+            ai_count
+        );
+
+        // AI empire names (original IP)
+        const AI_EMPIRE_NAMES: &[&str] = &[
+            "Veth Dominion",
+            "Keth Ascendancy",
+            "Sorn Collective",
+            "Drosan Republic",
+        ];
 
         // Create player empire
         let player_empire_id = EmpireId(1);
-        let ai_empire_id = EmpireId(2);
         let mut empires = BTreeMap::new();
         empires.insert(
             player_empire_id,
@@ -150,26 +178,33 @@ impl Engine {
                 food: 0,
             },
         );
-        empires.insert(
-            ai_empire_id,
-            Empire {
-                id: ai_empire_id,
-                name: "Veth Dominion".to_string(),
-                credits: 100,
-                research_points: 0,
-                home_star: ai_home_star_id,
-                research: ResearchState::default(),
-                food: 0,
-            },
-        );
 
-        // Create initial player colony (ColonyId 1)
-        let colony_id = ColonyId(1);
+        // Create AI empires (EmpireId 2..=1+ai_count)
+        let mut ai_empire_ids: Vec<EmpireId> = Vec::with_capacity(ai_count);
+        for i in 0..ai_count {
+            let ai_empire_id = EmpireId(2 + i as u64);
+            ai_empire_ids.push(ai_empire_id);
+            empires.insert(
+                ai_empire_id,
+                Empire {
+                    id: ai_empire_id,
+                    name: AI_EMPIRE_NAMES[i].to_string(),
+                    credits: 100,
+                    research_points: 0,
+                    home_star: ai_home_star_ids[i],
+                    research: ResearchState::default(),
+                    food: 0,
+                },
+            );
+        }
+
+        // next IDs: player colony = 1, AI colonies = 2..=1+ai_count
         let mut colonies = BTreeMap::new();
+        let player_colony_id = ColonyId(1);
         colonies.insert(
-            colony_id,
+            player_colony_id,
             Colony {
-                id: colony_id,
+                id: player_colony_id,
                 star: home_star_id,
                 planet_index: 0,
                 owner: player_empire_id,
@@ -188,48 +223,58 @@ impl Engine {
             },
         );
 
-        // Create initial AI colony (ColonyId 2)
-        let ai_colony_id = ColonyId(2);
-        colonies.insert(
-            ai_colony_id,
-            Colony {
-                id: ai_colony_id,
-                star: ai_home_star_id,
-                planet_index: 0,
-                owner: ai_empire_id,
-                population: 10,
-                production: 10,
-                prod_pct: 50,
-                research_pct: 50,
-                build_queue: Vec::new(),
-                accumulated_production: 0,
-                buildings: Vec::new(),
-                surface_installations: Vec::new(),
-                orbital_installations: Vec::new(),
-                stability: 100,
-                role: ColonyRole::Balanced,
-                rally_point: None,
-            },
-        );
+        for (i, &ai_empire_id) in ai_empire_ids.iter().enumerate() {
+            let ai_colony_id = ColonyId(2 + i as u64);
+            let ai_home_star_id = ai_home_star_ids[i];
+            colonies.insert(
+                ai_colony_id,
+                Colony {
+                    id: ai_colony_id,
+                    star: ai_home_star_id,
+                    planet_index: 0,
+                    owner: ai_empire_id,
+                    population: 10,
+                    production: 10,
+                    prod_pct: 50,
+                    research_pct: 50,
+                    build_queue: Vec::new(),
+                    accumulated_production: 0,
+                    buildings: Vec::new(),
+                    surface_installations: Vec::new(),
+                    orbital_installations: Vec::new(),
+                    stability: 100,
+                    role: ColonyRole::Balanced,
+                    rally_point: None,
+                },
+            );
+        }
 
         // Update player home star's planet 0 to reference the player colony
         if let Some(star) = stars.get_mut(&home_star_id) {
             if let Some(planet) = star.planets.get_mut(0) {
-                planet.colony = Some(colony_id);
+                planet.colony = Some(player_colony_id);
             }
             for planet in &mut star.planets {
                 planet.surveyed = true;
             }
         }
 
-        // Update AI home star's planet 0 to reference the AI colony
-        if let Some(star) = stars.get_mut(&ai_home_star_id) {
-            if let Some(planet) = star.planets.get_mut(0) {
-                planet.colony = Some(ai_colony_id);
+        // Update each AI home star's planet 0 to reference its colony
+        for (i, _ai_empire_id) in ai_empire_ids.iter().enumerate() {
+            let ai_colony_id = ColonyId(2 + i as u64);
+            let ai_home_star_id = ai_home_star_ids[i];
+            if let Some(star) = stars.get_mut(&ai_home_star_id) {
+                if let Some(planet) = star.planets.get_mut(0) {
+                    planet.colony = Some(ai_colony_id);
+                }
             }
         }
 
-        // Create initial player scout fleet (FleetId 1)
+        // next_colony_id and next_fleet_id skip past used IDs
+        let next_colony_id = 2 + ai_count as u64;
+        let next_fleet_id = 2 + ai_count as u64;
+
+        // Create player scout fleet (FleetId 1)
         let fleet_id = FleetId(1);
         let mut fleets = BTreeMap::new();
         fleets.insert(
@@ -245,24 +290,32 @@ impl Engine {
             },
         );
 
-        // Create initial AI scout fleet (FleetId 2)
-        let ai_fleet_id = FleetId(2);
-        fleets.insert(
-            ai_fleet_id,
-            Fleet {
-                id: ai_fleet_id,
-                owner: ai_empire_id,
-                location: ai_home_star_id,
-                ships: 1,
-                kind: FleetKind::Scout,
-                strength: 1,
-                integrity: 100,
-            },
-        );
+        // Create one scout fleet per AI empire
+        for (i, &ai_empire_id) in ai_empire_ids.iter().enumerate() {
+            let ai_fleet_id = FleetId(2 + i as u64);
+            let ai_home_star_id = ai_home_star_ids[i];
+            fleets.insert(
+                ai_fleet_id,
+                Fleet {
+                    id: ai_fleet_id,
+                    owner: ai_empire_id,
+                    location: ai_home_star_id,
+                    ships: 1,
+                    kind: FleetKind::Scout,
+                    strength: 1,
+                    integrity: 100,
+                },
+            );
+        }
 
-        // Determine initially explored stars for player and AI
+        // Determine initially explored stars for player and each AI
         let explored_stars = initial_explored_stars(stars_vec, home_star_id);
-        let ai_explored_stars = initial_explored_stars(stars_vec, ai_home_star_id);
+        let ai_explored_stars_first = if !ai_home_star_ids.is_empty() {
+            initial_explored_stars(stars_vec, ai_home_star_ids[0])
+        } else {
+            BTreeSet::new()
+        };
+
         let hyperspace_lanes: BTreeSet<HyperspaceLane> =
             generate_hyperspace_lanes(seed, &galaxy.sectors, stars_vec)
                 .into_iter()
@@ -272,6 +325,9 @@ impl Engine {
             .copied()
             .filter(|lane| explored_stars.contains(&lane.a()) && explored_stars.contains(&lane.b()))
             .collect();
+
+        // Legacy ai_empire points to the first AI empire for backward compat
+        let legacy_ai_empire = ai_empire_ids.first().copied();
 
         let state = GameState {
             seed,
@@ -284,18 +340,20 @@ impl Engine {
             player_empire: player_empire_id,
             rng,
             event_log: Vec::new(),
-            next_colony_id: 3,
-            next_fleet_id: 3,
+            next_colony_id,
+            next_fleet_id,
             explored_stars,
             scout_missions: BTreeMap::new(),
             survey_missions: BTreeMap::new(),
             fleet_missions: BTreeMap::new(),
-            ai_empire: Some(ai_empire_id),
-            ai_explored_stars,
+            ai_empire: legacy_ai_empire,
+            ai_explored_stars: ai_explored_stars_first,
             diplomacy: BTreeMap::new(),
             hyperspace_lanes,
             known_hyperspace_lanes,
             fleet_orders: BTreeMap::new(),
+            scenario: Some(setup),
+            ai_empires: ai_empire_ids,
         };
 
         Engine { state }
@@ -740,16 +798,21 @@ impl Engine {
                 self.state.scout_missions.remove(&fleet_id);
 
                 // Route the explored star to the correct empire's set
-                let is_ai_fleet = self
-                    .state
-                    .fleets
-                    .get(&fleet_id)
-                    .map(|f| Some(f.owner) == self.state.ai_empire)
+                let fleet_owner = self.state.fleets.get(&fleet_id).map(|f| f.owner);
+                let is_ai_fleet = fleet_owner
+                    .map(|owner| {
+                        self.state.ai_empires.contains(&owner)
+                            || Some(owner) == self.state.ai_empire
+                    })
                     .unwrap_or(false);
                 if is_ai_fleet {
                     self.state.ai_explored_stars.insert(destination);
                     // Symmetric contact: AI scout arriving at a player colony
-                    self.check_ai_contact_at_star(destination, events);
+                    self.check_ai_contact_at_star(
+                        destination,
+                        fleet_owner.unwrap_or(EmpireId(2)),
+                        events,
+                    );
                 } else {
                     self.state.explored_stars.insert(destination);
                 }
@@ -842,8 +905,17 @@ impl Engine {
         // Discovery update: any lane whose endpoints are both explored becomes known.
         self.refresh_known_hyperspace_lanes();
 
-        // Run AI turn decisions (before advancing the turn counter)
-        if let Some(ai_empire_id) = self.state.ai_empire {
+        // Run AI turn decisions for all AI empires (before advancing the turn counter).
+        // Prefer the explicit ai_empires list; fall back to the legacy ai_empire field
+        // for saves created before the multi-empire field was added (pre-v20).
+        let ai_empire_ids: Vec<EmpireId> = if !self.state.ai_empires.is_empty() {
+            self.state.ai_empires.clone()
+        } else if let Some(id) = self.state.ai_empire {
+            vec![id]
+        } else {
+            vec![]
+        };
+        for ai_empire_id in ai_empire_ids {
             let ai_events = crate::ai::run_ai_turn(&mut self.state, ai_empire_id);
             events.extend(ai_events);
         }
@@ -1960,7 +2032,12 @@ impl Engine {
     ///
     /// If the star has a player colony and the empires are not yet contacted,
     /// establishes first contact and emits `FirstContact`.
-    fn check_ai_contact_at_star(&mut self, star_id: StarId, events: &mut Vec<Event>) {
+    fn check_ai_contact_at_star(
+        &mut self,
+        star_id: StarId,
+        ai_empire_id: EmpireId,
+        events: &mut Vec<Event>,
+    ) {
         let player = self.state.player_empire;
         let has_player_colony = self
             .state
@@ -1972,23 +2049,20 @@ impl Engine {
             return;
         }
 
-        // Check if the single AI empire (stored in ai_empire) needs first contact established.
-        if let Some(ai_empire_id) = self.state.ai_empire {
-            let status = self
-                .state
-                .diplomacy
-                .get(&ai_empire_id)
-                .copied()
-                .unwrap_or(RelationshipStatus::Unknown);
+        let status = self
+            .state
+            .diplomacy
+            .get(&ai_empire_id)
+            .copied()
+            .unwrap_or(RelationshipStatus::Unknown);
 
-            if status == RelationshipStatus::Unknown {
-                self.state
-                    .diplomacy
-                    .insert(ai_empire_id, RelationshipStatus::Contacted);
-                events.push(Event::FirstContact {
-                    with_empire: ai_empire_id,
-                });
-            }
+        if status == RelationshipStatus::Unknown {
+            self.state
+                .diplomacy
+                .insert(ai_empire_id, RelationshipStatus::Contacted);
+            events.push(Event::FirstContact {
+                with_empire: ai_empire_id,
+            });
         }
     }
 
@@ -2145,23 +2219,65 @@ fn initial_explored_stars(stars: &[crate::state::Star], home_id: StarId) -> BTre
     explored
 }
 
-/// Find the AI home star: the habitable star farthest from the player's home.
+/// Find `n` habitable home stars for AI empires, spread maximally from the
+/// player home and from each other (maximin placement).
 ///
-/// A star qualifies only if it has at least one habitable planet.
-/// Tie-breaking is by descending StarId so the choice is fully deterministic.
-fn find_ai_home_star(stars: &[crate::state::Star], player_home: StarId) -> Option<StarId> {
-    let player_star = stars.iter().find(|s| s.id == player_home)?;
+/// Algorithm: iteratively select the star that maximises the minimum distance
+/// to all already-chosen stars (player home + previously selected AI homes).
+///
+/// Returns a `Vec` of length `n`.  If there are not enough habitable stars,
+/// the Vec is shorter than `n` (callers must validate).
+fn find_ai_home_stars(stars: &[crate::state::Star], player_home: StarId, n: usize) -> Vec<StarId> {
+    if n == 0 {
+        return vec![];
+    }
 
-    stars
+    // Collect candidates: habitable stars that are not the player home.
+    let mut candidates: Vec<&crate::state::Star> = stars
         .iter()
         .filter(|s| s.id != player_home && s.planets.iter().any(|p| p.habitable))
-        .max_by_key(|s| {
-            let dx = (s.x - player_star.x) as i64;
-            let dy = (s.y - player_star.y) as i64;
-            // Primary key: distance; secondary: StarId for determinism
-            (dx * dx + dy * dy, s.id.0)
-        })
-        .map(|s| s.id)
+        .collect();
+
+    // Sort candidates by StarId for fully deterministic ordering.
+    candidates.sort_by_key(|s| s.id);
+
+    let player_star = match stars.iter().find(|s| s.id == player_home) {
+        Some(s) => s,
+        None => return vec![],
+    };
+
+    let sq_dist = |a: &crate::state::Star, b: &crate::state::Star| -> i64 {
+        let dx = (a.x - b.x) as i64;
+        let dy = (a.y - b.y) as i64;
+        dx * dx + dy * dy
+    };
+
+    let mut chosen: Vec<StarId> = Vec::with_capacity(n);
+    // chosen_stars starts with the player star so distances are measured from player too
+    let mut chosen_stars: Vec<&crate::state::Star> = vec![player_star];
+
+    for _ in 0..n {
+        // Pick the candidate with the greatest minimum distance to any chosen star.
+        let best = candidates.iter().max_by_key(|&&c| {
+            let min_dist = chosen_stars
+                .iter()
+                .map(|&cs| sq_dist(c, cs))
+                .min()
+                .unwrap_or(0);
+            // Secondary key: StarId for determinism when distances tie.
+            (min_dist, c.id.0)
+        });
+        match best {
+            Some(&best_star) => {
+                chosen.push(best_star.id);
+                chosen_stars.push(best_star);
+                candidates.retain(|c| c.id != best_star.id);
+            }
+            None => break, // fewer habitable stars than requested
+        }
+    }
+
+    chosen
 }
 
 #[cfg(test)]
@@ -5549,6 +5665,8 @@ mod tests {
             hyperspace_lanes: BTreeSet::new(),
             known_hyperspace_lanes: BTreeSet::new(),
             fleet_orders: BTreeMap::new(),
+            scenario: None,
+            ai_empires: vec![ai_id],
         };
 
         // Player star
@@ -5735,6 +5853,8 @@ mod tests {
             hyperspace_lanes: BTreeSet::new(),
             known_hyperspace_lanes: BTreeSet::new(),
             fleet_orders: BTreeMap::new(),
+            scenario: None,
+            ai_empires: vec![ai_id],
         };
 
         // Populate stars, empires, colonies, fleet
@@ -6008,6 +6128,8 @@ mod tests {
             hyperspace_lanes: BTreeSet::new(),
             known_hyperspace_lanes: BTreeSet::new(),
             fleet_orders: BTreeMap::new(),
+            scenario: None,
+            ai_empires: vec![ai1, ai2],
         };
 
         // Two AI empires each have a colony at target_star
@@ -9419,5 +9541,208 @@ mod tests {
         let a = setup(42);
         let b = setup(42);
         assert_eq!(a, b, "Rally routing must be deterministic for same seed");
+    }
+
+    // ── Scenario Setup / Engine::new_from_setup tests ─────────────────────
+
+    #[test]
+    fn new_from_setup_same_options_produce_same_galaxy() {
+        use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+        let setup1 = ScenarioSetup {
+            seed: 777,
+            galaxy_size: GalaxySize::Small,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        };
+        let setup2 = setup1.clone();
+
+        let e1 = Engine::new_from_setup(setup1);
+        let e2 = Engine::new_from_setup(setup2);
+
+        // Same seed + same options → identical star layouts
+        let mut stars1: Vec<_> = e1.state.stars.values().map(|s| (s.id, s.x, s.y)).collect();
+        let mut stars2: Vec<_> = e2.state.stars.values().map(|s| (s.id, s.x, s.y)).collect();
+        stars1.sort();
+        stars2.sort();
+        assert_eq!(stars1, stars2, "Same setup must produce identical galaxies");
+    }
+
+    #[test]
+    fn new_from_setup_different_seeds_produce_different_galaxies() {
+        use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+        let make = |seed: u64| {
+            Engine::new_from_setup(ScenarioSetup {
+                seed,
+                galaxy_size: GalaxySize::Medium,
+                ai_empire_count: 1,
+                sector_count_override: None,
+                difficulty: DifficultyLevel::Standard,
+            })
+        };
+
+        let e1 = make(100);
+        let e2 = make(200);
+
+        let pos1: Vec<_> = e1.state.stars.values().map(|s| (s.x, s.y)).collect();
+        let pos2: Vec<_> = e2.state.stars.values().map(|s| (s.x, s.y)).collect();
+        // Not all positions should match
+        let matching = pos1.iter().zip(pos2.iter()).filter(|(a, b)| a == b).count();
+        assert!(
+            matching < pos1.len() / 2,
+            "Different seeds should produce meaningfully different galaxies"
+        );
+    }
+
+    #[test]
+    fn new_from_setup_small_produces_expected_star_and_sector_counts() {
+        use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+        let engine = Engine::new_from_setup(ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Small,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        });
+        assert_eq!(engine.state.stars.len(), 10, "Small: 10 stars");
+        assert_eq!(engine.state.sectors.len(), 2, "Small: 2 sectors");
+    }
+
+    #[test]
+    fn new_from_setup_medium_produces_expected_star_and_sector_counts() {
+        use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+        let engine = Engine::new_from_setup(ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        });
+        assert_eq!(engine.state.stars.len(), 20, "Medium: 20 stars");
+        assert_eq!(engine.state.sectors.len(), 4, "Medium: 4 sectors");
+    }
+
+    #[test]
+    fn new_from_setup_large_produces_expected_star_and_sector_counts() {
+        use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+        let engine = Engine::new_from_setup(ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Large,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        });
+        assert_eq!(engine.state.stars.len(), 40, "Large: 40 stars");
+        assert_eq!(engine.state.sectors.len(), 6, "Large: 6 sectors");
+    }
+
+    #[test]
+    fn new_from_setup_four_ai_empires_created() {
+        use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+        let engine = Engine::new_from_setup(ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Large,
+            ai_empire_count: 4,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        });
+        // Player + 4 AI = 5 empires total
+        assert_eq!(engine.state.empires.len(), 5);
+        assert_eq!(engine.state.ai_empires.len(), 4);
+        // Each AI empire has a distinct home star
+        let ai_home_stars: BTreeSet<StarId> = engine
+            .state
+            .ai_empires
+            .iter()
+            .filter_map(|id| engine.state.empires.get(id))
+            .map(|e| e.home_star)
+            .collect();
+        assert_eq!(
+            ai_home_stars.len(),
+            4,
+            "Each AI empire should have a unique home star"
+        );
+    }
+
+    #[test]
+    fn new_from_setup_ai_empire_placement_is_deterministic() {
+        use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+        let setup = ScenarioSetup {
+            seed: 999,
+            galaxy_size: GalaxySize::Large,
+            ai_empire_count: 3,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        };
+        let e1 = Engine::new_from_setup(setup.clone());
+        let e2 = Engine::new_from_setup(setup);
+
+        let homes1: Vec<_> = e1
+            .state
+            .ai_empires
+            .iter()
+            .filter_map(|id| e1.state.empires.get(id))
+            .map(|e| e.home_star)
+            .collect();
+        let homes2: Vec<_> = e2
+            .state
+            .ai_empires
+            .iter()
+            .filter_map(|id| e2.state.empires.get(id))
+            .map(|e| e.home_star)
+            .collect();
+        assert_eq!(
+            homes1, homes2,
+            "AI home star placement must be deterministic for same seed"
+        );
+    }
+
+    #[test]
+    fn new_from_setup_scenario_metadata_stored_in_state() {
+        use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+        let setup = ScenarioSetup {
+            seed: 1234,
+            galaxy_size: GalaxySize::Large,
+            ai_empire_count: 2,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        };
+        let engine = Engine::new_from_setup(setup.clone());
+        let stored = engine
+            .state
+            .scenario
+            .as_ref()
+            .expect("scenario should be stored");
+        assert_eq!(stored.seed, 1234);
+        assert_eq!(stored.galaxy_size, GalaxySize::Large);
+        assert_eq!(stored.ai_empire_count, 2);
+    }
+
+    #[test]
+    fn validate_rejects_zero_ai_count() {
+        use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+        let bad_setup = ScenarioSetup {
+            seed: 1,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 0, // invalid
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        };
+        // validate() must catch invalid AI count
+        assert!(bad_setup.validate().is_err());
+    }
+
+    #[test]
+    #[should_panic]
+    fn new_from_setup_invalid_ai_count_panics() {
+        use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+        let bad_setup = ScenarioSetup {
+            seed: 1,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 0, // invalid — new_from_setup should panic
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        };
+        let _ = Engine::new_from_setup(bad_setup);
     }
 }

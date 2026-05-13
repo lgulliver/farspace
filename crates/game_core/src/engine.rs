@@ -6,9 +6,9 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hyperspace_lanes};
 use crate::state::{
     all_techs, is_tech_available, tech_by_id, tech_yield_bonus_per_colony, BuildItem, Colony,
-    ColonyId, ColonyRole, Empire, EmpireId, Fleet, FleetId, FleetKind, FleetMission, FleetOrder,
-    GameState, HyperspaceLane, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
-    ShipDesignId, StarId, SurveyMission, TechId, YieldType,
+    ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireId, Fleet, FleetId, FleetKind,
+    FleetMission, FleetOrder, GameState, HyperspaceLane, RelationshipStatus, ResearchState,
+    ScenarioSetup, ScoutMission, ShipDesignId, StarId, SurveyMission, TechId, YieldType,
 };
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -35,6 +35,8 @@ const EMPIRE_ASSIGN_SALT: u64 = 0x6172_7473_5f49_5044;
 const FLEET_TRAVEL_SPEED: f64 = 500.0;
 /// Direct hyperspace lanes reduce duration to `ceil(base_turns / 2)`.
 const HYPERSPACE_TRAVEL_DIVISOR: u32 = 2;
+const ISOLATED_YIELD_PERCENT: i64 = 50;
+const ISOLATED_STABILITY_PENALTY: u8 = 5;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct YieldBonuses {
@@ -397,14 +399,19 @@ impl Engine {
             fleet_orders: BTreeMap::new(),
             scenario: Some(setup),
             ai_empires: ai_empire_ids,
+            colony_supply: BTreeMap::new(),
         };
 
-        Engine { state }
+        let mut engine = Engine { state };
+        engine.refresh_colony_supply_statuses();
+        engine
     }
 
     /// Create an engine from existing state
     pub fn from_state(state: GameState) -> Self {
-        Engine { state }
+        let mut engine = Engine { state };
+        engine.refresh_colony_supply_statuses();
+        engine
     }
 
     fn refresh_known_hyperspace_lanes(&mut self) {
@@ -415,6 +422,10 @@ impl Engine {
                 self.state.known_hyperspace_lanes.insert(*lane);
             }
         }
+    }
+
+    fn refresh_colony_supply_statuses(&mut self) {
+        self.state.colony_supply = self.state.recompute_colony_supply();
     }
 
     /// Apply a list of commands and return generated events
@@ -477,6 +488,8 @@ impl Engine {
             }
         }
 
+        self.refresh_colony_supply_statuses();
+
         // Add events to log
         for event in &events {
             self.state.event_log.push(event.to_log_message());
@@ -494,6 +507,9 @@ impl Engine {
     fn process_end_turn(&mut self, events: &mut Vec<Event>) {
         // Process colonies in deterministic order
         let colony_ids = sorted_colony_ids(&self.state.colonies);
+        let previous_supply = self.state.colony_supply.clone();
+        self.refresh_colony_supply_statuses();
+        let supply_for_turn = self.state.colony_supply.clone();
 
         // Track per-empire aggregates for this turn.
         // Keys are EmpireId; BTreeMap ensures deterministic iteration order.
@@ -575,15 +591,28 @@ impl Engine {
                 .map(|d| d.trait_modifiers)
                 .unwrap_or_default();
 
-            let credits =
+            let mut credits =
                 colony_yield.credits + bonuses.credits + empire_def_mods.credits_per_colony;
-            let research =
+            let mut research =
                 colony_yield.science + bonuses.science + empire_def_mods.science_per_colony;
-            let food = colony_yield.food + bonuses.food + empire_def_mods.food_per_colony;
+            let mut food = colony_yield.food + bonuses.food + empire_def_mods.food_per_colony;
             // Industry modifier from empire def is already informational here; the
             // yield model computed the base industry.  We expose the bonus via
             // the ColonyProduced event so the UI can show "empire bonus" detail.
             let industry = colony_yield.industry + empire_def_mods.industry_per_colony;
+            let is_connected = matches!(
+                supply_for_turn.get(&colony_id),
+                Some(ColonySupplyState::Connected)
+            );
+
+            if !is_connected {
+                credits = credits * ISOLATED_YIELD_PERCENT / 100;
+                research = research * ISOLATED_YIELD_PERCENT / 100;
+                food = 0;
+                if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
+                    colony.stability = colony.stability.saturating_sub(ISOLATED_STABILITY_PENALTY);
+                }
+            }
 
             // Update empire credits and lifetime research total
             if let Some(empire) = self.state.empires.get_mut(&owner) {
@@ -594,8 +623,10 @@ impl Engine {
             // Accumulate per-empire totals
             *empire_research.entry(owner).or_insert(0) += research;
             *empire_credits_income.entry(owner).or_insert(0) += credits;
-            *empire_food_produced.entry(owner).or_insert(0) += food;
-            *empire_food_consumed.entry(owner).or_insert(0) += colony_yield.food_consumed;
+            if is_connected {
+                *empire_food_produced.entry(owner).or_insert(0) += food;
+                *empire_food_consumed.entry(owner).or_insert(0) += colony_yield.food_consumed;
+            }
             *empire_colony_maintenance.entry(owner).or_insert(0) += colony_yield.maintenance;
 
             events.push(Event::ColonyProduced {
@@ -978,6 +1009,28 @@ impl Engine {
             let ai_events = crate::ai::run_ai_turn(&mut self.state, ai_empire_id);
             events.extend(ai_events);
         }
+
+        let updated_supply = self.state.recompute_colony_supply();
+        let tracked_colonies: BTreeSet<ColonyId> = previous_supply
+            .keys()
+            .chain(updated_supply.keys())
+            .copied()
+            .collect();
+        for colony_id in tracked_colonies {
+            let prev = previous_supply.get(&colony_id).copied();
+            let next = updated_supply.get(&colony_id).copied();
+            match (prev, next) {
+                (Some(ColonySupplyState::Isolated), Some(ColonySupplyState::Connected)) => {
+                    events.push(Event::ColonyReconnected { colony: colony_id });
+                }
+                (Some(ColonySupplyState::Connected), Some(ColonySupplyState::Isolated))
+                | (None, Some(ColonySupplyState::Isolated)) => {
+                    events.push(Event::ColonyIsolated { colony: colony_id });
+                }
+                _ => {}
+            }
+        }
+        self.state.colony_supply = updated_supply;
 
         // Advance turn
         self.state.turn += 1;
@@ -5726,6 +5779,7 @@ mod tests {
             fleet_orders: BTreeMap::new(),
             scenario: None,
             ai_empires: vec![ai_id],
+            colony_supply: BTreeMap::new(),
         };
 
         // Player star
@@ -5916,6 +5970,7 @@ mod tests {
             fleet_orders: BTreeMap::new(),
             scenario: None,
             ai_empires: vec![ai_id],
+            colony_supply: BTreeMap::new(),
         };
 
         // Populate stars, empires, colonies, fleet
@@ -6193,6 +6248,7 @@ mod tests {
             fleet_orders: BTreeMap::new(),
             scenario: None,
             ai_empires: vec![ai1, ai2],
+            colony_supply: BTreeMap::new(),
         };
 
         // Two AI empires each have a colony at target_star
@@ -9606,6 +9662,190 @@ mod tests {
         let a = setup(42);
         let b = setup(42);
         assert_eq!(a, b, "Rally routing must be deterministic for same seed");
+    }
+
+    fn add_far_player_colony(engine: &mut Engine) -> ColonyId {
+        let player = engine.state.player_empire;
+        let home_star = engine.state.empires[&player].home_star;
+        let far_star = engine
+            .state
+            .stars
+            .keys()
+            .copied()
+            .find(|s| *s != home_star)
+            .expect("need a non-home star");
+
+        let (home_x, home_y) = {
+            let home = engine.state.stars.get(&home_star).expect("home star");
+            (home.x, home.y)
+        };
+        if let Some(star) = engine.state.stars.get_mut(&far_star) {
+            star.x = home_x + 1000;
+            star.y = home_y + 1000;
+            if let Some(planet) = star.planets.get_mut(0) {
+                planet.colony = None;
+                planet.surveyed = true;
+                planet.habitable = true;
+            }
+        }
+
+        let colony_id = engine.state.next_colony_id();
+        engine.state.colonies.insert(
+            colony_id,
+            Colony {
+                id: colony_id,
+                star: far_star,
+                planet_index: 0,
+                owner: player,
+                population: 10,
+                production: 10,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: vec![],
+                accumulated_production: 0,
+                buildings: vec![],
+                surface_installations: vec![],
+                orbital_installations: vec![],
+                stability: 100,
+                role: ColonyRole::Balanced,
+                rally_point: None,
+            },
+        );
+        if let Some(star) = engine.state.stars.get_mut(&far_star) {
+            if let Some(planet) = star.planets.get_mut(0) {
+                planet.colony = Some(colony_id);
+            }
+        }
+        colony_id
+    }
+
+    #[test]
+    fn isolated_colony_applies_penalties() {
+        let mut engine = Engine::new(42);
+        let colony_id = add_far_player_colony(&mut engine);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        let produced = events
+            .iter()
+            .find_map(|e| match e {
+                Event::ColonyProduced {
+                    colony,
+                    credits,
+                    research,
+                    food,
+                    ..
+                } if *colony == colony_id => Some((*credits, *research, *food)),
+                _ => None,
+            })
+            .expect("new colony should produce");
+        assert_eq!(produced.2, 0, "isolated colonies should not share empire food");
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::ColonyIsolated { colony } if *colony == colony_id))
+        );
+        assert_eq!(
+            engine.state.colonies[&colony_id].stability,
+            100 - ISOLATED_STABILITY_PENALTY
+        );
+    }
+
+    #[test]
+    fn lane_connected_colony_contributes_normally() {
+        let mut isolated_engine = Engine::new(42);
+        let colony_id = add_far_player_colony(&mut isolated_engine);
+        let isolated_events = isolated_engine.apply_turn(vec![Command::EndTurn]);
+        let isolated_produced = isolated_events
+            .iter()
+            .find_map(|e| match e {
+                Event::ColonyProduced {
+                    colony,
+                    credits,
+                    research,
+                    food,
+                    ..
+                } if *colony == colony_id => Some((*credits, *research, *food)),
+                _ => None,
+            })
+            .expect("isolated colony should produce");
+
+        let mut connected_engine = Engine::new(42);
+        let connected_colony_id = add_far_player_colony(&mut connected_engine);
+        let home_star = connected_engine.state.empires[&connected_engine.state.player_empire].home_star;
+        let far_star = connected_engine.state.colonies[&connected_colony_id].star;
+        let lane = HyperspaceLane::new(home_star, far_star).expect("distinct stars");
+        connected_engine.state.hyperspace_lanes.insert(lane);
+        connected_engine.state.known_hyperspace_lanes.insert(lane);
+        connected_engine
+            .state
+            .empires
+            .get_mut(&connected_engine.state.player_empire)
+            .expect("player empire")
+            .research
+            .completed
+            .push(TechId::HYPERSPACE_CARTOGRAPHY);
+
+        let connected_events = connected_engine.apply_turn(vec![Command::EndTurn]);
+        let connected_produced = connected_events
+            .iter()
+            .find_map(|e| match e {
+                Event::ColonyProduced {
+                    colony,
+                    credits,
+                    research,
+                    food,
+                    ..
+                } if *colony == connected_colony_id => Some((*credits, *research, *food)),
+                _ => None,
+            })
+            .expect("connected colony should produce");
+
+        assert!(
+            connected_produced.0 > isolated_produced.0,
+            "connected colony should contribute more credits"
+        );
+        assert!(
+            connected_produced.1 > isolated_produced.1,
+            "connected colony should contribute more research"
+        );
+        assert!(
+            connected_produced.2 > isolated_produced.2,
+            "connected colony should contribute food when connected"
+        );
+    }
+
+    #[test]
+    fn colony_reconnection_event_emitted_after_lane_unlock() {
+        let mut engine = Engine::new(42);
+        let colony_id = add_far_player_colony(&mut engine);
+        let home_star = engine.state.empires[&engine.state.player_empire].home_star;
+        let far_star = engine.state.colonies[&colony_id].star;
+
+        let first_turn_events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            first_turn_events
+                .iter()
+                .any(|e| matches!(e, Event::ColonyIsolated { colony } if *colony == colony_id))
+        );
+
+        let lane = HyperspaceLane::new(home_star, far_star).expect("distinct stars");
+        engine.state.hyperspace_lanes.insert(lane);
+        engine.state.known_hyperspace_lanes.insert(lane);
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .expect("player empire")
+            .research
+            .completed
+            .push(TechId::HYPERSPACE_CARTOGRAPHY);
+
+        let second_turn_events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            second_turn_events
+                .iter()
+                .any(|e| matches!(e, Event::ColonyReconnected { colony } if *colony == colony_id))
+        );
     }
 
     // ── Scenario Setup / Engine::new_from_setup tests ─────────────────────

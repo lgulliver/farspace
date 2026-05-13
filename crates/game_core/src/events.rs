@@ -131,6 +131,10 @@ pub enum Event {
         /// How far below zero the credit balance fell (positive deficit amount)
         deficit: i64,
     },
+    /// A colony lost trade-network connectivity and is now isolated
+    ColonyIsolated { colony: ColonyId },
+    /// A previously isolated colony regained trade-network connectivity
+    ColonyReconnected { colony: ColonyId },
     /// An error occurred
     Error { message: String },
     /// AI empire has selected a technology to research
@@ -405,6 +409,12 @@ impl Event {
                     "WARNING: Empire {} credit deficit — deficit {}",
                     empire.0, deficit
                 )
+            }
+            Event::ColonyIsolated { colony } => {
+                format!("WARNING: Colony {} is now isolated from trade network", colony.0)
+            }
+            Event::ColonyReconnected { colony } => {
+                format!("Colony {} reconnected to trade network", colony.0)
             }
             Event::Error { message } => format!("Error: {}", message),
             Event::AiResearchSelected { empire, tech } => {

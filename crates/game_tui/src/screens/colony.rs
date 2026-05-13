@@ -6,7 +6,8 @@ use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
 use game_core::{
-    yield_model, BuildItem, BuildingType, ColonyRole, GameState, OrbitalStructureType, TechId,
+    yield_model, BuildItem, BuildingType, ColonyRole, ColonySupplyState, GameState,
+    OrbitalStructureType, TechId,
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -106,6 +107,7 @@ fn render_colony_stats(
     let research_out = colony_yield.science;
     let food_out = colony_yield.food;
     let total_maint = colony_yield.maintenance;
+    let supply = game_state.colony_supply_state(colony.id);
 
     // Get planet size for infrastructure slot capacity
     let (surface_used, surface_max, orbital_used, orbital_max) = planet
@@ -137,6 +139,17 @@ fn render_colony_stats(
             Span::styled("  (", Theme::muted_style()),
             Span::styled(colony.role.description(), Theme::muted_style()),
             Span::styled(")", Theme::muted_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("Supply: ", Theme::muted_style()),
+            Span::styled(
+                supply.label(),
+                if supply == ColonySupplyState::Isolated {
+                    Theme::warning_style()
+                } else {
+                    Theme::accent_style()
+                },
+            ),
         ]),
         Line::from(""),
         Line::from(vec![
@@ -650,6 +663,31 @@ mod tests {
                 render_colony(frame, area, &app_state, &engine.state);
             })
             .unwrap();
+    }
+
+    #[test]
+    fn colony_screen_shows_supply_state() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let engine = Engine::new(42);
+        let app_state = make_app_state_with_colony(&engine);
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_colony(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(content.contains("Supply:"));
+        assert!(content.contains("Connected"));
     }
 
     #[test]

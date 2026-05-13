@@ -257,6 +257,19 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // Also update metadata.schema_version to reflect the new version.
             let state = save.state;
             let mut metadata = save.metadata;
+            metadata.schema_version = 22;
+            migrate(SaveFile {
+                version: 22,
+                metadata,
+                state,
+            })
+        }
+        22 => {
+            // v22 → v23: GameState.colony_supply (BTreeMap<ColonyId, ColonySupplyState>) added.
+            // This is derivable from current state; recompute deterministically on load.
+            let mut state = save.state;
+            state.colony_supply = state.recompute_colony_supply();
+            let mut metadata = save.metadata;
             metadata.schema_version = CURRENT_VERSION;
             Ok(SaveFile {
                 version: CURRENT_VERSION,

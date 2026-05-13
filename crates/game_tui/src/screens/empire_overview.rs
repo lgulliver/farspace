@@ -5,7 +5,9 @@ use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{all_techs, yield_model, Colony, ColonyId, EmpireId, GameState, StarId};
+use game_core::{
+    all_techs, yield_model, Colony, ColonyId, ColonySupplyState, EmpireId, GameState, StarId,
+};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
@@ -51,6 +53,8 @@ pub struct EmpireOverviewSummary {
     pub active_research: String,
     pub fleet_count: usize,
     pub colony_count: usize,
+    pub connected_colonies: usize,
+    pub isolated_colonies: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +73,7 @@ pub struct ColonyOverviewRow {
     pub build_output_per_turn: u64,
     pub current_production: String,
     pub turns_remaining: Option<u64>,
+    pub supply: ColonySupplyState,
     pub warnings: Vec<&'static str>,
 }
 
@@ -112,6 +117,8 @@ pub fn derive_empire_overview(
     let mut science_per_turn = 0i64;
     let mut colony_maintenance = 0i64;
     let mut rows = Vec::new();
+    let mut connected_colonies = 0usize;
+    let mut isolated_colonies = 0usize;
 
     for colony in game_state
         .colonies
@@ -144,6 +151,7 @@ pub fn derive_empire_overview(
         });
 
         let food_balance = y.food - y.food_consumed;
+        let supply = game_state.colony_supply_state(colony.id);
         let mut warnings = Vec::new();
         if stability_has_yield_penalty(colony.stability) {
             warnings.push("Low stability");
@@ -151,11 +159,20 @@ pub fn derive_empire_overview(
         if food_balance < 0 {
             warnings.push("Food deficit");
         }
+        if supply == ColonySupplyState::Isolated {
+            warnings.push("Isolated");
+        }
         if housing > 0 && colony.population >= housing {
             warnings.push("Housing full");
         }
         if colony.build_queue.is_empty() {
             warnings.push("Queue idle");
+        }
+
+        if supply == ColonySupplyState::Connected {
+            connected_colonies += 1;
+        } else {
+            isolated_colonies += 1;
         }
 
         rows.push(ColonyOverviewRow {
@@ -177,6 +194,7 @@ pub fn derive_empire_overview(
             build_output_per_turn,
             current_production,
             turns_remaining,
+            supply,
             warnings,
         });
     }
@@ -220,6 +238,8 @@ pub fn derive_empire_overview(
             active_research,
             fleet_count,
             colony_count,
+            connected_colonies,
+            isolated_colonies,
         },
         rows,
     }
@@ -328,6 +348,16 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
         Span::raw("  "),
         Span::styled("Colonies ", Theme::muted_style()),
         Span::styled(format!("{}", summary.colony_count), Theme::default_style()),
+        Span::raw("  "),
+        Span::styled("Supply C/I ", Theme::muted_style()),
+        Span::styled(
+            format!("{}/{}", summary.connected_colonies, summary.isolated_colonies),
+            if summary.isolated_colonies > 0 {
+                Theme::warning_style()
+            } else {
+                Theme::default_style()
+            },
+        ),
     ]);
     frame.render_widget(Paragraph::new(line).style(Theme::default_style()), inner);
 }
@@ -390,6 +420,8 @@ fn render_colony_table(
         Span::raw("  "),
         Span::styled("ETA", Theme::title_style()),
         Span::raw("  "),
+        Span::styled("Supply", Theme::title_style()),
+        Span::raw("  "),
         Span::styled("Warnings", Theme::title_style()),
     ]));
 
@@ -422,6 +454,7 @@ fn render_colony_table(
         } else {
             row.warnings.join(",")
         };
+        let supply = row.supply.label();
 
         lines.push(Line::from(vec![
             Span::styled(format!("{} ", prefix), style),
@@ -442,6 +475,15 @@ fn render_colony_table(
             Span::styled(row.current_production.as_str(), style),
             Span::raw("  "),
             Span::styled(eta, style),
+            Span::raw("  "),
+            Span::styled(
+                supply,
+                if row.supply == ColonySupplyState::Isolated {
+                    Theme::warning_style()
+                } else {
+                    style
+                },
+            ),
             Span::raw("  "),
             Span::styled(
                 warnings,
@@ -556,6 +598,30 @@ mod tests {
             .find(|r| r.colony_id == colony_id)
             .expect("colony row should exist");
         assert!(!row.warnings.contains(&"Low stability"));
+    }
+
+    #[test]
+    fn isolated_colony_is_flagged_in_overview() {
+        let mut engine = Engine::new(42);
+        let colony_id = *engine.state.colonies.keys().next().unwrap();
+        engine
+            .state
+            .colony_supply
+            .insert(colony_id, ColonySupplyState::Isolated);
+
+        let data = derive_empire_overview(
+            &engine.state,
+            engine.state.player_empire,
+            OverviewSort::Name,
+            "",
+        );
+        let row = data
+            .rows
+            .iter()
+            .find(|r| r.colony_id == colony_id)
+            .expect("colony row should exist");
+        assert!(row.warnings.contains(&"Isolated"));
+        assert_eq!(data.summary.isolated_colonies, 1);
     }
 
     #[test]

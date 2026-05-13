@@ -124,6 +124,7 @@ pub(crate) fn travel_turns_with_lanes(
 #[derive(Debug)]
 pub struct Engine {
     pub state: GameState,
+    last_turn_colony_supply: BTreeMap<ColonyId, ColonySupplyState>,
 }
 
 impl Engine {
@@ -410,15 +411,23 @@ impl Engine {
             colony_supply: BTreeMap::new(),
         };
 
-        let mut engine = Engine { state };
+        let mut engine = Engine {
+            state,
+            last_turn_colony_supply: BTreeMap::new(),
+        };
         engine.refresh_colony_supply_statuses();
+        engine.last_turn_colony_supply = engine.state.colony_supply.clone();
         engine
     }
 
     /// Create an engine from existing state
     pub fn from_state(state: GameState) -> Self {
-        let mut engine = Engine { state };
+        let mut engine = Engine {
+            state,
+            last_turn_colony_supply: BTreeMap::new(),
+        };
         engine.refresh_colony_supply_statuses();
+        engine.last_turn_colony_supply = engine.state.colony_supply.clone();
         engine
     }
 
@@ -439,10 +448,12 @@ impl Engine {
     /// Apply a list of commands and return generated events
     pub fn apply_turn(&mut self, commands: Vec<Command>) -> Vec<Event> {
         let mut events = Vec::new();
+        let mut processed_end_turn = false;
 
         for command in commands {
             match command {
                 Command::EndTurn => {
+                    processed_end_turn = true;
                     self.process_end_turn(&mut events);
                 }
                 Command::SetColonyFocus {
@@ -496,7 +507,9 @@ impl Engine {
             }
         }
 
-        self.refresh_colony_supply_statuses();
+        if !processed_end_turn {
+            self.refresh_colony_supply_statuses();
+        }
 
         // Add events to log
         for event in &events {
@@ -515,7 +528,7 @@ impl Engine {
     fn process_end_turn(&mut self, events: &mut Vec<Event>) {
         // Process colonies in deterministic order
         let colony_ids = sorted_colony_ids(&self.state.colonies);
-        let previous_supply = self.state.colony_supply.clone();
+        let previous_supply = self.last_turn_colony_supply.clone();
         self.refresh_colony_supply_statuses();
         let current_turn_supply = self.state.colony_supply.clone();
 
@@ -1036,7 +1049,8 @@ impl Engine {
                 _ => {}
             }
         }
-        self.state.colony_supply = updated_supply;
+        self.state.colony_supply = updated_supply.clone();
+        self.last_turn_colony_supply = updated_supply;
 
         // Advance turn
         self.state.turn += 1;

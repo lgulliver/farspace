@@ -16,6 +16,8 @@ enum HelpEntry {
     Section(&'static str),
     /// A key binding (key text, description)
     Binding(&'static str, &'static str),
+    /// Informational note (not a key binding)
+    Note(&'static str),
 }
 
 /// Render the help overlay
@@ -118,7 +120,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
                 "C",
                 "Colonize selected planet with idle colony ship in system",
             ),
-            HelpEntry::Binding("Info", "Planet detail shows colony trade/supply status"),
+            HelpEntry::Note("Planet detail shows colony trade/supply status"),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O", "Open empire overview"),
@@ -138,7 +140,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ),
             HelpEntry::Binding("R", "Set rally point — navigate to a star and press R"),
             HelpEntry::Binding("X", "Clear rally point for this colony"),
-            HelpEntry::Binding("Info", "Colony panel shows Connected/Isolated supply state"),
+            HelpEntry::Note("Colony panel shows Connected/Isolated supply state"),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O", "Open empire overview"),
@@ -155,10 +157,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Actions"),
             HelpEntry::Binding("Enter", "Open selected colony"),
             HelpEntry::Binding("S", "Open selected system"),
-            HelpEntry::Binding(
-                "Info",
-                "Rows and summary include supply connectivity warnings",
-            ),
+            HelpEntry::Note("Rows and summary include supply connectivity warnings"),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O", "Open empire overview"),
@@ -205,6 +204,11 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
                 Span::styled(format!("{:>14}", key), Theme::title_style()),
                 Span::raw("  "),
                 Span::styled(*desc, Theme::default_style()),
+            ]),
+            HelpEntry::Note(desc) => Line::from(vec![
+                Span::styled(format!("{:>14}", "·"), Theme::dim_border_style()),
+                Span::raw("  "),
+                Span::styled(*desc, Theme::muted_style()),
             ]),
         })
         .collect();

@@ -37,9 +37,8 @@ const FLEET_TRAVEL_SPEED: f64 = 500.0;
 const HYPERSPACE_TRAVEL_DIVISOR: u32 = 2;
 const ISOLATED_YIELD_PERCENT: i64 = 50;
 const ISOLATED_STABILITY_PENALTY: u8 = 5;
-/// Credits/science yield reduction applied to blockaded colonies (same as isolation).
-const BLOCKADED_YIELD_PERCENT: i64 = 50;
 /// Stability penalty applied each turn to a blockaded colony.
+/// Blockade yield reduction reuses `ISOLATED_YIELD_PERCENT` via `apply_isolation_penalty`.
 const BLOCKADED_STABILITY_PENALTY: u8 = 5;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -74,12 +73,12 @@ fn apply_isolation_penalty(credits: i64, research: i64, _food: i64) -> (i64, i64
 }
 
 /// Apply blockade penalties: same percentage reduction as isolation, and no food.
-fn apply_blockade_penalty(credits: i64, research: i64, _food: i64) -> (i64, i64, i64) {
-    (
-        credits * BLOCKADED_YIELD_PERCENT / 100,
-        research * BLOCKADED_YIELD_PERCENT / 100,
-        0,
-    )
+///
+/// Blockade and isolation share identical yield arithmetic so this delegates
+/// to `apply_isolation_penalty` to keep the two in sync if the percentages
+/// ever change.
+fn apply_blockade_penalty(credits: i64, research: i64, food: i64) -> (i64, i64, i64) {
+    apply_isolation_penalty(credits, research, food)
 }
 
 fn has_tech(state: &GameState, empire_id: EmpireId, tech: TechId) -> bool {
@@ -10664,10 +10663,10 @@ mod tests {
     }
 
     #[test]
-    fn neutral_fleet_does_not_blockade() {
+    fn contacted_fleet_does_not_blockade() {
         let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
 
-        // Neutral (or unknown) status — should not blockade
+        // Contacted status — should not blockade
         state
             .diplomacy
             .insert(enemy_id, RelationshipStatus::Contacted);
@@ -10690,6 +10689,36 @@ mod tests {
         assert!(
             !blockade.contains_key(&colony_id),
             "Colony should NOT be blockaded when fleet owner is only Contacted"
+        );
+    }
+
+    #[test]
+    fn neutral_fleet_does_not_blockade() {
+        let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
+
+        // Neutral status — should not blockade
+        state
+            .diplomacy
+            .insert(enemy_id, RelationshipStatus::Neutral);
+
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 3,
+                integrity: 100,
+            },
+        );
+
+        let blockade = state.recompute_colony_blockade();
+        assert!(
+            !blockade.contains_key(&colony_id),
+            "Colony should NOT be blockaded when fleet owner has Neutral status"
         );
     }
 

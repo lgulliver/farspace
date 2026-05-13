@@ -882,7 +882,7 @@ mod tests {
     fn blockade_state_round_trip_via_save_load() {
         use game_core::{
             state::{Fleet, FleetId, FleetKind, RelationshipStatus},
-            ColonyId, EmpireId,
+            ColonyId, Empire, EmpireId, StarId,
         };
 
         // Build a game state with a war-status enemy fleet at a player colony star
@@ -891,9 +891,23 @@ mod tests {
         let player_id = state.player_empire;
         let colony_star = state.empires.get(&player_id).map(|e| e.home_star).unwrap();
 
-        // Add an enemy empire at war
+        // Add an enemy empire at war — also insert a proper Empire record so state
+        // is internally consistent (every fleet owner must be a real empire).
         let enemy_id = EmpireId(99);
         state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+        state.empires.insert(
+            enemy_id,
+            Empire {
+                id: enemy_id,
+                name: "Hostile Power".to_string(),
+                credits: 0,
+                research_points: 0,
+                home_star: StarId(9999),
+                research: Default::default(),
+                food: 0,
+                empire_def: None,
+            },
+        );
 
         // Place an idle enemy fleet at the colony star
         let enemy_fid = FleetId(999);

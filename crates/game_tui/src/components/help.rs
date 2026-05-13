@@ -142,7 +142,9 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("R", "Set rally point — navigate to a star and press R"),
             HelpEntry::Binding("X", "Clear rally point for this colony"),
             HelpEntry::Note("Colony panel shows Connected/Isolated supply state"),
-            HelpEntry::Note("Blockade: ⚔ means hostile fleet holds orbit — -50% yield, -stability"),
+            HelpEntry::Note(
+                "Blockade: ⚔ means hostile fleet holds orbit — no food, -50% yield, -stability",
+            ),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O", "Open empire overview"),
@@ -160,7 +162,9 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("Enter", "Open selected colony"),
             HelpEntry::Binding("S", "Open selected system"),
             HelpEntry::Note("Rows show supply connectivity and blockade warnings"),
-            HelpEntry::Note("'Blockaded' warning = hostile fleet in orbit (-50% yield)"),
+            HelpEntry::Note(
+                "'Blockaded' warning = hostile fleet in orbit (no food, -50% yield, -stability)",
+            ),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O", "Open empire overview"),

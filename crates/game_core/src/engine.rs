@@ -1092,12 +1092,12 @@ impl Engine {
         // (ColonyId) order.
         let updated_blockade = self.state.recompute_colony_blockade();
         let previous_blockade = self.last_turn_colony_blockade.clone();
-        let tracked_blockade_colonies: BTreeSet<ColonyId> = previous_blockade
+        let colonies_with_blockade_changes: BTreeSet<ColonyId> = previous_blockade
             .keys()
             .chain(updated_blockade.keys())
             .copied()
             .collect();
-        for colony_id in tracked_blockade_colonies {
+        for colony_id in colonies_with_blockade_changes {
             let was_blockaded = previous_blockade.contains_key(&colony_id);
             let now_blockaded = updated_blockade.get(&colony_id).copied();
             let star_id = self
@@ -1361,6 +1361,9 @@ impl Engine {
     /// Validation:
     /// - The player must have made at least first contact with the target.
     /// - The target must be a real, non-player empire.
+    ///
+    /// On success, the diplomacy map is updated silently (no success event is emitted).
+    /// Validation errors are surfaced as `Event::Error`.
     fn process_declare_war(&mut self, target: EmpireId, events: &mut Vec<Event>) {
         let player = self.state.player_empire;
 

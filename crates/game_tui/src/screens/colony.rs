@@ -165,7 +165,7 @@ fn render_colony_stats(
                         format!("⚔ Blockaded by {}", empire_name),
                         Theme::error_style(),
                     ),
-                    Span::styled("  (-50% yield, -food, -stability)", Theme::muted_style()),
+                    Span::styled("  (no food, -50% yield, -stability)", Theme::muted_style()),
                 ])
             } else {
                 Line::from("")

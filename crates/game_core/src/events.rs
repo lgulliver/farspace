@@ -210,6 +210,22 @@ pub enum Event {
         to: StarId,
         turns_remaining: u32,
     },
+    /// A colony has come under blockade by a hostile empire
+    BlockadeStarted {
+        /// The blockaded colony
+        colony: ColonyId,
+        /// The star system where the blockade is taking effect
+        star: StarId,
+        /// The empire imposing the blockade
+        by_empire: EmpireId,
+    },
+    /// A colony's blockade has been lifted
+    BlockadeEnded {
+        /// The colony that was blockaded
+        colony: ColonyId,
+        /// The star system where the blockade ended
+        star: StarId,
+    },
 }
 
 impl Event {
@@ -534,6 +550,19 @@ impl Event {
                     "Fleet {} (from colony {}) routed to rally point system {} ({} turns)",
                     fleet.0, colony.0, to.0, turns_remaining
                 )
+            }
+            Event::BlockadeStarted {
+                colony,
+                star,
+                by_empire,
+            } => {
+                format!(
+                    "WARNING: Colony {} at system {} is under blockade by Empire {}",
+                    colony.0, star.0, by_empire.0
+                )
+            }
+            Event::BlockadeEnded { colony, star } => {
+                format!("Colony {} at system {} blockade lifted", colony.0, star.0)
             }
         }
     }

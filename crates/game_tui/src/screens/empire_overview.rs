@@ -74,6 +74,7 @@ pub struct ColonyOverviewRow {
     pub current_production: String,
     pub turns_remaining: Option<u64>,
     pub supply: ColonySupplyState,
+    pub blockaded: bool,
     pub warnings: Vec<&'static str>,
 }
 
@@ -152,6 +153,7 @@ pub fn derive_empire_overview(
 
         let food_balance = y.food - y.food_consumed;
         let supply = game_state.colony_supply_state(colony.id);
+        let blockaded = game_state.colony_blockade_state(colony.id).is_some();
         let mut warnings = Vec::new();
         if stability_has_yield_penalty(colony.stability) {
             warnings.push("Low stability");
@@ -161,6 +163,9 @@ pub fn derive_empire_overview(
         }
         if supply == ColonySupplyState::Isolated {
             warnings.push("Isolated");
+        }
+        if blockaded {
+            warnings.push("Blockaded");
         }
         if housing > 0 && colony.population >= housing {
             warnings.push("Housing full");
@@ -195,6 +200,7 @@ pub fn derive_empire_overview(
             current_production,
             turns_remaining,
             supply,
+            blockaded,
             warnings,
         });
     }

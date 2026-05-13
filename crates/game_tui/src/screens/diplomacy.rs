@@ -85,6 +85,42 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
                 }
                 lines.push(Line::from(""));
             }
+            RelationshipStatus::Neutral => {
+                lines.push(Line::from(vec![
+                    Span::styled("◎ ", Theme::accent_style()),
+                    Span::styled(empire.name.as_str(), Theme::title_style()),
+                    Span::raw("  "),
+                    Span::styled("Neutral", Theme::accent_style()),
+                ]));
+                lines.push(Line::from(""));
+            }
+            RelationshipStatus::Tense => {
+                lines.push(Line::from(vec![
+                    Span::styled("◈ ", Theme::warning_style()),
+                    Span::styled(empire.name.as_str(), Theme::title_style()),
+                    Span::raw("  "),
+                    Span::styled("Tense", Theme::warning_style()),
+                ]));
+                lines.push(Line::from(""));
+            }
+            RelationshipStatus::Hostile => {
+                lines.push(Line::from(vec![
+                    Span::styled("⚠ ", Theme::error_style()),
+                    Span::styled(empire.name.as_str(), Theme::title_style()),
+                    Span::raw("  "),
+                    Span::styled("Hostile", Theme::error_style()),
+                ]));
+                lines.push(Line::from(""));
+            }
+            RelationshipStatus::War => {
+                lines.push(Line::from(vec![
+                    Span::styled("⚔ ", Theme::error_style()),
+                    Span::styled(empire.name.as_str(), Theme::title_style()),
+                    Span::raw("  "),
+                    Span::styled("At War", Theme::error_style()),
+                ]));
+                lines.push(Line::from(""));
+            }
             RelationshipStatus::Unknown => {
                 lines.push(Line::from(vec![
                     Span::styled("○ ", Theme::muted_style()),

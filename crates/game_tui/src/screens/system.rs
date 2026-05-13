@@ -117,6 +117,12 @@ fn render_orbital_panel(
             "Unsurveyed" => "?",
             _ => "!",
         };
+        // Determine if this planet's colony is currently blockaded
+        let blockade_mark = planet
+            .colony
+            .and_then(|cid| game_state.colony_blockade_state(cid))
+            .map(|_| "⚔")
+            .unwrap_or("");
         let colony_mark = if planet.colony.is_some() {
             "◉"
         } else {
@@ -127,20 +133,30 @@ fn render_orbital_panel(
         } else {
             Cow::Owned(format!("Orbit {}", index + 1))
         };
+        let is_blockaded = !blockade_mark.is_empty();
         let style = if selected {
             Theme::highlight_style()
+        } else if is_blockaded {
+            Theme::error_style()
         } else if survey_state == "Surveyed" {
             Theme::default_style()
         } else {
             Theme::muted_style()
         };
-        lines.push(Line::from(vec![
+        let mut spans = vec![
             Span::raw(format!("{} ", prefix)),
             Span::styled(format!("{} ", colony_mark), style),
             Span::styled(format!("{} ", surveyed_mark), style),
             Span::styled(label, style),
             Span::styled(format!(" — {}", survey_state), Theme::muted_style()),
-        ]));
+        ];
+        if is_blockaded {
+            spans.push(Span::styled(
+                format!(" {}", blockade_mark),
+                Theme::error_style(),
+            ));
+        }
+        lines.push(Line::from(spans));
     }
 
     frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);

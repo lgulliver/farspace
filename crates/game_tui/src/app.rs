@@ -1674,6 +1674,8 @@ impl App {
         let mut fleets_arrived = 0usize;
         let mut warnings = 0usize;
         let mut errors = 0usize;
+        let mut newly_isolated = 0usize;
+        let mut reconnected = 0usize;
 
         for event in events {
             match event {
@@ -1683,13 +1685,15 @@ impl App {
                 CoreEvent::ResearchCompleted { .. } => research_completed += 1,
                 CoreEvent::FleetArrived { .. } => fleets_arrived += 1,
                 CoreEvent::FoodShortage { .. } | CoreEvent::CreditDeficit { .. } => warnings += 1,
+                CoreEvent::ColonyIsolated { .. } => newly_isolated += 1,
+                CoreEvent::ColonyReconnected { .. } => reconnected += 1,
                 CoreEvent::Error { .. } => errors += 1,
                 _ => {}
             }
         }
 
         format!(
-            "Turn {} global summary (all empires): explored {}, surveyed {}, colonized {}, research {}, arrivals {}, warnings {}, errors {}.",
+            "Turn {} global summary (all empires): explored {}, surveyed {}, colonized {}, research {}, arrivals {}, warnings {}, isolated {}, reconnected {}, errors {}.",
             turn,
             explored,
             surveyed,
@@ -1697,6 +1701,8 @@ impl App {
             research_completed,
             fleets_arrived,
             warnings,
+            newly_isolated,
+            reconnected,
             errors
         )
     }
@@ -2270,6 +2276,12 @@ mod tests {
                 empire: game_core::EmpireId(1),
                 deficit: 2,
             },
+            CoreEvent::ColonyIsolated {
+                colony: ColonyId(77),
+            },
+            CoreEvent::ColonyReconnected {
+                colony: ColonyId(78),
+            },
             CoreEvent::Error {
                 message: "bad command".to_string(),
             },
@@ -2283,6 +2295,8 @@ mod tests {
         assert!(report.contains("research 1"));
         assert!(report.contains("arrivals 1"));
         assert!(report.contains("warnings 1"));
+        assert!(report.contains("isolated 1"));
+        assert!(report.contains("reconnected 1"));
         assert!(report.contains("errors 1"));
     }
 
@@ -2291,7 +2305,7 @@ mod tests {
         let report = App::build_end_turn_report(3, &[]);
         assert_eq!(
             report,
-            "Turn 3 global summary (all empires): explored 0, surveyed 0, colonized 0, research 0, arrivals 0, warnings 0, errors 0."
+            "Turn 3 global summary (all empires): explored 0, surveyed 0, colonized 0, research 0, arrivals 0, warnings 0, isolated 0, reconnected 0, errors 0."
         );
     }
 

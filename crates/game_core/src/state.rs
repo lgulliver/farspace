@@ -3,7 +3,7 @@
 use rand_chacha::ChaCha8Rng;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Unique identifier for a star system
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1523,6 +1523,23 @@ impl Colony {
     }
 }
 
+/// Whether a colony is connected to its empire trade/supply network this turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum ColonySupplyState {
+    Connected,
+    Isolated,
+}
+
+impl ColonySupplyState {
+    pub fn label(self) -> &'static str {
+        match self {
+            ColonySupplyState::Connected => "Connected",
+            ColonySupplyState::Isolated => "Isolated",
+        }
+    }
+}
+
 /// A persistent standing order assigned to a fleet (v1 semantics).
 ///
 /// Orders are stored in `GameState.fleet_orders` and are used for display
@@ -1881,9 +1898,24 @@ pub struct GameState {
     /// first entry of this list (when non-empty) for backward compatibility.
     #[cfg_attr(feature = "serde", serde(default))]
     pub ai_empires: Vec<EmpireId>,
+    /// Last computed colony supply states, keyed by colony ID.
+    ///
+    /// This map is deterministic and derivable from galaxy + empire + colony state.
+    /// It is persisted to simplify UI rendering and turn-over-turn transition reporting.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub colony_supply: BTreeMap<ColonyId, ColonySupplyState>,
 }
 
 impl GameState {
+    // Trade-link distance thresholds in galaxy coordinate units.
+    //
+    // Stars are generated in roughly ±500 space on each axis.  We allow longer
+    // same-sector links (550 units) to keep nearby local colonies connected, and
+    // a tighter cross-sector threshold (325 units) so sector boundaries retain
+    // strategic weight unless bridged by hyperspace lanes.
+    const TRADE_LINK_RANGE_SQ_SAME_SECTOR: i64 = 550 * 550;
+    const TRADE_LINK_RANGE_SQ_CROSS_SECTOR: i64 = 325 * 325;
+
     /// Generate a new colony ID
     pub fn next_colony_id(&mut self) -> ColonyId {
         let id = ColonyId(self.next_colony_id);
@@ -1924,6 +1956,122 @@ impl GameState {
             .get(&fleet_id)
             .map(|f| FleetLocation::AtStar(f.location))
     }
+
+    pub fn colony_supply_state(&self, colony_id: ColonyId) -> ColonySupplyState {
+        self.colony_supply
+            .get(&colony_id)
+            .copied()
+            .unwrap_or(ColonySupplyState::Connected)
+    }
+
+    pub fn recompute_colony_supply(&self) -> BTreeMap<ColonyId, ColonySupplyState> {
+        let mut supply = BTreeMap::new();
+        for empire_id in self.empires.keys().copied() {
+            let empire_colonies: Vec<(ColonyId, StarId)> = self
+                .colonies
+                .iter()
+                .filter(|(_, c)| c.owner == empire_id)
+                .map(|(cid, c)| (*cid, c.star))
+                .collect();
+            if empire_colonies.is_empty() {
+                continue;
+            }
+
+            let mut colony_stars: BTreeSet<StarId> = BTreeSet::new();
+            for (_, star_id) in &empire_colonies {
+                colony_stars.insert(*star_id);
+            }
+
+            let Some(hub_star) = self.empire_trade_hub_star(empire_id, &empire_colonies) else {
+                continue;
+            };
+
+            let mut reachable = BTreeSet::new();
+            let mut queue = VecDeque::new();
+            reachable.insert(hub_star);
+            queue.push_back(hub_star);
+
+            while let Some(from_star) = queue.pop_front() {
+                for to_star in colony_stars.iter().copied() {
+                    if reachable.contains(&to_star) {
+                        continue;
+                    }
+                    if self.stars_have_trade_link(empire_id, from_star, to_star) {
+                        reachable.insert(to_star);
+                        queue.push_back(to_star);
+                    }
+                }
+            }
+
+            for (colony_id, star_id) in empire_colonies {
+                let state = if reachable.contains(&star_id) {
+                    ColonySupplyState::Connected
+                } else {
+                    ColonySupplyState::Isolated
+                };
+                supply.insert(colony_id, state);
+            }
+        }
+        supply
+    }
+
+    fn empire_trade_hub_star(
+        &self,
+        empire_id: EmpireId,
+        empire_colonies: &[(ColonyId, StarId)],
+    ) -> Option<StarId> {
+        let home_star = self.empires.get(&empire_id).map(|e| e.home_star);
+        if let Some(home_star) = home_star {
+            if empire_colonies.iter().any(|(_, star)| *star == home_star) {
+                return Some(home_star);
+            }
+        }
+        empire_colonies.iter().map(|(_, star)| *star).next()
+    }
+
+    fn empire_has_hyperspace_trade(&self, empire_id: EmpireId) -> bool {
+        self.empires.get(&empire_id).is_some_and(|e| {
+            e.research
+                .completed
+                .contains(&TechId::HYPERSPACE_CARTOGRAPHY)
+        })
+    }
+
+    fn empire_can_use_trade_lane(&self, empire_id: EmpireId, lane: HyperspaceLane) -> bool {
+        if !self.hyperspace_lanes.contains(&lane) || !self.empire_has_hyperspace_trade(empire_id) {
+            return false;
+        }
+        if empire_id == self.player_empire {
+            self.known_hyperspace_lanes.contains(&lane)
+        } else {
+            true
+        }
+    }
+
+    fn stars_have_trade_link(&self, empire_id: EmpireId, from: StarId, to: StarId) -> bool {
+        if from == to {
+            return true;
+        }
+
+        if let Some(lane) = HyperspaceLane::new(from, to) {
+            if self.empire_can_use_trade_lane(empire_id, lane) {
+                return true;
+            }
+        }
+
+        let (Some(a), Some(b)) = (self.stars.get(&from), self.stars.get(&to)) else {
+            return false;
+        };
+        let dx = (a.x - b.x) as i64;
+        let dy = (a.y - b.y) as i64;
+        let sq_dist = dx * dx + dy * dy;
+        let max_sq_dist = if a.sector == b.sector {
+            Self::TRADE_LINK_RANGE_SQ_SAME_SECTOR
+        } else {
+            Self::TRADE_LINK_RANGE_SQ_CROSS_SECTOR
+        };
+        sq_dist <= max_sq_dist
+    }
 }
 
 impl PartialEq for GameState {
@@ -1951,6 +2099,7 @@ impl PartialEq for GameState {
             && self.fleet_orders == other.fleet_orders
             && self.scenario == other.scenario
             && self.ai_empires == other.ai_empires
+            && self.colony_supply == other.colony_supply
     }
 }
 
@@ -2004,6 +2153,7 @@ impl Default for GameState {
             fleet_orders: BTreeMap::new(),
             scenario: None,
             ai_empires: Vec::new(),
+            colony_supply: BTreeMap::new(),
         }
     }
 }
@@ -2903,5 +3053,191 @@ mod tests {
             player_empire_def: None,
         };
         assert!(setup.validate().is_ok());
+    }
+
+    fn make_supply_test_state() -> GameState {
+        let mut state = GameState::default();
+        let empire_id = EmpireId(1);
+        state.player_empire = empire_id;
+        state.empires.insert(
+            empire_id,
+            Empire {
+                id: empire_id,
+                name: "Player".to_string(),
+                credits: 0,
+                research_points: 0,
+                home_star: StarId(1),
+                research: ResearchState::default(),
+                food: 0,
+                empire_def: None,
+            },
+        );
+        state.stars.insert(
+            StarId(1),
+            Star {
+                id: StarId(1),
+                sector: SectorId(1),
+                name: "Home".to_string(),
+                x: 0,
+                y: 0,
+                spectral_class: SpectralClass::G,
+                planets: vec![],
+            },
+        );
+        state.stars.insert(
+            StarId(2),
+            Star {
+                id: StarId(2),
+                sector: SectorId(1),
+                name: "Near".to_string(),
+                x: 200,
+                y: 0,
+                spectral_class: SpectralClass::K,
+                planets: vec![],
+            },
+        );
+        state.stars.insert(
+            StarId(3),
+            Star {
+                id: StarId(3),
+                sector: SectorId(2),
+                name: "Far".to_string(),
+                x: 900,
+                y: 0,
+                spectral_class: SpectralClass::M,
+                planets: vec![],
+            },
+        );
+        state.colonies.insert(
+            ColonyId(1),
+            Colony {
+                id: ColonyId(1),
+                star: StarId(1),
+                planet_index: 0,
+                owner: empire_id,
+                population: 10,
+                production: 10,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: vec![],
+                accumulated_production: 0,
+                buildings: vec![],
+                surface_installations: vec![],
+                orbital_installations: vec![],
+                stability: 100,
+                role: ColonyRole::Balanced,
+                rally_point: None,
+            },
+        );
+        state.colonies.insert(
+            ColonyId(2),
+            Colony {
+                id: ColonyId(2),
+                star: StarId(2),
+                planet_index: 0,
+                owner: empire_id,
+                population: 8,
+                production: 8,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: vec![],
+                accumulated_production: 0,
+                buildings: vec![],
+                surface_installations: vec![],
+                orbital_installations: vec![],
+                stability: 100,
+                role: ColonyRole::Balanced,
+                rally_point: None,
+            },
+        );
+        state.colonies.insert(
+            ColonyId(3),
+            Colony {
+                id: ColonyId(3),
+                star: StarId(3),
+                planet_index: 0,
+                owner: empire_id,
+                population: 8,
+                production: 8,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: vec![],
+                accumulated_production: 0,
+                buildings: vec![],
+                surface_installations: vec![],
+                orbital_installations: vec![],
+                stability: 100,
+                role: ColonyRole::Balanced,
+                rally_point: None,
+            },
+        );
+        state
+    }
+
+    #[test]
+    fn supply_connectivity_marks_capital_connected() {
+        let state = make_supply_test_state();
+        let supply = state.recompute_colony_supply();
+        assert_eq!(
+            supply.get(&ColonyId(1)),
+            Some(&ColonySupplyState::Connected)
+        );
+    }
+
+    #[test]
+    fn supply_connectivity_marks_nearby_valid_route_connected() {
+        let state = make_supply_test_state();
+        let supply = state.recompute_colony_supply();
+        assert_eq!(
+            supply.get(&ColonyId(2)),
+            Some(&ColonySupplyState::Connected)
+        );
+    }
+
+    #[test]
+    fn supply_connectivity_marks_no_route_isolated() {
+        let state = make_supply_test_state();
+        let supply = state.recompute_colony_supply();
+        assert_eq!(supply.get(&ColonyId(3)), Some(&ColonySupplyState::Isolated));
+    }
+
+    #[test]
+    fn supply_connectivity_lane_enables_connection_with_tech() {
+        let mut state = make_supply_test_state();
+        let lane = HyperspaceLane::new(StarId(2), StarId(3)).expect("distinct stars");
+        state.hyperspace_lanes.insert(lane);
+        state.known_hyperspace_lanes.insert(lane);
+        state
+            .empires
+            .get_mut(&state.player_empire)
+            .expect("player empire")
+            .research
+            .completed
+            .push(TechId::HYPERSPACE_CARTOGRAPHY);
+
+        let supply = state.recompute_colony_supply();
+        assert_eq!(
+            supply.get(&ColonyId(3)),
+            Some(&ColonySupplyState::Connected)
+        );
+    }
+
+    #[test]
+    fn supply_connectivity_is_deterministic_for_same_state() {
+        let mut state = make_supply_test_state();
+        let lane = HyperspaceLane::new(StarId(2), StarId(3)).expect("distinct stars");
+        state.hyperspace_lanes.insert(lane);
+        state.known_hyperspace_lanes.insert(lane);
+        state
+            .empires
+            .get_mut(&state.player_empire)
+            .expect("player empire")
+            .research
+            .completed
+            .push(TechId::HYPERSPACE_CARTOGRAPHY);
+
+        let a = state.recompute_colony_supply();
+        let b = state.recompute_colony_supply();
+        assert_eq!(a, b);
     }
 }

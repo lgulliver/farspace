@@ -7,7 +7,7 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{FleetKind, GameState};
+use game_core::{ColonySupplyState, FleetKind, GameState};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
@@ -287,9 +287,13 @@ fn render_system_details(
     let colony_line = if let Some(colony_id) = planet.colony {
         if let Some(colony) = game_state.colonies.get(&colony_id) {
             let infra = colony.surface_installations.len() + colony.orbital_installations.len();
+            let supply = game_state.colony_supply_state(colony.id);
             format!(
-                "Colony {} (Pop {}, Infra {})",
-                colony_id.0, colony.population, infra
+                "Colony {} (Pop {}, Infra {}, {})",
+                colony_id.0,
+                colony.population,
+                infra,
+                supply.label()
             )
         } else {
             format!("Colony {}", colony_id.0)
@@ -301,6 +305,23 @@ fn render_system_details(
         Span::styled("Status: ", Theme::muted_style()),
         Span::raw(colony_line),
     ]));
+
+    if let Some(colony_id) = planet.colony {
+        if let Some(colony) = game_state.colonies.get(&colony_id) {
+            let supply = game_state.colony_supply_state(colony.id);
+            lines.push(Line::from(vec![
+                Span::styled("Trade:  ", Theme::muted_style()),
+                Span::styled(
+                    supply.label(),
+                    if supply == ColonySupplyState::Isolated {
+                        Theme::warning_style()
+                    } else {
+                        Theme::accent_style()
+                    },
+                ),
+            ]));
+        }
+    }
 
     // Show rally point for player-owned colony at this planet
     if let Some(colony_id) = planet.colony {
@@ -455,6 +476,41 @@ mod tests {
             rendered.contains("Class: Terran"),
             "surveyed details should show class"
         );
+    }
+
+    #[test]
+    fn system_screen_shows_trade_status_for_colony() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut engine = Engine::new(42);
+        let colony_id = *engine.state.colonies.keys().next().unwrap();
+        let star_id = engine.state.colonies[&colony_id].star;
+        engine
+            .state
+            .colony_supply
+            .insert(colony_id, game_core::ColonySupplyState::Isolated);
+        let app_state = AppState {
+            selected_star: Some(star_id),
+            selected_planet_index: 0,
+            ..Default::default()
+        };
+
+        terminal
+            .draw(|frame| render_system(frame, frame.area(), &app_state, &engine.state))
+            .unwrap();
+
+        let buf = terminal.backend().buffer();
+        let rendered: String = (0..40u16)
+            .flat_map(|y| {
+                (0..120u16).map(move |x| {
+                    buf.cell((x, y))
+                        .and_then(|c| c.symbol().chars().next())
+                        .unwrap_or(' ')
+                })
+            })
+            .collect();
+        assert!(rendered.contains("Trade:"));
+        assert!(rendered.contains("Isolated"));
     }
 
     #[test]

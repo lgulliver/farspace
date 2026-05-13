@@ -574,6 +574,49 @@ mod tests {
     }
 
     #[test]
+    fn save_load_preserves_or_rederives_colony_supply_state() {
+        use game_core::TechId;
+
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        // Enable lanes and force a deterministic supply map snapshot.
+        engine
+            .state
+            .empires
+            .get_mut(&player)
+            .expect("player empire")
+            .research
+            .completed
+            .push(TechId::HYPERSPACE_CARTOGRAPHY);
+        engine.state.colony_supply = engine.state.recompute_colony_supply();
+
+        // Current-version round trip preserves supply.
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+        assert_eq!(
+            loaded.colony_supply,
+            loaded.recompute_colony_supply(),
+            "current-version save/load should preserve valid supply map"
+        );
+
+        // Simulate a v22 save without colony_supply; loader should re-derive it.
+        let mut legacy_json: serde_json::Value =
+            serde_json::from_slice(&saved).expect("saved json should parse");
+        legacy_json["version"] = serde_json::json!(22u32);
+        legacy_json["metadata"]["schema_version"] = serde_json::json!(22u32);
+        if let Some(state_obj) = legacy_json["state"].as_object_mut() {
+            state_obj.remove("colony_supply");
+        }
+        let legacy_bytes = serde_json::to_vec(&legacy_json).expect("serialize legacy json");
+        let legacy_loaded = load(&legacy_bytes).expect("legacy load should succeed");
+        assert_eq!(
+            legacy_loaded.colony_supply,
+            legacy_loaded.recompute_colony_supply(),
+            "legacy saves should re-derive supply deterministically"
+        );
+    }
+
+    #[test]
     fn save_load_preserves_active_scout_mission() {
         use game_core::{Command, FleetId, ScoutMission};
 

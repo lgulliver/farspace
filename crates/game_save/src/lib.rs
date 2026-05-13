@@ -117,9 +117,9 @@ pub fn load_from_file(path: &std::path::Path) -> Result<GameState, SaveError> {
 /// Read only the [`SaveMetadata`] from a save file byte slice without fully loading the game state.
 ///
 /// Useful for displaying a save summary (version, turn, seed) in the UI before committing to a
-/// full load.  For pre-v20 saves the returned metadata will have `game_version = None` and
-/// `created_turn = 0`; `seed` and `schema_version` are populated from the raw JSON where
-/// available.
+/// full load.  For pre-v21 saves without an embedded `metadata` block the returned metadata will
+/// have `game_version = None`, `created_turn = 0`, and `seed = 0`; `schema_version` is taken
+/// from the top-level `version` field.
 pub fn load_metadata(data: &[u8]) -> Result<SaveMetadata, SaveError> {
     if data.is_empty() {
         return Err(SaveError::Empty);
@@ -133,7 +133,12 @@ pub fn load_metadata(data: &[u8]) -> Result<SaveMetadata, SaveError> {
             field: "version".to_string(),
         });
     }
-    let schema_version = obj["version"].as_u64().unwrap_or(0) as u32;
+    let schema_version = obj["version"].as_u64().ok_or_else(|| SaveError::CorruptedSave {
+        reason: format!(
+            "'version' field is not a non-negative integer: {}",
+            obj["version"]
+        ),
+    })? as u32;
     if let Some(meta_val) = obj.get("metadata") {
         let mut metadata: SaveMetadata = serde_json::from_value(meta_val.clone())?;
         // Fill schema_version from the top-level version field when the metadata
@@ -1528,6 +1533,17 @@ mod tests {
         );
     }
 
+    /// load_metadata returns CorruptedSave when 'version' is not an integer (e.g. a string).
+    #[test]
+    fn load_metadata_non_integer_version_returns_corrupted() {
+        let result = load_metadata(br#"{"version": "bad"}"#);
+        assert!(
+            matches!(result, Err(SaveError::CorruptedSave { .. })),
+            "Expected CorruptedSave for non-integer version, got: {:?}",
+            result
+        );
+    }
+
     /// Loading JSON that is not an object returns CorruptedSave.
     #[test]
     fn load_non_object_json_returns_corrupted_save() {
@@ -1584,7 +1600,10 @@ mod tests {
         let original = engine.state.clone();
 
         let dir = std::env::temp_dir();
-        let path = dir.join("farspace_meta_test.json");
+        let path = dir.join(format!(
+            "farspace_meta_test_{}.json",
+            std::process::id()
+        ));
 
         save_to_file(&original, &path).expect("save_to_file should succeed");
         let meta = load_metadata_from_file(&path).expect("load_metadata_from_file should succeed");

@@ -10,12 +10,20 @@ use crate::state::{
     GameState, HyperspaceLane, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
     ShipDesignId, StarId, SurveyMission, TechId, YieldType,
 };
+use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Number of turns for a science ship to survey a planet
 pub(crate) const SURVEY_TURNS: u32 = 2;
+
+/// Salt XOR'd with the game seed when shuffling AI empire definitions.
+///
+/// Using a distinct seed (game_seed ^ EMPIRE_ASSIGN_SALT) for the shuffle RNG
+/// keeps the empire identity assignment independent from galaxy-generation and
+/// in-game RNG streams while remaining fully deterministic for a given game seed.
+const EMPIRE_ASSIGN_SALT: u64 = 0x6172_7473_5f49_5044;
 
 /// Fleet travel speed in galaxy coordinate units per turn.
 ///
@@ -163,19 +171,30 @@ impl Engine {
             "Drosan Republic",
         ];
 
-        // Assign empire definitions deterministically.
-        // The player picks their definition via ScenarioSetup; AI empires receive
-        // the remaining definitions in stable ID order (no duplicates).
+        // Assign empire definitions deterministically using a seeded shuffle.
+        //
+        // A separate RNG is derived from the game seed (XOR with a fixed salt) so that:
+        //   - Same seed → same AI identity assignment every time (deterministic)
+        //   - Different seeds → different AI identity assignments (variety across games)
+        //   - Player's chosen definition is always excluded from the AI pool
+        //
+        // Using a distinct RNG instance (not the GameState RNG) keeps the two
+        // independent and preserves the existing determinism guarantees for galaxy
+        // generation and in-game events.
         let all_defs = crate::state::all_empire_definitions();
         let player_def_id = setup
             .player_empire_def
             .unwrap_or(crate::state::EmpireDefinitionId(0));
-        let ai_def_ids: Vec<crate::state::EmpireDefinitionId> = all_defs
+        // Collect remaining def IDs (excluding player choice), then shuffle with seed.
+        let mut remaining_def_ids: Vec<crate::state::EmpireDefinitionId> = all_defs
             .iter()
             .filter(|d| d.id != player_def_id)
-            .take(ai_count)
             .map(|d| d.id)
             .collect();
+        let mut empire_assign_rng = ChaCha8Rng::seed_from_u64(seed ^ EMPIRE_ASSIGN_SALT);
+        remaining_def_ids.shuffle(&mut empire_assign_rng);
+        let ai_def_ids: Vec<crate::state::EmpireDefinitionId> =
+            remaining_def_ids.into_iter().take(ai_count).collect();
 
         // Create player empire
         let player_empire_id = EmpireId(1);
@@ -9505,6 +9524,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn rally_point_and_fleet_order_persist_through_save_load() {
         use crate::state::FleetOrder;
         let mut engine = Engine::new(42);
@@ -9923,6 +9943,50 @@ mod tests {
     }
 
     #[test]
+    fn different_seeds_can_produce_different_ai_empire_definitions() {
+        // The seeded shuffle means different seeds *can* (and with high probability *do*)
+        // yield different AI empire definition orderings.  We test across several seed
+        // pairs to confirm variance — if all seeds gave the same assignment the shuffle
+        // would be inert.
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let ai_defs_for_seed = |seed: u64| -> Vec<Option<EmpireDefinitionId>> {
+            let e = Engine::new_from_setup(ScenarioSetup {
+                seed,
+                galaxy_size: GalaxySize::Large,
+                ai_empire_count: 4,
+                sector_count_override: None,
+                difficulty: DifficultyLevel::Standard,
+                player_empire_def: Some(EmpireDefinitionId(0)),
+            });
+            e.state
+                .ai_empires
+                .iter()
+                .filter_map(|id| e.state.empires.get(id))
+                .map(|emp| emp.empire_def)
+                .collect()
+        };
+
+        let seeds: &[u64] = &[1, 100, 9999, 0x_DEAD_BEEF, 0x_CAFE_BABE];
+        let assignments: Vec<_> = seeds.iter().map(|&s| ai_defs_for_seed(s)).collect();
+
+        // At least two of the five assignments must differ — a purely stable-order
+        // assignment would produce five identical lists.
+        let unique_count = {
+            let mut seen: Vec<&Vec<Option<EmpireDefinitionId>>> = Vec::new();
+            for a in &assignments {
+                if !seen.contains(&a) {
+                    seen.push(a);
+                }
+            }
+            seen.len()
+        };
+        assert!(
+            unique_count >= 2,
+            "Different seeds must yield at least some variance in AI empire assignments (got {unique_count} unique)"
+        );
+    }
+
+    #[test]
     fn empire_trait_modifiers_applied_per_colony() {
         // The Sylvaran Accord (id=2) gets +2 food/colony.
         use crate::events::Event;
@@ -9971,6 +10035,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn empire_identity_persists_through_save_load() {
         use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
         let setup = ScenarioSetup {

@@ -324,7 +324,12 @@ mod tests {
             ..AppState::default()
         };
         let rendered = render_to_string(&state);
-        assert!(rendered.contains('3'), "AI count 3 not rendered");
+        // Assert on the "AI Empires" label and value together so the test
+        // doesn't pass spuriously due to a '3' appearing elsewhere on screen.
+        assert!(
+            rendered.contains("AI Empires") && rendered.contains('3'),
+            "AI Empires field with count 3 not rendered"
+        );
     }
 
     #[test]

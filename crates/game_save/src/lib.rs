@@ -133,12 +133,14 @@ pub fn load_metadata(data: &[u8]) -> Result<SaveMetadata, SaveError> {
             field: "version".to_string(),
         });
     }
-    let schema_version = obj["version"].as_u64().ok_or_else(|| SaveError::CorruptedSave {
-        reason: format!(
-            "'version' field is not a non-negative integer: {}",
-            obj["version"]
-        ),
-    })? as u32;
+    let schema_version = obj["version"]
+        .as_u64()
+        .ok_or_else(|| SaveError::CorruptedSave {
+            reason: format!(
+                "'version' field is not a non-negative integer: {}",
+                obj["version"]
+            ),
+        })? as u32;
     if let Some(meta_val) = obj.get("metadata") {
         let mut metadata: SaveMetadata = serde_json::from_value(meta_val.clone())?;
         // Fill schema_version from the top-level version field when the metadata
@@ -1600,10 +1602,7 @@ mod tests {
         let original = engine.state.clone();
 
         let dir = std::env::temp_dir();
-        let path = dir.join(format!(
-            "farspace_meta_test_{}.json",
-            std::process::id()
-        ));
+        let path = dir.join(format!("farspace_meta_test_{}.json", std::process::id()));
 
         save_to_file(&original, &path).expect("save_to_file should succeed");
         let meta = load_metadata_from_file(&path).expect("load_metadata_from_file should succeed");

@@ -200,7 +200,7 @@ fn pick_build_item(
         let has_habitat_seeding = state
             .empires
             .get(&empire_id)
-            .is_some_and(|e| e.research.completed.contains(&TechId(2)));
+            .is_some_and(|e| e.research.completed.contains(&TechId::HABITAT_SEEDING));
         let has_unexplored = state
             .stars
             .keys()
@@ -234,7 +234,7 @@ fn pick_build_item(
     let has_orbital_engineering = state
         .empires
         .get(&empire_id)
-        .is_some_and(|e| e.research.completed.contains(&TechId(7)));
+        .is_some_and(|e| e.research.completed.contains(&TechId::ORBITAL_ENGINEERING));
     if has_orbital_engineering && !colony.has_shipyard() {
         let can_place_orbital =
             planet_size.is_some_and(|size| colony.can_place_orbital_installation(size));
@@ -256,7 +256,7 @@ fn pick_build_item(
     let has_habitat_seeding = state
         .empires
         .get(&empire_id)
-        .is_some_and(|e| e.research.completed.contains(&TechId(2)));
+        .is_some_and(|e| e.research.completed.contains(&TechId::HABITAT_SEEDING));
     if !has_colonizer && has_habitat_seeding {
         return Some(BuildItem::Ship(crate::state::ShipDesignId::COLONY));
     }

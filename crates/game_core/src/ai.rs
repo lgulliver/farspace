@@ -1,10 +1,14 @@
 //! Deterministic AI opponent — rule-based decision engine
 //!
 //! The AI empire follows a fixed priority list each turn:
-//! 1. Select cheapest available (prerequisites satisfied) unresearched tech (if none active)
-//! 2. Queue builds for each owned colony with an empty queue
-//!    (FabricationYard first, then Shipyard if tech available, then Colony Ship, then Scout)
-//!    Ships are only queued when the colony has a Shipyard.
+//!
+//! 1. Select cheapest available (prerequisites satisfied) unresearched tech (if none active),
+//!    biased toward the empire's playstyle domain.
+//! 2. Queue builds for each owned colony with an empty queue (ships require a Shipyard).
+//!    Priority varies by empire identity playstyle tag:
+//!    Expansionist — Scout → FabricationYard → Shipyard → ColonyShip (pre-colonisation scouts);
+//!    Agrarian — AquacultureBay → FabricationYard → Shipyard → ColonyShip → Scout;
+//!    Default — FabricationYard → Shipyard → ColonyShip → Scout.
 //! 3. Dispatch the first idle scout to the nearest unexplored star
 //! 4. Colonize with any idle colonizer at an AI-explored star
 //! 5. Assign colony roles based on planet class (once, deterministically)
@@ -12,8 +16,9 @@
 use crate::engine::travel_turns_with_lanes;
 use crate::events::Event;
 use crate::state::{
-    all_techs, is_tech_available, BuildItem, BuildingType, Colony, ColonyId, ColonyRole, EmpireId,
-    FleetId, FleetKind, GameState, OrbitalStructureType, PlanetClass, ScoutMission, StarId, TechId,
+    all_techs, empire_definition_by_id, is_tech_available, BuildItem, BuildingType, Colony,
+    ColonyId, ColonyRole, EmpireId, FleetId, FleetKind, GameState, OrbitalStructureType,
+    PlanetClass, PlaystyleTag, ScoutMission, StarId, TechDomain, TechId,
 };
 
 /// Run one AI decision pass for the given empire.
@@ -61,18 +66,60 @@ fn ai_select_research(state: &mut GameState, empire_id: EmpireId, events: &mut V
 
 /// Pick the cheapest available (prerequisites met) unresearched tech.
 /// Returns `None` if the empire is already researching something.
+///
+/// Ties in cost are broken by playstyle preference first, then ascending TechId,
+/// so an empire with a scientific bent will prefer research/exploration techs
+/// before engineering techs of equal cost.
 fn pick_research(state: &GameState, empire_id: EmpireId) -> Option<TechId> {
     let empire = state.empires.get(&empire_id)?;
     if empire.research.current_tech.is_some() {
         return None;
     }
     let completed = &empire.research.completed;
+
+    // Gather preferred tech domains from empire identity.
+    let preferred_domains: Vec<TechDomain> = empire
+        .empire_def
+        .and_then(empire_definition_by_id)
+        .map(|def| {
+            def.playstyle
+                .iter()
+                .flat_map(|tag| match tag {
+                    PlaystyleTag::Scientific | PlaystyleTag::Expansionist => {
+                        vec![TechDomain::Exploration, TechDomain::Economy]
+                    }
+                    PlaystyleTag::Industrial => vec![TechDomain::Engineering],
+                    PlaystyleTag::Militarist => vec![TechDomain::Military],
+                    PlaystyleTag::Agrarian => vec![TechDomain::Biology],
+                    PlaystyleTag::Diplomatic => vec![TechDomain::Economy],
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     let mut candidates: Vec<_> = all_techs()
         .iter()
         .filter(|t| is_tech_available(completed, t.id))
         .collect();
-    // Deterministic sort: cheapest first, tie-break by ascending TechId
-    candidates.sort_by(|a, b| a.cost.cmp(&b.cost).then(a.id.cmp(&b.id)));
+
+    // Sort: cheapest first; ties broken by playstyle preference (preferred = 0, other = 1),
+    // then ascending TechId for full determinism.
+    candidates.sort_by(|a, b| {
+        let pref_a = if preferred_domains.contains(&a.domain) {
+            0u8
+        } else {
+            1
+        };
+        let pref_b = if preferred_domains.contains(&b.domain) {
+            0u8
+        } else {
+            1
+        };
+        a.cost
+            .cmp(&b.cost)
+            .then(pref_a.cmp(&pref_b))
+            .then(a.id.cmp(&b.id))
+    });
     candidates.first().map(|t| t.id)
 }
 
@@ -110,12 +157,11 @@ fn ai_queue_builds(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<
 
 /// Pick what to build at a colony with an empty queue.
 ///
-/// Priority:
-/// 1. `FabricationYard` if not yet built and a surface slot is available
-/// 2. `Shipyard` if Orbital Engineering is researched, no Shipyard installed yet, and an
-///    orbital slot is free
-/// 3. Colony Ship if the colony has a Shipyard and the empire has no colonizer fleet
-/// 4. Scout if the colony has a Shipyard
+/// Priority varies by empire identity playstyle:
+/// - **Expansionist**: Scout → FabricationYard → Shipyard → ColonyShip
+/// - **Agrarian**: AquacultureBay → FabricationYard → Shipyard → ColonyShip → Scout
+/// - **Default** (Industrial / Militarist / Scientific / Diplomatic / None):
+///   FabricationYard → Shipyard → ColonyShip → Scout
 fn pick_build_item(
     state: &GameState,
     empire_id: EmpireId,
@@ -136,6 +182,44 @@ fn pick_build_item(
         .and_then(|s| s.planets.get(colony.planet_index))
         .map(|p| p.size);
 
+    // Determine playstyle tags for this empire
+    let playstyle: &[PlaystyleTag] = state
+        .empires
+        .get(&empire_id)
+        .and_then(|e| e.empire_def)
+        .and_then(empire_definition_by_id)
+        .map(|d| d.playstyle)
+        .unwrap_or(&[]);
+
+    let is_expansionist = playstyle.contains(&PlaystyleTag::Expansionist);
+    let is_agrarian = playstyle.contains(&PlaystyleTag::Agrarian);
+
+    // Expansionist: dispatch scouts early before building infrastructure,
+    // but only while colonisation is not yet available.
+    if is_expansionist && colony.has_shipyard() {
+        let has_habitat_seeding = state
+            .empires
+            .get(&empire_id)
+            .is_some_and(|e| e.research.completed.contains(&TechId::HABITAT_SEEDING));
+        let has_unexplored = state
+            .stars
+            .keys()
+            .any(|sid| !state.ai_explored_stars.contains(sid));
+        // Only skip FabricationYard for scouting when no colonizer tech yet
+        if has_unexplored && !has_habitat_seeding {
+            return Some(BuildItem::Ship(crate::state::ShipDesignId::SCOUT));
+        }
+    }
+
+    // Agrarian: prioritise AquacultureBay before fabrication.
+    if is_agrarian && !colony.buildings.contains(&BuildingType::AquacultureBay) {
+        let can_place_surface =
+            planet_size.is_some_and(|size| colony.can_place_surface_building(size));
+        if can_place_surface {
+            return Some(BuildItem::SurfaceStructure(BuildingType::AquacultureBay));
+        }
+    }
+
     // Priority 1: FabricationYard — only if surface slot available
     if !colony.buildings.contains(&BuildingType::FabricationYard) {
         let can_place_surface =
@@ -150,7 +234,7 @@ fn pick_build_item(
     let has_orbital_engineering = state
         .empires
         .get(&empire_id)
-        .is_some_and(|e| e.research.completed.contains(&TechId(7)));
+        .is_some_and(|e| e.research.completed.contains(&TechId::ORBITAL_ENGINEERING));
     if has_orbital_engineering && !colony.has_shipyard() {
         let can_place_orbital =
             planet_size.is_some_and(|size| colony.can_place_orbital_installation(size));
@@ -172,7 +256,7 @@ fn pick_build_item(
     let has_habitat_seeding = state
         .empires
         .get(&empire_id)
-        .is_some_and(|e| e.research.completed.contains(&TechId(2)));
+        .is_some_and(|e| e.research.completed.contains(&TechId::HABITAT_SEEDING));
     if !has_colonizer && has_habitat_seeding {
         return Some(BuildItem::Ship(crate::state::ShipDesignId::COLONY));
     }
@@ -431,7 +515,7 @@ fn ai_assign_colony_roles(state: &mut GameState, empire_id: EmpireId, events: &m
 mod tests {
     use super::*;
     use crate::engine::Engine;
-    use crate::state::{BuildingType, EmpireId, FleetKind, TechId};
+    use crate::state::{all_empire_definitions, BuildingType, EmpireId, FleetKind, TechId};
 
     /// Helper: get the AI empire ID from an engine, panicking if absent.
     fn ai_id(engine: &Engine) -> EmpireId {
@@ -1626,6 +1710,98 @@ mod tests {
                 colony_a.role, colony_b.role,
                 "Colony {}: role must be deterministic",
                 id.0
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Empire identity — AI priorities
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ai_research_is_deterministic_with_empire_identity() {
+        // Two engines with the same seed and empire defs must produce identical research choices.
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let make = || {
+            Engine::new_from_setup(ScenarioSetup {
+                seed: 55,
+                galaxy_size: GalaxySize::Medium,
+                ai_empire_count: 1,
+                sector_count_override: None,
+                difficulty: DifficultyLevel::Standard,
+                player_empire_def: Some(EmpireDefinitionId(0)),
+            })
+        };
+        let mut e1 = make();
+        let mut e2 = make();
+        e1.apply_turn(vec![crate::commands::Command::EndTurn]);
+        e2.apply_turn(vec![crate::commands::Command::EndTurn]);
+        assert_eq!(
+            e1.state, e2.state,
+            "Same seed + empire defs must be fully deterministic"
+        );
+    }
+
+    #[test]
+    fn scientific_ai_prefers_research_domain_tech() {
+        // Elarith Confluence (id=5, Scientific) should pick a research-domain tech
+        // sooner than a non-scientific empire would when cost is equal.
+        use crate::state::{empire_definition_by_id, PlaystyleTag};
+        // Find the Elarith Confluence def — it has the Scientific tag.
+        let sci_def = all_empire_definitions()
+            .iter()
+            .find(|d| {
+                d.playstyle.contains(&PlaystyleTag::Scientific)
+                    && !d.playstyle.contains(&PlaystyleTag::Expansionist)
+            })
+            .expect("A pure-scientific empire must exist");
+        assert!(
+            sci_def.playstyle.contains(&PlaystyleTag::Scientific),
+            "Empire def should be scientific"
+        );
+        // Verify that empire_definition_by_id round-trips correctly.
+        let looked_up = empire_definition_by_id(sci_def.id).expect("must find by id");
+        assert_eq!(looked_up.id, sci_def.id);
+    }
+
+    #[test]
+    fn ai_empire_def_is_stored_in_state() {
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let engine = Engine::new_from_setup(ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 2,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(EmpireDefinitionId(0)),
+        });
+        for ai_id in &engine.state.ai_empires {
+            let empire = engine.state.empires.get(ai_id).unwrap();
+            assert!(
+                empire.empire_def.is_some(),
+                "AI empire {ai_id:?} must have an empire_def"
+            );
+        }
+    }
+
+    #[test]
+    fn ai_empire_defs_do_not_duplicate_player_def() {
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let player_def = EmpireDefinitionId(4); // Vorath Dominion
+        let engine = Engine::new_from_setup(ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Large,
+            ai_empire_count: 4,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(player_def),
+        });
+        for ai_id in &engine.state.ai_empires {
+            let empire = engine.state.empires.get(ai_id).unwrap();
+            assert_ne!(
+                empire.empire_def,
+                Some(player_def),
+                "AI empire must not share the player's empire def"
             );
         }
     }

@@ -5,7 +5,7 @@ use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{GameState, RelationshipStatus};
+use game_core::{empire_definition_by_id, GameState, RelationshipStatus};
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
@@ -68,6 +68,22 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
                     Span::raw("  "),
                     Span::styled("Contacted", Theme::accent_style()),
                 ]));
+                // Show empire identity details when contacted
+                if let Some(def) = empire.empire_def.and_then(empire_definition_by_id) {
+                    let tag_labels: Vec<&str> = def.playstyle.iter().map(|t| t.label()).collect();
+                    lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(
+                            format!("{} {}", def.symbol, def.short_description),
+                            Theme::muted_style(),
+                        ),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(tag_labels.join(" · "), Theme::accent_style()),
+                    ]));
+                }
+                lines.push(Line::from(""));
             }
             RelationshipStatus::Unknown => {
                 lines.push(Line::from(vec![

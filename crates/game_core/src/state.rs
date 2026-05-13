@@ -47,6 +47,178 @@ impl TechId {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ShipDesignId(pub u32);
 
+/// Unique identifier for an empire definition (static faction template).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct EmpireDefinitionId(pub u8);
+
+/// High-level playstyle orientation tag for an empire.
+///
+/// Tags influence AI build/research priorities and serve as display metadata
+/// for the player.  Multiple tags may apply to a single empire definition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaystyleTag {
+    /// Prefers production buildings and infrastructure.
+    Industrial,
+    /// Prefers research structures and technology advancement.
+    Scientific,
+    /// Prefers scouts, science ships, and rapid colonization.
+    Expansionist,
+    /// Prefers military fleets and defense.
+    Militarist,
+    /// Prefers food/growth stability and population.
+    Agrarian,
+    /// Diplomatic bonus placeholder — no full diplomacy effect yet.
+    Diplomatic,
+}
+
+impl PlaystyleTag {
+    /// Short display label for this tag.
+    pub fn label(&self) -> &'static str {
+        match self {
+            PlaystyleTag::Industrial => "Industrial",
+            PlaystyleTag::Scientific => "Scientific",
+            PlaystyleTag::Expansionist => "Expansionist",
+            PlaystyleTag::Militarist => "Militarist",
+            PlaystyleTag::Agrarian => "Agrarian",
+            PlaystyleTag::Diplomatic => "Diplomatic",
+        }
+    }
+}
+
+/// Per-colony flat yield modifiers granted by an empire's identity.
+///
+/// Applied every turn to each colony owned by the empire, on top of the
+/// standard yield model.  Values may be negative (e.g. a trade-off design).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EmpireTraitModifiers {
+    /// Extra industry per colony per turn.
+    pub industry_per_colony: i64,
+    /// Extra science per colony per turn.
+    pub science_per_colony: i64,
+    /// Extra credits per colony per turn.
+    pub credits_per_colony: i64,
+    /// Extra food per colony per turn.
+    pub food_per_colony: i64,
+}
+
+/// Static definition of a playable empire faction.
+///
+/// These are compile-time records — not serialised.  An empire's chosen
+/// definition is referenced by `EmpireDefinitionId` stored in `Empire`.
+pub struct EmpireDefinition {
+    /// Stable numeric identifier.
+    pub id: EmpireDefinitionId,
+    /// Display name (original IP — not derived from other 4X titles).
+    pub name: &'static str,
+    /// One-line flavour description shown during setup and in diplomacy.
+    pub short_description: &'static str,
+    /// Single-character symbol used in compact map display.
+    pub symbol: char,
+    /// Flat per-colony yield bonuses applied every turn.
+    pub trait_modifiers: EmpireTraitModifiers,
+    /// Ordered list of playstyle orientation tags.
+    pub playstyle: &'static [PlaystyleTag],
+}
+
+/// All available empire definitions in stable ID order.
+///
+/// # Original IP
+/// All names, descriptions, and symbols are original.  No content is derived
+/// from Master of Orion or any other published 4X title.
+pub fn all_empire_definitions() -> &'static [EmpireDefinition] {
+    &EMPIRE_DEFINITIONS
+}
+
+/// Look up an empire definition by its ID.  Returns `None` if not found.
+pub fn empire_definition_by_id(id: EmpireDefinitionId) -> Option<&'static EmpireDefinition> {
+    EMPIRE_DEFINITIONS.iter().find(|d| d.id == id)
+}
+
+static EMPIRE_DEFINITIONS: [EmpireDefinition; 6] = [
+    EmpireDefinition {
+        id: EmpireDefinitionId(0),
+        name: "Ashveran Compact",
+        short_description: "A federation of heavy-industry worlds united by supply-chain treaties.",
+        symbol: '⚙',
+        trait_modifiers: EmpireTraitModifiers {
+            industry_per_colony: 1,
+            science_per_colony: 0,
+            credits_per_colony: 0,
+            food_per_colony: 0,
+        },
+        playstyle: &[PlaystyleTag::Industrial],
+    },
+    EmpireDefinition {
+        id: EmpireDefinitionId(1),
+        name: "Luminal Traverse",
+        short_description: "Explorers driven by an obsession with mapping the unknown.",
+        symbol: '◎',
+        trait_modifiers: EmpireTraitModifiers {
+            industry_per_colony: 0,
+            science_per_colony: 1,
+            credits_per_colony: 0,
+            food_per_colony: 0,
+        },
+        playstyle: &[PlaystyleTag::Expansionist, PlaystyleTag::Scientific],
+    },
+    EmpireDefinition {
+        id: EmpireDefinitionId(2),
+        name: "Sylvaran Accord",
+        short_description:
+            "A biosphere-first collective that values growth and ecological balance.",
+        symbol: '✿',
+        trait_modifiers: EmpireTraitModifiers {
+            industry_per_colony: 0,
+            science_per_colony: 0,
+            credits_per_colony: 0,
+            food_per_colony: 2,
+        },
+        playstyle: &[PlaystyleTag::Agrarian],
+    },
+    EmpireDefinition {
+        id: EmpireDefinitionId(3),
+        name: "Thalori Exchange",
+        short_description:
+            "A merchant alliance that turned commerce into a form of galactic power.",
+        symbol: '◈',
+        trait_modifiers: EmpireTraitModifiers {
+            industry_per_colony: 0,
+            science_per_colony: 0,
+            credits_per_colony: 2,
+            food_per_colony: 0,
+        },
+        playstyle: &[PlaystyleTag::Diplomatic, PlaystyleTag::Industrial],
+    },
+    EmpireDefinition {
+        id: EmpireDefinitionId(4),
+        name: "Vorath Dominion",
+        short_description: "A martial confederation bound by oaths of mutual defense and conquest.",
+        symbol: '⚔',
+        trait_modifiers: EmpireTraitModifiers {
+            industry_per_colony: 0,
+            science_per_colony: 0,
+            credits_per_colony: 1,
+            food_per_colony: 0,
+        },
+        playstyle: &[PlaystyleTag::Militarist],
+    },
+    EmpireDefinition {
+        id: EmpireDefinitionId(5),
+        name: "Elarith Confluence",
+        short_description:
+            "A technocratic council that views scientific advancement as the highest law.",
+        symbol: '⟁',
+        trait_modifiers: EmpireTraitModifiers {
+            industry_per_colony: 0,
+            science_per_colony: 2,
+            credits_per_colony: 0,
+            food_per_colony: 0,
+        },
+        playstyle: &[PlaystyleTag::Scientific],
+    },
+];
+
 /// Static record describing a researchable technology
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TechRecord {
@@ -920,6 +1092,10 @@ pub struct Empire {
     /// Empire-wide food stockpile (net of production minus consumption each turn)
     #[cfg_attr(feature = "serde", serde(default))]
     pub food: i64,
+    /// The static empire definition (faction identity) chosen at game start.
+    /// `None` for saves created before empire identities were introduced (pre-v22).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub empire_def: Option<EmpireDefinitionId>,
 }
 
 /// Permanent buildings that can be constructed at a colony
@@ -1575,6 +1751,10 @@ pub struct ScenarioSetup {
     /// Placeholder difficulty level label (v1 — no mechanical effect yet).
     #[cfg_attr(feature = "serde", serde(default))]
     pub difficulty: DifficultyLevel,
+    /// The empire definition chosen by the player.  When `None` the engine
+    /// assigns the first available definition deterministically.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub player_empire_def: Option<EmpireDefinitionId>,
 }
 
 impl ScenarioSetup {
@@ -1586,6 +1766,7 @@ impl ScenarioSetup {
             ai_empire_count: 1,
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         }
     }
 
@@ -1613,6 +1794,11 @@ impl ScenarioSetup {
         if let Some(n) = self.sector_count_override {
             if !(2..=8).contains(&n) {
                 return Err(format!("Sector count must be 2–8, got {}", n));
+            }
+        }
+        if let Some(def_id) = self.player_empire_def {
+            if empire_definition_by_id(def_id).is_none() {
+                return Err(format!("Unknown player empire definition id {}", def_id.0));
             }
         }
         Ok(())
@@ -2136,6 +2322,7 @@ mod tests {
             home_star: StarId(1),
             research: ResearchState::default(),
             food: 0,
+            empire_def: None,
         };
         assert!(empire.research.current_tech.is_none());
         assert!(empire.research.completed.is_empty());
@@ -2501,6 +2688,7 @@ mod tests {
             ai_empire_count: 1,
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         };
         assert!(setup.validate().is_ok());
 
@@ -2519,6 +2707,7 @@ mod tests {
             ai_empire_count: 0,
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         };
         assert!(setup.validate().is_err());
     }
@@ -2531,6 +2720,7 @@ mod tests {
             ai_empire_count: 5,
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         };
         assert!(setup.validate().is_err());
     }
@@ -2543,6 +2733,7 @@ mod tests {
             ai_empire_count: 1,
             sector_count_override: Some(1),
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         };
         assert!(setup_low.validate().is_err());
 
@@ -2579,6 +2770,7 @@ mod tests {
             ai_empire_count: 1,
             sector_count_override: Some(5),
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         };
         // Star count comes from galaxy_size
         assert_eq!(setup.effective_star_count(), 10);
@@ -2594,6 +2786,7 @@ mod tests {
             ai_empire_count: 1,
             sector_count_override: Some(1), // below min
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         };
         assert_eq!(setup_low.effective_sector_count(), 2); // clamped to 2
 
@@ -2602,5 +2795,113 @@ mod tests {
             ..setup_low
         };
         assert_eq!(setup_high.effective_sector_count(), 8); // clamped to 8
+    }
+
+    // ── Empire Definition tests ─────────────────────────────────────────────
+
+    #[test]
+    fn all_empire_definitions_returns_six_entries() {
+        assert_eq!(all_empire_definitions().len(), 6);
+    }
+
+    #[test]
+    fn empire_definition_ids_are_unique_and_sequential() {
+        let defs = all_empire_definitions();
+        for (i, def) in defs.iter().enumerate() {
+            assert_eq!(def.id.0 as usize, i, "Empire def #{i} has wrong id");
+        }
+    }
+
+    #[test]
+    fn empire_definition_by_id_finds_existing() {
+        for def in all_empire_definitions() {
+            let found = empire_definition_by_id(def.id);
+            assert!(
+                found.is_some(),
+                "empire_definition_by_id should find id {}",
+                def.id.0
+            );
+            assert_eq!(found.unwrap().name, def.name);
+        }
+    }
+
+    #[test]
+    fn empire_definition_by_id_returns_none_for_unknown() {
+        assert!(empire_definition_by_id(EmpireDefinitionId(99)).is_none());
+    }
+
+    #[test]
+    fn empire_names_are_distinct() {
+        let defs = all_empire_definitions();
+        let names: std::collections::BTreeSet<_> = defs.iter().map(|d| d.name).collect();
+        assert_eq!(names.len(), defs.len(), "All empire names must be unique");
+    }
+
+    #[test]
+    fn empire_trait_modifiers_default_is_zero() {
+        let m = EmpireTraitModifiers::default();
+        assert_eq!(m.industry_per_colony, 0);
+        assert_eq!(m.science_per_colony, 0);
+        assert_eq!(m.credits_per_colony, 0);
+        assert_eq!(m.food_per_colony, 0);
+    }
+
+    #[test]
+    fn playstyle_tag_labels_are_nonempty() {
+        let tags = [
+            PlaystyleTag::Industrial,
+            PlaystyleTag::Scientific,
+            PlaystyleTag::Expansionist,
+            PlaystyleTag::Militarist,
+            PlaystyleTag::Agrarian,
+            PlaystyleTag::Diplomatic,
+        ];
+        for tag in &tags {
+            assert!(!tag.label().is_empty());
+        }
+    }
+
+    #[test]
+    fn scenario_setup_validates_valid_empire_def() {
+        let setup = ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(EmpireDefinitionId(0)),
+        };
+        assert!(setup.validate().is_ok());
+    }
+
+    #[test]
+    fn scenario_setup_rejects_unknown_empire_def() {
+        let setup = ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(EmpireDefinitionId(99)),
+        };
+        let err = setup.validate();
+        assert!(err.is_err(), "Unknown empire def should fail validation");
+        assert!(
+            err.unwrap_err().contains("99"),
+            "Error should mention the invalid id"
+        );
+    }
+
+    #[test]
+    fn scenario_setup_none_empire_def_is_valid() {
+        let setup = ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
+        };
+        assert!(setup.validate().is_ok());
     }
 }

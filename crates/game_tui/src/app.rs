@@ -81,13 +81,15 @@ pub struct AppState {
     /// Seed string shown on the setup screen (ASCII digits only).
     pub setup_seed_str: String,
     /// Which field is currently highlighted on the setup screen.
-    /// 0 = galaxy size, 1 = AI count, 2 = seed.
+    /// 0 = empire selection, 1 = galaxy size, 2 = AI count, 3 = seed.
     pub setup_cursor: usize,
     /// Whether the seed text-edit mode is active.
     pub setup_seed_editing: bool,
     /// Snapshot of `setup_seed_str` taken when seed editing begins, used to
     /// restore the original value if the user presses Esc to discard changes.
     pub setup_seed_pre_edit: String,
+    /// Index into `all_empire_definitions()` for the empire the player has chosen.
+    pub setup_empire_cursor: usize,
 }
 
 impl Default for AppState {
@@ -124,6 +126,7 @@ impl Default for AppState {
             setup_cursor: 0,
             setup_seed_editing: false,
             setup_seed_pre_edit: String::new(),
+            setup_empire_cursor: 0,
         }
     }
 }
@@ -382,8 +385,8 @@ impl App {
 
     /// Handle keyboard input on the New Game Setup screen.
     fn handle_new_game_setup_key(&mut self, key: KeyEvent) {
-        use crate::screens::new_game_setup::FIELD_SEED;
-        const NUM_FIELDS: usize = 3;
+        use crate::screens::new_game_setup::{FIELD_EMPIRE, FIELD_SEED};
+        const NUM_FIELDS: usize = 4;
 
         // Seed editing mode intercepts most keys.
         if self.state.setup_seed_editing {
@@ -423,6 +426,9 @@ impl App {
                     // Enter edit mode for seed field — snapshot the current value so Esc can restore it.
                     self.state.setup_seed_pre_edit = self.state.setup_seed_str.clone();
                     self.state.setup_seed_editing = true;
+                } else if cursor == FIELD_EMPIRE {
+                    // Enter on empire field cycles to next empire (same as →).
+                    self.setup_cycle_field(true);
                 } else {
                     // Start the game from the setup screen.
                     self.start_game_from_setup();
@@ -452,10 +458,19 @@ impl App {
 
     /// Cycle the currently selected setup field forward (true) or backward (false).
     fn setup_cycle_field(&mut self, forward: bool) {
-        use crate::screens::new_game_setup::{FIELD_AI_COUNT, FIELD_GALAXY_SIZE};
+        use crate::screens::new_game_setup::{FIELD_AI_COUNT, FIELD_EMPIRE, FIELD_GALAXY_SIZE};
         use game_core::GalaxySize;
         let all_sizes = GalaxySize::all();
+        let all_defs = game_core::all_empire_definitions();
         match self.state.setup_cursor {
+            FIELD_EMPIRE => {
+                let n = all_defs.len();
+                if forward {
+                    self.state.setup_empire_cursor = (self.state.setup_empire_cursor + 1) % n;
+                } else {
+                    self.state.setup_empire_cursor = (self.state.setup_empire_cursor + n - 1) % n;
+                }
+            }
             FIELD_GALAXY_SIZE => {
                 let idx = all_sizes
                     .iter()
@@ -494,12 +509,15 @@ impl App {
                 0
             }
         };
+        let all_defs = game_core::all_empire_definitions();
+        let player_empire_def = all_defs.get(self.state.setup_empire_cursor).map(|d| d.id);
         let setup = ScenarioSetup {
             seed,
             galaxy_size: self.state.setup_galaxy_size,
             ai_empire_count: self.state.setup_ai_count,
             sector_count_override: None,
             difficulty: game_core::DifficultyLevel::Standard,
+            player_empire_def,
         };
         self.new_game_from_setup(setup);
     }

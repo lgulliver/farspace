@@ -1701,6 +1701,7 @@ mod tests {
             ai_empire_count: 2,
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         };
         let engine = Engine::new_from_setup(setup.clone());
 

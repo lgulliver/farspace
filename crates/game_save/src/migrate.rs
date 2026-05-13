@@ -238,15 +238,30 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // v20 → v21: SaveMetadata added to SaveFile.
             // Populate metadata from the current state; game_version is unknown for migrated saves.
             let metadata = crate::schema::SaveMetadata {
-                schema_version: CURRENT_VERSION,
+                schema_version: 21,
                 game_version: None,
                 created_turn: save.state.turn,
                 seed: save.state.seed,
             };
+            migrate(SaveFile {
+                version: 21,
+                metadata,
+                state: save.state,
+            })
+        }
+        21 => {
+            // v21 → v22: Empire.empire_def (Option<EmpireDefinitionId>, default None) and
+            // ScenarioSetup.player_empire_def (Option<EmpireDefinitionId>, default None) added.
+            // Both fields rely on serde defaults — nothing to populate explicitly.
+            // Existing empires start without an empire identity; their names are preserved.
+            // Also update metadata.schema_version to reflect the new version.
+            let state = save.state;
+            let mut metadata = save.metadata;
+            metadata.schema_version = CURRENT_VERSION;
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 metadata,
-                state: save.state,
+                state,
             })
         }
         _ => Err(SaveError::UnsupportedVersion {
@@ -295,6 +310,7 @@ mod tests {
                 home_star,
                 research: Default::default(),
                 food: 0,
+                empire_def: None,
             },
         );
         // explored_stars starts empty
@@ -739,6 +755,80 @@ mod tests {
         assert!(
             migrated.metadata.game_version.is_none(),
             "migrated save must not claim a known game_version"
+        );
+    }
+
+    #[test]
+    fn migrate_v21_to_v22_preserves_empire_data() {
+        // v21 → v22 adds empire_def and player_empire_def (serde defaults = None).
+        // Migration is a pass-through; existing empire names and state are preserved.
+        //
+        // Simulate a real v21 save: create an engine, then clear empire_def on all
+        // empires to represent the state before v22 was introduced.
+        let engine = game_core::Engine::new(9999);
+        let mut state = engine.state;
+        let player_empire = state.player_empire;
+        let player_name = state.empires.get(&player_empire).unwrap().name.clone();
+
+        // Clear empire_def to mimic a pre-v22 save file
+        for empire in state.empires.values_mut() {
+            empire.empire_def = None;
+        }
+
+        let v21_save = SaveFile {
+            version: 21,
+            state,
+            metadata: Default::default(),
+        };
+        let migrated = migrate(v21_save).expect("v21 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        // Empire names preserved
+        assert_eq!(
+            migrated.state.empires.get(&player_empire).unwrap().name,
+            player_name,
+            "Empire name must be preserved through v21→v22 migration"
+        );
+        // empire_def remains None — migration is a pass-through for this field
+        assert!(
+            migrated
+                .state
+                .empires
+                .get(&player_empire)
+                .unwrap()
+                .empire_def
+                .is_none(),
+            "Migrated empire must have empire_def = None (pass-through from pre-v22 save)"
+        );
+    }
+
+    #[test]
+    fn empire_identity_round_trip_via_save_load() {
+        use game_core::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let setup = ScenarioSetup {
+            seed: 1111,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(EmpireDefinitionId(5)), // Elarith Confluence
+        };
+        let engine = game_core::Engine::new_from_setup(setup);
+        let save = SaveFile::new(engine.state.clone());
+
+        // Serialise and deserialise via JSON (same as the real save path)
+        let json = serde_json::to_string(&save).expect("serialize");
+        let restored: SaveFile = serde_json::from_str(&json).expect("deserialize");
+
+        let player_def = restored
+            .state
+            .empires
+            .get(&restored.state.player_empire)
+            .unwrap()
+            .empire_def;
+        assert_eq!(
+            player_def,
+            Some(EmpireDefinitionId(5)),
+            "Player empire def must survive full save/load round-trip"
         );
     }
 }

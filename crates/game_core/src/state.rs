@@ -1503,6 +1503,136 @@ pub enum RelationshipStatus {
     Contacted,
 }
 
+/// Coarse galaxy size preset used in scenario setup.
+///
+/// Each variant defines default star and sector counts.  Counts are kept in a
+/// range rather than a fixed value so that future per-size variation (e.g.
+/// slightly randomised counts) remains backward-compatible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum GalaxySize {
+    /// Compact galaxy — 10 stars, 2 sectors
+    Small,
+    /// Standard galaxy — 20 stars, 4 sectors
+    #[default]
+    Medium,
+    /// Large sprawling galaxy — 40 stars, 6 sectors
+    Large,
+}
+
+impl GalaxySize {
+    /// All available galaxy sizes in display order.
+    pub fn all() -> &'static [GalaxySize] {
+        &[GalaxySize::Small, GalaxySize::Medium, GalaxySize::Large]
+    }
+
+    /// Short display label.
+    pub fn label(&self) -> &'static str {
+        match self {
+            GalaxySize::Small => "Small",
+            GalaxySize::Medium => "Medium",
+            GalaxySize::Large => "Large",
+        }
+    }
+
+    /// Default number of star systems for this size.
+    pub fn default_star_count(&self) -> usize {
+        match self {
+            GalaxySize::Small => 10,
+            GalaxySize::Medium => 20,
+            GalaxySize::Large => 40,
+        }
+    }
+
+    /// Default number of sectors for this size.
+    pub fn default_sector_count(&self) -> usize {
+        match self {
+            GalaxySize::Small => 2,
+            GalaxySize::Medium => 4,
+            GalaxySize::Large => 6,
+        }
+    }
+}
+
+/// Scenario setup options captured before a game starts.
+///
+/// These drive deterministic galaxy generation and empire placement.
+/// The struct is stored in `GameState` so that save/load round-trips
+/// preserve the original setup for display and future scenario tooling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ScenarioSetup {
+    /// Galaxy RNG seed.  Must be fixed before the game begins.
+    pub seed: u64,
+    /// Coarse size preset that drives star and sector counts.
+    pub galaxy_size: GalaxySize,
+    /// Number of AI-controlled empires (1 – 4).
+    pub ai_empire_count: u8,
+    /// Override for the number of sectors.  When `None` the count is
+    /// derived from `galaxy_size`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sector_count_override: Option<usize>,
+    /// Placeholder difficulty level label (v1 — no mechanical effect yet).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub difficulty: DifficultyLevel,
+}
+
+impl ScenarioSetup {
+    /// Construct a setup with sensible defaults.
+    pub fn default_for_seed(seed: u64) -> Self {
+        ScenarioSetup {
+            seed,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        }
+    }
+
+    /// Effective number of star systems for this setup.
+    pub fn effective_star_count(&self) -> usize {
+        self.galaxy_size.default_star_count()
+    }
+
+    /// Effective number of sectors for this setup.
+    pub fn effective_sector_count(&self) -> usize {
+        match self.sector_count_override {
+            Some(n) => n.clamp(2, 8),
+            None => self.galaxy_size.default_sector_count(),
+        }
+    }
+
+    /// Validate setup options.  Returns an error string if any value is out of range.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.ai_empire_count == 0 || self.ai_empire_count > 4 {
+            return Err(format!(
+                "AI empire count must be 1–4, got {}",
+                self.ai_empire_count
+            ));
+        }
+        if let Some(n) = self.sector_count_override {
+            if !(2..=8).contains(&n) {
+                return Err(format!("Sector count must be 2–8, got {}", n));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Default for ScenarioSetup {
+    fn default() -> Self {
+        ScenarioSetup::default_for_seed(42)
+    }
+}
+
+/// Placeholder difficulty level (v1 — no mechanical effect).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum DifficultyLevel {
+    #[default]
+    Standard,
+}
+
 /// Complete game state
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -1554,6 +1684,17 @@ pub struct GameState {
     /// A fleet with no entry here has no explicit order and is considered idle.
     #[cfg_attr(feature = "serde", serde(default))]
     pub fleet_orders: BTreeMap<FleetId, FleetOrder>,
+    /// Scenario setup used to create this game.  Preserved through save/load
+    /// for display and future scenario tooling.  `None` for games started
+    /// before this field was introduced (pre-v20 saves).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub scenario: Option<ScenarioSetup>,
+    /// All AI-controlled empire IDs in the game.
+    ///
+    /// Supersedes the legacy `ai_empire` field which always points to the
+    /// first entry of this list (when non-empty) for backward compatibility.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ai_empires: Vec<EmpireId>,
 }
 
 impl GameState {
@@ -1622,6 +1763,8 @@ impl PartialEq for GameState {
             && self.hyperspace_lanes == other.hyperspace_lanes
             && self.known_hyperspace_lanes == other.known_hyperspace_lanes
             && self.fleet_orders == other.fleet_orders
+            && self.scenario == other.scenario
+            && self.ai_empires == other.ai_empires
     }
 }
 
@@ -1673,6 +1816,8 @@ impl Default for GameState {
             hyperspace_lanes: BTreeSet::new(),
             known_hyperspace_lanes: BTreeSet::new(),
             fleet_orders: BTreeMap::new(),
+            scenario: None,
+            ai_empires: Vec::new(),
         }
     }
 }
@@ -2344,5 +2489,118 @@ mod tests {
             .push(BuildingType::FabricationYard);
         assert!(!colony.can_place_surface_building(PlanetSize::Tiny));
         assert_eq!(colony.available_surface_slots(PlanetSize::Tiny), 0);
+    }
+
+    // ── ScenarioSetup / GalaxySize tests ───────────────────────────────────
+
+    #[test]
+    fn scenario_setup_validate_accepts_valid_configs() {
+        let setup = ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        };
+        assert!(setup.validate().is_ok());
+
+        let setup4 = ScenarioSetup {
+            ai_empire_count: 4,
+            ..setup.clone()
+        };
+        assert!(setup4.validate().is_ok());
+    }
+
+    #[test]
+    fn scenario_setup_validate_rejects_zero_ai_count() {
+        let setup = ScenarioSetup {
+            seed: 1,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 0,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        };
+        assert!(setup.validate().is_err());
+    }
+
+    #[test]
+    fn scenario_setup_validate_rejects_too_many_ai() {
+        let setup = ScenarioSetup {
+            seed: 1,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 5,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        };
+        assert!(setup.validate().is_err());
+    }
+
+    #[test]
+    fn scenario_setup_validate_rejects_bad_sector_count() {
+        let setup_low = ScenarioSetup {
+            seed: 1,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: Some(1),
+            difficulty: DifficultyLevel::Standard,
+        };
+        assert!(setup_low.validate().is_err());
+
+        let setup_high = ScenarioSetup {
+            sector_count_override: Some(9),
+            ..setup_low.clone()
+        };
+        assert!(setup_high.validate().is_err());
+
+        let setup_ok = ScenarioSetup {
+            sector_count_override: Some(4),
+            ..setup_low
+        };
+        assert!(setup_ok.validate().is_ok());
+    }
+
+    #[test]
+    fn galaxy_size_star_and_sector_counts() {
+        assert_eq!(GalaxySize::Small.default_star_count(), 10);
+        assert_eq!(GalaxySize::Small.default_sector_count(), 2);
+
+        assert_eq!(GalaxySize::Medium.default_star_count(), 20);
+        assert_eq!(GalaxySize::Medium.default_sector_count(), 4);
+
+        assert_eq!(GalaxySize::Large.default_star_count(), 40);
+        assert_eq!(GalaxySize::Large.default_sector_count(), 6);
+    }
+
+    #[test]
+    fn scenario_setup_effective_counts_respect_override() {
+        let setup = ScenarioSetup {
+            seed: 0,
+            galaxy_size: GalaxySize::Small,
+            ai_empire_count: 1,
+            sector_count_override: Some(5),
+            difficulty: DifficultyLevel::Standard,
+        };
+        // Star count comes from galaxy_size
+        assert_eq!(setup.effective_star_count(), 10);
+        // Sector count comes from override
+        assert_eq!(setup.effective_sector_count(), 5);
+    }
+
+    #[test]
+    fn scenario_setup_effective_sector_count_clamped() {
+        let setup_low = ScenarioSetup {
+            seed: 0,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: Some(1), // below min
+            difficulty: DifficultyLevel::Standard,
+        };
+        assert_eq!(setup_low.effective_sector_count(), 2); // clamped to 2
+
+        let setup_high = ScenarioSetup {
+            sector_count_override: Some(20), // above max
+            ..setup_low
+        };
+        assert_eq!(setup_high.effective_sector_count(), 8); // clamped to 8
     }
 }

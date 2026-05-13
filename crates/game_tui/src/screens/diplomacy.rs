@@ -1,6 +1,6 @@
 //! Diplomacy screen — shows known empires and their relationship status
 
-use crate::components::{render_footer, render_header};
+use crate::components::{derive_header_data, render_footer, render_header};
 use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
@@ -17,30 +17,21 @@ use ratatui::{
 pub fn render_diplomacy(
     frame: &mut Frame,
     area: Rect,
-    _app_state: &AppState,
+    app_state: &AppState,
     game_state: &GameState,
 ) {
     let (header_area, main_area, footer_area) = compose_layout(area);
 
-    let empire = game_state.empires.get(&game_state.player_empire);
-    let (credits, food, research, empire_name) = match empire {
-        Some(e) => (e.credits, e.food, e.research_points, e.name.as_str()),
-        None => (0, 0, 0, "Unknown"),
-    };
-
-    render_header(
-        frame,
-        header_area,
-        game_state.turn,
-        empire_name,
-        credits,
-        food,
-        research,
-    );
+    let header_data = derive_header_data(game_state);
+    render_header(frame, header_area, &header_data);
 
     render_empire_list(frame, main_area, game_state);
 
-    render_footer(frame, footer_area, &Screen::Diplomacy);
+    let hint = app_state
+        .status_message
+        .as_deref()
+        .unwrap_or("Use this screen to monitor first contact, then return with Esc.");
+    render_footer(frame, footer_area, &Screen::Diplomacy, Some(hint));
 }
 
 /// Render the list of known (contacted) empires and hidden placeholders for unknown ones.

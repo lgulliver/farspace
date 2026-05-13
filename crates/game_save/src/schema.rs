@@ -4,7 +4,7 @@ use game_core::state::GameState;
 use serde::{Deserialize, Serialize};
 
 /// Current save file version
-pub const CURRENT_VERSION: u32 = 20;
+pub const CURRENT_VERSION: u32 = 21;
 
 /// Metadata embedded in every save file.
 ///
@@ -31,7 +31,7 @@ pub struct SaveMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SaveFile {
     pub version: u32,
-    /// Per-save metadata (absent in pre-v20 saves; defaults to `SaveMetadata::default()`).
+    /// Per-save metadata (absent in pre-v21 saves; defaults to `SaveMetadata::default()`).
     #[serde(default)]
     pub metadata: SaveMetadata,
     pub state: GameState,

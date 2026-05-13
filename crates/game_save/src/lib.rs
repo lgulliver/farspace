@@ -1672,4 +1672,37 @@ mod tests {
             "UnsupportedVersion message must contain the found version"
         );
     }
+
+    #[test]
+    fn save_load_roundtrip_preserves_scenario_metadata() {
+        use game_core::{DifficultyLevel, GalaxySize, ScenarioSetup};
+
+        let setup = ScenarioSetup {
+            seed: 5678,
+            galaxy_size: GalaxySize::Large,
+            ai_empire_count: 2,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+        };
+        let engine = Engine::new_from_setup(setup.clone());
+
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "farspace_test_scenario_roundtrip_{}.json",
+            std::process::id()
+        ));
+        save_to_file(&engine.state, &path).expect("save should succeed");
+
+        let loaded = load_from_file(&path).expect("load should succeed");
+        let _ = std::fs::remove_file(&path);
+
+        let stored = loaded
+            .scenario
+            .as_ref()
+            .expect("scenario must be present after round-trip");
+        assert_eq!(stored.seed, 5678);
+        assert_eq!(stored.galaxy_size, GalaxySize::Large);
+        assert_eq!(stored.ai_empire_count, 2);
+        assert_eq!(loaded.ai_empires.len(), 2);
+    }
 }

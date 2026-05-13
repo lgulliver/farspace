@@ -10,9 +10,16 @@ use ratatui::{
 };
 
 /// Render the footer with contextual hints
-pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
+pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Option<&str>) {
     let hints = match screen {
         Screen::Menu => vec![("[N]", "New Game"), ("[L]", "Load"), ("[Q]", "Quit")],
+        Screen::NewGameSetup => vec![
+            ("[j/k]", "Select Field"),
+            ("[h/l]", "Change Value"),
+            ("[Enter]", "Edit Seed / Start"),
+            ("[Esc]", "Back"),
+            ("[?]", "Help"),
+        ],
         Screen::SectorOverview => vec![
             ("[hjkl/←↓↑→]", "Move"),
             ("[Enter]", "Sector Map"),
@@ -101,7 +108,15 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen) {
         })
         .collect();
 
-    let paragraph = Paragraph::new(Line::from(spans))
+    let mut lines = vec![Line::from(spans)];
+    if let Some(context_line) = context {
+        lines.push(Line::from(vec![
+            Span::styled("Hint: ", Theme::title_style()),
+            Span::styled(context_line, Theme::muted_style()),
+        ]));
+    }
+
+    let paragraph = Paragraph::new(lines)
         .block(Block::default().borders(Borders::TOP))
         .style(Theme::default_style());
 
@@ -122,7 +137,20 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_footer(frame, area, &Screen::Menu);
+                render_footer(frame, area, &Screen::Menu, None);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_footer_new_game_setup() {
+        let backend = TestBackend::new(80, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_footer(frame, area, &Screen::NewGameSetup, None);
             })
             .unwrap();
     }
@@ -135,7 +163,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_footer(frame, area, &Screen::SectorOverview);
+                render_footer(frame, area, &Screen::SectorOverview, None);
             })
             .unwrap();
     }
@@ -148,7 +176,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_footer(frame, area, &Screen::SectorMap);
+                render_footer(frame, area, &Screen::SectorMap, None);
             })
             .unwrap();
     }
@@ -161,7 +189,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_footer(frame, area, &Screen::System);
+                render_footer(frame, area, &Screen::System, None);
             })
             .unwrap();
     }
@@ -174,7 +202,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_footer(frame, area, &Screen::Colony);
+                render_footer(frame, area, &Screen::Colony, None);
             })
             .unwrap();
     }
@@ -187,7 +215,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_footer(frame, area, &Screen::Research);
+                render_footer(frame, area, &Screen::Research, None);
             })
             .unwrap();
     }
@@ -200,7 +228,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_footer(frame, area, &Screen::EmpireOverview);
+                render_footer(frame, area, &Screen::EmpireOverview, None);
             })
             .unwrap();
     }
@@ -213,7 +241,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_footer(frame, area, &Screen::Diplomacy);
+                render_footer(frame, area, &Screen::Diplomacy, None);
             })
             .unwrap();
     }
@@ -227,7 +255,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_footer(frame, area, &Screen::SectorMap);
+                render_footer(frame, area, &Screen::SectorMap, Some("Test hint"));
             })
             .unwrap();
     }

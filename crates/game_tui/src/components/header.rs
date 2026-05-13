@@ -1,6 +1,7 @@
 //! Header component
 
 use crate::theme::Theme;
+use game_core::{tech_by_id, GameState};
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
@@ -8,40 +9,90 @@ use ratatui::{
     Frame,
 };
 
+/// Snapshot of top-bar values for the player empire.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeaderData {
+    pub turn: u32,
+    pub empire_name: String,
+    pub credits: i64,
+    pub food: i64,
+    pub science: i64,
+    pub active_research: String,
+    pub colonies: usize,
+    pub fleets: usize,
+}
+
+/// Build `HeaderData` from the current game state.
+pub fn derive_header_data(game_state: &GameState) -> HeaderData {
+    let empire = game_state.empires.get(&game_state.player_empire);
+    let active_research = empire
+        .and_then(|e| e.research.current_tech)
+        .and_then(|tech_id| tech_by_id(tech_id).map(|tech| tech.name.to_string()))
+        .unwrap_or_else(|| "None".to_string());
+    let empire_name = empire
+        .map(|e| e.name.clone())
+        .unwrap_or_else(|| "Unknown".to_string());
+    let credits = empire.map(|e| e.credits).unwrap_or(0);
+    let food = empire.map(|e| e.food).unwrap_or(0);
+    let science = empire.map(|e| e.research_points).unwrap_or(0);
+    let colonies = game_state
+        .colonies
+        .values()
+        .filter(|c| c.owner == game_state.player_empire)
+        .count();
+    let fleets = game_state
+        .fleets
+        .values()
+        .filter(|f| f.owner == game_state.player_empire)
+        .count();
+
+    HeaderData {
+        turn: game_state.turn,
+        empire_name,
+        credits,
+        food,
+        science,
+        active_research,
+        colonies,
+        fleets,
+    }
+}
+
 /// Render the header bar showing turn, empire name, and economy summary.
-pub fn render_header(
-    frame: &mut Frame,
-    area: Rect,
-    turn: u32,
-    empire_name: &str,
-    credits: i64,
-    food: i64,
-    research: i64,
-) {
-    let credits_style = if credits < 0 {
+pub fn render_header(frame: &mut Frame, area: Rect, data: &HeaderData) {
+    let credits_style = if data.credits < 0 {
         Theme::warning_style()
     } else {
         Theme::default_style()
     };
-    let food_style = if food < 0 {
+    let food_style = if data.food < 0 {
         Theme::warning_style()
     } else {
         Theme::default_style()
     };
 
     let spans = vec![
-        Span::styled(format!(" Turn {} ", turn), Theme::header_style()),
+        Span::styled(format!(" Turn {} ", data.turn), Theme::header_style()),
         Span::raw(" │ "),
-        Span::styled(empire_name, Theme::title_style()),
+        Span::styled(data.empire_name.as_str(), Theme::title_style()),
         Span::raw(" │ "),
         Span::styled("Credits: ", Theme::muted_style()),
-        Span::styled(format!("{}", credits), credits_style),
+        Span::styled(format!("{}", data.credits), credits_style),
         Span::raw(" │ "),
         Span::styled("Food: ", Theme::muted_style()),
-        Span::styled(format!("{}", food), food_style),
+        Span::styled(format!("{}", data.food), food_style),
+        Span::raw(" │ "),
+        Span::styled("Science: ", Theme::muted_style()),
+        Span::raw(format!("{}", data.science)),
         Span::raw(" │ "),
         Span::styled("Research: ", Theme::muted_style()),
-        Span::raw(format!("{}", research)),
+        Span::raw(data.active_research.clone()),
+        Span::raw(" │ "),
+        Span::styled("Colonies: ", Theme::muted_style()),
+        Span::raw(format!("{}", data.colonies)),
+        Span::raw(" │ "),
+        Span::styled("Fleets: ", Theme::muted_style()),
+        Span::raw(format!("{}", data.fleets)),
     ];
 
     let paragraph = Paragraph::new(Line::from(spans)).style(Theme::default_style());
@@ -63,7 +114,17 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_header(frame, area, 5, "Test Empire", 1000, 50, 500);
+                let data = HeaderData {
+                    turn: 5,
+                    empire_name: "Test Empire".to_string(),
+                    credits: 1000,
+                    food: 50,
+                    science: 500,
+                    active_research: "Survey Drones".to_string(),
+                    colonies: 1,
+                    fleets: 2,
+                };
+                render_header(frame, area, &data);
             })
             .unwrap();
     }
@@ -76,7 +137,17 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_header(frame, area, 3, "Test Empire", 20, -5, 10);
+                let data = HeaderData {
+                    turn: 3,
+                    empire_name: "Test Empire".to_string(),
+                    credits: 20,
+                    food: -5,
+                    science: 10,
+                    active_research: "None".to_string(),
+                    colonies: 1,
+                    fleets: 1,
+                };
+                render_header(frame, area, &data);
             })
             .unwrap();
     }
@@ -89,7 +160,17 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_header(frame, area, 7, "Test Empire", -100, 3, 200);
+                let data = HeaderData {
+                    turn: 7,
+                    empire_name: "Test Empire".to_string(),
+                    credits: -100,
+                    food: 3,
+                    science: 200,
+                    active_research: "Hyperlane Theory".to_string(),
+                    colonies: 2,
+                    fleets: 3,
+                };
+                render_header(frame, area, &data);
             })
             .unwrap();
     }
@@ -102,7 +183,91 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_header(frame, area, 10, "Test Empire", -50, -3, 0);
+                let data = HeaderData {
+                    turn: 10,
+                    empire_name: "Test Empire".to_string(),
+                    credits: -50,
+                    food: -3,
+                    science: 0,
+                    active_research: "None".to_string(),
+                    colonies: 1,
+                    fleets: 0,
+                };
+                render_header(frame, area, &data);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn derive_header_data_no_panic() {
+        let state = game_core::Engine::new(42).state;
+        let _ = derive_header_data(&state);
+    }
+
+    #[test]
+    fn derive_header_data_counts_player_assets() {
+        let state = game_core::Engine::new(42).state;
+        let data = derive_header_data(&state);
+        assert_eq!(data.turn, state.turn);
+        assert_eq!(
+            data.colonies,
+            state
+                .colonies
+                .values()
+                .filter(|c| c.owner == state.player_empire)
+                .count()
+        );
+        assert_eq!(
+            data.fleets,
+            state
+                .fleets
+                .values()
+                .filter(|f| f.owner == state.player_empire)
+                .count()
+        );
+    }
+
+    #[test]
+    fn derive_header_data_active_research_defaults_to_none() {
+        let mut state = game_core::Engine::new(42).state;
+        if let Some(empire) = state.empires.get_mut(&state.player_empire) {
+            empire.research.current_tech = None;
+        }
+        let data = derive_header_data(&state);
+        assert_eq!(data.active_research, "None");
+    }
+
+    #[test]
+    fn derive_header_data_unknown_empire_fallback() {
+        let mut state = game_core::Engine::new(42).state;
+        let player = state.player_empire;
+        state.empires.remove(&player);
+        let data = derive_header_data(&state);
+        assert_eq!(data.empire_name, "Unknown");
+        assert_eq!(data.credits, 0);
+        assert_eq!(data.food, 0);
+        assert_eq!(data.science, 0);
+        assert_eq!(data.active_research, "None");
+    }
+
+    #[test]
+    fn render_header_with_long_research_name_no_panic() {
+        let backend = TestBackend::new(160, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                let data = HeaderData {
+                    turn: 12,
+                    empire_name: "Axiom Collective".to_string(),
+                    credits: 250,
+                    food: 18,
+                    science: 72,
+                    active_research: "Interstellar Infrastructure Optimization".to_string(),
+                    colonies: 6,
+                    fleets: 9,
+                };
+                render_header(frame, area, &data);
             })
             .unwrap();
     }

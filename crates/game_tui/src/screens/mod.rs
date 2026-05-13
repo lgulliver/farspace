@@ -4,6 +4,7 @@ pub mod colony;
 pub mod diplomacy;
 pub mod empire_overview;
 pub mod menu;
+pub mod new_game_setup;
 pub mod research;
 pub mod sector_map;
 pub mod sector_overview;
@@ -19,6 +20,7 @@ use game_core::GameState;
 pub enum Screen {
     #[default]
     Menu,
+    NewGameSetup,
     SectorOverview,
     SectorMap,
     System,
@@ -38,7 +40,8 @@ impl Screen {
         game_state: Option<&GameState>,
     ) {
         match self {
-            Screen::Menu => menu::render_menu(frame, area),
+            Screen::Menu => menu::render_menu(frame, area, app_state),
+            Screen::NewGameSetup => new_game_setup::render_new_game_setup(frame, area, app_state),
             Screen::SectorOverview => {
                 if let Some(state) = game_state {
                     sector_overview::render_sector_overview(frame, area, app_state, state);

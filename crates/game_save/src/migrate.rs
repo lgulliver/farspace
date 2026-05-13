@@ -221,7 +221,21 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             })
         }
         19 => {
-            // v19 → v20: SaveMetadata added to SaveFile.
+            // v19 -> v20: GameState.scenario (Option<ScenarioSetup>, default None) and
+            // GameState.ai_empires (Vec<EmpireId>, default empty) added.
+            //
+            // Both fields carry serde defaults:
+            //   - scenario: None  (setup metadata not available for old saves)
+            //   - ai_empires: []  (empty — the legacy ai_empire field still drives AI turns
+            //     for saves migrated from v19; process_end_turn falls back to it when
+            //     ai_empires is empty)
+            migrate(SaveFile {
+                version: 20,
+                ..save
+            })
+        }
+        20 => {
+            // v20 → v21: SaveMetadata added to SaveFile.
             // Populate metadata from the current state; game_version is unknown for migrated saves.
             let metadata = crate::schema::SaveMetadata {
                 schema_version: CURRENT_VERSION,
@@ -679,17 +693,35 @@ mod tests {
     }
 
     #[test]
-    fn migrate_v19_to_v20_populates_metadata() {
-        let engine = game_core::Engine::new(7777);
-        let state = engine.state;
-        let expected_seed = state.seed;
-        let expected_turn = state.turn;
+    fn migrate_v19_to_current_adds_scenario_and_ai_empires_defaults() {
+        // A v19 save without scenario/ai_empires fields should migrate cleanly
+        // and default those fields to None / empty respectively.
+        let state = GameState::default();
         let v19_save = SaveFile {
             version: 19,
             state,
             metadata: Default::default(),
         };
         let migrated = migrate(v19_save).expect("v19 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        // scenario defaults to None for old saves
+        assert!(migrated.state.scenario.is_none());
+        // ai_empires defaults to empty for old saves
+        assert!(migrated.state.ai_empires.is_empty());
+    }
+
+    #[test]
+    fn migrate_v20_to_v21_populates_metadata() {
+        let engine = game_core::Engine::new(7777);
+        let state = engine.state;
+        let expected_seed = state.seed;
+        let expected_turn = state.turn;
+        let v20_save = SaveFile {
+            version: 20,
+            state,
+            metadata: Default::default(),
+        };
+        let migrated = migrate(v20_save).expect("v20 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
         assert_eq!(
             migrated.metadata.schema_version, CURRENT_VERSION,

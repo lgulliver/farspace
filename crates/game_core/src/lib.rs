@@ -16,13 +16,15 @@ pub use commands::Command;
 pub use engine::Engine;
 pub use events::Event;
 pub use state::{
-    all_ship_designs, all_techs, available_tech_ids, is_tech_available, planet_yield_effect,
-    tech_by_id, tech_yield_bonus_per_colony, BuildItem, BuildingType, Colony, ColonyId, ColonyRole,
-    DifficultyLevel, Empire, EmpireId, Fleet, FleetId, FleetKind, FleetLocation, FleetMission,
-    FleetOrder, GalaxySize, GameState, HyperspaceLane, OrbitalStructureType, Planet, PlanetClass,
-    PlanetSize, PlanetSpecial, ProductionItem, RelationshipStatus, ResearchState, RoleModifiers,
-    ScenarioSetup, ScoutMission, Sector, SectorId, ShipDesignId, ShipDesignRecord, SpectralClass,
-    Star, StarId, StrategicResource, SurveyMission, TechCapability, TechDomain, TechId, TechRecord,
-    TechTier, TechUnlock, YieldEffect, YieldType,
+    all_empire_definitions, all_ship_designs, all_techs, available_tech_ids,
+    empire_definition_by_id, is_tech_available, planet_yield_effect, tech_by_id,
+    tech_yield_bonus_per_colony, BuildItem, BuildingType, Colony, ColonyId, ColonyRole,
+    DifficultyLevel, Empire, EmpireDefinition, EmpireDefinitionId, EmpireId, EmpireTraitModifiers,
+    Fleet, FleetId, FleetKind, FleetLocation, FleetMission, FleetOrder, GalaxySize, GameState,
+    HyperspaceLane, OrbitalStructureType, Planet, PlanetClass, PlanetSize, PlanetSpecial,
+    PlaystyleTag, ProductionItem, RelationshipStatus, ResearchState, RoleModifiers, ScenarioSetup,
+    ScoutMission, Sector, SectorId, ShipDesignId, ShipDesignRecord, SpectralClass, Star, StarId,
+    StrategicResource, SurveyMission, TechCapability, TechDomain, TechId, TechRecord, TechTier,
+    TechUnlock, YieldEffect, YieldType,
 };
 pub use yield_model::ColonyYield;

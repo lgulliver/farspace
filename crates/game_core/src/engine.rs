@@ -163,19 +163,36 @@ impl Engine {
             "Drosan Republic",
         ];
 
+        // Assign empire definitions deterministically.
+        // The player picks their definition via ScenarioSetup; AI empires receive
+        // the remaining definitions in stable ID order (no duplicates).
+        let all_defs = crate::state::all_empire_definitions();
+        let player_def_id = setup
+            .player_empire_def
+            .unwrap_or(crate::state::EmpireDefinitionId(0));
+        let ai_def_ids: Vec<crate::state::EmpireDefinitionId> = all_defs
+            .iter()
+            .filter(|d| d.id != player_def_id)
+            .take(ai_count)
+            .map(|d| d.id)
+            .collect();
+
         // Create player empire
         let player_empire_id = EmpireId(1);
         let mut empires = BTreeMap::new();
+        let player_def = crate::state::empire_definition_by_id(player_def_id)
+            .expect("player empire definition must be valid");
         empires.insert(
             player_empire_id,
             Empire {
                 id: player_empire_id,
-                name: "Terran Federation".to_string(),
+                name: player_def.name.to_string(),
                 credits: 100,
                 research_points: 0,
                 home_star: home_star_id,
                 research: ResearchState::default(),
                 food: 0,
+                empire_def: Some(player_def_id),
             },
         );
 
@@ -184,16 +201,23 @@ impl Engine {
         for i in 0..ai_count {
             let ai_empire_id = EmpireId(2 + i as u64);
             ai_empire_ids.push(ai_empire_id);
+            // Use empire definition name when available, fall back to legacy name.
+            let ai_def_id = ai_def_ids.get(i).copied();
+            let ai_name = ai_def_id
+                .and_then(crate::state::empire_definition_by_id)
+                .map(|d| d.name.to_string())
+                .unwrap_or_else(|| AI_EMPIRE_NAMES[i].to_string());
             empires.insert(
                 ai_empire_id,
                 Empire {
                     id: ai_empire_id,
-                    name: AI_EMPIRE_NAMES[i].to_string(),
+                    name: ai_name,
                     credits: 100,
                     research_points: 0,
                     home_star: ai_home_star_ids[i],
                     research: ResearchState::default(),
                     food: 0,
+                    empire_def: ai_def_id,
                 },
             );
         }
@@ -522,9 +546,25 @@ impl Engine {
                 .copied()
                 .unwrap_or_default();
 
-            let credits = colony_yield.credits + bonuses.credits;
-            let research = colony_yield.science + bonuses.science;
-            let food = colony_yield.food + bonuses.food;
+            // Apply empire identity trait modifiers on top of tech bonuses.
+            let empire_def_mods = self
+                .state
+                .empires
+                .get(&owner)
+                .and_then(|e| e.empire_def)
+                .and_then(crate::state::empire_definition_by_id)
+                .map(|d| d.trait_modifiers)
+                .unwrap_or_default();
+
+            let credits =
+                colony_yield.credits + bonuses.credits + empire_def_mods.credits_per_colony;
+            let research =
+                colony_yield.science + bonuses.science + empire_def_mods.science_per_colony;
+            let food = colony_yield.food + bonuses.food + empire_def_mods.food_per_colony;
+            // Industry modifier from empire def is already informational here; the
+            // yield model computed the base industry.  We expose the bonus via
+            // the ColonyProduced event so the UI can show "empire bonus" detail.
+            let industry = colony_yield.industry + empire_def_mods.industry_per_colony;
 
             // Update empire credits and lifetime research total
             if let Some(empire) = self.state.empires.get_mut(&owner) {
@@ -544,7 +584,7 @@ impl Engine {
                 credits,
                 research,
                 food,
-                industry: colony_yield.industry,
+                industry,
                 maintenance: colony_yield.maintenance,
             });
 
@@ -5728,6 +5768,7 @@ mod tests {
                 home_star: player_star_id,
                 research: ResearchState::default(),
                 food: 0,
+                empire_def: None,
             },
         );
 
@@ -5742,6 +5783,7 @@ mod tests {
                 home_star: ai_star_id,
                 research: ResearchState::default(),
                 food: 0,
+                empire_def: None,
             },
         );
 
@@ -5912,6 +5954,7 @@ mod tests {
                 home_star: player_star_id,
                 research: ResearchState::default(),
                 food: 0,
+                empire_def: None,
             },
         );
         state.empires.insert(
@@ -5924,6 +5967,7 @@ mod tests {
                 home_star: ai_star_id,
                 research: ResearchState::default(),
                 food: 0,
+                empire_def: None,
             },
         );
         state.colonies.insert(
@@ -6201,6 +6245,7 @@ mod tests {
                     home_star: home,
                     research: ResearchState::default(),
                     food: 0,
+                    empire_def: None,
                 },
             );
         }
@@ -9554,6 +9599,7 @@ mod tests {
             ai_empire_count: 1,
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         };
         let setup2 = setup1.clone();
 
@@ -9578,6 +9624,7 @@ mod tests {
                 ai_empire_count: 1,
                 sector_count_override: None,
                 difficulty: DifficultyLevel::Standard,
+                player_empire_def: None,
             })
         };
 
@@ -9603,6 +9650,7 @@ mod tests {
             ai_empire_count: 1,
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         });
         assert_eq!(engine.state.stars.len(), 10, "Small: 10 stars");
         assert_eq!(engine.state.sectors.len(), 2, "Small: 2 sectors");
@@ -9617,6 +9665,7 @@ mod tests {
             ai_empire_count: 1,
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         });
         assert_eq!(engine.state.stars.len(), 20, "Medium: 20 stars");
         assert_eq!(engine.state.sectors.len(), 4, "Medium: 4 sectors");
@@ -9631,6 +9680,7 @@ mod tests {
             ai_empire_count: 1,
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         });
         assert_eq!(engine.state.stars.len(), 40, "Large: 40 stars");
         assert_eq!(engine.state.sectors.len(), 6, "Large: 6 sectors");
@@ -9645,6 +9695,7 @@ mod tests {
             ai_empire_count: 4,
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         });
         // Player + 4 AI = 5 empires total
         assert_eq!(engine.state.empires.len(), 5);
@@ -9673,6 +9724,7 @@ mod tests {
             ai_empire_count: 3,
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         };
         let e1 = Engine::new_from_setup(setup.clone());
         let e2 = Engine::new_from_setup(setup);
@@ -9706,6 +9758,7 @@ mod tests {
             ai_empire_count: 2,
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         };
         let engine = Engine::new_from_setup(setup.clone());
         let stored = engine
@@ -9727,6 +9780,7 @@ mod tests {
             ai_empire_count: 0, // invalid
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         };
         // validate() must catch invalid AI count
         assert!(bad_setup.validate().is_err());
@@ -9742,7 +9796,241 @@ mod tests {
             ai_empire_count: 0, // invalid — new_from_setup should panic
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
         };
         let _ = Engine::new_from_setup(bad_setup);
+    }
+
+    // ── Empire Identity / Player Empire Selection tests ─────────────────────
+
+    #[test]
+    fn player_can_select_valid_empire() {
+        use crate::state::{
+            all_empire_definitions, DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup,
+        };
+        let def_id = EmpireDefinitionId(2); // Sylvaran Accord
+        let setup = ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(def_id),
+        };
+        assert!(setup.validate().is_ok());
+        let engine = Engine::new_from_setup(setup);
+        let player = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert_eq!(player.empire_def, Some(def_id));
+        let def = all_empire_definitions()
+            .iter()
+            .find(|d| d.id == def_id)
+            .unwrap();
+        assert_eq!(player.name, def.name);
+    }
+
+    #[test]
+    fn invalid_empire_selection_fails_validation() {
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let setup = ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(EmpireDefinitionId(255)), // does not exist
+        };
+        assert!(setup.validate().is_err());
+    }
+
+    #[test]
+    fn ai_empires_receive_distinct_definitions() {
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let engine = Engine::new_from_setup(ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Large,
+            ai_empire_count: 4,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(EmpireDefinitionId(0)),
+        });
+        let ai_defs: Vec<Option<EmpireDefinitionId>> = engine
+            .state
+            .ai_empires
+            .iter()
+            .filter_map(|id| engine.state.empires.get(id))
+            .map(|e| e.empire_def)
+            .collect();
+        // All AI empires should have a def
+        assert!(
+            ai_defs.iter().all(|d| d.is_some()),
+            "All AI empires must have an empire def"
+        );
+        // All defs should be distinct from player's and from each other
+        let player_def = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap()
+            .empire_def;
+        for d in &ai_defs {
+            assert_ne!(
+                *d, player_def,
+                "AI empire def must not duplicate player def"
+            );
+        }
+        let unique: std::collections::BTreeSet<u8> =
+            ai_defs.iter().filter_map(|d| d.map(|x| x.0)).collect();
+        assert_eq!(unique.len(), 4, "AI empire defs must all be distinct");
+    }
+
+    #[test]
+    fn same_seed_produces_same_ai_empire_definitions() {
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let make = || {
+            Engine::new_from_setup(ScenarioSetup {
+                seed: 1234,
+                galaxy_size: GalaxySize::Large,
+                ai_empire_count: 3,
+                sector_count_override: None,
+                difficulty: DifficultyLevel::Standard,
+                player_empire_def: Some(EmpireDefinitionId(1)),
+            })
+        };
+        let e1 = make();
+        let e2 = make();
+        let defs1: Vec<_> = e1
+            .state
+            .ai_empires
+            .iter()
+            .filter_map(|id| e1.state.empires.get(id))
+            .map(|e| e.empire_def)
+            .collect();
+        let defs2: Vec<_> = e2
+            .state
+            .ai_empires
+            .iter()
+            .filter_map(|id| e2.state.empires.get(id))
+            .map(|e| e.empire_def)
+            .collect();
+        assert_eq!(
+            defs1, defs2,
+            "Same seed must produce same AI empire definitions"
+        );
+    }
+
+    #[test]
+    fn empire_trait_modifiers_applied_per_colony() {
+        // The Sylvaran Accord (id=2) gets +2 food/colony.
+        use crate::events::Event;
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let setup = ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(EmpireDefinitionId(2)), // Sylvaran Accord: +2 food
+        };
+        let mut engine = Engine::new_from_setup(setup);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        // Find ColonyProduced for the player's colony and check food includes the bonus
+        let player_empire = engine.state.player_empire;
+        let player_colony = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == player_empire)
+            .map(|c| c.id)
+            .expect("player colony must exist");
+
+        let produced = events
+            .iter()
+            .find_map(|e| {
+                if let Event::ColonyProduced { colony, food, .. } = e {
+                    if *colony == player_colony {
+                        Some(*food)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .expect("ColonyProduced event must be emitted");
+
+        // base food = population (10), +2 empire mod = 12
+        assert!(
+            produced >= 12,
+            "Sylvaran Accord food bonus must be applied; got {produced}"
+        );
+    }
+
+    #[test]
+    fn empire_identity_persists_through_save_load() {
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let setup = ScenarioSetup {
+            seed: 77,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 2,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(EmpireDefinitionId(3)), // Thalori Exchange
+        };
+        let engine = Engine::new_from_setup(setup);
+
+        let json = serde_json::to_string(&engine.state).expect("serialize");
+        let restored: crate::state::GameState = serde_json::from_str(&json).expect("deserialize");
+
+        // Player empire def preserved
+        let player_def = restored
+            .empires
+            .get(&restored.player_empire)
+            .unwrap()
+            .empire_def;
+        assert_eq!(player_def, Some(EmpireDefinitionId(3)));
+
+        // AI empire defs preserved
+        let original_ai_defs: Vec<_> = engine
+            .state
+            .ai_empires
+            .iter()
+            .filter_map(|id| engine.state.empires.get(id))
+            .map(|e| e.empire_def)
+            .collect();
+        let restored_ai_defs: Vec<_> = restored
+            .ai_empires
+            .iter()
+            .filter_map(|id| restored.empires.get(id))
+            .map(|e| e.empire_def)
+            .collect();
+        assert_eq!(
+            original_ai_defs, restored_ai_defs,
+            "AI empire defs must survive save/load"
+        );
+    }
+
+    #[test]
+    fn default_empire_assigned_when_no_player_def_specified() {
+        // When player_empire_def is None, the engine assigns EmpireDefinitionId(0) by default.
+        use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+        let engine = Engine::new_from_setup(ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
+        });
+        let player = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert_eq!(player.empire_def, Some(crate::state::EmpireDefinitionId(0)));
     }
 }

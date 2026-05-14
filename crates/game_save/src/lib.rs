@@ -227,7 +227,8 @@ mod tests {
                 rally_point: None,
             },
         );
-        engine.state.stars.get_mut(&target_star).unwrap().planets[0].colony = Some(target_colony_id);
+        engine.state.stars.get_mut(&target_star).unwrap().planets[0].colony =
+            Some(target_colony_id);
 
         let troop_fleet = FleetId(9000);
         engine.state.fleets.insert(
@@ -248,11 +249,9 @@ mod tests {
             star: target_star,
             planet_index: 0,
         }]);
-        assert!(
-            invasion_events
-                .iter()
-                .any(|e| matches!(e, game_core::Event::InvasionSucceeded { .. }))
-        );
+        assert!(invasion_events
+            .iter()
+            .any(|e| matches!(e, game_core::Event::InvasionSucceeded { .. })));
         assert_eq!(engine.state.colonies[&target_colony_id].owner, player_id);
 
         let saved = save(&engine.state).expect("save should succeed");

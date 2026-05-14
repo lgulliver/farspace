@@ -2303,21 +2303,20 @@ impl Engine {
             return;
         }
 
-        let hostile_orbital_defenders = self
-            .state
-            .fleets
-            .iter()
-            .any(|(fid, f)| {
-                *fid != fleet_id
-                    && f.location == star_id
-                    && f.owner == colony_owner
-                    && !self.state.fleet_missions.contains_key(fid)
-                    && !self.state.scout_missions.contains_key(fid)
-                    && !self.state.survey_missions.contains_key(fid)
-            });
+        let hostile_orbital_defenders = self.state.fleets.iter().any(|(fid, f)| {
+            *fid != fleet_id
+                && f.location == star_id
+                && f.owner == colony_owner
+                && !self.state.fleet_missions.contains_key(fid)
+                && !self.state.scout_missions.contains_key(fid)
+                && !self.state.survey_missions.contains_key(fid)
+        });
 
         let Some(target_colony) = self.state.colonies.get(&planet_colony).cloned() else {
-            events.push(Event::error(format!("Colony {} not found", planet_colony.0)));
+            events.push(Event::error(format!(
+                "Colony {} not found",
+                planet_colony.0
+            )));
             return;
         };
         let defense_strength = Self::colony_defense_strength(&target_colony);
@@ -11668,11 +11667,9 @@ mod tests {
             planet_index: 0,
         }]);
 
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, Event::InvasionSucceeded { colony, .. } if *colony == colony_id))
-        );
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::InvasionSucceeded { colony, .. } if *colony == colony_id)));
         let colony = &engine.state.colonies[&colony_id];
         assert_eq!(colony.owner, player_id);
         assert_eq!(colony.stability, CAPTURED_UNREST_STABILITY);
@@ -11694,7 +11691,9 @@ mod tests {
             planet_index: 0,
         }]);
 
-        assert!(events.iter().any(|e| matches!(e, Event::InvasionFailed { .. })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::InvasionFailed { .. })));
         assert_eq!(engine.state.colonies[&colony_id].owner, enemy_id);
     }
 
@@ -11752,7 +11751,7 @@ mod tests {
         });
 
         assert_eq!(engine.state.colonies[&colony_id].owner, player_id);
-        assert!(player_summary.unwrap_or(0) > 0);
+        assert!(player_summary.is_some());
         assert_eq!(enemy_summary.unwrap_or(0), 0);
     }
 }

@@ -6,8 +6,8 @@ use crate::components::{derive_header_data, render_footer, render_header, render
 use crate::faction::{empire_visual, sector_dominant_owner, sector_fog_state, FogState};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::map_render::{
-    sample_line, visual_hash, CellCommand, LabelCommand, LabelPlacement, LayeredMap, MapLayer,
-    WorldProjection,
+    push_halo, sample_line, visual_hash, CellCommand, HaloSpec, LabelCommand, LabelPlacement,
+    LayeredMap, MapLayer, WorldProjection,
 };
 use crate::screens::Screen;
 use crate::theme::Theme;
@@ -101,41 +101,44 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
 
         if let Some(owner) = sector_dominant_owner(game_state, sector.id) {
             let visual = empire_visual(game_state, owner);
-            add_halo(
+            push_halo(
                 &mut cells,
-                sx,
-                sy,
-                map_area,
-                5,
-                2,
-                Style::default().bg(visual.territory),
-                MapLayer::Territory,
-                0,
+                (sx, sy),
+                (map_area.width, map_area.height),
+                &HaloSpec {
+                    radius_x: 5,
+                    radius_y: 2,
+                    style: Style::default().bg(visual.territory),
+                    layer: MapLayer::Territory,
+                    order: 0,
+                },
             );
         }
 
         match sector_fog_state(game_state, sector.id) {
-            FogState::Unexplored => add_halo(
+            FogState::Unexplored => push_halo(
                 &mut cells,
-                sx,
-                sy,
-                map_area,
-                4,
-                2,
-                Theme::fog_style(FogState::Unexplored),
-                MapLayer::Fog,
-                0,
+                (sx, sy),
+                (map_area.width, map_area.height),
+                &HaloSpec {
+                    radius_x: 4,
+                    radius_y: 2,
+                    style: Theme::fog_style(FogState::Unexplored),
+                    layer: MapLayer::Fog,
+                    order: 0,
+                },
             ),
-            FogState::Explored => add_halo(
+            FogState::Explored => push_halo(
                 &mut cells,
-                sx,
-                sy,
-                map_area,
-                3,
-                1,
-                Theme::fog_style(FogState::Explored),
-                MapLayer::Fog,
-                0,
+                (sx, sy),
+                (map_area.width, map_area.height),
+                &HaloSpec {
+                    radius_x: 3,
+                    radius_y: 1,
+                    style: Theme::fog_style(FogState::Explored),
+                    layer: MapLayer::Fog,
+                    order: 0,
+                },
             ),
             FogState::Visible => {}
         }
@@ -496,17 +499,17 @@ fn background_cells(
         for x in 0..area.width {
             let hash = visual_hash(game_state.seed, x, y, frame_group, salt);
             let style = Style::default().bg(Theme::space_bg());
-            if hash % 89 == 0 {
+            if hash.is_multiple_of(89) {
                 cells.push(CellCommand {
                     layer: MapLayer::Background,
                     order: 0,
                     x,
                     y,
-                    symbol: Some(if hash % 2 == 0 { '·' } else { '.' }),
+                    symbol: Some(if hash.is_multiple_of(2) { '·' } else { '.' }),
                     style: style.fg(Color::Rgb(70, 85, 120)),
                     protect: 0,
                 });
-            } else if hash % 211 == 0 {
+            } else if hash.is_multiple_of(211) {
                 cells.push(CellCommand {
                     layer: MapLayer::Background,
                     order: 1,
@@ -520,40 +523,6 @@ fn background_cells(
         }
     }
     cells
-}
-
-fn add_halo(
-    cells: &mut Vec<CellCommand>,
-    center_x: u16,
-    center_y: u16,
-    area: Rect,
-    radius_x: i16,
-    radius_y: i16,
-    style: Style,
-    layer: MapLayer,
-    order: u16,
-) {
-    for dx in -radius_x..=radius_x {
-        for dy in -radius_y..=radius_y {
-            if (dx * dx * 4) + (dy * dy * 9) > (radius_x * radius_x * 4) {
-                continue;
-            }
-            let x = i32::from(center_x) + i32::from(dx);
-            let y = i32::from(center_y) + i32::from(dy);
-            if x < 0 || y < 0 || x >= i32::from(area.width) || y >= i32::from(area.height) {
-                continue;
-            }
-            cells.push(CellCommand {
-                layer,
-                order,
-                x: x as u16,
-                y: y as u16,
-                symbol: None,
-                style,
-                protect: 0,
-            });
-        }
-    }
 }
 
 #[cfg(test)]

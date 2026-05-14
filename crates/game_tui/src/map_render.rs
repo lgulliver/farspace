@@ -40,6 +40,15 @@ pub struct LabelCommand {
 }
 
 #[derive(Debug, Clone)]
+pub struct HaloSpec {
+    pub radius_x: i16,
+    pub radius_y: i16,
+    pub style: Style,
+    pub layer: MapLayer,
+    pub order: u16,
+}
+
+#[derive(Debug, Clone)]
 pub struct LayeredMap {
     pub base_style: Style,
     pub cells: Vec<CellCommand>,
@@ -209,6 +218,37 @@ pub fn visual_hash(seed: u64, x: u16, y: u16, frame: u64, salt: u64) -> u64 {
     value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     value ^ (value >> 31)
+}
+
+pub fn push_halo(
+    cells: &mut Vec<CellCommand>,
+    center: (u16, u16),
+    bounds: (u16, u16),
+    spec: &HaloSpec,
+) {
+    let (center_x, center_y) = center;
+    let (width, height) = bounds;
+    for dx in -spec.radius_x..=spec.radius_x {
+        for dy in -spec.radius_y..=spec.radius_y {
+            if (dx * dx * 4) + (dy * dy * 9) > (spec.radius_x * spec.radius_x * 4) {
+                continue;
+            }
+            let x = i32::from(center_x) + i32::from(dx);
+            let y = i32::from(center_y) + i32::from(dy);
+            if x < 0 || y < 0 || x >= i32::from(width) || y >= i32::from(height) {
+                continue;
+            }
+            cells.push(CellCommand {
+                layer: spec.layer,
+                order: spec.order,
+                x: x as u16,
+                y: y as u16,
+                symbol: None,
+                style: spec.style,
+                protect: 0,
+            });
+        }
+    }
 }
 
 fn paint_base(area: Rect, buf: &mut Buffer, style: Style) {

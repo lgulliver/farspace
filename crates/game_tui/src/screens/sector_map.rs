@@ -11,8 +11,8 @@ use crate::faction::{
 };
 use crate::layout::{compose_layout, split_horizontal};
 use crate::map_render::{
-    sample_line, visual_hash, CellCommand, LabelCommand, LabelPlacement, LayeredMap, MapLayer,
-    WorldProjection,
+    push_halo, sample_line, visual_hash, CellCommand, HaloSpec, LabelCommand, LabelPlacement,
+    LayeredMap, MapLayer, WorldProjection,
 };
 use crate::screens::Screen;
 use crate::theme::Theme;
@@ -151,52 +151,56 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
 
         if let Some(owner) = owner {
             let visual = empire_visual(game_state, owner);
-            add_halo(
+            push_halo(
                 &mut cells,
-                x,
-                y,
-                map_area,
-                4,
-                2,
-                Style::default().bg(visual.territory),
-                MapLayer::Territory,
-                0,
+                (x, y),
+                (map_area.width, map_area.height),
+                &HaloSpec {
+                    radius_x: 4,
+                    radius_y: 2,
+                    style: Style::default().bg(visual.territory),
+                    layer: MapLayer::Territory,
+                    order: 0,
+                },
             );
         }
 
         match fog {
-            FogState::Visible => add_halo(
+            FogState::Visible => push_halo(
                 &mut cells,
-                x,
-                y,
-                map_area,
-                2,
-                1,
-                Theme::fog_style(FogState::Visible),
-                MapLayer::Fog,
-                0,
+                (x, y),
+                (map_area.width, map_area.height),
+                &HaloSpec {
+                    radius_x: 2,
+                    radius_y: 1,
+                    style: Theme::fog_style(FogState::Visible),
+                    layer: MapLayer::Fog,
+                    order: 0,
+                },
             ),
-            FogState::Explored => add_halo(
+            FogState::Explored => push_halo(
                 &mut cells,
-                x,
-                y,
-                map_area,
-                2,
-                1,
-                Theme::fog_style(FogState::Explored),
-                MapLayer::Fog,
-                0,
+                (x, y),
+                (map_area.width, map_area.height),
+                &HaloSpec {
+                    radius_x: 2,
+                    radius_y: 1,
+                    style: Theme::fog_style(FogState::Explored),
+                    layer: MapLayer::Fog,
+                    order: 0,
+                },
             ),
-            FogState::Unexplored => add_halo(
+            FogState::Unexplored => push_halo(
                 &mut cells,
-                x,
-                y,
-                map_area,
-                1,
-                1,
-                Theme::fog_style(FogState::Unexplored),
-                MapLayer::Fog,
-                0,
+                (x, y),
+                (map_area.width, map_area.height),
+                &HaloSpec {
+                    radius_x: 1,
+                    radius_y: 1,
+                    style: Theme::fog_style(FogState::Unexplored),
+                    layer: MapLayer::Fog,
+                    order: 0,
+                },
             ),
         }
     }
@@ -657,17 +661,17 @@ fn background_cells(
         for x in 0..area.width {
             let hash = visual_hash(game_state.seed, x, y, frame_group, salt);
             let style = Style::default().bg(Theme::space_bg());
-            if hash % 53 == 0 {
+            if hash.is_multiple_of(53) {
                 cells.push(CellCommand {
                     layer: MapLayer::Background,
                     order: 0,
                     x,
                     y,
-                    symbol: Some(if hash % 3 == 0 { '·' } else { '.' }),
+                    symbol: Some(if hash.is_multiple_of(3) { '·' } else { '.' }),
                     style: style.fg(Color::Rgb(65, 80, 116)),
                     protect: 0,
                 });
-            } else if hash % 149 == 0 {
+            } else if hash.is_multiple_of(149) {
                 cells.push(CellCommand {
                     layer: MapLayer::Background,
                     order: 1,
@@ -681,40 +685,6 @@ fn background_cells(
         }
     }
     cells
-}
-
-fn add_halo(
-    cells: &mut Vec<CellCommand>,
-    center_x: u16,
-    center_y: u16,
-    area: Rect,
-    radius_x: i16,
-    radius_y: i16,
-    style: Style,
-    layer: MapLayer,
-    order: u16,
-) {
-    for dx in -radius_x..=radius_x {
-        for dy in -radius_y..=radius_y {
-            if (dx * dx * 4) + (dy * dy * 9) > (radius_x * radius_x * 4) {
-                continue;
-            }
-            let x = i32::from(center_x) + i32::from(dx);
-            let y = i32::from(center_y) + i32::from(dy);
-            if x < 0 || y < 0 || x >= i32::from(area.width) || y >= i32::from(area.height) {
-                continue;
-            }
-            cells.push(CellCommand {
-                layer,
-                order,
-                x: x as u16,
-                y: y as u16,
-                symbol: None,
-                style,
-                protect: 0,
-            });
-        }
-    }
 }
 
 #[cfg(test)]

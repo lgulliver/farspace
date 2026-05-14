@@ -270,6 +270,10 @@ impl MapViewport {
         ))
     }
 
+    /// Rasterize a floating-point screen-space line into terminal cells.
+    ///
+    /// `start` and `end` are projected screen-space endpoints. The segment is
+    /// clipped to the viewport before final cell rounding.
     pub fn rasterize_screen_line(
         &self,
         start: ScreenPointF,
@@ -299,6 +303,7 @@ impl MapViewport {
         cells
     }
 
+    /// Project a world-space line and rasterize the visible segment to cells.
     pub fn world_line_to_cells(&self, start: WorldPoint, end: WorldPoint) -> Vec<ScreenPoint> {
         let Some(start) = self.world_to_screen_unclipped(start) else {
             return Vec::new();

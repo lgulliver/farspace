@@ -118,6 +118,10 @@ impl Widget for LayeredMap {
     }
 }
 
+/// Return a deterministic cosmetic hash for map background effects.
+///
+/// `seed` is the game seed, `(x, y)` is the local cell position, `frame` is a
+/// cosmetic animation frame group, and `salt` separates different visual layers.
 pub fn visual_hash(seed: u64, x: u16, y: u16, frame: u64, salt: u64) -> u64 {
     let mut value = seed
         ^ (u64::from(x) << 17)
@@ -130,6 +134,11 @@ pub fn visual_hash(seed: u64, x: u16, y: u16, frame: u64, salt: u64) -> u64 {
     value ^ (value >> 31)
 }
 
+/// Push an elliptical halo of styled cells into a layered map buffer.
+///
+/// `cells` receives the generated commands, `center` is the halo origin,
+/// `bounds` is the local map size used for clipping, and `spec` defines the
+/// halo radii, style, layer, and draw order.
 pub fn push_halo(
     cells: &mut Vec<CellCommand>,
     center: (u16, u16),

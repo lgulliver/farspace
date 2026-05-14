@@ -6,7 +6,7 @@ use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
 use game_core::{
-    yield_model, BuildItem, BuildingType, ColonyRole, ColonySupplyState, GameState,
+    yield_model, BuildItem, BuildingType, ColonyRole, ColonySupplyState, EmpireId, GameState,
     OrbitalStructureType, TechId,
 };
 use ratatui::{
@@ -108,6 +108,7 @@ fn render_colony_stats(
     let food_out = colony_yield.food;
     let total_maint = colony_yield.maintenance;
     let supply = game_state.colony_supply_state(colony.id);
+    let blockade_empire: Option<EmpireId> = game_state.colony_blockade_state(colony.id);
 
     // Get planet size for infrastructure slot capacity
     let (surface_used, surface_max, orbital_used, orbital_max) = planet
@@ -151,7 +152,25 @@ fn render_colony_stats(
                 },
             ),
         ]),
-        Line::from(""),
+        {
+            if let Some(by_empire) = blockade_empire {
+                let empire_name = game_state
+                    .empires
+                    .get(&by_empire)
+                    .map(|e| e.name.as_str())
+                    .unwrap_or("Unknown");
+                Line::from(vec![
+                    Span::styled("Blockade: ", Theme::muted_style()),
+                    Span::styled(
+                        format!("⚔ Blockaded by {}", empire_name),
+                        Theme::error_style(),
+                    ),
+                    Span::styled("  (no food, -50% yield, -stability)", Theme::muted_style()),
+                ])
+            } else {
+                Line::from("")
+            }
+        },
         Line::from(vec![
             Span::styled("Population : ", Theme::muted_style()),
             Span::styled(

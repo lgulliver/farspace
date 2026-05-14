@@ -1,6 +1,8 @@
 //! Commands that can be issued to the game engine
 
-use crate::state::{BuildItem, ColonyId, ColonyRole, FleetId, FleetOrder, StarId, TechId};
+use crate::state::{
+    BuildItem, ColonyId, ColonyRole, EmpireId, FleetId, FleetOrder, StarId, TechId,
+};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +48,8 @@ pub enum Command {
     ClearRallyPoint { colony: ColonyId },
     /// Set a standing order on a fleet
     SetFleetOrder { fleet: FleetId, order: FleetOrder },
+    /// Declare war on a known empire, setting the relationship to `War`
+    DeclareWar { target: EmpireId },
 }
 
 #[cfg(test)]

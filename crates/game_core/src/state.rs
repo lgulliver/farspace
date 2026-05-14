@@ -1692,8 +1692,51 @@ pub enum FleetLocation {
 pub enum RelationshipStatus {
     /// The empires have never made contact
     Unknown,
-    /// The empires have established first contact
+    /// The empires have established first contact but no treaty yet
     Contacted,
+    /// Relations are stable and peaceful
+    Neutral,
+    /// Relations are strained; no open hostility yet
+    Tense,
+    /// Empires are in open conflict; combat and blockades apply
+    Hostile,
+    /// Empires are in a formal state of war; combat and blockades apply
+    War,
+}
+
+impl RelationshipStatus {
+    /// Returns `true` when the status represents open warfare or active hostility.
+    ///
+    /// Fleets from a `Hostile` or `War` empire can blockade colonies.
+    pub fn is_hostile_or_war(self) -> bool {
+        matches!(self, RelationshipStatus::Hostile | RelationshipStatus::War)
+    }
+
+    /// Returns `true` when fleets of the two empires can engage in combat.
+    ///
+    /// `Contacted` is kept combat-eligible for backward compatibility with
+    /// v1 saves and tests.  `Hostile` and `War` are also combat-eligible.
+    pub fn is_combat_eligible(self) -> bool {
+        matches!(
+            self,
+            RelationshipStatus::Contacted
+                | RelationshipStatus::Tense
+                | RelationshipStatus::Hostile
+                | RelationshipStatus::War
+        )
+    }
+
+    /// Short display label for this status.
+    pub fn label(self) -> &'static str {
+        match self {
+            RelationshipStatus::Unknown => "Unknown",
+            RelationshipStatus::Contacted => "Contacted",
+            RelationshipStatus::Neutral => "Neutral",
+            RelationshipStatus::Tense => "Tense",
+            RelationshipStatus::Hostile => "Hostile",
+            RelationshipStatus::War => "At War",
+        }
+    }
 }
 
 /// Coarse galaxy size preset used in scenario setup.
@@ -1904,6 +1947,13 @@ pub struct GameState {
     /// It is persisted to simplify UI rendering and turn-over-turn transition reporting.
     #[cfg_attr(feature = "serde", serde(default))]
     pub colony_supply: BTreeMap<ColonyId, ColonySupplyState>,
+    /// Active blockades this turn: maps blockaded `ColonyId` to the `EmpireId` of the
+    /// primary blockading empire.
+    ///
+    /// Derived each turn from idle hostile/war-status fleet positions.
+    /// Persisted to detect start/end transitions for event emission on the next turn.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub colony_blockade: BTreeMap<ColonyId, EmpireId>,
 }
 
 impl GameState {
@@ -1962,6 +2012,92 @@ impl GameState {
             .get(&colony_id)
             .copied()
             .unwrap_or(ColonySupplyState::Connected)
+    }
+
+    /// Returns the empire currently blockading `colony_id`, or `None` if unblockaded.
+    pub fn colony_blockade_state(&self, colony_id: ColonyId) -> Option<EmpireId> {
+        self.colony_blockade.get(&colony_id).copied()
+    }
+
+    /// Derive the relationship between two empires from the player's perspective.
+    ///
+    /// If neither empire is the player, returns `Unknown` (AI–AI not tracked).
+    pub fn relationship_status(
+        &self,
+        empire_a: EmpireId,
+        empire_b: EmpireId,
+    ) -> RelationshipStatus {
+        let player = self.player_empire;
+        let other = if empire_a == player {
+            empire_b
+        } else if empire_b == player {
+            empire_a
+        } else {
+            return RelationshipStatus::Unknown;
+        };
+        self.diplomacy
+            .get(&other)
+            .copied()
+            .unwrap_or(RelationshipStatus::Unknown)
+    }
+
+    /// Recompute which colonies are blockaded based on current idle fleet positions
+    /// and diplomacy.
+    ///
+    /// A colony is blockaded when:
+    /// 1. At least one idle enemy fleet with `Hostile` or `War` relationship is present
+    ///    at the colony's star system.
+    /// 2. No idle friendly fleet belonging to the colony owner is present at that star.
+    ///
+    /// Returns a map from blockaded `ColonyId` to the primary blockading `EmpireId`
+    /// (lowest `FleetId` among the hostile fleets, for determinism).
+    pub fn recompute_colony_blockade(&self) -> BTreeMap<ColonyId, EmpireId> {
+        // Index idle fleet owners by star. BTreeMap iteration is deterministic.
+        let mut star_idle_fleets: BTreeMap<StarId, Vec<(FleetId, EmpireId)>> = BTreeMap::new();
+        for (fleet_id, fleet) in &self.fleets {
+            if !self.fleet_missions.contains_key(fleet_id)
+                && !self.scout_missions.contains_key(fleet_id)
+                && !self.survey_missions.contains_key(fleet_id)
+            {
+                star_idle_fleets
+                    .entry(fleet.location)
+                    .or_default()
+                    .push((*fleet_id, fleet.owner));
+            }
+        }
+
+        let mut blockaded = BTreeMap::new();
+
+        for (colony_id, colony) in &self.colonies {
+            let colony_star = colony.star;
+            let colony_owner = colony.owner;
+
+            let idle = match star_idle_fleets.get(&colony_star) {
+                Some(v) => v.as_slice(),
+                None => continue,
+            };
+
+            // Is there any hostile/war fleet at this star?
+            let blockading_fleet = idle
+                .iter()
+                .filter(|(_, owner)| {
+                    *owner != colony_owner
+                        && self
+                            .relationship_status(colony_owner, *owner)
+                            .is_hostile_or_war()
+                })
+                .min_by_key(|(fid, _)| *fid);
+
+            if let Some((_, blockading_empire)) = blockading_fleet {
+                // Only blocked if no friendly idle fleet is also present.
+                let has_defender = idle.iter().any(|(_, owner)| *owner == colony_owner);
+                if !has_defender {
+                    blockaded.insert(*colony_id, *blockading_empire);
+                }
+            }
+        }
+
+        blockaded
     }
 
     pub fn recompute_colony_supply(&self) -> BTreeMap<ColonyId, ColonySupplyState> {
@@ -2100,6 +2236,7 @@ impl PartialEq for GameState {
             && self.scenario == other.scenario
             && self.ai_empires == other.ai_empires
             && self.colony_supply == other.colony_supply
+            && self.colony_blockade == other.colony_blockade
     }
 }
 
@@ -2154,6 +2291,7 @@ impl Default for GameState {
             scenario: None,
             ai_empires: Vec::new(),
             colony_supply: BTreeMap::new(),
+            colony_blockade: BTreeMap::new(),
         }
     }
 }

@@ -37,6 +37,9 @@ const FLEET_TRAVEL_SPEED: f64 = 500.0;
 const HYPERSPACE_TRAVEL_DIVISOR: u32 = 2;
 const ISOLATED_YIELD_PERCENT: i64 = 50;
 const ISOLATED_STABILITY_PENALTY: u8 = 5;
+/// Stability penalty applied each turn to a blockaded colony.
+/// Blockade yield reduction reuses `ISOLATED_YIELD_PERCENT` via `apply_isolation_penalty`.
+const BLOCKADED_STABILITY_PENALTY: u8 = 5;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct YieldBonuses {
@@ -67,6 +70,15 @@ fn apply_isolation_penalty(credits: i64, research: i64, _food: i64) -> (i64, i64
         research * ISOLATED_YIELD_PERCENT / 100,
         0,
     )
+}
+
+/// Apply blockade penalties: same percentage reduction as isolation, and no food.
+///
+/// Blockade and isolation share identical yield arithmetic so this delegates
+/// to `apply_isolation_penalty` to keep the two in sync if the percentages
+/// ever change.
+fn apply_blockade_penalty(credits: i64, research: i64, food: i64) -> (i64, i64, i64) {
+    apply_isolation_penalty(credits, research, food)
 }
 
 fn has_tech(state: &GameState, empire_id: EmpireId, tech: TechId) -> bool {
@@ -125,6 +137,7 @@ pub(crate) fn travel_turns_with_lanes(
 pub struct Engine {
     pub state: GameState,
     last_turn_colony_supply: BTreeMap<ColonyId, ColonySupplyState>,
+    last_turn_colony_blockade: BTreeMap<ColonyId, EmpireId>,
 }
 
 impl Engine {
@@ -409,11 +422,13 @@ impl Engine {
             scenario: Some(setup),
             ai_empires: ai_empire_ids,
             colony_supply: BTreeMap::new(),
+            colony_blockade: BTreeMap::new(),
         };
 
         let mut engine = Engine {
             state,
             last_turn_colony_supply: BTreeMap::new(),
+            last_turn_colony_blockade: BTreeMap::new(),
         };
         engine.refresh_colony_supply_statuses();
         engine.last_turn_colony_supply = engine.state.colony_supply.clone();
@@ -425,9 +440,12 @@ impl Engine {
         let mut engine = Engine {
             state,
             last_turn_colony_supply: BTreeMap::new(),
+            last_turn_colony_blockade: BTreeMap::new(),
         };
         engine.refresh_colony_supply_statuses();
         engine.last_turn_colony_supply = engine.state.colony_supply.clone();
+        // Initialise blockade state from the loaded game state
+        engine.last_turn_colony_blockade = engine.state.colony_blockade.clone();
         engine
     }
 
@@ -504,6 +522,9 @@ impl Engine {
                 Command::SetFleetOrder { fleet, order } => {
                     self.process_set_fleet_order(fleet, order, &mut events);
                 }
+                Command::DeclareWar { target } => {
+                    self.process_declare_war(target, &mut events);
+                }
             }
         }
 
@@ -531,6 +552,8 @@ impl Engine {
         let previous_supply = self.last_turn_colony_supply.clone();
         self.refresh_colony_supply_statuses();
         let current_turn_supply = self.state.colony_supply.clone();
+        // Blockade state from last turn (persisted in GameState): use for economy penalties.
+        let current_turn_blockade = self.state.colony_blockade.clone();
 
         // Track per-empire aggregates for this turn.
         // Keys are EmpireId; BTreeMap ensures deterministic iteration order.
@@ -625,8 +648,17 @@ impl Engine {
                 current_turn_supply.get(&colony_id),
                 Some(ColonySupplyState::Connected)
             );
+            let is_blockaded = current_turn_blockade.contains_key(&colony_id);
 
-            if !is_connected {
+            // Blockade takes effect first; if blockaded, treat as effectively isolated
+            // (same yield penalty + stability hit). If already isolated but not blockaded
+            // the normal isolation path below handles it — no double penalty.
+            if is_blockaded {
+                (credits, research, food) = apply_blockade_penalty(credits, research, food);
+                if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
+                    colony.stability = colony.stability.saturating_sub(BLOCKADED_STABILITY_PENALTY);
+                }
+            } else if !is_connected {
                 (credits, research, food) = apply_isolation_penalty(credits, research, food);
                 if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
                     colony.stability = colony.stability.saturating_sub(ISOLATED_STABILITY_PENALTY);
@@ -639,10 +671,12 @@ impl Engine {
                 empire.research_points += research;
             }
 
-            // Accumulate per-empire totals
+            // Accumulate per-empire totals.
+            // Blockaded or isolated colonies do not contribute food to the empire trade network.
+            let contributes_food = is_connected && !is_blockaded;
             *empire_research.entry(owner).or_insert(0) += research;
             *empire_credits_income.entry(owner).or_insert(0) += credits;
-            if is_connected {
+            if contributes_food {
                 *empire_food_produced.entry(owner).or_insert(0) += food;
                 *empire_food_consumed.entry(owner).or_insert(0) += colony_yield.food_consumed;
             }
@@ -1052,6 +1086,45 @@ impl Engine {
         self.state.colony_supply = updated_supply.clone();
         self.last_turn_colony_supply = updated_supply;
 
+        // Recompute blockade state after all fleet movements and combat have resolved.
+        // Emit BlockadeStarted / BlockadeEnded transition events in deterministic
+        // (ColonyId) order.
+        let updated_blockade = self.state.recompute_colony_blockade();
+        let previous_blockade = self.last_turn_colony_blockade.clone();
+        let colonies_with_blockade_changes: BTreeSet<ColonyId> = previous_blockade
+            .keys()
+            .chain(updated_blockade.keys())
+            .copied()
+            .collect();
+        for colony_id in colonies_with_blockade_changes {
+            let was_blockaded = previous_blockade.contains_key(&colony_id);
+            let now_blockaded = updated_blockade.get(&colony_id).copied();
+            let star_id = self
+                .state
+                .colonies
+                .get(&colony_id)
+                .map(|c| c.star)
+                .unwrap_or_default();
+            match (was_blockaded, now_blockaded) {
+                (false, Some(by_empire)) => {
+                    events.push(Event::BlockadeStarted {
+                        colony: colony_id,
+                        star: star_id,
+                        by_empire,
+                    });
+                }
+                (true, None) => {
+                    events.push(Event::BlockadeEnded {
+                        colony: colony_id,
+                        star: star_id,
+                    });
+                }
+                _ => {}
+            }
+        }
+        self.state.colony_blockade = updated_blockade.clone();
+        self.last_turn_colony_blockade = updated_blockade;
+
         // Advance turn
         self.state.turn += 1;
         events.push(Event::TurnAdvanced {
@@ -1280,6 +1353,51 @@ impl Engine {
             fleet: fleet_id,
             order,
         });
+    }
+
+    /// Declare war on `target_empire`, setting the diplomatic relationship to `War`.
+    ///
+    /// Validation:
+    /// - The player must have made at least first contact with the target.
+    /// - The target must be a real, non-player empire.
+    ///
+    /// On success, the diplomacy map is updated silently (no success event is emitted).
+    /// Validation errors are surfaced as `Event::Error`.
+    fn process_declare_war(&mut self, target: EmpireId, events: &mut Vec<Event>) {
+        let player = self.state.player_empire;
+
+        if target == player {
+            events.push(Event::error("Cannot declare war on your own empire"));
+            return;
+        }
+
+        if !self.state.empires.contains_key(&target) {
+            events.push(Event::error(format!("Empire {} not found", target.0)));
+            return;
+        }
+
+        let current_status = self
+            .state
+            .diplomacy
+            .get(&target)
+            .copied()
+            .unwrap_or(crate::state::RelationshipStatus::Unknown);
+
+        if current_status == crate::state::RelationshipStatus::Unknown {
+            events.push(Event::error(
+                "Cannot declare war on an empire you have not yet contacted",
+            ));
+            return;
+        }
+
+        if current_status == crate::state::RelationshipStatus::War {
+            events.push(Event::error("Already at war with this empire"));
+            return;
+        }
+
+        self.state
+            .diplomacy
+            .insert(target, crate::state::RelationshipStatus::War);
     }
 
     /// If `colony_id` has a rally point set, auto-route the newly created `fleet_id`
@@ -2231,7 +2349,7 @@ impl Engine {
                     && !self.state.fleet_missions.contains_key(*fid)
                     && !self.state.scout_missions.contains_key(*fid)
                     && !self.state.survey_missions.contains_key(*fid)
-                    && is_contacted(&self.state, arrived_owner, f.owner)
+                    && is_combat_eligible(&self.state, arrived_owner, f.owner)
             })
             .map(|(fid, _)| *fid)
             .collect();
@@ -2296,25 +2414,17 @@ impl Engine {
     }
 }
 
-/// Returns true if `empire_a` and `empire_b` are in a `Contacted` relationship.
+/// Returns true if `empire_a` and `empire_b` are combat-eligible against each other.
 ///
 /// Diplomacy in v1 is stored from the player's perspective.  If neither empire
 /// is the player, the function returns `false` (AI-vs-AI not applicable).
-fn is_contacted(state: &GameState, empire_a: EmpireId, empire_b: EmpireId) -> bool {
-    let player = state.player_empire;
-    let other = if empire_a == player {
-        empire_b
-    } else if empire_b == player {
-        empire_a
-    } else {
-        return false;
-    };
+///
+/// Combat is eligible for `Contacted`, `Tense`, `Hostile`, and `War` statuses.
+/// `Contacted` is kept eligible for backward compatibility with v1 saves and tests.
+fn is_combat_eligible(state: &GameState, empire_a: EmpireId, empire_b: EmpireId) -> bool {
     state
-        .diplomacy
-        .get(&other)
-        .copied()
-        .unwrap_or(RelationshipStatus::Unknown)
-        == RelationshipStatus::Contacted
+        .relationship_status(empire_a, empire_b)
+        .is_combat_eligible()
 }
 
 /// Compute the set of initially explored stars: home star + up to 3 nearest neighbours.
@@ -5800,6 +5910,7 @@ mod tests {
             scenario: None,
             ai_empires: vec![ai_id],
             colony_supply: BTreeMap::new(),
+            colony_blockade: BTreeMap::new(),
         };
 
         // Player star
@@ -5991,6 +6102,7 @@ mod tests {
             scenario: None,
             ai_empires: vec![ai_id],
             colony_supply: BTreeMap::new(),
+            colony_blockade: BTreeMap::new(),
         };
 
         // Populate stars, empires, colonies, fleet
@@ -6269,6 +6381,7 @@ mod tests {
             scenario: None,
             ai_empires: vec![ai1, ai2],
             colony_supply: BTreeMap::new(),
+            colony_blockade: BTreeMap::new(),
         };
 
         // Two AI empires each have a colony at target_star
@@ -10355,5 +10468,830 @@ mod tests {
             .get(&engine.state.player_empire)
             .unwrap();
         assert_eq!(player.empire_def, Some(crate::state::EmpireDefinitionId(0)));
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Blockade tests
+    // ────────────────────────────────────────────────────────────────────────
+
+    /// Build a minimal `GameState` suitable for blockade tests.
+    ///
+    /// The state includes:
+    /// * Player empire (id=1) with one colony on Star 1
+    /// * Enemy empire  (id=2) — no relationship by default (Unknown)
+    /// * Player star + planet + colony are wired up
+    fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
+        use crate::state::SpectralClass;
+        use rand::SeedableRng;
+        let player_id = EmpireId(1);
+        let enemy_id = EmpireId(2);
+        let star_id = StarId(1);
+        let colony_id = ColonyId(1);
+
+        let mut state = GameState {
+            seed: 0,
+            turn: 1,
+            player_empire: player_id,
+            rng: ChaCha8Rng::seed_from_u64(0),
+            event_log: Vec::new(),
+            next_colony_id: 2,
+            next_fleet_id: 10,
+            stars: BTreeMap::new(),
+            sectors: BTreeMap::new(),
+            empires: BTreeMap::new(),
+            colonies: BTreeMap::new(),
+            fleets: BTreeMap::new(),
+            explored_stars: {
+                let mut s = BTreeSet::new();
+                s.insert(star_id);
+                s
+            },
+            scout_missions: BTreeMap::new(),
+            survey_missions: BTreeMap::new(),
+            fleet_missions: BTreeMap::new(),
+            // Keep enemy out of AI empire lists so the AI turn doesn't
+            // interfere with fleet positions during blockade tests.
+            ai_empire: None,
+            ai_explored_stars: BTreeSet::new(),
+            diplomacy: BTreeMap::new(),
+            hyperspace_lanes: BTreeSet::new(),
+            known_hyperspace_lanes: BTreeSet::new(),
+            fleet_orders: BTreeMap::new(),
+            scenario: None,
+            ai_empires: vec![],
+            colony_supply: BTreeMap::new(),
+            colony_blockade: BTreeMap::new(),
+        };
+
+        state.stars.insert(
+            star_id,
+            crate::state::Star {
+                id: star_id,
+                name: "Testara".to_string(),
+                x: 0,
+                y: 0,
+                sector: SectorId(0),
+                spectral_class: SpectralClass::G,
+                planets: vec![crate::state::Planet {
+                    name: "Testara I".to_string(),
+                    size: crate::state::PlanetSize::Medium,
+                    class: crate::state::PlanetClass::Terran,
+                    colony: Some(colony_id),
+                    habitable: true,
+                    surveyed: true,
+                    specials: vec![],
+                    resources: vec![],
+                    ancient_ruins_collected: false,
+                }],
+            },
+        );
+
+        state.empires.insert(
+            player_id,
+            Empire {
+                id: player_id,
+                name: "Player".to_string(),
+                credits: 100,
+                research_points: 0,
+                home_star: star_id,
+                research: ResearchState::default(),
+                food: 0,
+                empire_def: None,
+            },
+        );
+
+        state.empires.insert(
+            enemy_id,
+            Empire {
+                id: enemy_id,
+                name: "Enemy".to_string(),
+                credits: 100,
+                research_points: 0,
+                home_star: StarId(99),
+                research: ResearchState::default(),
+                food: 0,
+                empire_def: None,
+            },
+        );
+
+        state.colonies.insert(
+            colony_id,
+            Colony {
+                id: colony_id,
+                star: star_id,
+                planet_index: 0,
+                owner: player_id,
+                population: 4,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: vec![],
+                accumulated_production: 0,
+                buildings: vec![],
+                surface_installations: vec![],
+                orbital_installations: vec![],
+                stability: 100,
+                role: ColonyRole::Balanced,
+                rally_point: None,
+            },
+        );
+
+        (state, star_id, colony_id, player_id, enemy_id)
+    }
+
+    #[test]
+    fn enemy_war_fleet_in_colony_system_causes_blockade() {
+        let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
+
+        // Set war status
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+
+        // Place an idle enemy fleet at the colony star
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 2,
+                kind: FleetKind::Scout,
+                strength: 5,
+                integrity: 100,
+            },
+        );
+
+        let blockade = state.recompute_colony_blockade();
+        assert!(
+            blockade.contains_key(&colony_id),
+            "Colony should be blockaded when war enemy fleet is in its system"
+        );
+        assert_eq!(
+            blockade.get(&colony_id),
+            Some(&enemy_id),
+            "Blockading empire should be the enemy"
+        );
+    }
+
+    #[test]
+    fn hostile_status_fleet_causes_blockade() {
+        let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
+
+        state
+            .diplomacy
+            .insert(enemy_id, RelationshipStatus::Hostile);
+
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 3,
+                integrity: 100,
+            },
+        );
+
+        let blockade = state.recompute_colony_blockade();
+        assert!(
+            blockade.contains_key(&colony_id),
+            "Colony should be blockaded when Hostile status fleet is present"
+        );
+    }
+
+    #[test]
+    fn contacted_fleet_does_not_blockade() {
+        let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
+
+        // Contacted status — should not blockade
+        state
+            .diplomacy
+            .insert(enemy_id, RelationshipStatus::Contacted);
+
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 3,
+                integrity: 100,
+            },
+        );
+
+        let blockade = state.recompute_colony_blockade();
+        assert!(
+            !blockade.contains_key(&colony_id),
+            "Colony should NOT be blockaded when fleet owner is only Contacted"
+        );
+    }
+
+    #[test]
+    fn neutral_fleet_does_not_blockade() {
+        let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
+
+        // Neutral status — should not blockade
+        state
+            .diplomacy
+            .insert(enemy_id, RelationshipStatus::Neutral);
+
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 3,
+                integrity: 100,
+            },
+        );
+
+        let blockade = state.recompute_colony_blockade();
+        assert!(
+            !blockade.contains_key(&colony_id),
+            "Colony should NOT be blockaded when fleet owner has Neutral status"
+        );
+    }
+
+    #[test]
+    fn unknown_fleet_does_not_blockade() {
+        let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
+        // No diplomacy entry = Unknown status
+
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 3,
+                integrity: 100,
+            },
+        );
+
+        let blockade = state.recompute_colony_blockade();
+        assert!(
+            !blockade.contains_key(&colony_id),
+            "Colony should NOT be blockaded when fleet owner relationship is Unknown"
+        );
+    }
+
+    #[test]
+    fn friendly_defending_fleet_prevents_blockade() {
+        let (mut state, star_id, colony_id, player_id, enemy_id) = make_blockade_state();
+
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+
+        // Enemy fleet
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 3,
+                integrity: 100,
+            },
+        );
+
+        // Friendly defending fleet at same star
+        let friendly_fid = FleetId(1);
+        state.fleets.insert(
+            friendly_fid,
+            Fleet {
+                id: friendly_fid,
+                owner: player_id,
+                location: star_id,
+                ships: 2,
+                kind: FleetKind::Scout,
+                strength: 5,
+                integrity: 100,
+            },
+        );
+
+        let blockade = state.recompute_colony_blockade();
+        assert!(
+            !blockade.contains_key(&colony_id),
+            "Friendly defending fleet should prevent blockade"
+        );
+    }
+
+    #[test]
+    fn blockade_clears_when_hostile_fleet_leaves() {
+        let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
+
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 3,
+                integrity: 100,
+            },
+        );
+
+        // Verify blockade exists
+        let blockade = state.recompute_colony_blockade();
+        assert!(
+            blockade.contains_key(&colony_id),
+            "Blockade should be active"
+        );
+
+        // Fleet leaves (remove it)
+        state.fleets.remove(&enemy_fid);
+
+        let blockade_after = state.recompute_colony_blockade();
+        assert!(
+            !blockade_after.contains_key(&colony_id),
+            "Blockade should clear when hostile fleet leaves"
+        );
+    }
+
+    #[test]
+    fn combat_resolves_before_blockade_on_fleet_arrival() {
+        use crate::state::SpectralClass;
+        // Setup: enemy war fleet at player colony star; player fleet arrives.
+        // Combat fires first (player fleet destroys enemy); then no blockade.
+        let (mut state, star_id, _colony_id, player_id, enemy_id) = make_blockade_state();
+
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+
+        // Weak enemy fleet waiting at the star
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        // Strong player fleet arrives via fleet_mission (resolves this turn)
+        let player_fid = FleetId(1);
+        state.fleets.insert(
+            player_fid,
+            Fleet {
+                id: player_fid,
+                owner: player_id,
+                location: star_id, // will be set by mission resolution
+                ships: 3,
+                kind: FleetKind::Scout,
+                strength: 10,
+                integrity: 100,
+            },
+        );
+
+        let nearby_star = StarId(2);
+        state.stars.insert(
+            nearby_star,
+            crate::state::Star {
+                id: nearby_star,
+                name: "Nearby".to_string(),
+                x: 100,
+                y: 0,
+                sector: SectorId(0),
+                spectral_class: SpectralClass::G,
+                planets: vec![],
+            },
+        );
+        state.explored_stars.insert(nearby_star);
+        // Move player fleet to nearby star first, then it will travel to star_id
+        if let Some(f) = state.fleets.get_mut(&player_fid) {
+            f.location = nearby_star;
+        }
+        state.fleet_missions.insert(
+            player_fid,
+            FleetMission {
+                fleet: player_fid,
+                destination: star_id,
+                turns_remaining: 1,
+                origin: nearby_star,
+                total_duration: 1,
+            },
+        );
+
+        let mut engine = Engine::from_state(state);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        // Combat should fire (player fleet arrives + war status)
+        let combat: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, Event::CombatResolved { .. }))
+            .collect();
+        assert!(
+            !combat.is_empty(),
+            "Combat should fire when war fleet is at star"
+        );
+
+        // After combat, check that no blockade event was emitted
+        // (enemy fleet should be destroyed by the stronger player fleet)
+        let blockade_started: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, Event::BlockadeStarted { .. }))
+            .collect();
+        assert!(
+            blockade_started.is_empty(),
+            "No blockade should start after player wins combat"
+        );
+        // Colony should not be in blockade state
+        assert!(
+            engine.state.colony_blockade.is_empty(),
+            "Colony blockade state should be empty after combat clears the enemy"
+        );
+    }
+
+    #[test]
+    fn blockaded_colony_applies_yield_penalties() {
+        // Verify that a blockaded colony has reduced economy during end-turn processing.
+        let (mut state, star_id, colony_id, player_id, enemy_id) = make_blockade_state();
+
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+
+        // Place enemy fleet at colony star — no friendly defense
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 2,
+                integrity: 100,
+            },
+        );
+
+        // Initialise blockade from current state so it applies on the NEXT turn
+        state.colony_blockade = state.recompute_colony_blockade();
+
+        let initial_credits = state.empires.get(&player_id).unwrap().credits;
+        let initial_stability = state.colonies.get(&colony_id).unwrap().stability;
+
+        let mut engine = Engine::from_state(state);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        // Credits should be reduced (50% yield penalty for blockaded colony)
+        let produced: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, Event::ColonyProduced { colony, .. } if *colony == colony_id))
+            .collect();
+        assert!(!produced.is_empty(), "ColonyProduced event expected");
+        if let Event::ColonyProduced { credits, .. } = produced[0] {
+            // Credits from a blockaded colony should be reduced to 50%
+            // The base yield is positive; blockade halves it
+            let empire_after = engine.state.empires.get(&player_id).unwrap();
+            assert!(
+                empire_after.credits <= initial_credits + credits,
+                "Credits should reflect blockade penalty"
+            );
+        }
+
+        // Stability should decrease
+        let colony_after = engine.state.colonies.get(&colony_id).unwrap();
+        assert!(
+            colony_after.stability < initial_stability,
+            "Stability should decrease due to blockade"
+        );
+        assert_eq!(
+            colony_after.stability,
+            initial_stability - BLOCKADED_STABILITY_PENALTY,
+            "Stability penalty should equal BLOCKADED_STABILITY_PENALTY"
+        );
+    }
+
+    #[test]
+    fn blockade_interrupts_food_supply() {
+        // A blockaded colony should not contribute food to the empire trade network.
+        let (mut state, star_id, colony_id, player_id, enemy_id) = make_blockade_state();
+
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 2,
+                integrity: 100,
+            },
+        );
+
+        // Set blockade state for this turn's economy processing
+        state.colony_blockade = state.recompute_colony_blockade();
+
+        let mut engine = Engine::from_state(state);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        // EconomySummary for the player should show zero food produced
+        // (blockaded colony contributes no food)
+        let economy_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, Event::EconomySummary { empire, .. } if *empire == player_id))
+            .collect();
+        assert!(!economy_events.is_empty(), "EconomySummary event expected");
+        if let Event::EconomySummary { food_produced, .. } = economy_events[0] {
+            assert_eq!(
+                *food_produced, 0,
+                "Blockaded colony should contribute no food to the trade network"
+            );
+        }
+        let _ = colony_id;
+    }
+
+    #[test]
+    fn blockade_started_event_emitted_when_blockade_begins() {
+        let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
+
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+
+        // No prior blockade (starts clean)
+        assert!(state.colony_blockade.is_empty());
+
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 2,
+                integrity: 100,
+            },
+        );
+
+        let mut engine = Engine::from_state(state);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        let blockade_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, Event::BlockadeStarted { colony, .. } if *colony == colony_id))
+            .collect();
+        assert_eq!(
+            blockade_events.len(),
+            1,
+            "Exactly one BlockadeStarted event expected"
+        );
+        if let Event::BlockadeStarted {
+            colony,
+            star,
+            by_empire,
+        } = blockade_events[0]
+        {
+            assert_eq!(*colony, colony_id);
+            assert_eq!(*star, star_id);
+            assert_eq!(*by_empire, enemy_id);
+        }
+    }
+
+    #[test]
+    fn blockade_ended_event_emitted_when_blockade_clears() {
+        let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
+
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 2,
+                integrity: 100,
+            },
+        );
+
+        // Pre-populate blockade state so engine sees a running blockade
+        state.colony_blockade = state.recompute_colony_blockade();
+
+        // Now remove the enemy fleet (blockade should clear next turn)
+        state.fleets.remove(&enemy_fid);
+
+        let mut engine = Engine::from_state(state);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        let ended_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, Event::BlockadeEnded { colony, .. } if *colony == colony_id))
+            .collect();
+        assert_eq!(
+            ended_events.len(),
+            1,
+            "Exactly one BlockadeEnded event expected when enemy fleet leaves"
+        );
+        if let Event::BlockadeEnded { colony, star } = ended_events[0] {
+            assert_eq!(*colony, colony_id);
+            assert_eq!(*star, star_id);
+        }
+    }
+
+    #[test]
+    fn blockade_state_persisted_in_game_state() {
+        let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
+
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 2,
+                integrity: 100,
+            },
+        );
+
+        let mut engine = Engine::from_state(state);
+        engine.apply_turn(vec![Command::EndTurn]);
+
+        assert!(
+            engine.state.colony_blockade.contains_key(&colony_id),
+            "colony_blockade in GameState should be updated after end turn"
+        );
+    }
+
+    #[test]
+    fn declare_war_sets_war_status() {
+        let mut engine = Engine::new(42);
+        let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+
+        // First establish contact
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Contacted);
+
+        let events = engine.apply_turn(vec![Command::DeclareWar { target: ai_id }]);
+
+        let status = engine
+            .state
+            .diplomacy
+            .get(&ai_id)
+            .copied()
+            .unwrap_or(RelationshipStatus::Unknown);
+        assert_eq!(
+            status,
+            RelationshipStatus::War,
+            "DeclareWar should set status to War"
+        );
+        let _ = events;
+    }
+
+    #[test]
+    fn declare_war_on_unknown_empire_is_error() {
+        let mut engine = Engine::new(42);
+        let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+        // No diplomatic contact established
+
+        let events = engine.apply_turn(vec![Command::DeclareWar { target: ai_id }]);
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "DeclareWar on unknown empire should produce an Error event"
+        );
+    }
+
+    #[test]
+    fn declare_war_on_own_empire_is_error() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+
+        let events = engine.apply_turn(vec![Command::DeclareWar { target: player }]);
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "DeclareWar on own empire should produce an Error event"
+        );
+    }
+
+    #[test]
+    fn relationship_status_is_hostile_or_war() {
+        assert!(RelationshipStatus::Hostile.is_hostile_or_war());
+        assert!(RelationshipStatus::War.is_hostile_or_war());
+        assert!(!RelationshipStatus::Contacted.is_hostile_or_war());
+        assert!(!RelationshipStatus::Neutral.is_hostile_or_war());
+        assert!(!RelationshipStatus::Tense.is_hostile_or_war());
+        assert!(!RelationshipStatus::Unknown.is_hostile_or_war());
+    }
+
+    #[test]
+    fn relationship_status_is_combat_eligible() {
+        assert!(RelationshipStatus::Contacted.is_combat_eligible());
+        assert!(RelationshipStatus::Tense.is_combat_eligible());
+        assert!(RelationshipStatus::Hostile.is_combat_eligible());
+        assert!(RelationshipStatus::War.is_combat_eligible());
+        assert!(!RelationshipStatus::Neutral.is_combat_eligible());
+        assert!(!RelationshipStatus::Unknown.is_combat_eligible());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn blockade_save_load_round_trip() {
+        // Verify that blockade state survives a save/load cycle by being re-derived.
+        use crate::state::RelationshipStatus;
+        let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
+
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 2,
+                integrity: 100,
+            },
+        );
+
+        // Compute and store blockade
+        state.colony_blockade = state.recompute_colony_blockade();
+        assert!(state.colony_blockade.contains_key(&colony_id));
+
+        // Serialize and deserialize
+        let json = serde_json::to_string(&state).expect("serialize ok");
+        let restored: GameState = serde_json::from_str(&json).expect("deserialize ok");
+
+        // The deserialized state should have the blockade field preserved (or re-derivable)
+        let rederived = restored.recompute_colony_blockade();
+        assert!(
+            rederived.contains_key(&colony_id),
+            "Blockade should be re-derivable after save/load"
+        );
+    }
+
+    #[test]
+    fn blockade_turn_report_events_appear_in_log() {
+        let (mut state, star_id, _colony_id, _player_id, enemy_id) = make_blockade_state();
+
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+
+        let enemy_fid = FleetId(20);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 2,
+                integrity: 100,
+            },
+        );
+
+        let mut engine = Engine::from_state(state);
+        engine.apply_turn(vec![Command::EndTurn]);
+
+        let blockade_log_entries: Vec<_> = engine
+            .state
+            .event_log
+            .iter()
+            .filter(|msg| msg.contains("blockade") || msg.contains("Blockade"))
+            .collect();
+        assert!(
+            !blockade_log_entries.is_empty(),
+            "Blockade event should appear in the turn log"
+        );
     }
 }

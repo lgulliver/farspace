@@ -270,6 +270,20 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             let mut state = save.state;
             state.colony_supply = state.recompute_colony_supply();
             let mut metadata = save.metadata;
+            metadata.schema_version = 23;
+            migrate(SaveFile {
+                version: 23,
+                metadata,
+                state,
+            })
+        }
+        23 => {
+            // v23 → v24: GameState.colony_blockade (BTreeMap<ColonyId, EmpireId>) added.
+            // Fully derivable from current fleet positions and diplomacy state;
+            // recompute deterministically on load.
+            let mut state = save.state;
+            state.colony_blockade = state.recompute_colony_blockade();
+            let mut metadata = save.metadata;
             metadata.schema_version = CURRENT_VERSION;
             Ok(SaveFile {
                 version: CURRENT_VERSION,
@@ -842,6 +856,92 @@ mod tests {
             player_def,
             Some(EmpireDefinitionId(5)),
             "Player empire def must survive full save/load round-trip"
+        );
+    }
+
+    #[test]
+    fn migrate_v23_to_v24_derives_colony_blockade() {
+        // v23 saves do not have colony_blockade; migration should re-derive it.
+        // In this test state there are no hostile fleets so blockade map stays empty.
+        let state = GameState::default();
+        let v23_save = SaveFile {
+            version: 23,
+            state,
+            metadata: Default::default(),
+        };
+        let migrated = migrate(v23_save).expect("v23→v24 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        // No hostile fleets in default state → no blockades
+        assert!(
+            migrated.state.colony_blockade.is_empty(),
+            "No blockades expected in default state after v23→v24 migration"
+        );
+    }
+
+    #[test]
+    fn blockade_state_round_trip_via_save_load() {
+        use game_core::{
+            state::{Fleet, FleetId, FleetKind, RelationshipStatus},
+            ColonyId, Empire, EmpireId, StarId,
+        };
+
+        // Build a game state with a war-status enemy fleet at a player colony star
+        let engine = game_core::Engine::new(42);
+        let mut state = engine.state.clone();
+        let player_id = state.player_empire;
+        let colony_star = state.empires.get(&player_id).map(|e| e.home_star).unwrap();
+
+        // Add an enemy empire at war — also insert a proper Empire record so state
+        // is internally consistent (every fleet owner must be a real empire).
+        let enemy_id = EmpireId(99);
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+        state.empires.insert(
+            enemy_id,
+            Empire {
+                id: enemy_id,
+                name: "Hostile Power".to_string(),
+                credits: 0,
+                research_points: 0,
+                home_star: StarId(9999),
+                research: Default::default(),
+                food: 0,
+                empire_def: None,
+            },
+        );
+
+        // Place an idle enemy fleet at the colony star
+        let enemy_fid = FleetId(999);
+        state.fleets.insert(
+            enemy_fid,
+            Fleet {
+                id: enemy_fid,
+                owner: enemy_id,
+                location: colony_star,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 3,
+                integrity: 100,
+            },
+        );
+
+        // Recompute so colony_blockade is populated
+        state.colony_blockade = state.recompute_colony_blockade();
+        let blockaded_before: std::collections::BTreeSet<ColonyId> =
+            state.colony_blockade.keys().copied().collect();
+
+        // Serialise / deserialise
+        let save = SaveFile::new(state);
+        let json = serde_json::to_string(&save).expect("serialize");
+        let restored: SaveFile = serde_json::from_str(&json).expect("deserialize");
+
+        // Re-derive blockade from restored state
+        let rederived = restored.state.recompute_colony_blockade();
+        let blockaded_after: std::collections::BTreeSet<ColonyId> =
+            rederived.keys().copied().collect();
+
+        assert_eq!(
+            blockaded_before, blockaded_after,
+            "Blockaded colonies must be the same before and after save/load"
         );
     }
 }

@@ -1,6 +1,9 @@
 //! Color theme for the TUI
 
+use game_core::EmpireId;
 use ratatui::style::{Color, Modifier, Style};
+
+use crate::faction::FogState;
 
 /// Theme colors for the UI
 pub struct Theme;
@@ -46,6 +49,46 @@ impl Theme {
         Color::DarkGray
     }
 
+    pub fn space_bg() -> Color {
+        Color::Rgb(5, 8, 16)
+    }
+
+    pub fn fog_color(state: FogState) -> Color {
+        match state {
+            FogState::Unexplored => Color::Rgb(4, 6, 10),
+            FogState::Explored => Color::Rgb(12, 18, 30),
+            FogState::Visible => Color::Rgb(18, 30, 46),
+        }
+    }
+
+    pub fn faction_color(
+        def_id: Option<game_core::EmpireDefinitionId>,
+        empire_id: EmpireId,
+    ) -> Color {
+        match def_id.map(|id| id.0).unwrap_or((empire_id.0 % 6) as u8) {
+            0 => Color::Rgb(214, 133, 63),
+            1 => Color::Rgb(96, 193, 255),
+            2 => Color::Rgb(121, 212, 136),
+            3 => Color::Rgb(225, 176, 73),
+            4 => Color::Rgb(217, 92, 92),
+            _ => Color::Rgb(184, 122, 255),
+        }
+    }
+
+    pub fn faction_territory_color(
+        def_id: Option<game_core::EmpireDefinitionId>,
+        empire_id: EmpireId,
+    ) -> Color {
+        match def_id.map(|id| id.0).unwrap_or((empire_id.0 % 6) as u8) {
+            0 => Color::Rgb(44, 27, 15),
+            1 => Color::Rgb(18, 34, 50),
+            2 => Color::Rgb(17, 33, 22),
+            3 => Color::Rgb(42, 31, 12),
+            4 => Color::Rgb(45, 18, 20),
+            _ => Color::Rgb(32, 18, 46),
+        }
+    }
+
     /// Star colors by spectral class
     pub fn star_color(class: game_core::SpectralClass) -> Color {
         match class {
@@ -61,7 +104,7 @@ impl Theme {
 
     /// Default text style
     pub fn default_style() -> Style {
-        Style::default().fg(Self::fg()).bg(Self::bg())
+        Style::default().fg(Self::fg()).bg(Self::space_bg())
     }
 
     /// Highlighted/selected style
@@ -97,6 +140,14 @@ impl Theme {
     /// Muted style
     pub fn muted_style() -> Style {
         Style::default().fg(Self::muted())
+    }
+
+    pub fn fog_style(state: FogState) -> Style {
+        Style::default().bg(Self::fog_color(state))
+    }
+
+    pub fn border_glow_style() -> Style {
+        Style::default().fg(Color::Rgb(115, 160, 220))
     }
 
     /// Accent style

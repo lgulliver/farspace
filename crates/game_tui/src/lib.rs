@@ -4,8 +4,10 @@
 
 pub mod app;
 pub mod components;
+pub mod faction;
 pub mod keys;
 pub mod layout;
+pub mod map_render;
 pub mod screens;
 pub mod theme;
 

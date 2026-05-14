@@ -1,16 +1,21 @@
 //! Sector overview screen - shows all sectors in the galaxy
 
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use crate::components::{derive_header_data, render_footer, render_header, render_log};
+use crate::faction::{empire_visual, sector_dominant_owner, sector_fog_state, FogState};
 use crate::layout::{compose_layout, split_horizontal};
+use crate::map_render::{
+    sample_line, visual_hash, CellCommand, LabelCommand, LabelPlacement, LayeredMap, MapLayer,
+    WorldProjection,
+};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{GameState, SectorId};
+use game_core::{GameState, SectorId, StarId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -29,13 +34,7 @@ pub fn render_sector_overview(
 
     let (map_area, right_area) = split_horizontal(main_area, 55);
 
-    render_sector_map(
-        frame,
-        map_area,
-        game_state,
-        app_state.selected_sector,
-        app_state.show_inter_sector_lanes,
-    );
+    render_sector_map(frame, map_area, game_state, app_state);
 
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -50,20 +49,13 @@ pub fn render_sector_overview(
     );
     render_log(frame, right_chunks[1], &app_state.log);
 
-    let hint = app_state
-        .status_message
-        .as_deref()
-        .unwrap_or("Start with Enter for Sector Map, then scout unknown systems with S.");
+    let hint = app_state.status_message.as_deref().unwrap_or(
+        "Enter zooms to sector detail. Strategic map shows borders, capitals, fleets, and fog.",
+    );
     render_footer(frame, footer_area, &Screen::SectorOverview, Some(hint));
 }
 
-fn render_sector_map(
-    frame: &mut Frame,
-    area: Rect,
-    game_state: &GameState,
-    selected_sector: Option<SectorId>,
-    show_inter_sector_lanes: bool,
-) {
+fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_state: &AppState) {
     let block = Block::default()
         .title(" Galaxy — Sector Overview ")
         .title_style(Theme::title_style())
@@ -74,49 +66,246 @@ fn render_sector_map(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let map_height = inner.height.saturating_sub(2) as i32;
-    let map_width = inner.width.saturating_sub(2) as i32;
-
-    if map_width <= 0 || map_height <= 0 {
+    if inner.width == 0 || inner.height == 0 {
         return;
     }
 
-    if show_inter_sector_lanes {
-        render_inter_sector_lanes(frame, inner, game_state, map_width, map_height);
+    let map_height = inner.height.saturating_sub(1);
+    let map_area = Rect::new(inner.x, inner.y, inner.width, map_height);
+    if map_area.width == 0 || map_area.height == 0 {
+        return;
+    }
+
+    let projection = WorldProjection::new(
+        (-560.0, -560.0, 560.0, 560.0),
+        map_area.width,
+        map_area.height,
+    );
+    let frame_group = if app_state.reduced_motion {
+        0
+    } else {
+        app_state.tick_count / 6
+    };
+
+    let sector_star_counts = sector_star_counts(game_state);
+    let sector_fleet_counts = sector_fleet_counts(game_state);
+    let capital_sectors = capital_sectors(game_state);
+
+    let mut cells = background_cells(game_state, map_area, frame_group, 0xA11);
+    let mut labels = Vec::new();
+
+    for sector in game_state.sectors.values() {
+        let Some((sx, sy)) = projection.project(sector.x as f64, sector.y as f64) else {
+            continue;
+        };
+
+        if let Some(owner) = sector_dominant_owner(game_state, sector.id) {
+            let visual = empire_visual(game_state, owner);
+            add_halo(
+                &mut cells,
+                sx,
+                sy,
+                map_area,
+                5,
+                2,
+                Style::default().bg(visual.territory),
+                MapLayer::Territory,
+                0,
+            );
+        }
+
+        match sector_fog_state(game_state, sector.id) {
+            FogState::Unexplored => add_halo(
+                &mut cells,
+                sx,
+                sy,
+                map_area,
+                4,
+                2,
+                Theme::fog_style(FogState::Unexplored),
+                MapLayer::Fog,
+                0,
+            ),
+            FogState::Explored => add_halo(
+                &mut cells,
+                sx,
+                sy,
+                map_area,
+                3,
+                1,
+                Theme::fog_style(FogState::Explored),
+                MapLayer::Fog,
+                0,
+            ),
+            FogState::Visible => {}
+        }
+    }
+
+    if app_state.show_inter_sector_lanes {
+        for lane in &game_state.known_hyperspace_lanes {
+            let Some(a_star) = game_state.stars.get(&lane.a()) else {
+                continue;
+            };
+            let Some(b_star) = game_state.stars.get(&lane.b()) else {
+                continue;
+            };
+            if a_star.sector == b_star.sector {
+                continue;
+            }
+            let Some(a_sector) = game_state.sectors.get(&a_star.sector) else {
+                continue;
+            };
+            let Some(b_sector) = game_state.sectors.get(&b_star.sector) else {
+                continue;
+            };
+
+            let highlighted = app_state
+                .selected_sector
+                .is_some_and(|selected| selected == a_sector.id || selected == b_sector.id);
+            let glyph = if highlighted { '•' } else { '·' };
+            let style = if highlighted {
+                Theme::border_glow_style()
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+
+            for (wx, wy) in sample_line(
+                (a_sector.x as f64, a_sector.y as f64),
+                (b_sector.x as f64, b_sector.y as f64),
+                28.0,
+            ) {
+                if let Some((x, y)) = projection.project(wx, wy) {
+                    cells.push(CellCommand {
+                        layer: MapLayer::Route,
+                        order: 0,
+                        x,
+                        y,
+                        symbol: Some(glyph),
+                        style,
+                        protect: 0,
+                    });
+                }
+            }
+        }
     }
 
     for sector in game_state.sectors.values() {
-        let screen_x = ((sector.x + 500) * map_width / 1000).clamp(0, map_width - 1);
-        let screen_y = ((sector.y + 500) * map_height / 1000).clamp(0, map_height - 1);
-
-        let x = inner.x + screen_x as u16;
-        let y = inner.y + screen_y as u16;
-
-        if x >= inner.x + inner.width || y >= inner.y + inner.height {
+        let Some((x, y)) = projection.project(sector.x as f64, sector.y as f64) else {
             continue;
-        }
-
-        let is_selected = selected_sector == Some(sector.id);
-
-        let count = game_state
-            .stars
-            .values()
-            .filter(|s| s.sector == sector.id)
-            .count();
-
-        let (render_char, style) = if is_selected {
-            ('@', Theme::highlight_style())
-        } else {
-            ('*', Theme::default_style())
         };
 
-        let label = format!("{}{}", render_char, count);
+        let owner = sector_dominant_owner(game_state, sector.id);
+        let fog = sector_fog_state(game_state, sector.id);
+        let is_selected = app_state.selected_sector == Some(sector.id);
+        let has_capital = capital_sectors.contains_key(&sector.id);
+        let fleet_count = sector_fleet_counts
+            .get(&sector.id)
+            .copied()
+            .unwrap_or_default();
+        let system_count = sector_star_counts
+            .get(&sector.id)
+            .copied()
+            .unwrap_or_default();
 
-        let sector_widget = Paragraph::new(label).style(style);
-        frame.render_widget(sector_widget, Rect::new(x, y, 2, 1));
+        let (symbol, style, protect) = if is_selected {
+            ('@', Theme::highlight_style(), 10)
+        } else if let Some(owner) = owner {
+            let visual = empire_visual(game_state, owner);
+            let mut style = Style::default().fg(visual.color);
+            if has_capital {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            (visual.symbol, style, 8)
+        } else {
+            match fog {
+                FogState::Visible => ('◉', Style::default().fg(Color::White), 6),
+                FogState::Explored => ('◌', Style::default().fg(Color::Gray), 5),
+                FogState::Unexplored => ('?', Theme::muted_style(), 5),
+            }
+        };
+
+        cells.push(CellCommand {
+            layer: MapLayer::Entity,
+            order: 0,
+            x,
+            y,
+            symbol: Some(symbol),
+            style,
+            protect,
+        });
+
+        if fleet_count > 0 {
+            let fleet_style = owner
+                .map(|empire| empire_visual(game_state, empire).color)
+                .map(|color| Style::default().fg(color).add_modifier(Modifier::BOLD))
+                .unwrap_or_else(Theme::accent_style);
+            let marker_x = x.saturating_add(1).min(map_area.width.saturating_sub(1));
+            cells.push(CellCommand {
+                layer: MapLayer::Overlay,
+                order: 1,
+                x: marker_x,
+                y,
+                symbol: Some(if fleet_count > 1 { '+' } else { '›' }),
+                style: fleet_style,
+                protect: 3,
+            });
+        }
+
+        if has_capital && !is_selected {
+            let marker_y = y.saturating_sub(1);
+            cells.push(CellCommand {
+                layer: MapLayer::Overlay,
+                order: 0,
+                x,
+                y: marker_y,
+                symbol: Some('^'),
+                style: Style::default().fg(Color::LightYellow),
+                protect: 2,
+            });
+        }
+
+        if is_selected || owner.is_some() || has_capital || matches!(fog, FogState::Visible) {
+            let title = if matches!(fog, FogState::Unexplored) {
+                format!("Unknown · {}", system_count)
+            } else {
+                format!("{} · {}", sector.name, system_count)
+            };
+            labels.push(LabelCommand {
+                text: title,
+                anchor: (x, y),
+                style: if is_selected {
+                    Theme::highlight_style()
+                } else if let Some(owner) = owner {
+                    Style::default().fg(empire_visual(game_state, owner).color)
+                } else {
+                    Theme::muted_style()
+                },
+                priority: if is_selected {
+                    10
+                } else if has_capital {
+                    8
+                } else {
+                    6
+                },
+                placements: vec![
+                    LabelPlacement::Right,
+                    LabelPlacement::Below,
+                    LabelPlacement::Left,
+                ],
+            });
+        }
     }
 
-    if inner.height >= 2 && inner.width >= 10 {
+    frame.render_widget(
+        LayeredMap {
+            base_style: Theme::default_style(),
+            cells,
+            labels,
+        },
+        map_area,
+    );
+
+    if inner.height >= 1 && inner.width >= 10 {
         render_map_legend(
             frame,
             Rect::new(inner.x, inner.y + inner.height - 1, inner.width, 1),
@@ -127,11 +316,15 @@ fn render_sector_map(
 fn render_map_legend(frame: &mut Frame, area: Rect) {
     let spans = vec![
         Span::styled("@", Theme::highlight_style()),
-        Span::styled(" Sel  ", Theme::dim_border_style()),
-        Span::styled("*n", Theme::default_style()),
-        Span::styled(" Sector (n stars)", Theme::dim_border_style()),
-        Span::styled("  ·", Style::default().fg(Color::DarkGray)),
-        Span::styled(" Inter-sector lane", Theme::dim_border_style()),
+        Span::styled(" Selected  ", Theme::dim_border_style()),
+        Span::styled("^", Style::default().fg(Color::LightYellow)),
+        Span::styled(" Capital  ", Theme::dim_border_style()),
+        Span::styled("›", Theme::accent_style()),
+        Span::styled(" Fleets  ", Theme::dim_border_style()),
+        Span::styled("·", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Route  ", Theme::dim_border_style()),
+        Span::styled("?", Theme::muted_style()),
+        Span::styled(" Unexplored", Theme::dim_border_style()),
     ];
 
     let legend = Paragraph::new(Line::from(spans)).style(Theme::muted_style());
@@ -164,9 +357,20 @@ fn render_sector_details(
         }
     };
 
+    let owner = sector_dominant_owner(game_state, sector.id);
+    let fog = sector_fog_state(game_state, sector.id);
+
     let mut lines = vec![
         Line::from(vec![Span::styled(&sector.name, Theme::title_style())]),
         Line::from(""),
+        Line::from(vec![
+            Span::styled("Visibility: ", Theme::muted_style()),
+            Span::raw(match fog {
+                FogState::Unexplored => "Unexplored",
+                FogState::Explored => "Explored",
+                FogState::Visible => "Visible",
+            }),
+        ]),
         Line::from(vec![
             Span::styled("Systems: ", Theme::muted_style()),
             Span::raw(count_systems_in_sector(game_state, sector.id).to_string()),
@@ -175,9 +379,29 @@ fn render_sector_details(
             Span::styled("Position: ", Theme::muted_style()),
             Span::raw(format!("({}, {})", sector.x, sector.y)),
         ]),
-        Line::from(""),
-        Line::from(Span::styled("Systems in Sector:", Theme::title_style())),
     ];
+
+    if let Some(owner) = owner {
+        let visual = empire_visual(game_state, owner);
+        let owner_name = game_state
+            .empires
+            .get(&owner)
+            .map(|empire| empire.name.as_str())
+            .unwrap_or("Unknown Empire");
+        lines.push(Line::from(vec![
+            Span::styled("Dominant Power: ", Theme::muted_style()),
+            Span::styled(
+                format!("{} {}", visual.symbol, owner_name),
+                Style::default().fg(visual.color),
+            ),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Systems in Sector:",
+        Theme::title_style(),
+    )));
 
     let stars_in_sector: Vec<_> = game_state
         .stars
@@ -192,16 +416,33 @@ fn render_sector_details(
         } else {
             Cow::Owned("???".to_string())
         };
-        let style = if is_explored {
-            Theme::default_style()
+        let mut style = if is_explored {
+            Style::default().fg(Theme::star_color(star.spectral_class))
         } else {
             Theme::muted_style()
         };
+        let owner_symbol = crate::faction::star_owner(game_state, star.id).map(|empire_id| {
+            let visual = empire_visual(game_state, empire_id);
+            style = style.fg(visual.color).add_modifier(Modifier::BOLD);
+            visual.symbol
+        });
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("{}", star.spectral_class.as_char()), style),
+            Span::styled(
+                owner_symbol
+                    .unwrap_or(star.spectral_class.as_char())
+                    .to_string(),
+                style,
+            ),
             Span::raw(" "),
-            Span::styled(name, style),
+            Span::styled(
+                name,
+                if is_explored {
+                    Theme::default_style()
+                } else {
+                    Theme::muted_style()
+                },
+            ),
         ]));
     }
 
@@ -216,82 +457,101 @@ fn count_systems_in_sector(game_state: &GameState, sector_id: SectorId) -> usize
         .count()
 }
 
-fn render_inter_sector_lanes(
-    frame: &mut Frame,
-    inner: Rect,
-    game_state: &GameState,
-    map_width: i32,
-    map_height: i32,
-) {
-    let bounds = OverviewBounds {
-        inner,
-        map_width,
-        map_height,
-    };
-    for lane in &game_state.known_hyperspace_lanes {
-        let Some(a_star) = game_state.stars.get(&lane.a()) else {
-            continue;
-        };
-        let Some(b_star) = game_state.stars.get(&lane.b()) else {
-            continue;
-        };
-        if a_star.sector == b_star.sector {
-            continue;
-        }
-
-        let Some(a_sector) = game_state.sectors.get(&a_star.sector) else {
-            continue;
-        };
-        let Some(b_sector) = game_state.sectors.get(&b_star.sector) else {
-            continue;
-        };
-        draw_overview_line(
-            frame,
-            &bounds,
-            (a_sector.x as f64, a_sector.y as f64),
-            (b_sector.x as f64, b_sector.y as f64),
-            '·',
-            Style::default().fg(Color::DarkGray),
-        );
+fn sector_star_counts(game_state: &GameState) -> BTreeMap<SectorId, usize> {
+    let mut counts = BTreeMap::<SectorId, usize>::new();
+    for star in game_state.stars.values() {
+        *counts.entry(star.sector).or_default() += 1;
     }
+    counts
 }
 
-struct OverviewBounds {
-    inner: Rect,
-    map_width: i32,
-    map_height: i32,
+fn sector_fleet_counts(game_state: &GameState) -> BTreeMap<SectorId, usize> {
+    let mut counts = BTreeMap::<SectorId, usize>::new();
+    for fleet in game_state.fleets.values() {
+        if let Some(star) = game_state.stars.get(&fleet.location) {
+            *counts.entry(star.sector).or_default() += 1;
+        }
+    }
+    counts
 }
 
-fn draw_overview_line(
-    frame: &mut Frame,
-    bounds: &OverviewBounds,
-    start: (f64, f64),
-    end: (f64, f64),
-    glyph: char,
+fn capital_sectors(game_state: &GameState) -> BTreeMap<SectorId, StarId> {
+    let mut capitals = BTreeMap::new();
+    for empire in game_state.empires.values() {
+        if let Some(star) = game_state.stars.get(&empire.home_star) {
+            capitals.insert(star.sector, empire.home_star);
+        }
+    }
+    capitals
+}
+
+fn background_cells(
+    game_state: &GameState,
+    area: Rect,
+    frame_group: u64,
+    salt: u64,
+) -> Vec<CellCommand> {
+    let mut cells = Vec::new();
+    for y in 0..area.height {
+        for x in 0..area.width {
+            let hash = visual_hash(game_state.seed, x, y, frame_group, salt);
+            let style = Style::default().bg(Theme::space_bg());
+            if hash % 89 == 0 {
+                cells.push(CellCommand {
+                    layer: MapLayer::Background,
+                    order: 0,
+                    x,
+                    y,
+                    symbol: Some(if hash % 2 == 0 { '·' } else { '.' }),
+                    style: style.fg(Color::Rgb(70, 85, 120)),
+                    protect: 0,
+                });
+            } else if hash % 211 == 0 {
+                cells.push(CellCommand {
+                    layer: MapLayer::Background,
+                    order: 1,
+                    x,
+                    y,
+                    symbol: Some('✦'),
+                    style: style.fg(Color::Rgb(150, 170, 220)),
+                    protect: 0,
+                });
+            }
+        }
+    }
+    cells
+}
+
+fn add_halo(
+    cells: &mut Vec<CellCommand>,
+    center_x: u16,
+    center_y: u16,
+    area: Rect,
+    radius_x: i16,
+    radius_y: i16,
     style: Style,
+    layer: MapLayer,
+    order: u16,
 ) {
-    let (x0, y0) = start;
-    let (x1, y1) = end;
-    // One sample roughly every 30 world units yields visually continuous but subtle
-    // lane lines at typical terminal sizes without overdraw.
-    let steps = ((x1 - x0).abs().max((y1 - y0).abs()) / 30.0)
-        .ceil()
-        .max(1.0) as i32;
-    for step in 0..=steps {
-        let t = step as f64 / steps as f64;
-        let wx = x0 + (x1 - x0) * t;
-        let wy = y0 + (y1 - y0) * t;
-        let screen_x = ((wx + 500.0) * bounds.map_width as f64 / 1000.0).round() as i32;
-        let screen_y = ((wy + 500.0) * bounds.map_height as f64 / 1000.0).round() as i32;
-        let clamped_x = screen_x.clamp(0, bounds.map_width.saturating_sub(1));
-        let clamped_y = screen_y.clamp(0, bounds.map_height.saturating_sub(1));
-        let x = bounds.inner.x + clamped_x as u16;
-        let y = bounds.inner.y + clamped_y as u16;
-        if x < bounds.inner.x + bounds.inner.width && y < bounds.inner.y + bounds.inner.height {
-            frame.render_widget(
-                Paragraph::new(glyph.to_string()).style(style),
-                Rect::new(x, y, 1, 1),
-            );
+    for dx in -radius_x..=radius_x {
+        for dy in -radius_y..=radius_y {
+            if (dx * dx * 4) + (dy * dy * 9) > (radius_x * radius_x * 4) {
+                continue;
+            }
+            let x = i32::from(center_x) + i32::from(dx);
+            let y = i32::from(center_y) + i32::from(dy);
+            if x < 0 || y < 0 || x >= i32::from(area.width) || y >= i32::from(area.height) {
+                continue;
+            }
+            cells.push(CellCommand {
+                layer,
+                order,
+                x: x as u16,
+                y: y as u16,
+                symbol: None,
+                style,
+                protect: 0,
+            });
         }
     }
 }
@@ -299,31 +559,36 @@ fn draw_overview_line(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::faction::{empire_visual, sector_dominant_owner};
     use game_core::Engine;
-    use ratatui::backend::TestBackend;
-    use ratatui::Terminal;
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
-    #[test]
-    fn sector_overview_renders_without_panic() {
-        let backend = TestBackend::new(120, 40);
+    fn render_to_buffer(
+        app_state: &AppState,
+        game_state: &GameState,
+        width: u16,
+        height: u16,
+    ) -> Buffer {
+        let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
-
-        let engine = Engine::new(42);
-        let app_state = AppState::default();
-
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_sector_overview(frame, area, &app_state, &engine.state);
+                render_sector_overview(frame, area, app_state, game_state);
             })
             .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    #[test]
+    fn sector_overview_renders_without_panic() {
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
+        render_to_buffer(&app_state, &engine.state, 120, 40);
     }
 
     #[test]
     fn sector_overview_with_selection() {
-        let backend = TestBackend::new(120, 40);
-        let mut terminal = Terminal::new(backend).unwrap();
-
         let engine = Engine::new(42);
         let first_sector = engine.state.sectors.keys().next().copied();
         let app_state = AppState {
@@ -331,27 +596,129 @@ mod tests {
             ..Default::default()
         };
 
-        terminal
-            .draw(|frame| {
-                let area = frame.area();
-                render_sector_overview(frame, area, &app_state, &engine.state);
-            })
-            .unwrap();
+        render_to_buffer(&app_state, &engine.state, 120, 40);
     }
 
     #[test]
     fn sector_overview_small_terminal_does_not_panic() {
-        let backend = TestBackend::new(40, 15);
-        let mut terminal = Terminal::new(backend).unwrap();
-
         let engine = Engine::new(42);
         let app_state = AppState::default();
+        render_to_buffer(&app_state, &engine.state, 40, 15);
+    }
 
-        terminal
-            .draw(|frame| {
-                let area = frame.area();
-                render_sector_overview(frame, area, &app_state, &engine.state);
+    #[test]
+    fn sector_overview_is_deterministic_for_same_tick() {
+        let engine = Engine::new(42);
+        let app_state = AppState {
+            tick_count: 12,
+            show_inter_sector_lanes: true,
+            ..Default::default()
+        };
+        let a = render_to_buffer(&app_state, &engine.state, 120, 40);
+        let b = render_to_buffer(&app_state, &engine.state, 120, 40);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn sector_overview_shows_faction_identity_and_fog() {
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
+        let buf = render_to_buffer(&app_state, &engine.state, 120, 40);
+        let area = Rect::new(0, 0, 120, 40);
+        let (_, main, _) = compose_layout(area);
+        let (map_area, _) = split_horizontal(main, 55);
+        let block_inner = Block::default().borders(Borders::ALL).inner(map_area);
+        let render_area = Rect::new(
+            block_inner.x,
+            block_inner.y,
+            block_inner.width,
+            block_inner.height.saturating_sub(1),
+        );
+        let projection = WorldProjection::new(
+            (-560.0, -560.0, 560.0, 560.0),
+            render_area.width,
+            render_area.height,
+        );
+
+        let owned_sector = engine
+            .state
+            .sectors
+            .values()
+            .find(|sector| {
+                sector_dominant_owner(&engine.state, sector.id).is_some()
+                    && matches!(
+                        sector_fog_state(&engine.state, sector.id),
+                        FogState::Visible
+                    )
             })
             .unwrap();
+        let unexplored_sector = engine
+            .state
+            .sectors
+            .values()
+            .find(|sector| {
+                matches!(
+                    sector_fog_state(&engine.state, sector.id),
+                    FogState::Unexplored
+                ) && sector_dominant_owner(&engine.state, sector.id).is_none()
+            })
+            .unwrap();
+
+        let owned_pos = projection
+            .project(owned_sector.x as f64, owned_sector.y as f64)
+            .unwrap();
+        let unexplored_pos = projection
+            .project(unexplored_sector.x as f64, unexplored_sector.y as f64)
+            .unwrap();
+
+        let owned_cell = buf
+            .cell((render_area.x + owned_pos.0, render_area.y + owned_pos.1))
+            .unwrap();
+        let unexplored_cell = buf
+            .cell((
+                render_area.x + unexplored_pos.0,
+                render_area.y + unexplored_pos.1,
+            ))
+            .unwrap();
+
+        let owner = sector_dominant_owner(&engine.state, owned_sector.id).unwrap();
+        let visual = empire_visual(&engine.state, owner);
+        assert_eq!(owned_cell.symbol(), visual.symbol.to_string());
+        assert_eq!(owned_cell.fg, visual.color);
+        assert_eq!(unexplored_cell.symbol(), "?");
+    }
+
+    #[test]
+    fn sector_overview_labels_do_not_overwrite_selected_marker() {
+        let engine = Engine::new(42);
+        let selected_sector = engine.state.sectors.keys().next().copied().unwrap();
+        let app_state = AppState {
+            selected_sector: Some(selected_sector),
+            ..Default::default()
+        };
+        let buf = render_to_buffer(&app_state, &engine.state, 120, 40);
+        let area = Rect::new(0, 0, 120, 40);
+        let (_, main, _) = compose_layout(area);
+        let (map_area, _) = split_horizontal(main, 55);
+        let block_inner = Block::default().borders(Borders::ALL).inner(map_area);
+        let render_area = Rect::new(
+            block_inner.x,
+            block_inner.y,
+            block_inner.width,
+            block_inner.height.saturating_sub(1),
+        );
+        let projection = WorldProjection::new(
+            (-560.0, -560.0, 560.0, 560.0),
+            render_area.width,
+            render_area.height,
+        );
+        let sector = engine.state.sectors.get(&selected_sector).unwrap();
+        let pos = projection
+            .project(sector.x as f64, sector.y as f64)
+            .unwrap();
+        let cell = buf
+            .cell((render_area.x + pos.0, render_area.y + pos.1))
+            .unwrap();
+        assert_eq!(cell.symbol(), "@");
     }
 }

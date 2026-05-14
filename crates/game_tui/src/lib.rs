@@ -10,5 +10,6 @@ pub mod layout;
 pub mod map_render;
 pub mod screens;
 pub mod theme;
+pub mod viewport;
 
 pub use app::{App, AppState};

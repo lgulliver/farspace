@@ -6,11 +6,12 @@ use crate::components::{derive_header_data, render_footer, render_header, render
 use crate::faction::{empire_visual, sector_dominant_owner, sector_fog_state, FogState};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::map_render::{
-    push_halo, sample_line, visual_hash, CellCommand, HaloSpec, LabelCommand, LabelPlacement,
-    LayeredMap, MapLayer, WorldProjection,
+    push_halo, visual_hash, CellCommand, HaloSpec, LabelCommand, LabelPlacement, LayeredMap,
+    MapLayer,
 };
 use crate::screens::Screen;
 use crate::theme::Theme;
+use crate::viewport::{MapViewport, ScreenPoint, ViewportBounds, WorldPoint};
 use crate::AppState;
 use game_core::{GameState, SectorId, StarId};
 use ratatui::{
@@ -79,8 +80,8 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
         return;
     }
 
-    let projection = WorldProjection::new(
-        (-560.0, -560.0, 560.0, 560.0),
+    let viewport = MapViewport::fit_bounds(
+        ViewportBounds::from_min_max(-560.0, -560.0, 560.0, 560.0),
         map_area.width,
         map_area.height,
     );
@@ -98,7 +99,9 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
     let mut labels = Vec::new();
 
     for sector in game_state.sectors.values() {
-        let Some((sx, sy)) = projection.project(sector.x as f64, sector.y as f64) else {
+        let Some(ScreenPoint { x: sx, y: sy }) =
+            viewport.world_to_screen_cell(WorldPoint::new(sector.x as f64, sector.y as f64))
+        else {
             continue;
         };
 
@@ -175,28 +178,27 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
                 Style::default().fg(Color::DarkGray)
             };
 
-            for (wx, wy) in sample_line(
-                (a_sector.x as f64, a_sector.y as f64),
-                (b_sector.x as f64, b_sector.y as f64),
-                28.0,
+            for ScreenPoint { x, y } in viewport.world_line_to_cells(
+                WorldPoint::new(a_sector.x as f64, a_sector.y as f64),
+                WorldPoint::new(b_sector.x as f64, b_sector.y as f64),
             ) {
-                if let Some((x, y)) = projection.project(wx, wy) {
-                    cells.push(CellCommand {
-                        layer: MapLayer::Route,
-                        order: 0,
-                        x,
-                        y,
-                        symbol: Some(glyph),
-                        style,
-                        protect: 0,
-                    });
-                }
+                cells.push(CellCommand {
+                    layer: MapLayer::Route,
+                    order: 0,
+                    x,
+                    y,
+                    symbol: Some(glyph),
+                    style,
+                    protect: 0,
+                });
             }
         }
     }
 
     for sector in game_state.sectors.values() {
-        let Some((x, y)) = projection.project(sector.x as f64, sector.y as f64) else {
+        let Some(ScreenPoint { x, y }) =
+            viewport.world_to_screen_cell(WorldPoint::new(sector.x as f64, sector.y as f64))
+        else {
             continue;
         };
 
@@ -552,6 +554,27 @@ mod tests {
         terminal.backend().buffer().clone()
     }
 
+    fn overview_viewport(width: u16, height: u16) -> (Rect, MapViewport) {
+        let area = Rect::new(0, 0, width, height);
+        let (_, main, _) = compose_layout(area);
+        let (map_area, _) = split_horizontal(main, 55);
+        let block_inner = Block::default().borders(Borders::ALL).inner(map_area);
+        let render_area = Rect::new(
+            block_inner.x,
+            block_inner.y,
+            block_inner.width,
+            block_inner.height.saturating_sub(1),
+        );
+        (
+            render_area,
+            MapViewport::fit_bounds(
+                ViewportBounds::from_min_max(-560.0, -560.0, 560.0, 560.0),
+                render_area.width,
+                render_area.height,
+            ),
+        )
+    }
+
     #[test]
     fn sector_overview_renders_without_panic() {
         let engine = Engine::new(42);
@@ -596,21 +619,7 @@ mod tests {
         let engine = Engine::new(42);
         let app_state = AppState::default();
         let buf = render_to_buffer(&app_state, &engine.state, 120, 40);
-        let area = Rect::new(0, 0, 120, 40);
-        let (_, main, _) = compose_layout(area);
-        let (map_area, _) = split_horizontal(main, 55);
-        let block_inner = Block::default().borders(Borders::ALL).inner(map_area);
-        let render_area = Rect::new(
-            block_inner.x,
-            block_inner.y,
-            block_inner.width,
-            block_inner.height.saturating_sub(1),
-        );
-        let projection = WorldProjection::new(
-            (-560.0, -560.0, 560.0, 560.0),
-            render_area.width,
-            render_area.height,
-        );
+        let (render_area, viewport) = overview_viewport(120, 40);
 
         let owned_sector = engine
             .state
@@ -636,20 +645,26 @@ mod tests {
             })
             .unwrap();
 
-        let owned_pos = projection
-            .project(owned_sector.x as f64, owned_sector.y as f64)
+        let owned_pos = viewport
+            .world_to_screen_cell(WorldPoint::new(
+                owned_sector.x as f64,
+                owned_sector.y as f64,
+            ))
             .unwrap();
-        let unexplored_pos = projection
-            .project(unexplored_sector.x as f64, unexplored_sector.y as f64)
+        let unexplored_pos = viewport
+            .world_to_screen_cell(WorldPoint::new(
+                unexplored_sector.x as f64,
+                unexplored_sector.y as f64,
+            ))
             .unwrap();
 
         let owned_cell = buf
-            .cell((render_area.x + owned_pos.0, render_area.y + owned_pos.1))
+            .cell((render_area.x + owned_pos.x, render_area.y + owned_pos.y))
             .unwrap();
         let unexplored_cell = buf
             .cell((
-                render_area.x + unexplored_pos.0,
-                render_area.y + unexplored_pos.1,
+                render_area.x + unexplored_pos.x,
+                render_area.y + unexplored_pos.y,
             ))
             .unwrap();
 
@@ -669,27 +684,13 @@ mod tests {
             ..Default::default()
         };
         let buf = render_to_buffer(&app_state, &engine.state, 120, 40);
-        let area = Rect::new(0, 0, 120, 40);
-        let (_, main, _) = compose_layout(area);
-        let (map_area, _) = split_horizontal(main, 55);
-        let block_inner = Block::default().borders(Borders::ALL).inner(map_area);
-        let render_area = Rect::new(
-            block_inner.x,
-            block_inner.y,
-            block_inner.width,
-            block_inner.height.saturating_sub(1),
-        );
-        let projection = WorldProjection::new(
-            (-560.0, -560.0, 560.0, 560.0),
-            render_area.width,
-            render_area.height,
-        );
+        let (render_area, viewport) = overview_viewport(120, 40);
         let sector = engine.state.sectors.get(&selected_sector).unwrap();
-        let pos = projection
-            .project(sector.x as f64, sector.y as f64)
+        let pos = viewport
+            .world_to_screen_cell(WorldPoint::new(sector.x as f64, sector.y as f64))
             .unwrap();
         let cell = buf
-            .cell((render_area.x + pos.0, render_area.y + pos.1))
+            .cell((render_area.x + pos.x, render_area.y + pos.y))
             .unwrap();
         assert_eq!(cell.symbol(), "@");
     }

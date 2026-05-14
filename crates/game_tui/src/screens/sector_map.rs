@@ -11,11 +11,12 @@ use crate::faction::{
 };
 use crate::layout::{compose_layout, split_horizontal};
 use crate::map_render::{
-    push_halo, sample_line, visual_hash, CellCommand, HaloSpec, LabelCommand, LabelPlacement,
-    LayeredMap, MapLayer, WorldProjection,
+    push_halo, visual_hash, CellCommand, HaloSpec, LabelCommand, LabelPlacement, LayeredMap,
+    MapLayer,
 };
 use crate::screens::Screen;
 use crate::theme::Theme;
+use crate::viewport::{MapViewport, ScreenPoint, ViewportBounds, WorldPoint};
 use crate::AppState;
 use game_core::{GameState, SectorId, StarId, TechId};
 use ratatui::{
@@ -113,10 +114,9 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
 
     let points: Vec<_> = stars_in_sector
         .iter()
-        .map(|star| (star.x as f64, star.y as f64))
+        .map(|star| WorldPoint::new(star.x as f64, star.y as f64))
         .collect();
-    let Some(projection) =
-        WorldProjection::from_points(&points, map_area.width, map_area.height, 40.0)
+    let Some(viewport) = MapViewport::fit_points(&points, map_area.width, map_area.height, 40.0)
     else {
         return;
     };
@@ -146,7 +146,9 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
     let mut labels = Vec::new();
 
     for star in &stars_in_sector {
-        let Some((x, y)) = projection.project(star.x as f64, star.y as f64) else {
+        let Some(ScreenPoint { x, y }) =
+            viewport.world_to_screen_cell(WorldPoint::new(star.x as f64, star.y as f64))
+        else {
             continue;
         };
         let fog = star_fog_state(game_state, &visible_stars, star.id);
@@ -208,10 +210,12 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
         }
     }
 
-    render_known_lanes_in_sector(&mut cells, game_state, app_state, sector_id, &projection);
+    render_known_lanes_in_sector(&mut cells, game_state, app_state, sector_id, &viewport);
 
     for star in &stars_in_sector {
-        let Some((x, y)) = projection.project(star.x as f64, star.y as f64) else {
+        let Some(ScreenPoint { x, y }) =
+            viewport.world_to_screen_cell(WorldPoint::new(star.x as f64, star.y as f64))
+        else {
             continue;
         };
 
@@ -356,7 +360,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
     if !app_state.reduced_motion {
         let show_indicator = (app_state.tick_count / 5).is_multiple_of(2);
         if show_indicator {
-            render_travelling_fleets(&mut cells, game_state, sector_id, &projection);
+            render_travelling_fleets(&mut cells, game_state, sector_id, &viewport);
         }
     }
 
@@ -383,7 +387,7 @@ fn render_travelling_fleets(
     cells: &mut Vec<CellCommand>,
     game_state: &GameState,
     sector_id: SectorId,
-    projection: &WorldProjection,
+    viewport: &MapViewport,
 ) {
     let fleet_indicator_style = Style::default()
         .fg(Color::Magenta)
@@ -410,7 +414,7 @@ fn render_travelling_fleets(
         let progress = (elapsed / mission.total_duration as f64).clamp(0.0, 1.0);
         let wx = origin.x as f64 + (destination.x as f64 - origin.x as f64) * progress;
         let wy = origin.y as f64 + (destination.y as f64 - origin.y as f64) * progress;
-        if let Some((x, y)) = projection.project(wx, wy) {
+        if let Some(ScreenPoint { x, y }) = viewport.world_to_screen_cell(WorldPoint::new(wx, wy)) {
             cells.push(CellCommand {
                 layer: MapLayer::Overlay,
                 order: 3,
@@ -441,7 +445,7 @@ fn render_travelling_fleets(
         let progress = (elapsed / mission.total_duration as f64).clamp(0.0, 1.0);
         let wx = origin.x as f64 + (destination.x as f64 - origin.x as f64) * progress;
         let wy = origin.y as f64 + (destination.y as f64 - origin.y as f64) * progress;
-        if let Some((x, y)) = projection.project(wx, wy) {
+        if let Some(ScreenPoint { x, y }) = viewport.world_to_screen_cell(WorldPoint::new(wx, wy)) {
             cells.push(CellCommand {
                 layer: MapLayer::Overlay,
                 order: 4,
@@ -575,7 +579,7 @@ fn render_known_lanes_in_sector(
     game_state: &GameState,
     app_state: &AppState,
     sector_id: SectorId,
-    projection: &WorldProjection,
+    viewport: &MapViewport,
 ) {
     let player_has_cartography = game_state
         .empires
@@ -624,18 +628,19 @@ fn render_known_lanes_in_sector(
             Style::default().fg(Color::DarkGray)
         };
         let glyph = if is_highlight { '•' } else { '·' };
-        for (wx, wy) in sample_line((a.x as f64, a.y as f64), (b.x as f64, b.y as f64), 25.0) {
-            if let Some((x, y)) = projection.project(wx, wy) {
-                cells.push(CellCommand {
-                    layer: MapLayer::Route,
-                    order: 0,
-                    x,
-                    y,
-                    symbol: Some(glyph),
-                    style,
-                    protect: 0,
-                });
-            }
+        for ScreenPoint { x, y } in viewport.world_line_to_cells(
+            WorldPoint::new(a.x as f64, a.y as f64),
+            WorldPoint::new(b.x as f64, b.y as f64),
+        ) {
+            cells.push(CellCommand {
+                layer: MapLayer::Route,
+                order: 0,
+                x,
+                y,
+                symbol: Some(glyph),
+                style,
+                protect: 0,
+            });
         }
     }
 }
@@ -745,6 +750,23 @@ mod tests {
         )
     }
 
+    fn sector_viewport(
+        game_state: &GameState,
+        app_state: &AppState,
+        width: u16,
+        height: u16,
+    ) -> MapViewport {
+        let render_area = map_render_area(width, height);
+        let sector_points: Vec<_> = game_state
+            .stars
+            .values()
+            .filter(|star| Some(star.sector) == app_state.selected_sector)
+            .map(|star| WorldPoint::new(star.x as f64, star.y as f64))
+            .collect();
+        MapViewport::fit_points(&sector_points, render_area.width, render_area.height, 40.0)
+            .unwrap()
+    }
+
     #[test]
     fn sector_map_renders_without_panic() {
         let (app_state, game_state) = create_app_with_sector();
@@ -835,32 +857,23 @@ mod tests {
 
         let buf = render_to_buffer(&app_state, &game_state, 120, 40);
         let render_area = map_render_area(120, 40);
-        let sector_stars: Vec<_> = game_state
-            .stars
-            .values()
-            .filter(|star| star.sector == selected_sector)
-            .map(|star| (star.x as f64, star.y as f64))
-            .collect();
-        let projection = WorldProjection::from_points(
-            &sector_stars,
-            render_area.width,
-            render_area.height,
-            40.0,
-        )
-        .unwrap();
+        let viewport = sector_viewport(&game_state, &app_state, 120, 40);
         let owned_star = game_state.stars.get(&player_owned_star).unwrap();
         let hidden_star_data = game_state.stars.get(&hidden_star).unwrap();
-        let owned_pos = projection
-            .project(owned_star.x as f64, owned_star.y as f64)
+        let owned_pos = viewport
+            .world_to_screen_cell(WorldPoint::new(owned_star.x as f64, owned_star.y as f64))
             .unwrap();
-        let hidden_pos = projection
-            .project(hidden_star_data.x as f64, hidden_star_data.y as f64)
+        let hidden_pos = viewport
+            .world_to_screen_cell(WorldPoint::new(
+                hidden_star_data.x as f64,
+                hidden_star_data.y as f64,
+            ))
             .unwrap();
         let owned_cell = buf
-            .cell((render_area.x + owned_pos.0, render_area.y + owned_pos.1))
+            .cell((render_area.x + owned_pos.x, render_area.y + owned_pos.y))
             .unwrap();
         let hidden_cell = buf
-            .cell((render_area.x + hidden_pos.0, render_area.y + hidden_pos.1))
+            .cell((render_area.x + hidden_pos.x, render_area.y + hidden_pos.y))
             .unwrap();
         let visual = empire_visual(&game_state, game_state.player_empire);
         assert_eq!(owned_cell.symbol(), visual.symbol.to_string());
@@ -874,23 +887,13 @@ mod tests {
         let star_id = app_state.selected_star.unwrap();
         let buf = render_to_buffer(&app_state, &game_state, 120, 40);
         let render_area = map_render_area(120, 40);
-        let sector_stars: Vec<_> = game_state
-            .stars
-            .values()
-            .filter(|star| Some(star.sector) == app_state.selected_sector)
-            .map(|star| (star.x as f64, star.y as f64))
-            .collect();
-        let projection = WorldProjection::from_points(
-            &sector_stars,
-            render_area.width,
-            render_area.height,
-            40.0,
-        )
-        .unwrap();
+        let viewport = sector_viewport(&game_state, &app_state, 120, 40);
         let star = game_state.stars.get(&star_id).unwrap();
-        let pos = projection.project(star.x as f64, star.y as f64).unwrap();
+        let pos = viewport
+            .world_to_screen_cell(WorldPoint::new(star.x as f64, star.y as f64))
+            .unwrap();
         let cell = buf
-            .cell((render_area.x + pos.0, render_area.y + pos.1))
+            .cell((render_area.x + pos.x, render_area.y + pos.y))
             .unwrap();
         assert_eq!(cell.bg, Theme::accent());
     }

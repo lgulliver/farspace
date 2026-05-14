@@ -118,101 +118,6 @@ impl Widget for LayeredMap {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct WorldProjection {
-    min_x: f64,
-    min_y: f64,
-    max_x: f64,
-    max_y: f64,
-    width: u16,
-    height: u16,
-}
-
-impl WorldProjection {
-    pub fn new(bounds: (f64, f64, f64, f64), width: u16, height: u16) -> Self {
-        let (mut min_x, mut min_y, mut max_x, mut max_y) = bounds;
-        if (max_x - min_x).abs() < f64::EPSILON {
-            min_x -= 1.0;
-            max_x += 1.0;
-        }
-        if (max_y - min_y).abs() < f64::EPSILON {
-            min_y -= 1.0;
-            max_y += 1.0;
-        }
-
-        Self {
-            min_x,
-            min_y,
-            max_x,
-            max_y,
-            width,
-            height,
-        }
-    }
-
-    pub fn from_points(
-        points: &[(f64, f64)],
-        width: u16,
-        height: u16,
-        padding: f64,
-    ) -> Option<Self> {
-        if width == 0 || height == 0 || points.is_empty() {
-            return None;
-        }
-
-        let mut min_x = points[0].0;
-        let mut max_x = points[0].0;
-        let mut min_y = points[0].1;
-        let mut max_y = points[0].1;
-
-        for &(x, y) in points.iter().skip(1) {
-            min_x = min_x.min(x);
-            max_x = max_x.max(x);
-            min_y = min_y.min(y);
-            max_y = max_y.max(y);
-        }
-
-        Some(Self::new(
-            (
-                min_x - padding,
-                min_y - padding,
-                max_x + padding,
-                max_y + padding,
-            ),
-            width,
-            height,
-        ))
-    }
-
-    pub fn project(&self, wx: f64, wy: f64) -> Option<(u16, u16)> {
-        if self.width == 0 || self.height == 0 {
-            return None;
-        }
-        let rel_x = (wx - self.min_x) / (self.max_x - self.min_x);
-        let rel_y = (wy - self.min_y) / (self.max_y - self.min_y);
-        let x = (rel_x * f64::from(self.width.saturating_sub(1))).round() as i32;
-        let y = (rel_y * f64::from(self.height.saturating_sub(1))).round() as i32;
-        Some((
-            x.clamp(0, i32::from(self.width.saturating_sub(1))) as u16,
-            y.clamp(0, i32::from(self.height.saturating_sub(1))) as u16,
-        ))
-    }
-}
-
-pub fn sample_line(start: (f64, f64), end: (f64, f64), spacing: f64) -> Vec<(f64, f64)> {
-    let (x0, y0) = start;
-    let (x1, y1) = end;
-    let steps = ((x1 - x0).abs().max((y1 - y0).abs()) / spacing)
-        .ceil()
-        .max(1.0) as usize;
-    (0..=steps)
-        .map(|step| {
-            let t = step as f64 / steps as f64;
-            (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
-        })
-        .collect()
-}
-
 pub fn visual_hash(seed: u64, x: u16, y: u16, frame: u64, salt: u64) -> u64 {
     let mut value = seed
         ^ (u64::from(x) << 17)
@@ -324,13 +229,6 @@ mod tests {
     use super::*;
 
     const TEST_VISUAL_SALT: u64 = 11;
-
-    #[test]
-    fn projection_projects_into_area() {
-        let projection = WorldProjection::new((-10.0, -10.0, 10.0, 10.0), 20, 10);
-        assert_eq!(projection.project(-10.0, -10.0), Some((0, 0)));
-        assert_eq!(projection.project(10.0, 10.0), Some((19, 9)));
-    }
 
     #[test]
     fn visual_hash_is_deterministic() {

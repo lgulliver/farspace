@@ -235,7 +235,14 @@ pub fn derive_empire_overview(
         .values()
         .filter(|f| f.owner == empire_id)
         .count();
-    let maintenance_per_turn = colony_maintenance + fleet_count as i64;
+    let fleet_maintenance_modifier = empire
+        .and_then(|e| e.empire_def)
+        .and_then(game_core::empire_definition_by_id)
+        .map(|def| def.military_modifiers.fleet_maintenance_modifier_per_fleet)
+        .unwrap_or(0);
+    let fleet_maintenance =
+        ((fleet_count as i64) + (fleet_count as i64 * fleet_maintenance_modifier)).max(0);
+    let maintenance_per_turn = colony_maintenance + fleet_maintenance;
 
     EmpireOverviewData {
         summary: EmpireOverviewSummary {
@@ -601,6 +608,15 @@ mod tests {
             .filter(|f| f.owner == engine.state.player_empire)
             .count() as i64;
         assert_eq!(data.summary.maintenance_per_turn, expected_maintenance);
+    }
+
+    #[test]
+    fn overview_applies_faction_fleet_maintenance_modifier() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        engine.state.empires.get_mut(&player).unwrap().empire_def = Some(EmpireDefinitionId(7));
+        let data = derive_empire_overview(&engine.state, player, OverviewSort::Name, "");
+        assert_eq!(data.summary.maintenance_per_turn, 0);
     }
 
     #[test]

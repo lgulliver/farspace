@@ -6593,7 +6593,7 @@ mod tests {
                 home_star: ai_star_id,
                 research: ResearchState::default(),
                 food: 0,
-                empire_def: None,
+                empire_def: Some(crate::state::EmpireDefinitionId(0)),
             },
         );
         state.colonies.insert(
@@ -6772,6 +6772,7 @@ mod tests {
     #[test]
     fn fleet_arrival_at_ai_colony_establishes_contact() {
         let (mut engine, _player_star_id, ai_star_id, ai_id) = make_two_empire_state();
+        set_empire_definition(&mut engine, ai_id, crate::state::EmpireDefinitionId(0));
 
         // Put fleet on a mission that completes this turn
         engine.state.fleet_missions.insert(

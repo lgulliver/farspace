@@ -7,8 +7,9 @@ use crate::screens::research::ordered_research_techs;
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
-    BuildingType, ColonyId, ColonyRole, Command, Engine, Event as CoreEvent, FleetId, FleetKind,
-    GalaxySize, OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId,
+    empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, Engine,
+    Event as CoreEvent, FleetId, FleetKind, GalaxySize, OrbitalStructureType, ScenarioSetup,
+    SectorId, StarId, TechId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -132,6 +133,80 @@ impl Default for AppState {
 }
 
 impl App {
+    fn empire_display_name(&self, empire_id: game_core::EmpireId) -> String {
+        self.engine
+            .as_ref()
+            .and_then(|engine| engine.state.empires.get(&empire_id))
+            .map(|empire| empire.name.clone())
+            .unwrap_or_else(|| format!("Empire {}", empire_id.0))
+    }
+
+    fn format_core_event_for_log(&self, event: &CoreEvent) -> String {
+        match event {
+            CoreEvent::FirstContact { with_empire } => {
+                let name = self.empire_display_name(*with_empire);
+                let tone = self
+                    .engine
+                    .as_ref()
+                    .and_then(|engine| engine.state.empires.get(with_empire))
+                    .and_then(|empire| empire.empire_def)
+                    .and_then(empire_definition_by_id)
+                    .map(|def| def.tone)
+                    .unwrap_or("Unknown stance");
+                format!("First contact established with {name} — {tone}")
+            }
+            CoreEvent::AiResearchSelected { empire, tech } => {
+                let name = self.empire_display_name(*empire);
+                let tech_name = tech_by_id(*tech).map(|record| record.name).unwrap_or("Unknown Tech");
+                format!("{name} redirected its labs to {tech_name}")
+            }
+            CoreEvent::AiBuildQueued {
+                empire,
+                colony,
+                item,
+            } => {
+                let name = self.empire_display_name(*empire);
+                format!("{name} queued {} at colony {}", item.name(), colony.0)
+            }
+            CoreEvent::AiScoutDispatched {
+                empire,
+                fleet,
+                destination,
+            } => {
+                let name = self.empire_display_name(*empire);
+                format!("{name} dispatched scout {} to system {}", fleet.0, destination.0)
+            }
+            CoreEvent::AiColonized {
+                empire,
+                star,
+                planet_index,
+                colony,
+            } => {
+                let name = self.empire_display_name(*empire);
+                format!(
+                    "{name} founded colony {} at system {} orbit {}",
+                    colony.0,
+                    star.0,
+                    planet_index + 1
+                )
+            }
+            CoreEvent::AiColonyRoleAssigned {
+                empire,
+                colony,
+                role,
+            } => {
+                let name = self.empire_display_name(*empire);
+                format!("{name} reorganized colony {} as {}", colony.0, role.name())
+            }
+            _ => event.to_log_message(),
+        }
+    }
+
+    fn push_core_event_to_log(&mut self, event: &CoreEvent) {
+        let message = self.format_core_event_for_log(event);
+        self.state.log.push(message);
+    }
+
     /// Create a new application
     pub fn new() -> Self {
         App {
@@ -162,11 +237,20 @@ impl App {
 
         // Add initial log entry with setup summary and playability hints
         let scenario_summary = if let Some(s) = &engine.state.scenario {
+            let player_faction = engine
+                .state
+                .empires
+                .get(&engine.state.player_empire)
+                .and_then(|empire| empire.empire_def)
+                .and_then(empire_definition_by_id)
+                .map(|def| def.name)
+                .unwrap_or("Unaligned");
             format!(
-                "Game started — {} galaxy, {} AI empire(s), seed {}",
+                "Game started — {} galaxy, {} AI empire(s), seed {}, faction {}",
                 s.galaxy_size.label(),
                 s.ai_empire_count,
                 s.seed,
+                player_faction,
             )
         } else {
             "Game started".to_string()
@@ -1015,7 +1099,7 @@ impl App {
         };
         let events = engine.apply_turn(commands);
         for event in events {
-            self.state.log.push(event.to_log_message());
+            self.push_core_event_to_log(&event);
         }
     }
 
@@ -1068,7 +1152,7 @@ impl App {
         };
         let events = engine.apply_turn(commands);
         for event in events {
-            self.state.log.push(event.to_log_message());
+            self.push_core_event_to_log(&event);
         }
     }
 
@@ -1106,7 +1190,7 @@ impl App {
         };
         let events = engine.apply_turn(commands);
         for event in events {
-            self.state.log.push(event.to_log_message());
+            self.push_core_event_to_log(&event);
         }
     }
 
@@ -1136,7 +1220,7 @@ impl App {
         };
         let events = engine.apply_turn(commands);
         for event in events {
-            self.state.log.push(event.to_log_message());
+            self.push_core_event_to_log(&event);
         }
     }
 
@@ -1164,7 +1248,7 @@ impl App {
         };
         let events = engine.apply_turn(commands);
         for event in events {
-            self.state.log.push(event.to_log_message());
+            self.push_core_event_to_log(&event);
         }
     }
 
@@ -1383,7 +1467,7 @@ impl App {
         // Add events to log
         let report = Self::build_end_turn_report(engine.state.turn, &events);
         for event in events {
-            self.state.log.push(event.to_log_message());
+            self.push_core_event_to_log(&event);
         }
         self.state.log.push(report.clone());
         self.state.status_message = Some(report);
@@ -1444,7 +1528,7 @@ impl App {
         };
         let events = engine.apply_turn(commands);
         for event in events {
-            self.state.log.push(event.to_log_message());
+            self.push_core_event_to_log(&event);
         }
     }
 
@@ -1502,7 +1586,7 @@ impl App {
         };
         let events = engine.apply_turn(commands);
         for event in events {
-            self.state.log.push(event.to_log_message());
+            self.push_core_event_to_log(&event);
         }
     }
 
@@ -1584,7 +1668,7 @@ impl App {
         };
         let events = engine.apply_turn(commands);
         for event in events {
-            self.state.log.push(event.to_log_message());
+            self.push_core_event_to_log(&event);
         }
     }
 
@@ -1665,7 +1749,7 @@ impl App {
         };
         let events = engine.apply_turn(commands);
         for event in events {
-            self.state.log.push(event.to_log_message());
+            self.push_core_event_to_log(&event);
         }
     }
 
@@ -1744,7 +1828,7 @@ impl App {
         };
         let events = engine.apply_turn(commands);
         for event in events {
-            self.state.log.push(event.to_log_message());
+            self.push_core_event_to_log(&event);
         }
     }
 

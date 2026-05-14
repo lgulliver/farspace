@@ -46,6 +46,8 @@ impl OverviewSort {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmpireOverviewSummary {
+    pub faction_name: String,
+    pub faction_tone: String,
     pub credits: i64,
     pub food: i64,
     pub science_per_turn: i64,
@@ -237,6 +239,16 @@ pub fn derive_empire_overview(
 
     EmpireOverviewData {
         summary: EmpireOverviewSummary {
+            faction_name: empire
+                .and_then(|e| e.empire_def)
+                .and_then(game_core::empire_definition_by_id)
+                .map(|def| def.name.to_string())
+                .unwrap_or_else(|| "Unaligned".to_string()),
+            faction_tone: empire
+                .and_then(|e| e.empire_def)
+                .and_then(game_core::empire_definition_by_id)
+                .map(|def| def.tone.to_string())
+                .unwrap_or_else(|| "No faction identity".to_string()),
             credits: empire.map(|e| e.credits).unwrap_or(0),
             food: empire.map(|e| e.food).unwrap_or(0),
             science_per_turn,
@@ -321,13 +333,18 @@ pub fn render_empire_overview(
 
 fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary) {
     let block = Block::default()
-        .title(" Empire Summary ")
+        .title(format!(" Empire Summary · {} ", summary.faction_name))
         .borders(Borders::ALL)
         .style(Theme::default_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     let line = Line::from(vec![
+        Span::styled("Faction ", Theme::muted_style()),
+        Span::styled(summary.faction_name.as_str(), Theme::accent_style()),
+        Span::raw("  "),
+        Span::styled(summary.faction_tone.as_str(), Theme::success_style()),
+        Span::raw("  "),
         Span::styled("Credits ", Theme::muted_style()),
         Span::styled(format!("{}", summary.credits), Theme::default_style()),
         Span::raw("  "),
@@ -511,8 +528,29 @@ fn render_colony_table(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_core::{Command, Engine};
+    use game_core::{Command, EmpireDefinitionId, Engine};
     use ratatui::{backend::TestBackend, Terminal};
+
+    fn render_to_string(engine: &Engine) -> String {
+        let backend = TestBackend::new(140, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app_state = AppState::default();
+        terminal
+            .draw(|frame| render_empire_overview(frame, frame.area(), &app_state, &engine.state))
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let mut rendered = String::new();
+        for y in 0..30u16 {
+            for x in 0..140u16 {
+                let ch = buffer
+                    .cell((x, y))
+                    .and_then(|cell| cell.symbol().chars().next())
+                    .unwrap_or(' ');
+                rendered.push(ch);
+            }
+        }
+        rendered
+    }
 
     #[test]
     fn overview_derives_correct_colony_count() {
@@ -683,5 +721,16 @@ mod tests {
         terminal
             .draw(|frame| render_empire_overview(frame, frame.area(), &app_state, &engine.state))
             .unwrap();
+    }
+
+    #[test]
+    fn empire_overview_shows_player_faction_identity() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        engine.state.empires.get_mut(&player).unwrap().empire_def = Some(EmpireDefinitionId(6));
+        engine.state.empires.get_mut(&player).unwrap().name = "Terran Concord".to_string();
+        let rendered = render_to_string(&engine);
+        assert!(rendered.contains("Terran Concord"));
+        assert!(rendered.contains("science-forward federation"));
     }
 }

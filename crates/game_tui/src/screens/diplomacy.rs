@@ -68,21 +68,7 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
                     Span::raw("  "),
                     Span::styled("Contacted", Theme::accent_style()),
                 ]));
-                // Show empire identity details when contacted
-                if let Some(def) = empire.empire_def.and_then(empire_definition_by_id) {
-                    let tag_labels: Vec<&str> = def.playstyle.iter().map(|t| t.label()).collect();
-                    lines.push(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(
-                            format!("{} {}", def.symbol, def.short_description),
-                            Theme::muted_style(),
-                        ),
-                    ]));
-                    lines.push(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(tag_labels.join(" · "), Theme::accent_style()),
-                    ]));
-                }
+                push_identity_lines(&mut lines, empire);
                 lines.push(Line::from(""));
             }
             RelationshipStatus::Neutral => {
@@ -92,6 +78,7 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
                     Span::raw("  "),
                     Span::styled("Neutral", Theme::accent_style()),
                 ]));
+                push_identity_lines(&mut lines, empire);
                 lines.push(Line::from(""));
             }
             RelationshipStatus::Tense => {
@@ -101,6 +88,7 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
                     Span::raw("  "),
                     Span::styled("Tense", Theme::warning_style()),
                 ]));
+                push_identity_lines(&mut lines, empire);
                 lines.push(Line::from(""));
             }
             RelationshipStatus::Hostile => {
@@ -110,6 +98,7 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
                     Span::raw("  "),
                     Span::styled("Hostile", Theme::error_style()),
                 ]));
+                push_identity_lines(&mut lines, empire);
                 lines.push(Line::from(""));
             }
             RelationshipStatus::War => {
@@ -119,6 +108,7 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
                     Span::raw("  "),
                     Span::styled("At War", Theme::error_style()),
                 ]));
+                push_identity_lines(&mut lines, empire);
                 lines.push(Line::from(""));
             }
             RelationshipStatus::Unknown => {
@@ -155,13 +145,61 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
     frame.render_widget(paragraph, inner);
 }
 
+fn push_identity_lines(lines: &mut Vec<Line>, empire: &game_core::Empire) {
+    if let Some(def) = empire.empire_def.and_then(empire_definition_by_id) {
+        let tag_labels: Vec<&str> = def.playstyle.iter().map(|t| t.label()).collect();
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                format!("{} {}", def.symbol, def.short_description),
+                Theme::muted_style(),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(def.tone, Theme::success_style()),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(tag_labels.join(" · "), Theme::accent_style()),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(def.playstyle_summary, Theme::muted_style()),
+        ]));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::AppState;
-    use game_core::Engine;
-    use ratatui::backend::TestBackend;
-    use ratatui::Terminal;
+    use game_core::{EmpireDefinitionId, Engine};
+    use ratatui::{backend::TestBackend, Terminal};
+
+    fn render_to_string(engine: &Engine) -> String {
+        let app_state = AppState::default();
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_diplomacy(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let mut rendered = String::new();
+        for y in 0..40u16 {
+            for x in 0..120u16 {
+                let ch = buffer
+                    .cell((x, y))
+                    .and_then(|cell| cell.symbol().chars().next())
+                    .unwrap_or(' ');
+                rendered.push(ch);
+            }
+        }
+        rendered
+    }
 
     #[test]
     fn diplomacy_screen_renders_without_panic() {
@@ -219,5 +257,24 @@ mod tests {
                 .unwrap_or(RelationshipStatus::Unknown);
             assert_eq!(status, RelationshipStatus::Unknown);
         }
+    }
+
+    #[test]
+    fn diplomacy_screen_shows_faction_identity_and_tone() {
+        use game_core::RelationshipStatus;
+
+        let mut engine = Engine::new(42);
+        let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+        let ai_empire = engine.state.empires.get_mut(&ai_id).unwrap();
+        ai_empire.empire_def = Some(EmpireDefinitionId(6));
+        ai_empire.name = "Terran Concord".to_string();
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Neutral);
+
+        let rendered = render_to_string(&engine);
+        assert!(rendered.contains("Terran Concord"));
+        assert!(rendered.contains("science-forward federation"));
     }
 }

@@ -16,7 +16,7 @@ use crate::map_render::{
 };
 use crate::screens::Screen;
 use crate::theme::Theme;
-use crate::viewport::{MapViewport, ScreenPoint, ViewportBounds, WorldPoint};
+use crate::viewport::{MapViewport, ScreenPoint, WorldPoint};
 use crate::AppState;
 use game_core::{GameState, SectorId, StarId, TechId};
 use ratatui::{

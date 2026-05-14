@@ -236,8 +236,8 @@ impl MapViewport {
 
         let dx = end.x - start.x;
         let dy = end.y - start.y;
-        let mut t0 = 0.0;
-        let mut t1 = 1.0;
+        let mut t0: f64 = 0.0;
+        let mut t1: f64 = 1.0;
 
         for (p, q) in [
             (-dx, start.x - min_x),

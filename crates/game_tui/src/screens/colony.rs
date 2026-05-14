@@ -135,6 +135,17 @@ fn render_colony_stats(
             Span::raw(format!("{}", colony.stability)),
         ]),
         Line::from(vec![
+            Span::styled("Order: ", Theme::muted_style()),
+            Span::styled(
+                colony.unrest_label(),
+                if colony.is_unrest() {
+                    Theme::warning_style()
+                } else {
+                    Theme::accent_style()
+                },
+            ),
+        ]),
+        Line::from(vec![
             Span::styled("Role:  ", Theme::muted_style()),
             Span::styled(colony.role.name(), Theme::accent_style()),
             Span::styled("  (", Theme::muted_style()),

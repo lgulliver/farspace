@@ -107,6 +107,29 @@ pub enum Event {
         planet_index: usize,
         colony: ColonyId,
     },
+    /// Strategic invasion captured a colony
+    InvasionSucceeded {
+        attacker: EmpireId,
+        defender: EmpireId,
+        fleet: FleetId,
+        star: StarId,
+        planet_index: usize,
+        colony: ColonyId,
+        transports_lost: u32,
+    },
+    /// Strategic invasion failed
+    InvasionFailed {
+        attacker: EmpireId,
+        defender: EmpireId,
+        fleet: FleetId,
+        star: StarId,
+        planet_index: usize,
+        colony: ColonyId,
+        invasion_strength: u32,
+        defense_strength: u32,
+        transports_lost: u32,
+        reason: String,
+    },
     /// Per-empire economy summary for this turn
     EconomySummary {
         empire: EmpireId,
@@ -400,6 +423,52 @@ impl Event {
                     colony.0,
                     star.0,
                     planet_index + 1
+                )
+            }
+            Event::InvasionSucceeded {
+                attacker,
+                defender,
+                fleet,
+                star,
+                planet_index,
+                colony,
+                transports_lost,
+            } => {
+                format!(
+                    "INVASION SUCCESS: Empire {} captured colony {} from Empire {} at system {} orbit {} using transport {} (lost {})",
+                    attacker.0,
+                    colony.0,
+                    defender.0,
+                    star.0,
+                    planet_index + 1,
+                    fleet.0,
+                    transports_lost
+                )
+            }
+            Event::InvasionFailed {
+                attacker,
+                defender,
+                fleet,
+                star,
+                planet_index,
+                colony,
+                invasion_strength,
+                defense_strength,
+                transports_lost,
+                reason,
+            } => {
+                format!(
+                    "INVASION FAILED: Empire {} vs Empire {} at colony {} (system {} orbit {}) using transport {} — {} (strength {} vs {}, lost {})",
+                    attacker.0,
+                    defender.0,
+                    colony.0,
+                    star.0,
+                    planet_index + 1,
+                    fleet.0,
+                    reason,
+                    invasion_strength,
+                    defense_strength,
+                    transports_lost
                 )
             }
             Event::EconomySummary {

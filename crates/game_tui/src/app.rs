@@ -670,6 +670,9 @@ impl App {
             KeyCode::Char('S') => {
                 self.survey_selected_planet();
             }
+            KeyCode::Char('I') => {
+                self.invade_selected_planet();
+            }
             KeyCode::Char('c') => {
                 if !self.try_enter_colony() {
                     let msg = "Unavailable: open colony — no player colony in selected system.";
@@ -1666,6 +1669,85 @@ impl App {
         }
     }
 
+    /// Invade the currently selected enemy colony using an idle troop transport at this system.
+    fn invade_selected_planet(&mut self) {
+        let star_id = match self.state.selected_star {
+            Some(id) => id,
+            None => {
+                let msg = "Unavailable: invade — no star selected.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            }
+        };
+
+        let fleet_id: Option<FleetId> = {
+            let engine = match &self.engine {
+                Some(e) => e,
+                None => return,
+            };
+            engine
+                .state
+                .fleets
+                .values()
+                .find(|f| {
+                    f.owner == engine.state.player_empire
+                        && f.location == star_id
+                        && f.kind == FleetKind::TroopTransport
+                        && !engine.state.scout_missions.contains_key(&f.id)
+                        && !engine.state.survey_missions.contains_key(&f.id)
+                        && !engine.state.fleet_missions.contains_key(&f.id)
+                })
+                .map(|f| f.id)
+        };
+
+        let fleet_id = match fleet_id {
+            Some(id) => id,
+            None => {
+                let msg = "Unavailable: invade — no idle troop transport at selected system.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            }
+        };
+
+        let planet_count = {
+            let engine = match &self.engine {
+                Some(e) => e,
+                None => return,
+            };
+            engine
+                .state
+                .stars
+                .get(&star_id)
+                .map(|s| s.planets.len())
+                .unwrap_or(0)
+        };
+        if planet_count == 0 {
+            let msg = "Unavailable: invade — selected system has no planets.";
+            self.state.log.push(msg.to_string());
+            self.state.status_message = Some(msg.to_string());
+            return;
+        }
+
+        let planet_index = self.state.selected_planet_index.min(planet_count - 1);
+        self.pending_commands.push(Command::Invade {
+            fleet: fleet_id,
+            star: star_id,
+            planet_index,
+        });
+
+        let commands = std::mem::take(&mut self.pending_commands);
+        let engine = match &mut self.engine {
+            Some(e) => e,
+            None => return,
+        };
+        let events = engine.apply_turn(commands);
+        for event in events {
+            self.state.log.push(event.to_log_message());
+        }
+    }
+
     fn build_end_turn_report(turn: u32, events: &[CoreEvent]) -> String {
         let mut explored = 0usize;
         let mut surveyed = 0usize;
@@ -1676,6 +1758,8 @@ impl App {
         let mut errors = 0usize;
         let mut newly_isolated = 0usize;
         let mut reconnected = 0usize;
+        let mut invasions_won = 0usize;
+        let mut invasions_failed = 0usize;
 
         for event in events {
             match event {
@@ -1687,19 +1771,23 @@ impl App {
                 CoreEvent::FoodShortage { .. } | CoreEvent::CreditDeficit { .. } => warnings += 1,
                 CoreEvent::ColonyIsolated { .. } => newly_isolated += 1,
                 CoreEvent::ColonyReconnected { .. } => reconnected += 1,
+                CoreEvent::InvasionSucceeded { .. } => invasions_won += 1,
+                CoreEvent::InvasionFailed { .. } => invasions_failed += 1,
                 CoreEvent::Error { .. } => errors += 1,
                 _ => {}
             }
         }
 
         format!(
-            "Turn {} global summary (all empires): explored {}, surveyed {}, colonized {}, research {}, arrivals {}, warnings {}, isolated {}, reconnected {}, errors {}.",
+            "Turn {} global summary (all empires): explored {}, surveyed {}, colonized {}, research {}, arrivals {}, invasions won {}, invasions failed {}, warnings {}, isolated {}, reconnected {}, errors {}.",
             turn,
             explored,
             surveyed,
             colonized,
             research_completed,
             fleets_arrived,
+            invasions_won,
+            invasions_failed,
             warnings,
             newly_isolated,
             reconnected,
@@ -1911,6 +1999,76 @@ mod tests {
         assert!(
             star.planets[1].colony.is_some(),
             "selected planet should be colonized"
+        );
+    }
+
+    #[test]
+    fn system_view_invade_targets_selected_planet() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let engine = app.engine.as_mut().unwrap();
+        let target = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&sid| sid != engine.state.empires[&engine.state.player_empire].home_star)
+            .expect("need explored non-home star");
+        app.state.selected_star = Some(target);
+        app.state.selected_planet_index = 0;
+        app.state.active = Screen::System;
+
+        let enemy_id = engine.state.ai_empire.expect("AI empire required");
+        engine
+            .state
+            .diplomacy
+            .insert(enemy_id, game_core::RelationshipStatus::War);
+
+        let enemy_colony_id = game_core::ColonyId(9001);
+        engine.state.colonies.insert(
+            enemy_colony_id,
+            game_core::Colony {
+                id: enemy_colony_id,
+                star: target,
+                planet_index: 0,
+                owner: enemy_id,
+                population: 1,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+                buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
+                stability: 10,
+                role: game_core::ColonyRole::Balanced,
+                rally_point: None,
+            },
+        );
+        engine.state.stars.get_mut(&target).unwrap().planets[0].colony = Some(enemy_colony_id);
+
+        let troop_fleet = FleetId(6100);
+        engine.state.fleets.insert(
+            troop_fleet,
+            game_core::Fleet {
+                id: troop_fleet,
+                owner: engine.state.player_empire,
+                location: target,
+                ships: 1,
+                kind: FleetKind::TroopTransport,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        app.handle_key(key(KeyCode::Char('I')));
+
+        let captured_owner = app.engine.as_ref().unwrap().state.colonies[&enemy_colony_id].owner;
+        assert_eq!(
+            captured_owner,
+            app.engine.as_ref().unwrap().state.player_empire,
+            "selected enemy planet should be invaded and captured"
         );
     }
 
@@ -2282,6 +2440,27 @@ mod tests {
             CoreEvent::ColonyReconnected {
                 colony: ColonyId(78),
             },
+            CoreEvent::InvasionSucceeded {
+                attacker: game_core::EmpireId(1),
+                defender: game_core::EmpireId(2),
+                fleet: FleetId(10),
+                star: StarId(6),
+                planet_index: 0,
+                colony: ColonyId(79),
+                transports_lost: 1,
+            },
+            CoreEvent::InvasionFailed {
+                attacker: game_core::EmpireId(1),
+                defender: game_core::EmpireId(2),
+                fleet: FleetId(11),
+                star: StarId(6),
+                planet_index: 1,
+                colony: ColonyId(80),
+                invasion_strength: 12,
+                defense_strength: 20,
+                transports_lost: 1,
+                reason: "Defenses held".to_string(),
+            },
             CoreEvent::Error {
                 message: "bad command".to_string(),
             },
@@ -2294,6 +2473,8 @@ mod tests {
         assert!(report.contains("colonized 1"));
         assert!(report.contains("research 1"));
         assert!(report.contains("arrivals 1"));
+        assert!(report.contains("invasions won 1"));
+        assert!(report.contains("invasions failed 1"));
         assert!(report.contains("warnings 1"));
         assert!(report.contains("isolated 1"));
         assert!(report.contains("reconnected 1"));
@@ -2305,7 +2486,7 @@ mod tests {
         let report = App::build_end_turn_report(3, &[]);
         assert_eq!(
             report,
-            "Turn 3 global summary (all empires): explored 0, surveyed 0, colonized 0, research 0, arrivals 0, warnings 0, isolated 0, reconnected 0, errors 0."
+            "Turn 3 global summary (all empires): explored 0, surveyed 0, colonized 0, research 0, arrivals 0, invasions won 0, invasions failed 0, warnings 0, isolated 0, reconnected 0, errors 0."
         );
     }
 

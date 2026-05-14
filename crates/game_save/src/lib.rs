@@ -169,7 +169,7 @@ pub fn load_metadata_from_file(path: &std::path::Path) -> Result<SaveMetadata, S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_core::Engine;
+    use game_core::{Command, Engine, Fleet, FleetId, FleetKind, RelationshipStatus};
 
     #[test]
     fn save_load_round_trip_preserves_state() {
@@ -185,6 +185,78 @@ mod tests {
         assert_eq!(original.empires.len(), loaded.empires.len());
         assert_eq!(original.colonies.len(), loaded.colonies.len());
         assert_eq!(original.fleets.len(), loaded.fleets.len());
+    }
+
+    #[test]
+    fn save_load_preserves_captured_colony_ownership() {
+        let mut engine = Engine::new(42);
+        let player_id = engine.state.player_empire;
+        let enemy_id = engine.state.ai_empire.expect("AI empire required");
+        engine
+            .state
+            .diplomacy
+            .insert(enemy_id, RelationshipStatus::War);
+
+        let target_star = *engine
+            .state
+            .explored_stars
+            .iter()
+            .find(|&&sid| sid != engine.state.empires[&player_id].home_star)
+            .expect("need explored non-home star");
+        engine.state.stars.get_mut(&target_star).unwrap().planets[0].surveyed = true;
+
+        let target_colony_id = engine.state.next_colony_id();
+        engine.state.colonies.insert(
+            target_colony_id,
+            game_core::Colony {
+                id: target_colony_id,
+                star: target_star,
+                planet_index: 0,
+                owner: enemy_id,
+                population: 1,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+                buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
+                stability: 10,
+                role: game_core::ColonyRole::Balanced,
+                rally_point: None,
+            },
+        );
+        engine.state.stars.get_mut(&target_star).unwrap().planets[0].colony =
+            Some(target_colony_id);
+
+        let troop_fleet = FleetId(9000);
+        engine.state.fleets.insert(
+            troop_fleet,
+            Fleet {
+                id: troop_fleet,
+                owner: player_id,
+                location: target_star,
+                ships: 1,
+                kind: FleetKind::TroopTransport,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        let invasion_events = engine.apply_turn(vec![Command::Invade {
+            fleet: troop_fleet,
+            star: target_star,
+            planet_index: 0,
+        }]);
+        assert!(invasion_events
+            .iter()
+            .any(|e| matches!(e, game_core::Event::InvasionSucceeded { .. })));
+        assert_eq!(engine.state.colonies[&target_colony_id].owner, player_id);
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+        assert_eq!(loaded.colonies[&target_colony_id].owner, player_id);
     }
 
     #[test]

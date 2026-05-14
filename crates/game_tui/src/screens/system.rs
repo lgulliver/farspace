@@ -34,7 +34,7 @@ pub fn render_system(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
     let hint = app_state
         .status_message
         .as_deref()
-        .unwrap_or("Survey planets first, then colonize habitable surveyed worlds with C.");
+        .unwrap_or("Survey with S, colonize with C, and invade hostile colonies with I.");
     render_footer(frame, footer_area, &Screen::System, Some(hint));
 }
 
@@ -123,6 +123,17 @@ fn render_orbital_panel(
             .and_then(|cid| game_state.colony_blockade_state(cid))
             .map(|_| "⚔")
             .unwrap_or("");
+        let invasion_mark = planet
+            .colony
+            .and_then(|cid| game_state.colonies.get(&cid))
+            .and_then(|colony| {
+                (colony.owner != game_state.player_empire
+                    && game_state
+                        .relationship_status(game_state.player_empire, colony.owner)
+                        .is_hostile_or_war())
+                .then_some(" [I]")
+            })
+            .unwrap_or("");
         let colony_mark = if planet.colony.is_some() {
             "◉"
         } else {
@@ -147,7 +158,7 @@ fn render_orbital_panel(
             Span::raw(format!("{} ", prefix)),
             Span::styled(format!("{} ", colony_mark), style),
             Span::styled(format!("{} ", surveyed_mark), style),
-            Span::styled(label, style),
+            Span::styled(format!("{}{}", label, invasion_mark), style),
             Span::styled(format!(" — {}", survey_state), Theme::muted_style()),
         ];
         if is_blockaded {
@@ -305,11 +316,13 @@ fn render_system_details(
             let infra = colony.surface_installations.len() + colony.orbital_installations.len();
             let supply = game_state.colony_supply_state(colony.id);
             format!(
-                "Colony {} (Pop {}, Infra {}, {})",
+                "Colony {} (Empire {}, Pop {}, Infra {}, {}, {})",
                 colony_id.0,
+                colony.owner.0,
                 colony.population,
                 infra,
-                supply.label()
+                supply.label(),
+                colony.unrest_label()
             )
         } else {
             format!("Colony {}", colony_id.0)
@@ -391,6 +404,9 @@ fn render_system_details(
                         ),
                         None => format!("  Science Ship {}{}", fleet.id.0, order_label),
                     }
+                }
+                FleetKind::TroopTransport => {
+                    format!("  Troop Transport {}{}", fleet.id.0, order_label)
                 }
             };
             lines.push(Line::from(Span::raw(label)));

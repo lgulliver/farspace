@@ -52,6 +52,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Op
             ("[Enter]", "Open Selected/First Player Colony"),
             ("[S]", "Survey"),
             ("[C]", "Colonize Selected"),
+            ("[I]", "Invade Selected"),
             ("[O]", "Overview"),
             ("[e/t]", "End Turn"),
             ("[?]", "Help"),

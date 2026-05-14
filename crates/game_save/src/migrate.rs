@@ -284,11 +284,24 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             let mut state = save.state;
             state.colony_blockade = state.recompute_colony_blockade();
             let mut metadata = save.metadata;
+            metadata.schema_version = 24;
+            migrate(SaveFile {
+                version: 24,
+                metadata,
+                state,
+            })
+        }
+        24 => {
+            // v24 → v25: FleetKind gained `TroopTransport`.
+            // v24 saves cannot contain the new variant, so deserialization remains valid
+            // and no state rewrite is needed.
+            // Keep this explicit version step so post-invasion saves are distinguishable.
+            let mut metadata = save.metadata;
             metadata.schema_version = CURRENT_VERSION;
             Ok(SaveFile {
                 version: CURRENT_VERSION,
                 metadata,
-                state,
+                state: save.state,
             })
         }
         _ => Err(SaveError::UnsupportedVersion {
@@ -860,7 +873,7 @@ mod tests {
     }
 
     #[test]
-    fn migrate_v23_to_v24_derives_colony_blockade() {
+    fn migrate_v23_derives_colony_blockade() {
         // v23 saves do not have colony_blockade; migration should re-derive it.
         // In this test state there are no hostile fleets so blockade map stays empty.
         let state = GameState::default();
@@ -869,13 +882,30 @@ mod tests {
             state,
             metadata: Default::default(),
         };
-        let migrated = migrate(v23_save).expect("v23→v24 migration should succeed");
+        let migrated = migrate(v23_save).expect("v23 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
         // No hostile fleets in default state → no blockades
         assert!(
             migrated.state.colony_blockade.is_empty(),
-            "No blockades expected in default state after v23→v24 migration"
+            "No blockades expected in default state after v23 migration"
         );
+    }
+
+    #[test]
+    fn migrate_v24_to_v25_passthrough() {
+        let state = GameState::default();
+        let metadata = crate::schema::SaveMetadata {
+            schema_version: 24,
+            ..Default::default()
+        };
+        let v24_save = SaveFile {
+            version: 24,
+            state,
+            metadata,
+        };
+        let migrated = migrate(v24_save).expect("v24→v25 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        assert_eq!(migrated.metadata.schema_version, CURRENT_VERSION);
     }
 
     #[test]

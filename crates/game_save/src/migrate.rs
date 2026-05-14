@@ -893,8 +893,10 @@ mod tests {
     #[test]
     fn migrate_v24_to_v25_passthrough() {
         let state = GameState::default();
-        let mut metadata = crate::schema::SaveMetadata::default();
-        metadata.schema_version = 24;
+        let metadata = crate::schema::SaveMetadata {
+            schema_version: 24,
+            ..Default::default()
+        };
         let v24_save = SaveFile {
             version: 24,
             state,

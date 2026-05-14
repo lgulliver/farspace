@@ -46,8 +46,16 @@ const TROOP_TRANSPORT_INVASION_STRENGTH: u32 = 12;
 /// Colony stability after a successful capture.
 const CAPTURED_UNREST_STABILITY: u8 = 40;
 /// Squared-distance threshold for routine border pressure.
+///
+/// `40_000` corresponds to roughly 200 map units, which is close enough for
+/// neighboring home systems and early border colonies to feel contested without
+/// treating the entire sector as immediate pressure.
 const BORDER_TENSION_DISTANCE_SQ: i64 = 40_000;
 /// Squared-distance threshold for severe border pressure.
+///
+/// `12_000` corresponds to roughly 110 map units, representing very close
+/// frontier overlap where the AI is allowed to escalate toward its harshest
+/// diplomacy posture.
 const SEVERE_BORDER_TENSION_DISTANCE_SQ: i64 = 12_000;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -90,6 +98,11 @@ fn apply_blockade_penalty(credits: i64, research: i64, food: i64) -> (i64, i64, 
     apply_isolation_penalty(credits, research, food)
 }
 
+/// Apply an empire identity percentage modifier to a production cost.
+///
+/// Negative percentages reduce the cost, positive percentages increase it, and
+/// the result is clamped to at least `1` so extreme discounts never create
+/// zero-cost production items.
 fn apply_cost_modifier(base_cost: u64, modifier_pct: i8) -> u64 {
     if modifier_pct == 0 {
         return base_cost;
@@ -98,6 +111,10 @@ fn apply_cost_modifier(base_cost: u64, modifier_pct: i8) -> u64 {
     adjusted.max(1) as u64
 }
 
+/// Map relationship states onto an ordered numeric ladder used for diplomacy drift.
+///
+/// Lower values are calmer and higher values are more aggressive, allowing the
+/// engine to move one step at a time toward an empire's desired stance.
 fn relationship_level(status: RelationshipStatus) -> u8 {
     match status {
         RelationshipStatus::Unknown => 0,
@@ -120,6 +137,10 @@ fn relationship_from_level(level: u8) -> RelationshipStatus {
     }
 }
 
+/// Move one diplomatic step from `current` toward `desired`.
+///
+/// This keeps diplomacy drift deterministic and bounded: each turn can only
+/// improve or worsen a relationship by a single status level.
 fn step_toward_relationship(
     current: RelationshipStatus,
     desired: RelationshipStatus,

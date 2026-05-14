@@ -527,6 +527,11 @@ pub(crate) fn ai_role_for_planet_class(class: PlanetClass) -> ColonyRole {
     }
 }
 
+/// Extend the base planet-class role mapping with faction-specific AI preferences.
+///
+/// This keeps the deterministic class-based baseline intact while allowing
+/// identities such as Terran Concord and Terran Dominion to bias colonies
+/// toward scientific stability or military specialization.
 fn ai_role_for_planet_class_with_identity(
     class: PlanetClass,
     empire_id: EmpireId,

@@ -118,6 +118,12 @@ pub struct EmpireDiplomacyProfile {
 
 impl Default for EmpireDiplomacyProfile {
     fn default() -> Self {
+        Self::standard()
+    }
+}
+
+impl EmpireDiplomacyProfile {
+    pub const fn standard() -> Self {
         Self {
             first_contact_status: RelationshipStatus::Contacted,
             resting_status: RelationshipStatus::Neutral,
@@ -144,6 +150,19 @@ pub struct EmpireMilitaryModifiers {
     pub invasion_strength_bonus_per_transport: u32,
 }
 
+impl EmpireMilitaryModifiers {
+    pub const fn none() -> Self {
+        Self {
+            scout_cost_modifier_pct: 0,
+            science_ship_cost_modifier_pct: 0,
+            troop_transport_cost_modifier_pct: 0,
+            shipyard_cost_modifier_pct: 0,
+            fleet_maintenance_modifier_per_fleet: 0,
+            invasion_strength_bonus_per_transport: 0,
+        }
+    }
+}
+
 /// High-level deterministic AI preferences granted by an empire's identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmpireAiProfile {
@@ -161,12 +180,34 @@ pub struct EmpireAiProfile {
 
 impl Default for EmpireAiProfile {
     fn default() -> Self {
+        Self::none()
+    }
+}
+
+impl EmpireAiProfile {
+    pub const fn none() -> Self {
         Self {
             research_focus: &[],
             prefers_science_ships: false,
             prefers_troop_transports: false,
             prefers_stable_colonies: false,
             prefers_military_roles: false,
+        }
+    }
+
+    pub const fn new(
+        research_focus: &'static [TechDomain],
+        prefers_science_ships: bool,
+        prefers_troop_transports: bool,
+        prefers_stable_colonies: bool,
+        prefers_military_roles: bool,
+    ) -> Self {
+        Self {
+            research_focus,
+            prefers_science_ships,
+            prefers_troop_transports,
+            prefers_stable_colonies,
+            prefers_military_roles,
         }
     }
 }
@@ -220,7 +261,10 @@ impl EmpireDefinition {
 
         let military = self.military_modifiers;
         if military.scout_cost_modifier_pct != 0 {
-            effects.push(format!("{:+}% scout cost", military.scout_cost_modifier_pct));
+            effects.push(format!(
+                "{:+}% scout cost",
+                military.scout_cost_modifier_pct
+            ));
         }
         if military.science_ship_cost_modifier_pct != 0 {
             effects.push(format!(
@@ -235,7 +279,10 @@ impl EmpireDefinition {
             ));
         }
         if military.shipyard_cost_modifier_pct != 0 {
-            effects.push(format!("{:+}% shipyard cost", military.shipyard_cost_modifier_pct));
+            effects.push(format!(
+                "{:+}% shipyard cost",
+                military.shipyard_cost_modifier_pct
+            ));
         }
         if military.fleet_maintenance_modifier_per_fleet != 0 {
             effects.push(format!(
@@ -290,12 +337,15 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         },
         playstyle: &[PlaystyleTag::Industrial],
         playstyle_summary: "Reliable infrastructure empire with steady production and logistics.",
-        diplomacy_profile: EmpireDiplomacyProfile::default(),
-        military_modifiers: EmpireMilitaryModifiers::default(),
-        ai_profile: EmpireAiProfile {
-            research_focus: &[TechDomain::Engineering, TechDomain::Economy],
-            ..EmpireAiProfile::default()
-        },
+        diplomacy_profile: EmpireDiplomacyProfile::standard(),
+        military_modifiers: EmpireMilitaryModifiers::none(),
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Engineering, TechDomain::Economy],
+            false,
+            false,
+            false,
+            false,
+        ),
     },
     EmpireDefinition {
         id: EmpireDefinitionId(1),
@@ -311,15 +361,18 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         },
         playstyle: &[PlaystyleTag::Expansionist, PlaystyleTag::Scientific],
         playstyle_summary: "Fast early exploration with a research-led expansion curve.",
-        diplomacy_profile: EmpireDiplomacyProfile::default(),
+        diplomacy_profile: EmpireDiplomacyProfile::standard(),
         military_modifiers: EmpireMilitaryModifiers {
             scout_cost_modifier_pct: -10,
-            ..EmpireMilitaryModifiers::default()
+            ..EmpireMilitaryModifiers::none()
         },
-        ai_profile: EmpireAiProfile {
-            research_focus: &[TechDomain::Exploration, TechDomain::Economy],
-            ..EmpireAiProfile::default()
-        },
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Exploration, TechDomain::Economy],
+            false,
+            false,
+            false,
+            false,
+        ),
     },
     EmpireDefinition {
         id: EmpireDefinitionId(2),
@@ -342,12 +395,14 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             border_tension_status: RelationshipStatus::Tense,
             severe_border_tension_status: RelationshipStatus::Hostile,
         },
-        military_modifiers: EmpireMilitaryModifiers::default(),
-        ai_profile: EmpireAiProfile {
-            research_focus: &[TechDomain::Biology, TechDomain::Economy],
-            prefers_stable_colonies: true,
-            ..EmpireAiProfile::default()
-        },
+        military_modifiers: EmpireMilitaryModifiers::none(),
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Biology, TechDomain::Economy],
+            false,
+            false,
+            true,
+            false,
+        ),
     },
     EmpireDefinition {
         id: EmpireDefinitionId(3),
@@ -370,12 +425,14 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             border_tension_status: RelationshipStatus::Tense,
             severe_border_tension_status: RelationshipStatus::Hostile,
         },
-        military_modifiers: EmpireMilitaryModifiers::default(),
-        ai_profile: EmpireAiProfile {
-            research_focus: &[TechDomain::Economy, TechDomain::Engineering],
-            prefers_stable_colonies: true,
-            ..EmpireAiProfile::default()
-        },
+        military_modifiers: EmpireMilitaryModifiers::none(),
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Economy, TechDomain::Engineering],
+            false,
+            false,
+            true,
+            false,
+        ),
     },
     EmpireDefinition {
         id: EmpireDefinitionId(4),
@@ -400,14 +457,15 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         military_modifiers: EmpireMilitaryModifiers {
             troop_transport_cost_modifier_pct: -10,
             invasion_strength_bonus_per_transport: 2,
-            ..EmpireMilitaryModifiers::default()
+            ..EmpireMilitaryModifiers::none()
         },
-        ai_profile: EmpireAiProfile {
-            research_focus: &[TechDomain::Military, TechDomain::Engineering],
-            prefers_troop_transports: true,
-            prefers_military_roles: true,
-            ..EmpireAiProfile::default()
-        },
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Military, TechDomain::Engineering],
+            false,
+            true,
+            false,
+            true,
+        ),
     },
     EmpireDefinition {
         id: EmpireDefinitionId(5),
@@ -424,17 +482,18 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         },
         playstyle: &[PlaystyleTag::Scientific],
         playstyle_summary: "Pure research specialists that convert safe worlds into laboratories.",
-        diplomacy_profile: EmpireDiplomacyProfile::default(),
+        diplomacy_profile: EmpireDiplomacyProfile::standard(),
         military_modifiers: EmpireMilitaryModifiers {
             science_ship_cost_modifier_pct: -10,
-            ..EmpireMilitaryModifiers::default()
+            ..EmpireMilitaryModifiers::none()
         },
-        ai_profile: EmpireAiProfile {
-            research_focus: &[TechDomain::Exploration, TechDomain::Biology, TechDomain::Economy],
-            prefers_science_ships: true,
-            prefers_stable_colonies: true,
-            ..EmpireAiProfile::default()
-        },
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Exploration, TechDomain::Biology, TechDomain::Economy],
+            true,
+            false,
+            true,
+            false,
+        ),
     },
     EmpireDefinition {
         id: EmpireDefinitionId(6),
@@ -465,14 +524,15 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         military_modifiers: EmpireMilitaryModifiers {
             scout_cost_modifier_pct: -20,
             science_ship_cost_modifier_pct: -20,
-            ..EmpireMilitaryModifiers::default()
+            ..EmpireMilitaryModifiers::none()
         },
-        ai_profile: EmpireAiProfile {
-            research_focus: &[TechDomain::Exploration, TechDomain::Economy, TechDomain::Biology],
-            prefers_science_ships: true,
-            prefers_stable_colonies: true,
-            ..EmpireAiProfile::default()
-        },
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Exploration, TechDomain::Economy, TechDomain::Biology],
+            true,
+            false,
+            true,
+            false,
+        ),
     },
     EmpireDefinition {
         id: EmpireDefinitionId(7),
@@ -505,14 +565,19 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             shipyard_cost_modifier_pct: -10,
             fleet_maintenance_modifier_per_fleet: -1,
             invasion_strength_bonus_per_transport: 4,
-            ..EmpireMilitaryModifiers::default()
+            ..EmpireMilitaryModifiers::none()
         },
-        ai_profile: EmpireAiProfile {
-            research_focus: &[TechDomain::Military, TechDomain::Engineering, TechDomain::Exploration],
-            prefers_troop_transports: true,
-            prefers_military_roles: true,
-            ..EmpireAiProfile::default()
-        },
+        ai_profile: EmpireAiProfile::new(
+            &[
+                TechDomain::Military,
+                TechDomain::Engineering,
+                TechDomain::Exploration,
+            ],
+            false,
+            true,
+            false,
+            true,
+        ),
     },
 ];
 
@@ -3423,8 +3488,8 @@ mod tests {
     // ── Empire Definition tests ─────────────────────────────────────────────
 
     #[test]
-    fn all_empire_definitions_returns_six_entries() {
-        assert_eq!(all_empire_definitions().len(), 6);
+    fn all_empire_definitions_returns_eight_entries() {
+        assert_eq!(all_empire_definitions().len(), 8);
     }
 
     #[test]

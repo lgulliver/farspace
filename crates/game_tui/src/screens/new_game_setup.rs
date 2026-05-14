@@ -190,7 +190,10 @@ pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState
                 Span::raw("  "),
                 Span::styled(tag_labels.join(" · "), Theme::accent_style()),
             ]));
-            lines.extend(wrapped_info_lines(selected_def.playstyle_summary, content_width));
+            lines.extend(wrapped_info_lines(
+                selected_def.playstyle_summary,
+                content_width,
+            ));
             let mods = selected_def.effect_summaries();
             if !mods.is_empty() {
                 lines.push(Line::from(vec![

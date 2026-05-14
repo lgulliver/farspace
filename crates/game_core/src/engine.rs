@@ -6,10 +6,10 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hyperspace_lanes};
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
-    BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireDefinitionId,
-    EmpireId, Fleet, FleetId, FleetKind, FleetMission, FleetOrder, GameState, HyperspaceLane,
-    OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
-    ShipDesignId, StarId, SurveyMission, TechId, YieldType,
+    BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireId, Fleet, FleetId,
+    FleetKind, FleetMission, FleetOrder, GameState, HyperspaceLane, OrbitalStructureType,
+    RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission, ShipDesignId, StarId,
+    SurveyMission, TechId, YieldType,
 };
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -202,7 +202,10 @@ pub struct Engine {
 }
 
 impl Engine {
-    fn empire_definition(&self, empire_id: EmpireId) -> Option<&'static crate::state::EmpireDefinition> {
+    fn empire_definition(
+        &self,
+        empire_id: EmpireId,
+    ) -> Option<&'static crate::state::EmpireDefinition> {
         self.state
             .empires
             .get(&empire_id)
@@ -315,7 +318,10 @@ impl Engine {
 
         for ai_empire_id in ai_ids {
             let current = self.state.relationship_status(player, ai_empire_id);
-            if matches!(current, RelationshipStatus::Unknown | RelationshipStatus::War) {
+            if matches!(
+                current,
+                RelationshipStatus::Unknown | RelationshipStatus::War
+            ) {
                 continue;
             }
 
@@ -2709,12 +2715,10 @@ impl Engine {
             .unwrap_or(RelationshipStatus::Unknown);
 
         if status == RelationshipStatus::Unknown {
-            self.state
-                .diplomacy
-                .insert(
-                    ai_empire_id,
-                    self.first_contact_status_for_empire(ai_empire_id),
-                );
+            self.state.diplomacy.insert(
+                ai_empire_id,
+                self.first_contact_status_for_empire(ai_empire_id),
+            );
             events.push(Event::FirstContact {
                 with_empire: ai_empire_id,
             });
@@ -6464,7 +6468,11 @@ mod tests {
         (engine, player_star_id, ai_star_id, ai_id)
     }
 
-    fn set_empire_definition(engine: &mut Engine, empire_id: EmpireId, def_id: EmpireDefinitionId) {
+    fn set_empire_definition(
+        engine: &mut Engine,
+        empire_id: EmpireId,
+        def_id: crate::state::EmpireDefinitionId,
+    ) {
         let def = empire_definition_by_id(def_id).expect("empire def should exist");
         let empire = engine.state.empires.get_mut(&empire_id).unwrap();
         empire.empire_def = Some(def_id);
@@ -6674,14 +6682,14 @@ mod tests {
         // Diplomacy state updated
         assert_eq!(
             engine.state.diplomacy.get(&ai_id).copied(),
-            Some(RelationshipStatus::Contacted)
+            Some(RelationshipStatus::Neutral)
         );
     }
 
     #[test]
     fn terran_concord_first_contact_starts_neutral() {
         let (mut engine, _player_star, ai_star, ai_id) = make_two_empire_state();
-        set_empire_definition(&mut engine, ai_id, EmpireDefinitionId(6));
+        set_empire_definition(&mut engine, ai_id, crate::state::EmpireDefinitionId(6));
         let mut events = Vec::new();
         engine.check_contact_at_star(ai_star, &mut events);
         assert_eq!(
@@ -6697,7 +6705,7 @@ mod tests {
     #[test]
     fn terran_dominion_first_contact_starts_tense() {
         let (mut engine, _player_star, ai_star, ai_id) = make_two_empire_state();
-        set_empire_definition(&mut engine, ai_id, EmpireDefinitionId(7));
+        set_empire_definition(&mut engine, ai_id, crate::state::EmpireDefinitionId(7));
         let mut events = Vec::new();
         engine.check_contact_at_star(ai_star, &mut events);
         assert_eq!(
@@ -6709,8 +6717,11 @@ mod tests {
     #[test]
     fn terran_concord_diplomacy_stays_calmer_under_pressure() {
         let (mut engine, _player_star, ai_star, ai_id) = make_two_empire_state();
-        set_empire_definition(&mut engine, ai_id, EmpireDefinitionId(6));
-        engine.state.diplomacy.insert(ai_id, RelationshipStatus::Neutral);
+        set_empire_definition(&mut engine, ai_id, crate::state::EmpireDefinitionId(6));
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Neutral);
         engine.state.fleets.insert(
             FleetId(99),
             Fleet {
@@ -6733,8 +6744,11 @@ mod tests {
     #[test]
     fn terran_dominion_escalates_to_war_under_severe_pressure() {
         let (mut engine, _player_star, ai_star, ai_id) = make_two_empire_state();
-        set_empire_definition(&mut engine, ai_id, EmpireDefinitionId(7));
-        engine.state.diplomacy.insert(ai_id, RelationshipStatus::Hostile);
+        set_empire_definition(&mut engine, ai_id, crate::state::EmpireDefinitionId(7));
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Hostile);
         engine.state.fleets.insert(
             FleetId(99),
             Fleet {
@@ -6787,7 +6801,7 @@ mod tests {
         );
         assert_eq!(
             engine.state.diplomacy.get(&ai_id).copied(),
-            Some(RelationshipStatus::Contacted)
+            Some(RelationshipStatus::Neutral)
         );
     }
 
@@ -10722,7 +10736,11 @@ mod tests {
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(EmpireDefinitionId(6)),
         });
-        let player = engine.state.empires.get(&engine.state.player_empire).unwrap();
+        let player = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
         assert_eq!(player.empire_def, Some(EmpireDefinitionId(6)));
         assert_eq!(player.name, "Terran Concord");
     }
@@ -10738,7 +10756,11 @@ mod tests {
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(EmpireDefinitionId(7)),
         });
-        let player = engine.state.empires.get(&engine.state.player_empire).unwrap();
+        let player = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
         assert_eq!(player.empire_def, Some(EmpireDefinitionId(7)));
         assert_eq!(player.name, "Terran Dominion");
     }
@@ -10961,19 +10983,28 @@ mod tests {
     fn terran_dominion_troop_transports_are_cheaper() {
         let mut engine = Engine::new(42);
         let player = engine.state.player_empire;
-        engine.state.empires.get_mut(&player).unwrap().empire_def = Some(EmpireDefinitionId(7));
+        engine.state.empires.get_mut(&player).unwrap().empire_def =
+            Some(crate::state::EmpireDefinitionId(7));
         let base_cost = BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT).cost();
-        let actual_cost = engine.effective_build_cost(player, BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT));
-        assert!(actual_cost < base_cost, "Terran Dominion troop transports should be cheaper");
+        let actual_cost =
+            engine.effective_build_cost(player, BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT));
+        assert!(
+            actual_cost < base_cost,
+            "Terran Dominion troop transports should be cheaper"
+        );
     }
 
     #[test]
     fn terran_dominion_invasion_strength_bonus_applies() {
         let mut engine = Engine::new(42);
         let player = engine.state.player_empire;
-        engine.state.empires.get_mut(&player).unwrap().empire_def = Some(EmpireDefinitionId(7));
+        engine.state.empires.get_mut(&player).unwrap().empire_def =
+            Some(crate::state::EmpireDefinitionId(7));
         let actual = engine.invasion_strength_for_empire(player, 2);
-        assert_eq!(actual, 32, "Terran Dominion should gain +4 invasion per transport");
+        assert_eq!(
+            actual, 32,
+            "Terran Dominion should gain +4 invasion per transport"
+        );
     }
 
     #[test]

@@ -1876,6 +1876,9 @@ mod tests {
                 _ => None,
             })
             .expect("ColonyProduced should fire");
-        assert!(research >= 6, "Terran Concord bonus should survive save/load");
+        assert!(
+            research >= 6,
+            "Terran Concord bonus should survive save/load"
+        );
     }
 }

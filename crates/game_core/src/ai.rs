@@ -205,12 +205,34 @@ fn pick_build_item(
             .empires
             .get(&empire_id)
             .is_some_and(|e| e.research.completed.contains(&TechId::HABITAT_SEEDING));
+        let has_survey_drones = state
+            .empires
+            .get(&empire_id)
+            .is_some_and(|e| e.research.completed.contains(&TechId::SURVEY_DRONES));
+        let has_troop_transports = state
+            .empires
+            .get(&empire_id)
+            .is_some_and(|e| e.research.completed.contains(&TechId::TROOP_TRANSPORTS));
+        let has_science_ship = state
+            .fleets
+            .values()
+            .any(|f| f.owner == empire_id && f.kind == FleetKind::Science);
+        let has_transport = state
+            .fleets
+            .values()
+            .any(|f| f.owner == empire_id && f.kind == FleetKind::TroopTransport);
         let has_unexplored = state
             .stars
             .keys()
             .any(|sid| !state.ai_explored_stars.contains(sid));
         // Only skip FabricationYard for scouting when no colonizer tech yet
         if has_unexplored && !has_habitat_seeding {
+            if ai_profile.prefers_science_ships && has_survey_drones && !has_science_ship {
+                return Some(BuildItem::Ship(crate::state::ShipDesignId::SCIENCE));
+            }
+            if ai_profile.prefers_troop_transports && has_troop_transports && !has_transport {
+                return Some(BuildItem::Ship(crate::state::ShipDesignId::TROOP_TRANSPORT));
+            }
             return Some(BuildItem::Ship(crate::state::ShipDesignId::SCOUT));
         }
     }
@@ -2000,9 +2022,13 @@ mod tests {
     fn terran_concord_ai_assigns_scientific_role_on_terran_world() {
         let mut engine = Engine::new(42);
         let ai_id = ai_id(&engine);
-        engine.state.empires.get_mut(&ai_id).unwrap().empire_def = Some(crate::state::EmpireDefinitionId(6));
-        let role =
-            ai_role_for_planet_class_with_identity(crate::state::PlanetClass::Terran, ai_id, &engine.state);
+        engine.state.empires.get_mut(&ai_id).unwrap().empire_def =
+            Some(crate::state::EmpireDefinitionId(6));
+        let role = ai_role_for_planet_class_with_identity(
+            crate::state::PlanetClass::Terran,
+            ai_id,
+            &engine.state,
+        );
         assert_eq!(role, ColonyRole::Scientific);
     }
 
@@ -2010,9 +2036,13 @@ mod tests {
     fn terran_dominion_ai_assigns_military_role_on_terran_world() {
         let mut engine = Engine::new(42);
         let ai_id = ai_id(&engine);
-        engine.state.empires.get_mut(&ai_id).unwrap().empire_def = Some(crate::state::EmpireDefinitionId(7));
-        let role =
-            ai_role_for_planet_class_with_identity(crate::state::PlanetClass::Terran, ai_id, &engine.state);
+        engine.state.empires.get_mut(&ai_id).unwrap().empire_def =
+            Some(crate::state::EmpireDefinitionId(7));
+        let role = ai_role_for_planet_class_with_identity(
+            crate::state::PlanetClass::Terran,
+            ai_id,
+            &engine.state,
+        );
         assert_eq!(role, ColonyRole::Military);
     }
 }

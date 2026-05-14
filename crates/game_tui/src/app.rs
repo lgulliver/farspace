@@ -157,7 +157,9 @@ impl App {
             }
             CoreEvent::AiResearchSelected { empire, tech } => {
                 let name = self.empire_display_name(*empire);
-                let tech_name = tech_by_id(*tech).map(|record| record.name).unwrap_or("Unknown Tech");
+                let tech_name = tech_by_id(*tech)
+                    .map(|record| record.name)
+                    .unwrap_or("Unknown Tech");
                 format!("{name} redirected its labs to {tech_name}")
             }
             CoreEvent::AiBuildQueued {
@@ -174,7 +176,10 @@ impl App {
                 destination,
             } => {
                 let name = self.empire_display_name(*empire);
-                format!("{name} dispatched scout {} to system {}", fleet.0, destination.0)
+                format!(
+                    "{name} dispatched scout {} to system {}",
+                    fleet.0, destination.0
+                )
             }
             CoreEvent::AiColonized {
                 empire,

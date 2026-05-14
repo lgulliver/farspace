@@ -2354,6 +2354,9 @@ impl Engine {
             self.state.scout_missions.remove(&fleet_id);
             self.state.survey_missions.remove(&fleet_id);
             self.state.fleet_orders.remove(&fleet_id);
+            // Ownership and fleet changes can invalidate cached blockade state.
+            // Recompute now so the next end-turn economy pass does not use stale blockade entries.
+            self.state.colony_blockade = self.state.recompute_colony_blockade();
 
             events.push(Event::InvasionSucceeded {
                 attacker: self.state.player_empire,
@@ -2368,6 +2371,8 @@ impl Engine {
         }
 
         let transports_lost = self.reduce_transport_fleet(fleet_id, 1);
+        // Fleet attrition can remove the last blockading transport; keep cache in sync.
+        self.state.colony_blockade = self.state.recompute_colony_blockade();
         events.push(Event::InvasionFailed {
             attacker: self.state.player_empire,
             defender: colony_owner,

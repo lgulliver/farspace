@@ -94,6 +94,15 @@ impl ShipTemplate {
                 speed: 2,
                 range: 4,
             },
+            ShipTemplate {
+                name: "Troop Transport".to_string(),
+                build_item: BuildItem::Ship(game_core::ShipDesignId::TROOP_TRANSPORT),
+                cost: BuildItem::Ship(game_core::ShipDesignId::TROOP_TRANSPORT).cost(),
+                attack: 0,
+                defense: 1,
+                speed: 2,
+                range: 3,
+            },
         ]
     }
 }

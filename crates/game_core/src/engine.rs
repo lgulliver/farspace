@@ -40,6 +40,10 @@ const ISOLATED_STABILITY_PENALTY: u8 = 5;
 /// Stability penalty applied each turn to a blockaded colony.
 /// Blockade yield reduction reuses `ISOLATED_YIELD_PERCENT` via `apply_isolation_penalty`.
 const BLOCKADED_STABILITY_PENALTY: u8 = 5;
+/// Fixed invasion strength contributed by one troop transport ship.
+const TROOP_TRANSPORT_INVASION_STRENGTH: u32 = 12;
+/// Colony stability after a successful capture.
+const CAPTURED_UNREST_STABILITY: u8 = 40;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct YieldBonuses {
@@ -509,6 +513,13 @@ impl Engine {
                     planet_index,
                 } => {
                     self.process_colonize(fleet, star, planet_index, &mut events);
+                }
+                Command::Invade {
+                    fleet,
+                    star,
+                    planet_index,
+                } => {
+                    self.process_invade(fleet, star, planet_index, &mut events);
                 }
                 Command::SetColonyRole { colony, role } => {
                     self.process_set_colony_role(colony, role, &mut events);
@@ -2203,6 +2214,205 @@ impl Engine {
             planet_index,
             colony: colony_id,
         });
+    }
+
+    fn process_invade(
+        &mut self,
+        fleet_id: FleetId,
+        star_id: StarId,
+        planet_index: usize,
+        events: &mut Vec<Event>,
+    ) {
+        let fleet = match self.state.fleets.get(&fleet_id) {
+            Some(f) => f.clone(),
+            None => {
+                events.push(Event::error(format!("Fleet {} not found", fleet_id.0)));
+                return;
+            }
+        };
+
+        if fleet.owner != self.state.player_empire {
+            events.push(Event::error("Fleet not owned by player"));
+            return;
+        }
+        if fleet.kind != FleetKind::TroopTransport {
+            events.push(Event::error(format!(
+                "Fleet {} is not a troop transport",
+                fleet_id.0
+            )));
+            return;
+        }
+        if self.state.scout_missions.contains_key(&fleet_id)
+            || self.state.survey_missions.contains_key(&fleet_id)
+            || self.state.fleet_missions.contains_key(&fleet_id)
+        {
+            events.push(Event::error(format!(
+                "Fleet {} is already travelling",
+                fleet_id.0
+            )));
+            return;
+        }
+        if fleet.location != star_id {
+            events.push(Event::error(format!(
+                "Fleet {} is not at star {}",
+                fleet_id.0, star_id.0
+            )));
+            return;
+        }
+
+        let (planet_colony, colony_owner) = {
+            let Some(star) = self.state.stars.get(&star_id) else {
+                events.push(Event::error(format!("Star {} not found", star_id.0)));
+                return;
+            };
+            if planet_index >= star.planets.len() {
+                events.push(Event::error(format!(
+                    "Orbit {} out of bounds for star {}",
+                    planet_index + 1,
+                    star_id.0
+                )));
+                return;
+            }
+            let Some(colony_id) = star.planets[planet_index].colony else {
+                events.push(Event::error(format!(
+                    "Orbit {} at star {} is uncolonized",
+                    planet_index + 1,
+                    star_id.0
+                )));
+                return;
+            };
+            let Some(colony) = self.state.colonies.get(&colony_id) else {
+                events.push(Event::error(format!("Colony {} not found", colony_id.0)));
+                return;
+            };
+            (colony_id, colony.owner)
+        };
+
+        if colony_owner == self.state.player_empire {
+            events.push(Event::error("Cannot invade your own colony"));
+            return;
+        }
+        if !self
+            .state
+            .relationship_status(self.state.player_empire, colony_owner)
+            .is_hostile_or_war()
+        {
+            events.push(Event::error(
+                "Cannot invade — target empire is not Hostile or At War",
+            ));
+            return;
+        }
+
+        let hostile_orbital_defenders = self
+            .state
+            .fleets
+            .iter()
+            .any(|(fid, f)| {
+                *fid != fleet_id
+                    && f.location == star_id
+                    && f.owner == colony_owner
+                    && !self.state.fleet_missions.contains_key(fid)
+                    && !self.state.scout_missions.contains_key(fid)
+                    && !self.state.survey_missions.contains_key(fid)
+            });
+
+        let Some(target_colony) = self.state.colonies.get(&planet_colony).cloned() else {
+            events.push(Event::error(format!("Colony {} not found", planet_colony.0)));
+            return;
+        };
+        let defense_strength = Self::colony_defense_strength(&target_colony);
+        let invasion_strength = fleet
+            .ships
+            .saturating_mul(TROOP_TRANSPORT_INVASION_STRENGTH);
+
+        if hostile_orbital_defenders {
+            events.push(Event::InvasionFailed {
+                attacker: self.state.player_empire,
+                defender: colony_owner,
+                fleet: fleet_id,
+                star: star_id,
+                planet_index,
+                colony: planet_colony,
+                invasion_strength,
+                defense_strength,
+                transports_lost: 0,
+                reason: "Hostile orbital defenses remain".to_string(),
+            });
+            return;
+        }
+
+        if invasion_strength > defense_strength {
+            if let Some(colony) = self.state.colonies.get_mut(&planet_colony) {
+                colony.owner = self.state.player_empire;
+                colony.stability = CAPTURED_UNREST_STABILITY;
+                colony.build_queue.clear();
+                colony.accumulated_production = 0;
+                colony.rally_point = None;
+            }
+
+            self.state.fleets.remove(&fleet_id);
+            self.state.fleet_missions.remove(&fleet_id);
+            self.state.scout_missions.remove(&fleet_id);
+            self.state.survey_missions.remove(&fleet_id);
+            self.state.fleet_orders.remove(&fleet_id);
+
+            events.push(Event::InvasionSucceeded {
+                attacker: self.state.player_empire,
+                defender: colony_owner,
+                fleet: fleet_id,
+                star: star_id,
+                planet_index,
+                colony: planet_colony,
+                transports_lost: fleet.ships,
+            });
+            return;
+        }
+
+        let transports_lost = self.reduce_transport_fleet(fleet_id, 1);
+        events.push(Event::InvasionFailed {
+            attacker: self.state.player_empire,
+            defender: colony_owner,
+            fleet: fleet_id,
+            star: star_id,
+            planet_index,
+            colony: planet_colony,
+            invasion_strength,
+            defense_strength,
+            transports_lost,
+            reason: "Defenses held".to_string(),
+        });
+    }
+
+    fn colony_defense_strength(colony: &Colony) -> u32 {
+        let population_strength = (colony.population as u32).saturating_mul(5);
+        let stability_strength = (colony.stability as u32) / 10;
+        let surface_strength = (colony.surface_installations.len() as u32).saturating_mul(2);
+        let orbital_strength = (colony.orbital_installations.len() as u32).saturating_mul(4);
+        population_strength
+            .saturating_add(stability_strength)
+            .saturating_add(surface_strength)
+            .saturating_add(orbital_strength)
+    }
+
+    fn reduce_transport_fleet(&mut self, fleet_id: FleetId, loss: u32) -> u32 {
+        let mut transports_lost = 0;
+        let mut should_remove = false;
+        if let Some(fleet) = self.state.fleets.get_mut(&fleet_id) {
+            let actual_loss = fleet.ships.min(loss);
+            fleet.ships = fleet.ships.saturating_sub(actual_loss);
+            transports_lost = actual_loss;
+            if fleet.ships == 0 {
+                should_remove = true;
+            }
+        }
+        if should_remove {
+            self.state.fleets.remove(&fleet_id);
+            self.state.fleet_orders.remove(&fleet_id);
+            self.state.fleet_missions.remove(&fleet_id);
+            self.state.scout_missions.remove(&fleet_id);
+            self.state.survey_missions.remove(&fleet_id);
+        }
+        transports_lost
     }
 
     /// Mark a specific planet as surveyed and emit a `PlanetSurveyCompleted` event.
@@ -11293,5 +11503,256 @@ mod tests {
             !blockade_log_entries.is_empty(),
             "Blockade event should appear in the turn log"
         );
+    }
+
+    fn make_invasion_engine() -> (Engine, StarId, ColonyId, EmpireId, EmpireId, FleetId) {
+        let (mut state, star_id, colony_id, player_id, enemy_id) = make_blockade_state();
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+        if let Some(colony) = state.colonies.get_mut(&colony_id) {
+            colony.owner = enemy_id;
+            colony.population = 1;
+            colony.stability = 10;
+            colony.surface_installations.clear();
+            colony.orbital_installations.clear();
+        }
+        let troop_fleet = FleetId(30);
+        state.fleets.insert(
+            troop_fleet,
+            Fleet {
+                id: troop_fleet,
+                owner: player_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::TroopTransport,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        (
+            Engine::from_state(state),
+            star_id,
+            colony_id,
+            player_id,
+            enemy_id,
+            troop_fleet,
+        )
+    }
+
+    #[test]
+    fn cannot_invade_without_war_or_hostile_state() {
+        let (mut engine, star_id, _colony_id, _player_id, enemy_id, troop_fleet) =
+            make_invasion_engine();
+        engine
+            .state
+            .diplomacy
+            .insert(enemy_id, RelationshipStatus::Neutral);
+
+        let events = engine.apply_turn(vec![Command::Invade {
+            fleet: troop_fleet,
+            star: star_id,
+            planet_index: 0,
+        }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn cannot_invade_without_troop_transport_present() {
+        let (mut state, star_id, colony_id, player_id, enemy_id) = make_blockade_state();
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+        state.colonies.get_mut(&colony_id).unwrap().owner = enemy_id;
+        let scout_id = FleetId(44);
+        state.fleets.insert(
+            scout_id,
+            Fleet {
+                id: scout_id,
+                owner: player_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        let mut engine = Engine::from_state(state);
+
+        let events = engine.apply_turn(vec![Command::Invade {
+            fleet: scout_id,
+            star: star_id,
+            planet_index: 0,
+        }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn cannot_invade_own_colony() {
+        let (mut state, star_id, _colony_id, player_id, enemy_id) = make_blockade_state();
+        state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+        let fleet_id = FleetId(45);
+        state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: player_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::TroopTransport,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        let mut engine = Engine::from_state(state);
+
+        let events = engine.apply_turn(vec![Command::Invade {
+            fleet: fleet_id,
+            star: star_id,
+            planet_index: 0,
+        }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn cannot_invade_uncolonized_planet() {
+        let (mut engine, star_id, _colony_id, _player_id, _enemy_id, troop_fleet) =
+            make_invasion_engine();
+        engine.state.stars.get_mut(&star_id).unwrap().planets[0].colony = None;
+
+        let events = engine.apply_turn(vec![Command::Invade {
+            fleet: troop_fleet,
+            star: star_id,
+            planet_index: 0,
+        }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn orbital_defenses_block_invasion() {
+        let (mut engine, star_id, colony_id, _player_id, enemy_id, troop_fleet) =
+            make_invasion_engine();
+        let defender_fleet = FleetId(46);
+        engine.state.fleets.insert(
+            defender_fleet,
+            Fleet {
+                id: defender_fleet,
+                owner: enemy_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::Invade {
+            fleet: troop_fleet,
+            star: star_id,
+            planet_index: 0,
+        }]);
+
+        assert!(events.iter().any(
+            |e| matches!(e, Event::InvasionFailed { reason, .. } if reason.contains("orbital defenses"))
+        ));
+        assert_eq!(engine.state.colonies[&colony_id].owner, enemy_id);
+    }
+
+    #[test]
+    fn successful_invasion_transfers_ownership_and_sets_unrest() {
+        let (mut engine, star_id, colony_id, player_id, _enemy_id, troop_fleet) =
+            make_invasion_engine();
+        let events = engine.apply_turn(vec![Command::Invade {
+            fleet: troop_fleet,
+            star: star_id,
+            planet_index: 0,
+        }]);
+
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::InvasionSucceeded { colony, .. } if *colony == colony_id))
+        );
+        let colony = &engine.state.colonies[&colony_id];
+        assert_eq!(colony.owner, player_id);
+        assert_eq!(colony.stability, CAPTURED_UNREST_STABILITY);
+        assert!(colony.is_unrest());
+        assert!(!engine.state.fleets.contains_key(&troop_fleet));
+    }
+
+    #[test]
+    fn failed_invasion_preserves_ownership() {
+        let (mut engine, star_id, colony_id, _player_id, enemy_id, troop_fleet) =
+            make_invasion_engine();
+        if let Some(colony) = engine.state.colonies.get_mut(&colony_id) {
+            colony.population = 6;
+            colony.stability = 160;
+        }
+        let events = engine.apply_turn(vec![Command::Invade {
+            fleet: troop_fleet,
+            star: star_id,
+            planet_index: 0,
+        }]);
+
+        assert!(events.iter().any(|e| matches!(e, Event::InvasionFailed { .. })));
+        assert_eq!(engine.state.colonies[&colony_id].owner, enemy_id);
+    }
+
+    #[test]
+    fn failed_invasion_reduces_transport_deterministically() {
+        let (mut engine, star_id, colony_id, _player_id, _enemy_id, troop_fleet) =
+            make_invasion_engine();
+        if let Some(colony) = engine.state.colonies.get_mut(&colony_id) {
+            colony.population = 5;
+            colony.stability = 120;
+        }
+        if let Some(fleet) = engine.state.fleets.get_mut(&troop_fleet) {
+            fleet.ships = 2;
+        }
+
+        let events = engine.apply_turn(vec![Command::Invade {
+            fleet: troop_fleet,
+            star: star_id,
+            planet_index: 0,
+        }]);
+
+        assert!(events.iter().any(
+            |e| matches!(e, Event::InvasionFailed { transports_lost, .. } if *transports_lost == 1)
+        ));
+        assert_eq!(engine.state.fleets[&troop_fleet].ships, 1);
+    }
+
+    #[test]
+    fn captured_colony_contributes_to_new_owner_economy_next_turn() {
+        let (mut engine, star_id, colony_id, player_id, enemy_id, troop_fleet) =
+            make_invasion_engine();
+
+        engine.apply_turn(vec![Command::Invade {
+            fleet: troop_fleet,
+            star: star_id,
+            planet_index: 0,
+        }]);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+
+        let player_summary = events.iter().find_map(|e| match e {
+            Event::EconomySummary {
+                empire,
+                credits_income,
+                ..
+            } if *empire == player_id => Some(*credits_income),
+            _ => None,
+        });
+        let enemy_summary = events.iter().find_map(|e| match e {
+            Event::EconomySummary {
+                empire,
+                credits_income,
+                ..
+            } if *empire == enemy_id => Some(*credits_income),
+            _ => None,
+        });
+
+        assert_eq!(engine.state.colonies[&colony_id].owner, player_id);
+        assert!(player_summary.unwrap_or(0) > 0);
+        assert_eq!(enemy_summary.unwrap_or(0), 0);
     }
 }

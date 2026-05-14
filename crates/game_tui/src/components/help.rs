@@ -120,6 +120,10 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
                 "C",
                 "Colonize selected planet with idle colony ship in system",
             ),
+            HelpEntry::Binding(
+                "I",
+                "Invade selected hostile colony with idle troop transport in system",
+            ),
             HelpEntry::Note("Planet detail shows colony trade/supply status"),
             HelpEntry::Note("⚔ marker indicates a blockaded colony (hostile fleet present)"),
             HelpEntry::Binding("e / t", "End turn"),

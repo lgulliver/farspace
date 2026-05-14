@@ -40,6 +40,7 @@ impl TechId {
     pub const ORBITAL_ENGINEERING: TechId = TechId(7);
     pub const HYPERSPACE_CARTOGRAPHY: TechId = TechId(8);
     pub const SURVEY_DRONES: TechId = TechId(12);
+    pub const TROOP_TRANSPORTS: TechId = TechId(11);
 }
 
 /// Unique identifier for a ship design template.
@@ -467,7 +468,7 @@ pub fn all_techs() -> &'static [TechRecord] {
             domain: TechDomain::Military,
             tier: TechTier::II,
             prerequisites: &[TechId(4)],
-            unlocks: &[],
+            unlocks: &[TechUnlock::ShipDesign(ShipDesignId::TROOP_TRANSPORT)],
             cost: 130,
         },
         TechRecord {
@@ -569,6 +570,15 @@ pub fn all_ship_designs() -> &'static [ShipDesignRecord] {
             strength: 1,
             required_tech: Some(TechId::SURVEY_DRONES),
         },
+        ShipDesignRecord {
+            id: ShipDesignId::TROOP_TRANSPORT,
+            name: "Troop Transport",
+            cost: 150,
+            fleet_kind: FleetKind::TroopTransport,
+            ships: 1,
+            strength: 1,
+            required_tech: Some(TechId::TROOP_TRANSPORTS),
+        },
     ]
 }
 
@@ -576,6 +586,7 @@ impl ShipDesignId {
     pub const SCOUT: ShipDesignId = ShipDesignId(1);
     pub const COLONY: ShipDesignId = ShipDesignId(2);
     pub const SCIENCE: ShipDesignId = ShipDesignId(3);
+    pub const TROOP_TRANSPORT: ShipDesignId = ShipDesignId(4);
 
     /// All design IDs in deterministic display order, derived from `all_ship_designs()`
     /// to ensure both stay in sync automatically.
@@ -1521,6 +1532,20 @@ impl Colony {
         self.orbital_installations
             .contains(&OrbitalStructureType::Shipyard)
     }
+
+    /// Returns true when colony stability is low enough to be considered unrest.
+    pub fn is_unrest(&self) -> bool {
+        self.stability < 60
+    }
+
+    /// Human-readable stability state.
+    pub fn unrest_label(&self) -> &'static str {
+        if self.is_unrest() {
+            "Unrest"
+        } else {
+            "Stable"
+        }
+    }
 }
 
 /// Whether a colony is connected to its empire trade/supply network this turn.
@@ -1584,6 +1609,8 @@ pub enum FleetKind {
     Science,
     /// Colony ship — consumed when founding a new colony
     Colonizer,
+    /// Troop transport ship — used for strategic planetary invasions
+    TroopTransport,
 }
 
 /// A fleet of ships
@@ -2345,6 +2372,7 @@ mod tests {
         assert_eq!(BuildItem::Ship(ShipDesignId::SCOUT).cost(), 50);
         assert_eq!(BuildItem::Ship(ShipDesignId::SCIENCE).cost(), 100);
         assert_eq!(BuildItem::Ship(ShipDesignId::COLONY).cost(), 200);
+        assert_eq!(BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT).cost(), 150);
         assert_eq!(BuildItem::Scout.cost(), 50);
         assert_eq!(
             BuildItem::Ship(ShipDesignId::SCIENCE).name(),
@@ -2425,6 +2453,10 @@ mod tests {
             BuildItem::Ship(ShipDesignId::SCIENCE).name(),
             "Science Ship"
         );
+        assert_eq!(
+            BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT).name(),
+            "Troop Transport"
+        );
         assert_eq!(BuildItem::Scout.name(), "Scout");
         assert_eq!(BuildItem::Colony.name(), "Colony Ship");
         assert_eq!(BuildItem::Outpost.name(), "Outpost");
@@ -2456,8 +2488,9 @@ mod tests {
     #[test]
     fn all_ship_designs_contains_science_ship() {
         let all = all_ship_designs();
-        assert_eq!(all.len(), 3);
+        assert_eq!(all.len(), 4);
         assert!(all.iter().any(|d| d.name == "Science Ship"));
+        assert!(all.iter().any(|d| d.name == "Troop Transport"));
     }
 
     #[test]
@@ -2516,6 +2549,12 @@ mod tests {
             techs.iter().any(|t| t.name == "Hyperspace Cartography"),
             "Hyperspace Cartography tech must be present"
         );
+        assert!(techs.iter().any(|t| {
+            t.id == TechId(11)
+                && t.unlocks
+                    .iter()
+                    .any(|u| matches!(u, TechUnlock::ShipDesign(ShipDesignId::TROOP_TRANSPORT)))
+        }));
     }
 
     #[test]

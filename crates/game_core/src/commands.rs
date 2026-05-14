@@ -40,6 +40,12 @@ pub enum Command {
         star: StarId,
         planet_index: usize,
     },
+    /// Invade an enemy colony on a specific planet with a troop transport fleet
+    Invade {
+        fleet: FleetId,
+        star: StarId,
+        planet_index: usize,
+    },
     /// Assign a specialisation role to a player-owned colony
     SetColonyRole { colony: ColonyId, role: ColonyRole },
     /// Set the rally point for a colony — newly produced ships will auto-route here

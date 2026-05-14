@@ -21,6 +21,9 @@ use ratatui::{
     Frame,
 };
 
+// Distinct salt keeps galaxy-view starfield noise stable but separate from sector-view noise.
+const GALAXY_STARFIELD_SALT: u64 = 0xA11;
+
 pub fn render_sector_overview(
     frame: &mut Frame,
     area: Rect,
@@ -91,7 +94,7 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
     let sector_fleet_counts = sector_fleet_counts(game_state);
     let capital_sectors = capital_sectors(game_state);
 
-    let mut cells = background_cells(game_state, map_area, frame_group, 0xA11);
+    let mut cells = background_cells(game_state, map_area, frame_group, GALAXY_STARFIELD_SALT);
     let mut labels = Vec::new();
 
     for sector in game_state.sectors.values() {

@@ -2,6 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Style, widgets::Widget};
 
+// SplitMix64-style mixing constants used only for deterministic cosmetic hashing.
+const FRAME_MIX: u64 = 0x9E37_79B9_7F4A_7C15;
+const SALT_MIX: u64 = 0xBF58_476D_1CE4_E5B9;
+const FINAL_MIX: u64 = 0x94D0_49BB_1331_11EB;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MapLayer {
     Background,
@@ -212,11 +217,11 @@ pub fn visual_hash(seed: u64, x: u16, y: u16, frame: u64, salt: u64) -> u64 {
     let mut value = seed
         ^ (u64::from(x) << 17)
         ^ (u64::from(y) << 31)
-        ^ frame.wrapping_mul(0x9E37_79B9_7F4A_7C15)
-        ^ salt.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    value = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        ^ frame.wrapping_mul(FRAME_MIX)
+        ^ salt.wrapping_mul(SALT_MIX);
+    value = value.wrapping_add(FRAME_MIX);
+    value = (value ^ (value >> 30)).wrapping_mul(SALT_MIX);
+    value = (value ^ (value >> 27)).wrapping_mul(FINAL_MIX);
     value ^ (value >> 31)
 }
 
@@ -318,6 +323,8 @@ fn place_label(
 mod tests {
     use super::*;
 
+    const TEST_VISUAL_SALT: u64 = 11;
+
     #[test]
     fn projection_projects_into_area() {
         let projection = WorldProjection::new((-10.0, -10.0, 10.0, 10.0), 20, 10);
@@ -327,7 +334,13 @@ mod tests {
 
     #[test]
     fn visual_hash_is_deterministic() {
-        assert_eq!(visual_hash(42, 3, 7, 1, 11), visual_hash(42, 3, 7, 1, 11));
-        assert_ne!(visual_hash(42, 3, 7, 1, 11), visual_hash(42, 3, 7, 2, 11));
+        assert_eq!(
+            visual_hash(42, 3, 7, 1, TEST_VISUAL_SALT),
+            visual_hash(42, 3, 7, 1, TEST_VISUAL_SALT)
+        );
+        assert_ne!(
+            visual_hash(42, 3, 7, 1, TEST_VISUAL_SALT),
+            visual_hash(42, 3, 7, 2, TEST_VISUAL_SALT)
+        );
     }
 }

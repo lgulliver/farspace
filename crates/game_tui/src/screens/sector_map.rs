@@ -26,6 +26,9 @@ use ratatui::{
     Frame,
 };
 
+// Distinct salt keeps sector-view starfield noise stable but separate from galaxy-view noise.
+const SECTOR_STARFIELD_SALT: u64 = 0xB22;
+
 pub fn render_sector_map(
     frame: &mut Frame,
     area: Rect,
@@ -139,7 +142,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
 
     let fleets_at_star = fleets_at_star(game_state, sector_id);
 
-    let mut cells = background_cells(game_state, map_area, frame_group, 0xB22);
+    let mut cells = background_cells(game_state, map_area, frame_group, SECTOR_STARFIELD_SALT);
     let mut labels = Vec::new();
 
     for star in &stars_in_sector {

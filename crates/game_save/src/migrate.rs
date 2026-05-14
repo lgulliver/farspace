@@ -293,7 +293,8 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
         }
         24 => {
             // v24 → v25: FleetKind gained `TroopTransport`.
-            // Existing v24 saves deserialize via known enum variants and need no data rewrite.
+            // v24 saves cannot contain the new variant, so deserialization remains valid
+            // and no state rewrite is needed.
             // Keep this explicit version step so post-invasion saves are distinguishable.
             let mut metadata = save.metadata;
             metadata.schema_version = CURRENT_VERSION;

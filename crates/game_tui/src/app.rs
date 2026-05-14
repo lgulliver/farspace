@@ -2064,9 +2064,9 @@ mod tests {
 
         app.handle_key(key(KeyCode::Char('I')));
 
-        let colony = app.engine.as_ref().unwrap().state.colonies[&enemy_colony_id].owner;
+        let captured_owner = app.engine.as_ref().unwrap().state.colonies[&enemy_colony_id].owner;
         assert_eq!(
-            colony,
+            captured_owner,
             app.engine.as_ref().unwrap().state.player_empire,
             "selected enemy planet should be invaded and captured"
         );

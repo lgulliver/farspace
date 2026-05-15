@@ -764,7 +764,15 @@ mod tests {
         (area.y..area.y + area.height)
             .map(|y| {
                 (area.x..area.x + area.width)
-                    .map(|x| buffer.cell((x, y)).unwrap().symbol().chars().next().unwrap_or(' '))
+                    .map(|x| {
+                        buffer
+                            .cell((x, y))
+                            .unwrap()
+                            .symbol()
+                            .chars()
+                            .next()
+                            .unwrap_or(' ')
+                    })
                     .collect::<String>()
             })
             .collect::<Vec<_>>()
@@ -916,7 +924,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_object_stays_readable_with_labels() {
+    fn selected_star_renders_at_marker_and_stays_readable_with_labels() {
         let (app_state, game_state) = create_app_with_sector();
         let star_id = app_state.selected_star.unwrap();
         let buf = render_to_buffer(&app_state, &game_state, 120, 40);
@@ -930,6 +938,12 @@ mod tests {
             .cell((render_area.x + pos.x, render_area.y + pos.y))
             .unwrap();
         assert_eq!(cell.symbol(), "@");
+        if let Some(owner) = star_owner(&game_state, star_id) {
+            assert_ne!(
+                cell.symbol(),
+                empire_visual(&game_state, owner).symbol.to_string()
+            );
+        }
         assert_eq!(cell.bg, Theme::accent());
     }
 

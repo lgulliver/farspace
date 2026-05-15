@@ -402,19 +402,19 @@ fn render_sector_details(
 
     if !matches!(fog, FogState::Unexplored) {
         if let Some(owner) = owner {
-        let visual = empire_visual(game_state, owner);
-        let owner_name = game_state
-            .empires
-            .get(&owner)
-            .map(|empire| empire.name.as_str())
-            .unwrap_or("Unknown Empire");
-        lines.push(Line::from(vec![
-            Span::styled("Dominant Power: ", Theme::muted_style()),
-            Span::styled(
-                format!("{} {}", visual.symbol, owner_name),
-                Style::default().fg(visual.color),
-            ),
-        ]));
+            let visual = empire_visual(game_state, owner);
+            let owner_name = game_state
+                .empires
+                .get(&owner)
+                .map(|empire| empire.name.as_str())
+                .unwrap_or("Unknown Empire");
+            lines.push(Line::from(vec![
+                Span::styled("Dominant Power: ", Theme::muted_style()),
+                Span::styled(
+                    format!("{} {}", visual.symbol, owner_name),
+                    Style::default().fg(visual.color),
+                ),
+            ]));
         }
     }
 
@@ -591,7 +591,15 @@ mod tests {
         (area.y..area.y + area.height)
             .map(|y| {
                 (area.x..area.x + area.width)
-                    .map(|x| buffer.cell((x, y)).unwrap().symbol().chars().next().unwrap_or(' '))
+                    .map(|x| {
+                        buffer
+                            .cell((x, y))
+                            .unwrap()
+                            .symbol()
+                            .chars()
+                            .next()
+                            .unwrap_or(' ')
+                    })
                     .collect::<String>()
             })
             .collect::<Vec<_>>()
@@ -758,7 +766,10 @@ mod tests {
         for star_id in &sector_star_ids {
             game_state.explored_stars.remove(star_id);
         }
-        assert_eq!(sector_fog_state(&game_state, target_sector), FogState::Unexplored);
+        assert_eq!(
+            sector_fog_state(&game_state, target_sector),
+            FogState::Unexplored
+        );
 
         let colony_ids: Vec<_> = game_state
             .colonies
@@ -834,7 +845,10 @@ mod tests {
         let buffer = render_sector_details_to_buffer(&game_state, Some(target_sector), 48, 18);
         let text = buffer_text(&buffer, Rect::new(0, 0, 48, 18));
 
-        assert_eq!(sector_fog_state(&game_state, target_sector), FogState::Unexplored);
+        assert_eq!(
+            sector_fog_state(&game_state, target_sector),
+            FogState::Unexplored
+        );
         assert!(!text.contains("Dominant Power"));
         assert!(!text.contains(&visual.symbol.to_string()));
     }

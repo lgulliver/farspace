@@ -29,6 +29,18 @@ pub const FIELD_GALAXY_SIZE: usize = 1;
 pub const FIELD_AI_COUNT: usize = 2;
 pub const FIELD_SEED: usize = 3;
 
+fn enter_hint(app_state: &AppState) -> &'static str {
+    if app_state.setup_seed_editing {
+        "Confirm Seed"
+    } else {
+        match app_state.setup_cursor {
+            FIELD_EMPIRE => "Next Empire",
+            FIELD_SEED => "Edit Seed",
+            _ => "Start",
+        }
+    }
+}
+
 fn setup_box_size(main_area: Rect) -> (u16, u16) {
     let width = main_area
         .width
@@ -287,8 +299,10 @@ pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState
     lines.push(Line::from(""));
 
     lines.push(Line::from(vec![
-        Span::styled("  [Enter]", Theme::title_style()),
+        Span::styled("  [S]", Theme::title_style()),
         Span::raw(" Start   "),
+        Span::styled("  [Enter]", Theme::title_style()),
+        Span::raw(format!(" {}   ", enter_hint(app_state))),
         Span::styled("[Esc]", Theme::title_style()),
         Span::raw(" Back"),
     ]));
@@ -486,5 +500,23 @@ mod tests {
         let rendered = render_to_string(&state);
         assert!(rendered.contains("Terran Dominion"));
         assert!(rendered.contains("Militarised colonisers"));
+    }
+
+    #[test]
+    fn setup_screen_shows_field_specific_enter_hint_for_empire() {
+        let state = AppState::default();
+        let rendered = render_to_string(&state);
+        assert!(rendered.contains("[Enter] Next Empire"));
+        assert!(rendered.contains("[S] Start"));
+    }
+
+    #[test]
+    fn setup_screen_shows_field_specific_enter_hint_for_seed() {
+        let state = AppState {
+            setup_cursor: FIELD_SEED,
+            ..AppState::default()
+        };
+        let rendered = render_to_string(&state);
+        assert!(rendered.contains("[Enter] Edit Seed"));
     }
 }

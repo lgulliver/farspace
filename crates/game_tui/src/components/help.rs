@@ -58,7 +58,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Other Fields"),
             HelpEntry::Binding("h / ←", "Decrease / cycle left"),
             HelpEntry::Binding("l / →", "Increase / cycle right"),
-            HelpEntry::Binding("Enter", "Edit seed field / Start game"),
+            HelpEntry::Binding("Enter", "Use selected field action"),
             HelpEntry::Binding("S", "Start game immediately"),
             HelpEntry::Binding("Esc", "Cancel seed edit / Go back to menu"),
             HelpEntry::Section("Seed editing"),

@@ -674,26 +674,32 @@ fn background_cells(
     let mut cells = Vec::new();
     for y in 0..area.height {
         for x in 0..area.width {
-            let hash = visual_hash(game_state.seed, x, y, frame_group, salt);
+            let static_hash = visual_hash(game_state.seed, x, y, 0, salt);
             let style = Style::default().bg(Theme::space_bg());
-            if hash.is_multiple_of(53) {
+            if static_hash.is_multiple_of(53) {
                 cells.push(CellCommand {
                     layer: MapLayer::Background,
                     order: 0,
                     x,
                     y,
-                    symbol: Some(if hash.is_multiple_of(3) { '·' } else { '.' }),
+                    symbol: Some(if static_hash.is_multiple_of(3) { '·' } else { '.' }),
                     style: style.fg(Color::Rgb(65, 80, 116)),
                     protect: 0,
                 });
-            } else if hash.is_multiple_of(149) {
+            } else if static_hash.is_multiple_of(149) {
+                let twinkle_hash = visual_hash(game_state.seed, x, y, frame_group, salt ^ 0x91);
+                let twinkle_color = if twinkle_hash.is_multiple_of(5) {
+                    Color::Rgb(176, 194, 238)
+                } else {
+                    Color::Rgb(130, 148, 194)
+                };
                 cells.push(CellCommand {
                     layer: MapLayer::Background,
                     order: 1,
                     x,
                     y,
                     symbol: Some('✦'),
-                    style: style.fg(Color::Rgb(145, 165, 215)),
+                    style: style.fg(twinkle_color),
                     protect: 0,
                 });
             }
@@ -867,6 +873,22 @@ mod tests {
         let b = render_to_buffer(&app_state, &game_state, 120, 40);
         assert_ne!(a, b);
         assert_eq!(game_state, game_state.clone());
+    }
+
+    #[test]
+    fn sector_background_starfield_stays_fixed_while_stars_twinkle() {
+        let engine = Engine::new(42);
+        let a = background_cells(&engine.state, Rect::new(0, 0, 80, 24), 0, SECTOR_STARFIELD_SALT);
+        let b = background_cells(&engine.state, Rect::new(0, 0, 80, 24), 5, SECTOR_STARFIELD_SALT);
+
+        let a_layout: Vec<_> = a.iter().map(|cell| (cell.x, cell.y, cell.symbol)).collect();
+        let b_layout: Vec<_> = b.iter().map(|cell| (cell.x, cell.y, cell.symbol)).collect();
+
+        assert_eq!(a_layout, b_layout, "background layout should stay fixed");
+        assert!(
+            a.iter().zip(&b).any(|(left, right)| left.style != right.style),
+            "some background stars should still twinkle"
+        );
     }
 
     #[test]

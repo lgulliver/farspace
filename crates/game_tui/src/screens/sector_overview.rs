@@ -527,7 +527,11 @@ fn background_cells(
                     order: 0,
                     x,
                     y,
-                    symbol: Some(if static_hash.is_multiple_of(2) { '·' } else { '.' }),
+                    symbol: Some(if static_hash.is_multiple_of(2) {
+                        '·'
+                    } else {
+                        '.'
+                    }),
                     style: style.fg(Color::Rgb(70, 85, 120)),
                     protect: 0,
                 });
@@ -675,15 +679,27 @@ mod tests {
     #[test]
     fn overview_background_starfield_stays_fixed_while_stars_twinkle() {
         let engine = Engine::new(42);
-        let a = background_cells(&engine.state, Rect::new(0, 0, 80, 24), 0, GALAXY_STARFIELD_SALT);
-        let b = background_cells(&engine.state, Rect::new(0, 0, 80, 24), 6, GALAXY_STARFIELD_SALT);
+        let a = background_cells(
+            &engine.state,
+            Rect::new(0, 0, 80, 24),
+            0,
+            GALAXY_STARFIELD_SALT,
+        );
+        let b = background_cells(
+            &engine.state,
+            Rect::new(0, 0, 80, 24),
+            6,
+            GALAXY_STARFIELD_SALT,
+        );
 
         let a_layout: Vec<_> = a.iter().map(|cell| (cell.x, cell.y, cell.symbol)).collect();
         let b_layout: Vec<_> = b.iter().map(|cell| (cell.x, cell.y, cell.symbol)).collect();
 
         assert_eq!(a_layout, b_layout, "background layout should stay fixed");
         assert!(
-            a.iter().zip(&b).any(|(left, right)| left.style != right.style),
+            a.iter()
+                .zip(&b)
+                .any(|(left, right)| left.style != right.style),
             "some background stars should still twinkle"
         );
     }

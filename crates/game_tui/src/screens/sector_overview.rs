@@ -24,6 +24,7 @@ use ratatui::{
 
 // Distinct salt keeps galaxy-view starfield noise stable but separate from sector-view noise.
 const GALAXY_STARFIELD_SALT: u64 = 0xA11;
+const GALAXY_STARFIELD_TWINKLE_SALT_XOR: u64 = 0x73;
 
 pub fn render_sector_overview(
     frame: &mut Frame,
@@ -536,7 +537,13 @@ fn background_cells(
                     protect: 0,
                 });
             } else if static_hash.is_multiple_of(211) {
-                let twinkle_hash = visual_hash(game_state.seed, x, y, frame_group, salt ^ 0x73);
+                let twinkle_hash = visual_hash(
+                    game_state.seed,
+                    x,
+                    y,
+                    frame_group,
+                    salt ^ GALAXY_STARFIELD_TWINKLE_SALT_XOR,
+                );
                 let twinkle_color = if twinkle_hash.is_multiple_of(6) {
                     Color::Rgb(184, 202, 244)
                 } else {

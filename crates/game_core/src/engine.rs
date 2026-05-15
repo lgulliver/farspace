@@ -6703,7 +6703,7 @@ mod tests {
         // Diplomacy state updated
         assert_eq!(
             engine.state.diplomacy.get(&ai_id).copied(),
-            Some(RelationshipStatus::Contacted)
+            Some(RelationshipStatus::Neutral)
         );
     }
 

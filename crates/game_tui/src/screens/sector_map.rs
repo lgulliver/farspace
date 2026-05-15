@@ -152,7 +152,11 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
             continue;
         };
         let fog = star_fog_state(game_state, &visible_stars, star.id);
-        let owner = star_owner(game_state, star.id);
+        let owner = if matches!(fog, FogState::Unexplored) {
+            None
+        } else {
+            star_owner(game_state, star.id)
+        };
 
         if let Some(owner) = owner {
             let visual = empire_visual(game_state, owner);
@@ -221,24 +225,23 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
 
         let is_selected = app_state.selected_star == Some(star.id);
         let fog = star_fog_state(game_state, &visible_stars, star.id);
-        let owner = star_owner(game_state, star.id);
+        let owner = if matches!(fog, FogState::Unexplored) {
+            None
+        } else {
+            star_owner(game_state, star.id)
+        };
         let capital = star_is_capital(game_state, star.id);
+        let show_capital = capital && !matches!(fog, FogState::Unexplored);
         let scout_en_route = scout_destinations.contains(&star.id);
         let fleet_en_route = fleet_destinations.contains(&star.id);
         let stationary_fleets = fleets_at_star.get(&star.id).copied().unwrap_or_default();
 
         let (symbol, style, protect) = if is_selected {
-            (
-                owner
-                    .map(|empire| empire_visual(game_state, empire).symbol)
-                    .unwrap_or(star.spectral_class.as_char()),
-                Theme::highlight_style(),
-                10,
-            )
+            ('@', Theme::highlight_style(), 10)
         } else if let Some(owner) = owner {
             let visual = empire_visual(game_state, owner);
             let mut style = Style::default().fg(visual.color);
-            if capital {
+            if show_capital {
                 style = style.add_modifier(Modifier::BOLD);
             }
             (visual.symbol, style, 8)
@@ -268,7 +271,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
             protect,
         });
 
-        if capital && !is_selected {
+        if show_capital && !is_selected {
             cells.push(CellCommand {
                 layer: MapLayer::Overlay,
                 order: 0,
@@ -323,7 +326,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
             });
         }
 
-        if is_selected || owner.is_some() || capital || stationary_fleets > 0 {
+        if is_selected || owner.is_some() || show_capital || stationary_fleets > 0 {
             let label_style = if is_selected {
                 Theme::highlight_style()
             } else if let Some(owner) = owner {
@@ -343,7 +346,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
                 style: label_style,
                 priority: if is_selected {
                     10
-                } else if capital {
+                } else if show_capital {
                     9
                 } else {
                     7
@@ -526,7 +529,11 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
     for star in &stars_in_sector {
         let is_selected = app_state.selected_star == Some(star.id);
         let fog = star_fog_state(game_state, &visible_stars, star.id);
-        let owner = star_owner(game_state, star.id);
+        let owner = if matches!(fog, FogState::Unexplored) {
+            None
+        } else {
+            star_owner(game_state, star.id)
+        };
         let prefix = if is_selected { "▶" } else { " " };
         let name: Cow<'_, str> = if matches!(fog, FogState::Unexplored) {
             Cow::Owned("???".to_string())
@@ -737,6 +744,33 @@ mod tests {
         terminal.backend().buffer().clone()
     }
 
+    fn render_system_list_to_buffer(
+        app_state: &AppState,
+        game_state: &GameState,
+        width: u16,
+        height: u16,
+    ) -> Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_system_list(frame, frame.area(), game_state, app_state);
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn buffer_text(buffer: &Buffer, area: Rect) -> String {
+        (area.y..area.y + area.height)
+            .map(|y| {
+                (area.x..area.x + area.width)
+                    .map(|x| buffer.cell((x, y)).unwrap().symbol().chars().next().unwrap_or(' '))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     fn map_render_area(width: u16, height: u16) -> Rect {
         let area = Rect::new(0, 0, width, height);
         let (_, main, _) = compose_layout(area);
@@ -895,6 +929,101 @@ mod tests {
         let cell = buf
             .cell((render_area.x + pos.x, render_area.y + pos.y))
             .unwrap();
+        assert_eq!(cell.symbol(), "@");
         assert_eq!(cell.bg, Theme::accent());
+    }
+
+    #[test]
+    fn unexplored_owned_star_does_not_show_owner_in_system_list() {
+        let (mut app_state, mut game_state) = create_app_with_sector();
+        let selected_sector = game_state
+            .colonies
+            .values()
+            .find(|colony| colony.owner == game_state.player_empire)
+            .and_then(|colony| game_state.stars.get(&colony.star))
+            .map(|star| star.sector)
+            .unwrap();
+        let hidden_owned_star = game_state
+            .colonies
+            .values()
+            .filter(|colony| colony.owner == game_state.player_empire)
+            .find_map(|colony| {
+                game_state
+                    .stars
+                    .get(&colony.star)
+                    .filter(|star| star.sector == selected_sector)
+                    .map(|star| star.id)
+            })
+            .unwrap();
+        app_state.selected_sector = Some(selected_sector);
+        app_state.selected_star = None;
+        game_state.explored_stars.remove(&hidden_owned_star);
+
+        let buffer = render_system_list_to_buffer(&app_state, &game_state, 48, 18);
+        let text = buffer_text(&buffer, Rect::new(0, 0, 48, 18));
+        let visual = empire_visual(&game_state, game_state.player_empire);
+
+        assert!(text.contains("? ???"));
+        assert!(!text.contains(&format!("{} ???", visual.symbol)));
+    }
+
+    #[test]
+    fn unexplored_owned_star_does_not_render_territory_halo() {
+        let (mut app_state, mut game_state) = create_app_with_sector();
+        let selected_sector = game_state
+            .colonies
+            .values()
+            .find(|colony| colony.owner == game_state.player_empire)
+            .and_then(|colony| game_state.stars.get(&colony.star))
+            .map(|star| star.sector)
+            .unwrap();
+        let (colony_id, hidden_owned_star) = game_state
+            .colonies
+            .iter()
+            .filter(|(_, colony)| colony.owner == game_state.player_empire)
+            .find_map(|(colony_id, colony)| {
+                game_state.stars.get(&colony.star).and_then(|star| {
+                    (star.sector == selected_sector).then_some((*colony_id, star.id))
+                })
+            })
+            .unwrap();
+        app_state.selected_sector = Some(selected_sector);
+        app_state.selected_star = None;
+        game_state.explored_stars.remove(&hidden_owned_star);
+
+        let mut without_colony = game_state.clone();
+        without_colony.colonies.remove(&colony_id);
+
+        let with_buffer = render_to_buffer(&app_state, &game_state, 120, 40);
+        let without_buffer = render_to_buffer(&app_state, &without_colony, 120, 40);
+        let render_area = map_render_area(120, 40);
+        let viewport = sector_viewport(&game_state, &app_state, 120, 40);
+        let star = game_state.stars.get(&hidden_owned_star).unwrap();
+        let pos = viewport
+            .world_to_screen_cell(WorldPoint::new(star.x as f64, star.y as f64))
+            .unwrap();
+        let halo_x = if pos.x + 3 < render_area.width {
+            pos.x + 3
+        } else {
+            pos.x.saturating_sub(3)
+        };
+
+        assert_eq!(
+            with_buffer
+                .cell((render_area.x + pos.x, render_area.y + pos.y))
+                .unwrap()
+                .symbol(),
+            "?",
+        );
+        assert_eq!(
+            with_buffer
+                .cell((render_area.x + halo_x, render_area.y + pos.y))
+                .unwrap()
+                .bg,
+            without_buffer
+                .cell((render_area.x + halo_x, render_area.y + pos.y))
+                .unwrap()
+                .bg,
+        );
     }
 }

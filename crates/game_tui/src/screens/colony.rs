@@ -2,6 +2,12 @@
 
 use crate::components::{derive_header_data, render_footer, render_header};
 use crate::layout::{compose_layout, split_horizontal};
+use crate::renderer::{
+    palette::ColorToken,
+    planet_art::{colony_portrait, portrait_input_from_colony},
+    sprite::detail_for_area,
+    Canvas, RenderLayer,
+};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
@@ -27,14 +33,19 @@ pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
     // Split main area left (colony info+buildings) / right (queue+role+picker) at 50%
     let (left_area, right_area) = split_horizontal(main_area, 50);
 
-    // Left column: stats (top 60%) and buildings (bottom 40%)
+    // Left column: portrait (top), stats (middle), buildings (bottom)
     let left_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .constraints([
+            Constraint::Percentage(32),
+            Constraint::Percentage(38),
+            Constraint::Percentage(30),
+        ])
         .split(left_area);
 
-    render_colony_stats(frame, left_chunks[0], app_state, game_state);
-    render_colony_buildings(frame, left_chunks[1], app_state, game_state);
+    render_colony_portrait(frame, left_chunks[0], app_state, game_state);
+    render_colony_stats(frame, left_chunks[1], app_state, game_state);
+    render_colony_buildings(frame, left_chunks[2], app_state, game_state);
 
     // Right column: queue (top 35%), role selector (middle 30%), build picker (bottom 35%)
     let right_chunks = Layout::default()
@@ -55,6 +66,54 @@ pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
         .as_deref()
         .unwrap_or("Use Tab to switch panels, then Enter to set role or queue production.");
     render_footer(frame, footer_area, &Screen::Colony, Some(hint));
+}
+
+fn render_colony_portrait(
+    frame: &mut Frame,
+    area: Rect,
+    app_state: &AppState,
+    game_state: &GameState,
+) {
+    let block = Block::default()
+        .title(" Colony Portrait ")
+        .borders(Borders::ALL)
+        .style(Theme::default_style());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let mut canvas = Canvas::new(inner.width, inner.height);
+    canvas.fill(ColorToken::SpaceBg, RenderLayer::Background.z_base());
+    let detail = detail_for_area(inner);
+    let Some(colony_id) = app_state.colony.selected_colony else {
+        canvas.draw_text(
+            1,
+            inner.height / 2,
+            "No colony selected",
+            ColorToken::Muted.to_style(None),
+            RenderLayer::Labels.z_base(),
+        );
+        canvas.render_to_buffer(inner, frame.buffer_mut());
+        return;
+    };
+    let Some(colony) = game_state.colonies.get(&colony_id) else {
+        return;
+    };
+    let planet_class = game_state
+        .stars
+        .get(&colony.star)
+        .and_then(|star| star.planets.get(colony.planet_index))
+        .map(|planet| planet.class);
+    let portrait = colony_portrait(
+        portrait_input_from_colony(planet_class, Some(colony)),
+        detail,
+    );
+    let x = inner.width.saturating_sub(portrait.width) / 2;
+    let y = inner.height.saturating_sub(portrait.height) / 2;
+    canvas.draw_sprite(&portrait, x, y, 0, RenderLayer::Bodies.z_base());
+    canvas.render_to_buffer(inner, frame.buffer_mut());
 }
 
 /// Render colony statistics panel

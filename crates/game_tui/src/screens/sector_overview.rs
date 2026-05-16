@@ -12,7 +12,15 @@ use crate::map_render::{
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::viewport::{MapViewport, ScreenPoint, ViewportBounds, WorldPoint};
-use crate::AppState;
+use crate::{
+    renderer::{
+        sprite::DetailLevel,
+        starfield::{
+            detail_star_glyph, should_render_star, star_magnitude_color, starfield_detail,
+        },
+    },
+    AppState,
+};
 use game_core::{GameState, SectorId, StarId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -25,6 +33,7 @@ use ratatui::{
 // Distinct salt keeps galaxy-view starfield noise stable but separate from sector-view noise.
 const GALAXY_STARFIELD_SALT: u64 = 0xA11;
 const GALAXY_STARFIELD_TWINKLE_SALT_XOR: u64 = 0x73;
+const SELECTION_PULSE_PERIOD: u64 = 3;
 
 pub fn render_sector_overview(
     frame: &mut Frame,
@@ -229,7 +238,14 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
             .unwrap_or_default();
 
         let (symbol, style, protect) = if is_selected {
-            ('@', Theme::highlight_style(), 10)
+            let pulse_bright = !app_state.reduced_motion
+                && (app_state.tick_count / SELECTION_PULSE_PERIOD).is_multiple_of(2);
+            let style = if pulse_bright {
+                Style::default().fg(Theme::accent2()).bg(Theme::accent())
+            } else {
+                Theme::highlight_style()
+            };
+            ('@', style, 10)
         } else if let Some(owner) = owner {
             let visual = empire_visual(game_state, owner);
             let mut style = Style::default().fg(visual.color);
@@ -518,26 +534,13 @@ fn background_cells(
     frame_group: u64,
     salt: u64,
 ) -> Vec<CellCommand> {
+    let detail = starfield_detail(area);
     let mut cells = Vec::new();
     for y in 0..area.height {
         for x in 0..area.width {
             let static_hash = visual_hash(game_state.seed, x, y, 0, salt);
             let style = Style::default().bg(Theme::space_bg());
-            if static_hash.is_multiple_of(89) {
-                cells.push(CellCommand {
-                    layer: MapLayer::Background,
-                    order: 0,
-                    x,
-                    y,
-                    symbol: Some(if static_hash.is_multiple_of(2) {
-                        '·'
-                    } else {
-                        '.'
-                    }),
-                    style: style.fg(Color::Rgb(70, 85, 120)),
-                    protect: 0,
-                });
-            } else if static_hash.is_multiple_of(211) {
+            if should_render_star(static_hash, detail) {
                 let twinkle_hash = visual_hash(
                     game_state.seed,
                     x,
@@ -545,18 +548,25 @@ fn background_cells(
                     frame_group,
                     salt ^ GALAXY_STARFIELD_TWINKLE_SALT_XOR,
                 );
-                let twinkle_color = if twinkle_hash.is_multiple_of(6) {
-                    Color::Rgb(184, 202, 244)
-                } else {
-                    Color::Rgb(142, 160, 206)
-                };
+                cells.push(CellCommand {
+                    layer: MapLayer::Background,
+                    order: 0,
+                    x,
+                    y,
+                    symbol: Some(detail_star_glyph(static_hash, detail)),
+                    style: style.fg(star_magnitude_color(static_hash, twinkle_hash)),
+                    protect: 0,
+                });
+            } else if matches!(detail, DetailLevel::Cinematic | DetailLevel::Standard)
+                && static_hash.is_multiple_of(241)
+            {
                 cells.push(CellCommand {
                     layer: MapLayer::Background,
                     order: 1,
                     x,
                     y,
-                    symbol: Some('✦'),
-                    style: style.fg(twinkle_color),
+                    symbol: Some('✶'),
+                    style: style.fg(Color::Rgb(168, 188, 236)),
                     protect: 0,
                 });
             }

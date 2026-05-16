@@ -10,6 +10,9 @@ const POPULATION_SCALE_FACTOR: u64 = 8;
 const POPULATION_PER_CITY_LIGHT: u8 = 40;
 const HIGH_POLLUTION_THRESHOLD: u8 = 128;
 const HIGH_INDUSTRY_THRESHOLD: u8 = 96;
+// Terminal glyph cells are typically taller than they are wide. These coefficients
+// bias the radial falloff so spheres render visually round instead of vertically oval.
+// Approximation is width:height ≈ 4:9 for common monospace terminal fonts.
 const TERMINAL_ASPECT_X: i16 = 4;
 const TERMINAL_ASPECT_Y: i16 = 9;
 
@@ -137,7 +140,7 @@ fn sphere_sprite(
 
     let cx = i16::try_from(width / 2).unwrap_or(0);
     let cy = i16::try_from(height / 2).unwrap_or(0);
-    let radius_sq = radius * radius * TERMINAL_ASPECT_X;
+    let max_dist = radius * radius * TERMINAL_ASPECT_X;
     let mut cells = Vec::new();
 
     for y in 0..height {
@@ -145,10 +148,10 @@ fn sphere_sprite(
             let dx = i16::try_from(x).unwrap_or(0) - cx;
             let dy = i16::try_from(y).unwrap_or(0) - cy;
             let dist = dx * dx * TERMINAL_ASPECT_X + dy * dy * TERMINAL_ASPECT_Y;
-            if dist > radius_sq {
+            if dist > max_dist {
                 continue;
             }
-            let shade = ((radius_sq - dist) * 255 / radius_sq.max(1)) as u8;
+            let shade = ((max_dist - dist) * 255 / max_dist.max(1)) as u8;
             let glyph = if shade > 220 {
                 '●'
             } else if shade > 180 {

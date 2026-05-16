@@ -1174,6 +1174,26 @@ impl App {
             KeyCode::Enter => {
                 self.select_research_tech();
             }
+            // Queue highlighted tech for automatic follow-up
+            KeyCode::Char('a') => {
+                self.queue_research_tech();
+            }
+            // Remove highlighted tech from research queue
+            KeyCode::Char('x') => {
+                self.remove_queued_research_tech();
+            }
+            // Move highlighted queued tech one slot earlier
+            KeyCode::Char('u') => {
+                self.move_queued_research_up();
+            }
+            // Move highlighted queued tech one slot later
+            KeyCode::Char('d') => {
+                self.move_queued_research_down();
+            }
+            // Clear entire research queue
+            KeyCode::Char('c') => {
+                self.dispatch_command(Command::ClearResearchQueue);
+            }
             // End turn from research screen (excluding Enter, which selects tech)
             _ => {
                 if KeyMap::is_end_turn(key) && key.code != KeyCode::Enter {
@@ -1259,6 +1279,100 @@ impl App {
         };
 
         self.dispatch_command(Command::SelectResearch { tech: tech_id });
+    }
+
+    fn queue_research_tech(&mut self) {
+        let tech_id = {
+            let Some(engine) = &self.engine else {
+                let msg = "Unavailable: queue research — no game in progress.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            };
+
+            let visible = filtered_research_techs(&self.state, &engine.state);
+            if visible.is_empty() {
+                let msg = "Unavailable: queue research — no technologies match current filters.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            }
+            let cursor = self.state.research.cursor % visible.len();
+            visible[cursor].id
+        };
+
+        self.dispatch_command(Command::QueueResearch { tech: tech_id });
+    }
+
+    fn remove_queued_research_tech(&mut self) {
+        let tech_id = {
+            let Some(engine) = &self.engine else {
+                let msg = "Unavailable: remove queued research — no game in progress.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            };
+
+            let visible = filtered_research_techs(&self.state, &engine.state);
+            if visible.is_empty() {
+                let msg = "Unavailable: remove queued research — no technologies match current filters.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            }
+            let cursor = self.state.research.cursor % visible.len();
+            visible[cursor].id
+        };
+
+        self.dispatch_command(Command::RemoveQueuedResearch { tech: tech_id });
+    }
+
+    fn move_queued_research_up(&mut self) {
+        let tech_id = {
+            let Some(engine) = &self.engine else {
+                let msg = "Unavailable: reorder queued research — no game in progress.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            };
+
+            let visible = filtered_research_techs(&self.state, &engine.state);
+            if visible.is_empty() {
+                let msg =
+                    "Unavailable: reorder queued research — no technologies match current filters.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            }
+            let cursor = self.state.research.cursor % visible.len();
+            visible[cursor].id
+        };
+
+        self.dispatch_command(Command::MoveQueuedResearchUp { tech: tech_id });
+    }
+
+    fn move_queued_research_down(&mut self) {
+        let tech_id = {
+            let Some(engine) = &self.engine else {
+                let msg = "Unavailable: reorder queued research — no game in progress.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            };
+
+            let visible = filtered_research_techs(&self.state, &engine.state);
+            if visible.is_empty() {
+                let msg =
+                    "Unavailable: reorder queued research — no technologies match current filters.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            }
+            let cursor = self.state.research.cursor % visible.len();
+            visible[cursor].id
+        };
+
+        self.dispatch_command(Command::MoveQueuedResearchDown { tech: tech_id });
     }
 
     /// Queue the currently selected build item at the active colony
@@ -1848,6 +1962,7 @@ impl App {
         let mut surveyed = 0usize;
         let mut colonized = 0usize;
         let mut research_completed = 0usize;
+        let mut queue_transitions_started = 0usize;
         let mut fleets_arrived = 0usize;
         let mut warnings = 0usize;
         let mut errors = 0usize;
@@ -1862,6 +1977,9 @@ impl App {
                 CoreEvent::PlanetSurveyCompleted { .. } => surveyed += 1,
                 CoreEvent::ColonizationCompleted { .. } => colonized += 1,
                 CoreEvent::ResearchCompleted { .. } => research_completed += 1,
+                CoreEvent::ResearchCompletedWithQueueTransition {
+                    started: Some(_), ..
+                } => queue_transitions_started += 1,
                 CoreEvent::FleetArrived { .. } => fleets_arrived += 1,
                 CoreEvent::FoodShortage { .. } | CoreEvent::CreditDeficit { .. } => warnings += 1,
                 CoreEvent::ColonyIsolated { .. } => newly_isolated += 1,
@@ -1874,12 +1992,13 @@ impl App {
         }
 
         format!(
-            "Turn {} global summary (all empires): explored {}, surveyed {}, colonized {}, research {}, arrivals {}, invasions won {}, invasions failed {}, warnings {}, isolated {}, reconnected {}, errors {}.",
+            "Turn {} global summary (all empires): explored {}, surveyed {}, colonized {}, research {}, queued starts {}, arrivals {}, invasions won {}, invasions failed {}, warnings {}, isolated {}, reconnected {}, errors {}.",
             turn,
             explored,
             surveyed,
             colonized,
             research_completed,
+            queue_transitions_started,
             fleets_arrived,
             invasions_won,
             invasions_failed,
@@ -2567,6 +2686,7 @@ mod tests {
         assert!(report.contains("surveyed 1"));
         assert!(report.contains("colonized 1"));
         assert!(report.contains("research 1"));
+        assert!(report.contains("queued starts 0"));
         assert!(report.contains("arrivals 1"));
         assert!(report.contains("invasions won 1"));
         assert!(report.contains("invasions failed 1"));
@@ -2581,7 +2701,7 @@ mod tests {
         let report = App::build_end_turn_report(3, &[]);
         assert_eq!(
             report,
-            "Turn 3 global summary (all empires): explored 0, surveyed 0, colonized 0, research 0, arrivals 0, invasions won 0, invasions failed 0, warnings 0, isolated 0, reconnected 0, errors 0."
+            "Turn 3 global summary (all empires): explored 0, surveyed 0, colonized 0, research 0, queued starts 0, arrivals 0, invasions won 0, invasions failed 0, warnings 0, isolated 0, reconnected 0, errors 0."
         );
     }
 
@@ -3152,6 +3272,50 @@ mod tests {
             .get(&app.engine.as_ref().unwrap().state.player_empire)
             .unwrap();
         assert!(empire.research.current_tech.is_some());
+    }
+
+    #[test]
+    fn a_key_queues_research_tech() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::Research;
+        app.state.research.cursor = 0;
+
+        app.handle_key(key(KeyCode::Char('a')));
+
+        let empire = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .empires
+            .get(&app.engine.as_ref().unwrap().state.player_empire)
+            .unwrap();
+        assert_eq!(empire.research.queue.len(), 1);
+    }
+
+    #[test]
+    fn c_key_clears_research_queue() {
+        let mut app = App::new();
+        app.new_game(42);
+        app.state.active = Screen::Research;
+
+        app.state.research.cursor = 0;
+        app.handle_key(key(KeyCode::Char('a')));
+        app.state.research.cursor = 1;
+        app.handle_key(key(KeyCode::Char('a')));
+
+        app.handle_key(key(KeyCode::Char('c')));
+
+        let empire = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .empires
+            .get(&app.engine.as_ref().unwrap().state.player_empire)
+            .unwrap();
+        assert!(empire.research.queue.is_empty());
     }
 
     #[test]

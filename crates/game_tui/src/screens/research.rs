@@ -499,6 +499,29 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
+        "Queued Techs",
+        Theme::title_style(),
+    )));
+    lines.push(Line::from(""));
+
+    if empire.research.queue.is_empty() {
+        lines.push(Line::from(Span::styled("None queued", Theme::muted_style())));
+    } else {
+        for (idx, tech_id) in empire.research.queue.iter().enumerate() {
+            let label = all
+                .iter()
+                .find(|t| t.id == *tech_id)
+                .map(|t| t.name)
+                .unwrap_or("Unknown Tech");
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {}. ", idx + 1), Theme::muted_style()),
+                Span::styled(label, Theme::default_style()),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
         "Completed Techs",
         Theme::title_style(),
     )));

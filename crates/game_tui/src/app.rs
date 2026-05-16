@@ -6,10 +6,12 @@ use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData
 use crate::screens::research::filtered_research_techs;
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+#[cfg(test)]
+use game_core::TechId;
 use game_core::{
     empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, Engine,
     Event as CoreEvent, FleetId, FleetKind, GalaxySize, OrbitalStructureType, ScenarioSetup,
-    SectorId, StarId, TechId,
+    SectorId, StarId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;

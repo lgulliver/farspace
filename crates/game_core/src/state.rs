@@ -1371,7 +1371,7 @@ pub fn all_techs() -> &'static [TechRecord] {
             description: "Real-time command relays synchronize fleets across sector fronts.",
             domain: TechDomain::Military,
             tier: TechTier::VI,
-            prerequisites: &[TechId(33), TechId(60)],
+            prerequisites: &[TechId(33), TechId(42)],
             unlocks: &[],
             cost: 700,
             rarity: TechRarity::Breakthrough,
@@ -4209,7 +4209,7 @@ mod tests {
             let Some(node) = tech_by_id(id) else {
                 return false;
             };
-            if node.prerequisites.iter().any(|req| *req == id) {
+            if node.prerequisites.contains(&id) {
                 return false;
             }
             for req in node.prerequisites {
@@ -4341,7 +4341,11 @@ mod tests {
             TechId::HYPERSPACE_CARTOGRAPHY,
             TechId(10),
         ] {
-            assert!(ids.contains(&id), "required unlock chain tech {:?} missing", id);
+            assert!(
+                ids.contains(&id),
+                "required unlock chain tech {:?} missing",
+                id
+            );
         }
     }
 

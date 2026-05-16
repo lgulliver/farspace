@@ -5,9 +5,10 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
+use game_core::state::TechTag;
 use game_core::{
     all_techs, is_tech_available, tech_by_id, tech_yield_bonus_per_colony, Empire, GameState,
-    TechDomain, TechRecord, TechTag, TechTier, YieldType,
+    TechDomain, TechRecord, TechTier, YieldType,
 };
 use ratatui::{
     layout::{Constraint, Layout, Rect},
@@ -357,7 +358,11 @@ fn render_selected_tech_detail(
             format!(
                 "Rarity: {}{}",
                 tech.rarity.label(),
-                if tech.future_hook { " · Planned/Future Hook" } else { "" }
+                if tech.future_hook {
+                    " · Planned/Future Hook"
+                } else {
+                    ""
+                }
             ),
             if tech.future_hook {
                 Theme::warning_style()

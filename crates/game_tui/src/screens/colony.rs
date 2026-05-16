@@ -247,19 +247,21 @@ fn render_colony_stats(
         }
     };
 
-    // Look up star and planet for name and food capacity
+    // Look up star and planet for name and housing capacity
     let star = game_state.stars.get(&colony.star);
     let star_name = star.map(|s| s.name.as_str()).unwrap_or("Unknown");
     let planet = star.and_then(|s| s.planets.get(colony.planet_index));
-    let food_cap = planet.map(|p| p.size.base_capacity()).unwrap_or(0);
     let planet_name = planet.map(|p| p.name.as_str()).unwrap_or("Unknown");
     let planet_class = planet.map(|p| p.class.name()).unwrap_or("Unknown");
 
-    // Calculate yields via the v2 model
+    // Calculate yields via the pop/jobs model
     let colony_yield = yield_model::calculate_yield(colony, planet);
+    let workforce = &colony_yield.workforce;
+    let housing_cap = workforce.housing;
     let industry = colony_yield.industry;
     let research_out = colony_yield.science;
     let food_out = colony_yield.food;
+    let food_balance = colony_yield.food - colony_yield.food_consumed;
     let total_maint = colony_yield.maintenance;
     let supply = game_state.colony_supply_state(colony.id);
     let blockade_empire: Option<EmpireId> = game_state.colony_blockade_state(colony.id);
@@ -339,17 +341,35 @@ fn render_colony_stats(
         Line::from(vec![
             Span::styled("Population : ", Theme::muted_style()),
             Span::styled(
-                format!("{} / {}", colony.population, food_cap),
+                format!("{} / {}", colony.population, housing_cap),
                 Theme::accent_style(),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Food Cap   : ", Theme::muted_style()),
-            Span::raw(format!("{}", food_cap)),
+            Span::styled("Housing    : ", Theme::muted_style()),
+            Span::raw(format!("{}", housing_cap)),
+        ]),
+        Line::from(vec![
+            Span::styled("Employed   : ", Theme::muted_style()),
+            Span::styled(
+                format!("{} / {}", workforce.employed, workforce.population),
+                Theme::accent_style(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Unemployed : ", Theme::muted_style()),
+            Span::styled(format!("{}", workforce.unemployed), Theme::warning_style()),
         ]),
         Line::from(vec![
             Span::styled("Food/turn  : ", Theme::muted_style()),
-            Span::styled(format!("+{}/turn", food_out), Theme::accent_style()),
+            Span::styled(
+                format!("{:+}/turn", food_balance),
+                if food_balance < 0 {
+                    Theme::warning_style()
+                } else {
+                    Theme::accent_style()
+                },
+            ),
         ]),
         Line::from(vec![
             Span::styled("Surface    : ", Theme::muted_style()),
@@ -373,6 +393,18 @@ fn render_colony_stats(
         Line::from(vec![
             Span::styled("Research   : ", Theme::muted_style()),
             Span::styled(format!("{}/turn", research_out), Theme::accent_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("Yield src  : ", Theme::muted_style()),
+            Span::styled(
+                format!(
+                    "jobs I{} F{} S{}",
+                    colony_yield.breakdown.industry_from_jobs,
+                    colony_yield.breakdown.food_from_jobs,
+                    colony_yield.breakdown.direct_science_from_jobs
+                ),
+                Theme::muted_style(),
+            ),
         ]),
         Line::from(vec![
             Span::styled("Maint cost : ", Theme::muted_style()),
@@ -435,6 +467,33 @@ fn render_colony_stats(
                 ]));
             }
         }
+    }
+
+    let mut job_lines = Vec::new();
+    for assignment in &workforce.assignments {
+        if assignment.total_slots == 0 && assignment.filled == 0 {
+            continue;
+        }
+        job_lines.push(Line::from(vec![
+            Span::styled("  ", Theme::muted_style()),
+            Span::styled(
+                format!("{:<13}", assignment.job.label()),
+                Theme::muted_style(),
+            ),
+            Span::styled(
+                format!("{}/{}", assignment.filled, assignment.total_slots),
+                if assignment.job == yield_model::JobType::Unemployed && assignment.filled > 0 {
+                    Theme::warning_style()
+                } else {
+                    Theme::accent_style()
+                },
+            ),
+        ]));
+    }
+    if !job_lines.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("Jobs:", Theme::title_style())));
+        lines.extend(job_lines);
     }
 
     let paragraph = Paragraph::new(lines).style(Theme::default_style());

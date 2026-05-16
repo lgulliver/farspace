@@ -69,6 +69,8 @@ pub struct ColonyOverviewRow {
     pub role: String,
     pub population: u64,
     pub housing: u64,
+    pub employed: u64,
+    pub unemployed: u64,
     pub stability: u8,
     pub food_balance: i64,
     pub economic_industry_output: i64,
@@ -134,7 +136,7 @@ pub fn derive_empire_overview(
         science_per_turn += y.science;
         colony_maintenance += y.maintenance;
 
-        let housing = planet.map(|p| p.size.base_capacity()).unwrap_or(0);
+        let housing = y.workforce.housing;
         let current_production = colony
             .build_queue
             .first()
@@ -154,6 +156,8 @@ pub fn derive_empire_overview(
         });
 
         let food_balance = y.food - y.food_consumed;
+        let employed = y.workforce.employed;
+        let unemployed = y.workforce.unemployed;
         let supply = game_state.colony_supply_state(colony.id);
         let blockaded = game_state.colony_blockade_state(colony.id).is_some();
         let mut warnings = Vec::new();
@@ -171,6 +175,9 @@ pub fn derive_empire_overview(
         }
         if housing > 0 && colony.population >= housing {
             warnings.push("Housing full");
+        }
+        if unemployed > 0 {
+            warnings.push("Unemployment");
         }
         if colony.build_queue.is_empty() {
             warnings.push("Queue idle");
@@ -195,6 +202,8 @@ pub fn derive_empire_overview(
             role: colony.role.name().to_string(),
             population: colony.population,
             housing,
+            employed,
+            unemployed,
             stability: colony.stability,
             food_balance,
             economic_industry_output: y.industry,
@@ -439,7 +448,7 @@ fn render_colony_table(
         Span::raw("  "),
         Span::styled("Role", Theme::title_style()),
         Span::raw("  "),
-        Span::styled("Pop/Housing", Theme::title_style()),
+        Span::styled("Pop/Housing Emp", Theme::title_style()),
         Span::raw("  "),
         Span::styled("Stab", Theme::title_style()),
         Span::raw("  "),
@@ -495,7 +504,13 @@ fn render_colony_table(
             Span::raw("  "),
             Span::styled(row.role.as_str(), style),
             Span::raw("  "),
-            Span::styled(format!("{}/{}", row.population, row.housing), style),
+            Span::styled(
+                format!(
+                    "{}/{} e:{} u:{}",
+                    row.population, row.housing, row.employed, row.unemployed
+                ),
+                style,
+            ),
             Span::raw("  "),
             Span::styled(format!("{}", row.stability), style),
             Span::raw("  "),

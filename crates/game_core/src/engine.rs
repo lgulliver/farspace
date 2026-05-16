@@ -755,6 +755,21 @@ impl Engine {
                 Command::SelectResearch { tech } => {
                     self.process_select_research(tech, &mut events);
                 }
+                Command::QueueResearch { tech } => {
+                    self.process_queue_research(tech, &mut events);
+                }
+                Command::RemoveQueuedResearch { tech } => {
+                    self.process_remove_queued_research(tech, &mut events);
+                }
+                Command::MoveQueuedResearchUp { tech } => {
+                    self.process_move_queued_research_up(tech, &mut events);
+                }
+                Command::MoveQueuedResearchDown { tech } => {
+                    self.process_move_queued_research_down(tech, &mut events);
+                }
+                Command::ClearResearchQueue => {
+                    self.process_clear_research_queue(&mut events);
+                }
                 Command::SendScout { fleet, destination } => {
                     self.process_send_scout(fleet, destination, &mut events);
                 }
@@ -1114,17 +1129,11 @@ impl Engine {
                 let new_progress = current_progress + research_gained;
 
                 if new_progress >= tech_cost {
-                    // Tech completed — overflow is preserved in progress for the next tech
+                    // Tech completed — overflow carries into deterministic queue processing.
                     let overflow = new_progress - tech_cost;
-                    if let Some(empire) = self.state.empires.get_mut(empire_id) {
-                        empire.research.completed.push(tech_id);
-                        empire.research.current_tech = None;
-                        empire.research.progress = overflow;
-                    }
-                    events.push(Event::ResearchCompleted { tech: tech_id });
-                    if tech_id == TechId::HYPERSPACE_CARTOGRAPHY {
-                        events.push(Event::HyperspaceCartographyUnlocked { empire: *empire_id });
-                    }
+                    self.process_research_completion_with_queue(
+                        *empire_id, tech_id, overflow, events,
+                    );
                 } else {
                     if let Some(empire) = self.state.empires.get_mut(empire_id) {
                         empire.research.progress = new_progress;
@@ -2090,9 +2099,299 @@ impl Engine {
                 }
             }
             empire.research.current_tech = Some(tech_id);
+            // Keep queue and active selection de-duplicated: selecting a queued tech
+            // promotes it to active research and removes it from the queue.
+            empire.research.queue.retain(|queued| *queued != tech_id);
         }
 
         events.push(Event::ResearchSelected { tech: tech_id });
+    }
+
+    fn process_queue_research(&mut self, tech_id: TechId, events: &mut Vec<Event>) {
+        let empire_id = self.state.player_empire;
+
+        if tech_by_id(tech_id).is_none() {
+            events.push(Event::error(format!("Tech {} not found", tech_id.0)));
+            return;
+        }
+
+        let empire = match self.state.empires.get(&empire_id) {
+            Some(e) => e,
+            None => {
+                events.push(Event::error("Player empire not found"));
+                return;
+            }
+        };
+
+        if empire.research.completed.contains(&tech_id) {
+            events.push(Event::error(format!(
+                "Tech {} is already completed",
+                tech_id.0
+            )));
+            return;
+        }
+        if empire.research.current_tech == Some(tech_id) {
+            events.push(Event::error(format!(
+                "Tech {} is already active research",
+                tech_id.0
+            )));
+            return;
+        }
+        if empire.research.queue.contains(&tech_id) {
+            events.push(Event::error(format!(
+                "Tech {} is already queued",
+                tech_id.0
+            )));
+            return;
+        }
+
+        if let Some(empire) = self.state.empires.get_mut(&empire_id) {
+            empire.research.queue.push(tech_id);
+        }
+        events.push(Event::ResearchQueued { tech: tech_id });
+    }
+
+    fn process_remove_queued_research(&mut self, tech_id: TechId, events: &mut Vec<Event>) {
+        let empire_id = self.state.player_empire;
+        let empire = match self.state.empires.get(&empire_id) {
+            Some(e) => e,
+            None => {
+                events.push(Event::error("Player empire not found"));
+                return;
+            }
+        };
+        let Some(index) = empire
+            .research
+            .queue
+            .iter()
+            .position(|queued| *queued == tech_id)
+        else {
+            events.push(Event::error(format!(
+                "Tech {} is not in research queue",
+                tech_id.0
+            )));
+            return;
+        };
+
+        if let Some(empire) = self.state.empires.get_mut(&empire_id) {
+            empire.research.queue.remove(index);
+        }
+        events.push(Event::ResearchQueueRemoved { tech: tech_id });
+    }
+
+    fn process_move_queued_research_up(&mut self, tech_id: TechId, events: &mut Vec<Event>) {
+        let empire_id = self.state.player_empire;
+        let empire = match self.state.empires.get(&empire_id) {
+            Some(e) => e,
+            None => {
+                events.push(Event::error("Player empire not found"));
+                return;
+            }
+        };
+        let Some(from_index) = empire
+            .research
+            .queue
+            .iter()
+            .position(|queued| *queued == tech_id)
+        else {
+            events.push(Event::error(format!(
+                "Tech {} is not in research queue",
+                tech_id.0
+            )));
+            return;
+        };
+        if from_index == 0 {
+            events.push(Event::error(format!(
+                "Tech {} is already at top of research queue",
+                tech_id.0
+            )));
+            return;
+        }
+        let to_index = from_index - 1;
+
+        if let Some(empire) = self.state.empires.get_mut(&empire_id) {
+            empire.research.queue.swap(from_index, to_index);
+        }
+        events.push(Event::ResearchQueueReordered {
+            tech: tech_id,
+            from_index,
+            to_index,
+        });
+    }
+
+    fn process_move_queued_research_down(&mut self, tech_id: TechId, events: &mut Vec<Event>) {
+        let empire_id = self.state.player_empire;
+        let empire = match self.state.empires.get(&empire_id) {
+            Some(e) => e,
+            None => {
+                events.push(Event::error("Player empire not found"));
+                return;
+            }
+        };
+        let Some(from_index) = empire
+            .research
+            .queue
+            .iter()
+            .position(|queued| *queued == tech_id)
+        else {
+            events.push(Event::error(format!(
+                "Tech {} is not in research queue",
+                tech_id.0
+            )));
+            return;
+        };
+        if from_index + 1 >= empire.research.queue.len() {
+            events.push(Event::error(format!(
+                "Tech {} is already at bottom of research queue",
+                tech_id.0
+            )));
+            return;
+        }
+        let to_index = from_index + 1;
+
+        if let Some(empire) = self.state.empires.get_mut(&empire_id) {
+            empire.research.queue.swap(from_index, to_index);
+        }
+        events.push(Event::ResearchQueueReordered {
+            tech: tech_id,
+            from_index,
+            to_index,
+        });
+    }
+
+    fn process_clear_research_queue(&mut self, events: &mut Vec<Event>) {
+        let empire_id = self.state.player_empire;
+        let removed_count = match self.state.empires.get(&empire_id) {
+            Some(e) => e.research.queue.len(),
+            None => {
+                events.push(Event::error("Player empire not found"));
+                return;
+            }
+        };
+
+        if let Some(empire) = self.state.empires.get_mut(&empire_id) {
+            empire.research.queue.clear();
+        }
+        events.push(Event::ResearchQueueCleared { removed_count });
+    }
+
+    fn process_research_completion_with_queue(
+        &mut self,
+        empire_id: EmpireId,
+        completed_tech: TechId,
+        overflow: i64,
+        events: &mut Vec<Event>,
+    ) {
+        if let Some(empire) = self.state.empires.get_mut(&empire_id) {
+            if !empire.research.completed.contains(&completed_tech) {
+                empire.research.completed.push(completed_tech);
+            }
+            empire.research.current_tech = None;
+            empire.research.progress = overflow;
+        }
+        events.push(Event::ResearchCompleted {
+            tech: completed_tech,
+        });
+        if completed_tech == TechId::HYPERSPACE_CARTOGRAPHY {
+            events.push(Event::HyperspaceCartographyUnlocked { empire: empire_id });
+        }
+
+        let mut transition_source = completed_tech;
+        loop {
+            let next_started = self.dequeue_next_valid_queued_research(empire_id, events);
+
+            // Emit one transition event per completion step in a potential overflow cascade.
+            // If overflow completes multiple queued techs in one turn, multiple transition
+            // events are expected and preserve per-step ordering.
+            events.push(Event::ResearchCompletedWithQueueTransition {
+                completed: transition_source,
+                started: next_started,
+            });
+
+            let Some(started) = next_started else {
+                if let Some(empire) = self.state.empires.get_mut(&empire_id) {
+                    empire.research.current_tech = None;
+                }
+                return;
+            };
+
+            events.push(Event::QueuedResearchStarted { tech: started });
+
+            let Some(cost) = tech_by_id(started).map(|t| t.cost) else {
+                events.push(Event::QueuedResearchSkipped {
+                    tech: started,
+                    reason: "unknown technology".to_string(),
+                });
+                continue;
+            };
+
+            let current_progress = match self.state.empires.get(&empire_id) {
+                Some(e) => e.research.progress,
+                None => return,
+            };
+
+            if current_progress >= cost {
+                let remaining_overflow = current_progress - cost;
+                if let Some(empire) = self.state.empires.get_mut(&empire_id) {
+                    if !empire.research.completed.contains(&started) {
+                        empire.research.completed.push(started);
+                    }
+                    empire.research.current_tech = None;
+                    empire.research.progress = remaining_overflow;
+                }
+                events.push(Event::ResearchCompleted { tech: started });
+                if started == TechId::HYPERSPACE_CARTOGRAPHY {
+                    events.push(Event::HyperspaceCartographyUnlocked { empire: empire_id });
+                }
+                transition_source = started;
+                continue;
+            }
+
+            if let Some(empire) = self.state.empires.get_mut(&empire_id) {
+                empire.research.current_tech = Some(started);
+            }
+            return;
+        }
+    }
+
+    fn dequeue_next_valid_queued_research(
+        &mut self,
+        empire_id: EmpireId,
+        events: &mut Vec<Event>,
+    ) -> Option<TechId> {
+        loop {
+            let candidate = {
+                let empire = self.state.empires.get_mut(&empire_id)?;
+                if empire.research.queue.is_empty() {
+                    return None;
+                }
+                empire.research.queue.remove(0)
+            };
+
+            let reason = match tech_by_id(candidate) {
+                None => Some("unknown technology".to_string()),
+                Some(_) => {
+                    let completed = &self.state.empires.get(&empire_id)?.research.completed;
+                    if completed.contains(&candidate) {
+                        Some("already completed".to_string())
+                    } else if !is_tech_available(completed, candidate) {
+                        Some("prerequisites not met".to_string())
+                    } else {
+                        None
+                    }
+                }
+            };
+
+            if let Some(reason) = reason {
+                events.push(Event::QueuedResearchSkipped {
+                    tech: candidate,
+                    reason,
+                });
+                continue;
+            }
+
+            return Some(candidate);
+        }
     }
 
     fn process_send_scout(
@@ -3839,6 +4138,188 @@ mod tests {
     }
 
     #[test]
+    fn queue_research_valid_emits_event() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let tech_id = TechId(2);
+
+        let events = engine.apply_turn(vec![Command::QueueResearch { tech: tech_id }]);
+
+        assert!(!events.iter().any(|e| e.is_error()));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::ResearchQueued { tech } if *tech == tech_id)));
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert_eq!(empire.research.queue, vec![tech_id]);
+    }
+
+    #[test]
+    fn queue_research_duplicate_emits_error() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let tech_id = TechId(2);
+
+        engine.apply_turn(vec![Command::QueueResearch { tech: tech_id }]);
+        let events = engine.apply_turn(vec![Command::QueueResearch { tech: tech_id }]);
+
+        assert!(events.iter().any(|e| e.is_error()));
+    }
+
+    #[test]
+    fn move_queued_research_up_reorders_queue() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let first = TechId(2);
+        let second = TechId(3);
+
+        engine.apply_turn(vec![
+            Command::QueueResearch { tech: first },
+            Command::QueueResearch { tech: second },
+        ]);
+        let events = engine.apply_turn(vec![Command::MoveQueuedResearchUp { tech: second }]);
+
+        assert!(events.iter().any(|e| {
+            matches!(
+                e,
+                Event::ResearchQueueReordered {
+                    tech,
+                    from_index: 1,
+                    to_index: 0
+                } if *tech == second
+            )
+        }));
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert_eq!(empire.research.queue, vec![second, first]);
+    }
+
+    #[test]
+    fn clear_research_queue_emits_removed_count() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+
+        engine.apply_turn(vec![
+            Command::QueueResearch { tech: TechId(2) },
+            Command::QueueResearch { tech: TechId(3) },
+        ]);
+        let events = engine.apply_turn(vec![Command::ClearResearchQueue]);
+
+        assert!(events.iter().any(|e| {
+            matches!(
+                e,
+                Event::ResearchQueueCleared { removed_count } if *removed_count == 2
+            )
+        }));
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert!(empire.research.queue.is_empty());
+    }
+
+    #[test]
+    fn completion_auto_starts_queued_research() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let tech_a = TechId(1);
+        let tech_b = TechId(3);
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_a }]);
+        engine.apply_turn(vec![Command::QueueResearch { tech: tech_b }]);
+
+        let mut completion_events = Vec::new();
+        for _ in 0..8 {
+            let events = engine.apply_turn(vec![Command::EndTurn]);
+            if events
+                .iter()
+                .any(|e| matches!(e, Event::ResearchCompleted { tech } if *tech == tech_a))
+            {
+                completion_events = events;
+                break;
+            }
+        }
+
+        assert!(!completion_events.is_empty());
+        assert!(completion_events
+            .iter()
+            .any(|e| matches!(e, Event::QueuedResearchStarted { tech } if *tech == tech_b)));
+        assert!(completion_events.iter().any(|e| {
+            matches!(
+                e,
+                Event::ResearchCompletedWithQueueTransition {
+                    completed,
+                    started: Some(started)
+                } if *completed == tech_a && *started == tech_b
+            )
+        }));
+
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert_eq!(empire.research.current_tech, Some(tech_b));
+    }
+
+    #[test]
+    fn completion_skips_locked_queued_research_and_starts_next() {
+        use crate::state::TechId;
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let tech_a = TechId(1);
+        let locked = TechId(6);
+        let fallback = TechId(3);
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_a }]);
+        engine.apply_turn(vec![
+            Command::QueueResearch { tech: locked },
+            Command::QueueResearch { tech: fallback },
+        ]);
+
+        let mut completion_events = Vec::new();
+        for _ in 0..12 {
+            let events = engine.apply_turn(vec![Command::EndTurn]);
+            if events
+                .iter()
+                .any(|e| matches!(e, Event::ResearchCompleted { tech } if *tech == tech_a))
+            {
+                completion_events = events;
+                break;
+            }
+        }
+
+        assert!(completion_events.iter().any(|e| {
+            matches!(
+                e,
+                Event::QueuedResearchSkipped { tech, reason }
+                if *tech == locked && reason.contains("prerequisites")
+            )
+        }));
+        assert!(completion_events
+            .iter()
+            .any(|e| matches!(e, Event::QueuedResearchStarted { tech } if *tech == fallback)));
+    }
+
+    #[test]
     fn research_progress_accumulates_on_end_turn() {
         use crate::state::TechId;
         let mut engine = Engine::new(42);
@@ -4091,6 +4572,69 @@ mod tests {
     // ──────────────────────────────────────────────────────────────────
     // Overflow / science-pool tests
     // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn overflow_can_complete_queued_tech_in_same_turn_with_transition_events() {
+        use crate::state::{all_techs, TechId};
+        let mut engine = Engine::new(42);
+        let tech_a = TechId(1);
+        let tech_b = TechId(3);
+        let tech_a_cost = all_techs().iter().find(|t| t.id == tech_a).unwrap().cost;
+        let tech_b_cost = all_techs().iter().find(|t| t.id == tech_b).unwrap().cost;
+
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: ColonyId(1),
+            prod_pct: 100,
+            research_pct: 0,
+        }]);
+        engine.apply_turn(vec![Command::SelectResearch { tech: tech_a }]);
+        engine.apply_turn(vec![Command::QueueResearch { tech: tech_b }]);
+
+        // Seed enough progress to finish tech A and then tech B with overflow.
+        {
+            let empire = engine
+                .state
+                .empires
+                .get_mut(&engine.state.player_empire)
+                .unwrap();
+            empire.research.progress = tech_a_cost + tech_b_cost + 5;
+        }
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::ResearchCompleted { tech } if *tech == tech_a)));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, Event::ResearchCompleted { tech } if *tech == tech_b)));
+        assert!(events.iter().any(|e| {
+            matches!(
+                e,
+                Event::ResearchCompletedWithQueueTransition {
+                    completed,
+                    started: Some(started)
+                } if *completed == tech_a && *started == tech_b
+            )
+        }));
+        assert!(events.iter().any(|e| {
+            matches!(
+                e,
+                Event::ResearchCompletedWithQueueTransition {
+                    completed,
+                    started: None
+                } if *completed == tech_b
+            )
+        }));
+
+        let empire = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert!(empire.research.completed.contains(&tech_a));
+        assert!(empire.research.completed.contains(&tech_b));
+        assert!(empire.research.current_tech.is_none());
+    }
 
     #[test]
     fn overflow_science_carries_to_next_research() {

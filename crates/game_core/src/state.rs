@@ -2024,6 +2024,9 @@ pub struct ResearchState {
     pub current_tech: Option<TechId>,
     /// Research points accumulated toward `current_tech`
     pub progress: i64,
+    /// Ordered player-planned technologies to start automatically after completion
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub queue: Vec<TechId>,
     /// Technologies that have already been completed
     pub completed: Vec<TechId>,
 }
@@ -4375,6 +4378,7 @@ mod tests {
         let rs = ResearchState::default();
         assert!(rs.current_tech.is_none());
         assert_eq!(rs.progress, 0);
+        assert!(rs.queue.is_empty());
         assert!(rs.completed.is_empty());
     }
 
@@ -4393,6 +4397,7 @@ mod tests {
             empire_def: None,
         };
         assert!(empire.research.current_tech.is_none());
+        assert!(empire.research.queue.is_empty());
         assert!(empire.research.completed.is_empty());
         let _ = state;
     }

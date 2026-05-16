@@ -310,6 +310,17 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // v25 saves cannot contain the new variants, so deserialization remains
             // valid and no state rewrite is needed.
             let mut metadata = save.metadata;
+            metadata.schema_version = 26;
+            migrate(SaveFile {
+                version: 26,
+                metadata,
+                state: save.state,
+            })
+        }
+        26 => {
+            // v26 → v27: ResearchState gained `queue: Vec<TechId>` with serde default.
+            // v26 saves deserialize safely with an empty queue, so no state rewrite needed.
+            let mut metadata = save.metadata;
             metadata.schema_version = CURRENT_VERSION;
             Ok(SaveFile {
                 version: CURRENT_VERSION,
@@ -1001,6 +1012,23 @@ mod tests {
             metadata,
         };
         let migrated = migrate(v25_save).expect("v25→v26 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        assert_eq!(migrated.metadata.schema_version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn migrate_v26_to_v27_passthrough() {
+        let state = GameState::default();
+        let metadata = crate::schema::SaveMetadata {
+            schema_version: 26,
+            ..Default::default()
+        };
+        let v26_save = SaveFile {
+            version: 26,
+            state,
+            metadata,
+        };
+        let migrated = migrate(v26_save).expect("v26→v27 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
         assert_eq!(migrated.metadata.schema_version, CURRENT_VERSION);
     }

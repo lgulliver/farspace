@@ -44,6 +44,18 @@ pub enum Event {
     FleetCreated { fleet: FleetId, location: StarId },
     /// A technology was selected for research
     ResearchSelected { tech: TechId },
+    /// A technology was queued for future research
+    ResearchQueued { tech: TechId },
+    /// A technology was removed from the research queue
+    ResearchQueueRemoved { tech: TechId },
+    /// The research queue order changed
+    ResearchQueueReordered {
+        tech: TechId,
+        from_index: usize,
+        to_index: usize,
+    },
+    /// All queued research entries were removed
+    ResearchQueueCleared { removed_count: usize },
     /// Research points were generated empire-wide this turn
     ScienceGenerated { empire: EmpireId, amount: i64 },
     /// Research progress was made toward the active technology
@@ -55,6 +67,15 @@ pub enum Event {
     },
     /// A technology research was completed
     ResearchCompleted { tech: TechId },
+    /// Active research automatically switched to a queued technology
+    QueuedResearchStarted { tech: TechId },
+    /// A queued technology was skipped during automatic queue processing
+    QueuedResearchSkipped { tech: TechId, reason: String },
+    /// Queue transition summary emitted after a research completion
+    ResearchCompletedWithQueueTransition {
+        completed: TechId,
+        started: Option<TechId>,
+    },
     /// Hyperspace Cartography was completed, enabling lane travel for known lanes
     HyperspaceCartographyUnlocked { empire: EmpireId },
     /// A scout fleet has been dispatched toward an unexplored system
@@ -307,6 +328,25 @@ impl Event {
             Event::ResearchSelected { tech } => {
                 format!("Research started: tech {}", tech.0)
             }
+            Event::ResearchQueued { tech } => {
+                format!("Research queued: tech {}", tech.0)
+            }
+            Event::ResearchQueueRemoved { tech } => {
+                format!("Research queue removed: tech {}", tech.0)
+            }
+            Event::ResearchQueueReordered {
+                tech,
+                from_index,
+                to_index,
+            } => {
+                format!(
+                    "Research queue reordered: tech {} moved {}→{}",
+                    tech.0, from_index, to_index
+                )
+            }
+            Event::ResearchQueueCleared { removed_count } => {
+                format!("Research queue cleared: {} removed", removed_count)
+            }
             Event::ScienceGenerated { empire, amount } => {
                 format!("Empire {} generated {} science this turn", empire.0, amount)
             }
@@ -324,6 +364,22 @@ impl Event {
             Event::ResearchCompleted { tech } => {
                 format!("Research complete: tech {}", tech.0)
             }
+            Event::QueuedResearchStarted { tech } => {
+                format!("Queued research started: tech {}", tech.0)
+            }
+            Event::QueuedResearchSkipped { tech, reason } => {
+                format!("Queued research skipped: tech {} ({})", tech.0, reason)
+            }
+            Event::ResearchCompletedWithQueueTransition { completed, started } => match started {
+                Some(tech) => format!(
+                    "Research transition: tech {} complete, queued tech {} started",
+                    completed.0, tech.0
+                ),
+                None => format!(
+                    "Research transition: tech {} complete, no queued tech started",
+                    completed.0
+                ),
+            },
             Event::HyperspaceCartographyUnlocked { empire } => {
                 format!(
                     "Empire {} unlocked Hyperspace Cartography — known lanes are now usable",
@@ -692,6 +748,21 @@ mod tests {
             tech: crate::state::TechId(3),
         };
         assert_eq!(event.to_log_message(), "Research started: tech 3");
+
+        let event = Event::ResearchQueued {
+            tech: crate::state::TechId(4),
+        };
+        assert_eq!(event.to_log_message(), "Research queued: tech 4");
+
+        let event = Event::ResearchQueueReordered {
+            tech: crate::state::TechId(4),
+            from_index: 2,
+            to_index: 1,
+        };
+        assert_eq!(
+            event.to_log_message(),
+            "Research queue reordered: tech 4 moved 2→1"
+        );
 
         let event = Event::ScienceGenerated {
             empire: crate::state::EmpireId(1),

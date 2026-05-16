@@ -242,13 +242,28 @@ impl Engine {
             BuildItem::Ship(ShipDesignId::SCOUT) => {
                 apply_cost_modifier(item.cost(), def.military_modifiers.scout_cost_modifier_pct)
             }
+            BuildItem::Ship(ShipDesignId::FAST_SCOUT) => {
+                // Fast Scout benefits from the same scout cost modifier
+                apply_cost_modifier(item.cost(), def.military_modifiers.scout_cost_modifier_pct)
+            }
             BuildItem::Ship(ShipDesignId::SCIENCE) => apply_cost_modifier(
+                item.cost(),
+                def.military_modifiers.science_ship_cost_modifier_pct,
+            ),
+            BuildItem::Ship(ShipDesignId::SURVEY_CUTTER) => apply_cost_modifier(
                 item.cost(),
                 def.military_modifiers.science_ship_cost_modifier_pct,
             ),
             BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT) => apply_cost_modifier(
                 item.cost(),
                 def.military_modifiers.troop_transport_cost_modifier_pct,
+            ),
+            BuildItem::Ship(ShipDesignId::ESCORT_FRIGATE)
+            | BuildItem::Ship(ShipDesignId::MISSILE_FRIGATE)
+            | BuildItem::Ship(ShipDesignId::DESTROYER)
+            | BuildItem::Ship(ShipDesignId::PATROL_CORVETTE) => apply_cost_modifier(
+                item.cost(),
+                def.military_modifiers.combat_ship_cost_modifier_pct,
             ),
             BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard) => apply_cost_modifier(
                 item.cost(),
@@ -264,12 +279,21 @@ impl Engine {
             .unwrap_or(RelationshipStatus::Contacted)
     }
 
-    fn fleet_maintenance_for_empire(&self, empire_id: EmpireId, fleet_count: i64) -> i64 {
+    /// Compute total fleet maintenance for an empire.
+    ///
+    /// Each fleet contributes its kind's base maintenance cost, adjusted by
+    /// the empire's `fleet_maintenance_modifier_per_fleet` (flat per-fleet delta).
+    fn fleet_maintenance_for_empire(&self, empire_id: EmpireId) -> i64 {
         let modifier = self
             .empire_definition(empire_id)
             .map(|def| def.military_modifiers.fleet_maintenance_modifier_per_fleet)
             .unwrap_or(0);
-        (fleet_count + fleet_count * modifier).max(0)
+        self.state
+            .fleets
+            .values()
+            .filter(|f| f.owner == empire_id)
+            .map(|f| (f.kind.maintenance_cost() as i64 + modifier).max(0))
+            .sum()
     }
 
     fn invasion_strength_for_empire(&self, empire_id: EmpireId, ships: u32) -> u32 {
@@ -1110,13 +1134,7 @@ impl Engine {
                 .copied()
                 .unwrap_or(0);
 
-            let fleet_count = self
-                .state
-                .fleets
-                .values()
-                .filter(|f| f.owner == empire_id)
-                .count() as i64;
-            let fleet_maintenance = self.fleet_maintenance_for_empire(empire_id, fleet_count);
+            let fleet_maintenance = self.fleet_maintenance_for_empire(empire_id);
 
             let maintenance = fleet_maintenance + colony_maint;
 
@@ -2080,7 +2098,7 @@ impl Engine {
             return;
         }
 
-        if fleet.kind != FleetKind::Scout {
+        if fleet.kind != FleetKind::Scout && fleet.kind != FleetKind::FastScout {
             events.push(Event::error(format!("Fleet {} is not a scout", fleet_id.0)));
             return;
         }
@@ -2182,7 +2200,7 @@ impl Engine {
             return;
         }
 
-        if fleet.kind != FleetKind::Science {
+        if fleet.kind != FleetKind::Science && fleet.kind != FleetKind::SurveyCutter {
             events.push(Event::error(format!(
                 "Fleet {} is not a science ship",
                 fleet_id.0
@@ -2281,7 +2299,7 @@ impl Engine {
         }
 
         // Validate fleet is a colonizer
-        if fleet.kind != FleetKind::Colonizer {
+        if fleet.kind != FleetKind::Colonizer && fleet.kind != FleetKind::ColonyArk {
             events.push(Event::error(format!(
                 "Fleet {} is not a colonizer fleet",
                 fleet_id.0
@@ -8513,6 +8531,279 @@ mod tests {
         assert!(
             build_idx < fleet_idx,
             "BuildCompleted must be emitted before FleetCreated"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Ship archetype tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn fleet_maintenance_for_mixed_fleet_composition() {
+        // Verify that fleet maintenance sums per-kind costs correctly.
+        let mut engine = Engine::new(42);
+        let empire_id = engine.state.player_empire;
+
+        // Clear existing fleets and set up a known composition
+        engine.state.fleets.clear();
+        let star_id = *engine.state.stars.keys().next().unwrap();
+
+        // Add: 1 Scout (maint=1), 1 Destroyer (maint=4), 1 PatrolCorvette (maint=1)
+        engine.state.fleets.insert(
+            FleetId(100),
+            Fleet {
+                id: FleetId(100),
+                owner: empire_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        engine.state.fleets.insert(
+            FleetId(101),
+            Fleet {
+                id: FleetId(101),
+                owner: empire_id,
+                location: star_id,
+                ships: 3,
+                kind: FleetKind::Destroyer,
+                strength: 8,
+                integrity: 100,
+            },
+        );
+        engine.state.fleets.insert(
+            FleetId(102),
+            Fleet {
+                id: FleetId(102),
+                owner: empire_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::PatrolCorvette,
+                strength: 2,
+                integrity: 100,
+            },
+        );
+
+        // Set colony production to 0 income
+        let colony_id = ColonyId(1);
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
+
+        let credits_before = engine.state.empires[&empire_id].credits;
+        engine.apply_turn(vec![Command::EndTurn]);
+        let credits_after = engine.state.empires[&empire_id].credits;
+
+        // Expected maintenance: Scout(1) + Destroyer(4) + PatrolCorvette(1) = 6.
+        // Colony has prod_pct=0 so zero credits income from production, and no
+        // buildings installed so no building maintenance. Delta must be exactly 6.
+        let expected_fleet_maint: i64 = 1 + 4 + 1;
+        assert_eq!(
+            credits_after,
+            credits_before - expected_fleet_maint,
+            "Mixed fleet maintenance must be exactly {} credits (per-kind sum); got delta {}",
+            expected_fleet_maint,
+            credits_before - credits_after
+        );
+    }
+
+    #[test]
+    fn locked_archetype_cannot_be_queued_without_tech() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
+
+        // Destroyer requires FLEET_COORDINATION — not researched yet
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Ship(ShipDesignId::DESTROYER),
+        }]);
+        assert!(
+            events.iter().any(|e| e.is_error()),
+            "Destroyer should require Fleet Coordination tech"
+        );
+    }
+
+    #[test]
+    fn unlocked_archetype_can_be_queued_with_shipyard_and_tech() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        give_colony_shipyard(&mut engine, colony_id);
+
+        // Unlock PERIMETER_DEFENSE to allow Patrol Corvette
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId::PERIMETER_DEFENSE);
+
+        let events = engine.apply_turn(vec![Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::Ship(ShipDesignId::PATROL_CORVETTE),
+        }]);
+        assert!(
+            !events.iter().any(|e| e.is_error()),
+            "Patrol Corvette should be queueable after Perimeter Defense"
+        );
+    }
+
+    #[test]
+    fn fast_scout_can_perform_scout_mission() {
+        let mut engine = Engine::new(42);
+        let empire_id = engine.state.player_empire;
+
+        // Use the player's actual home star as the fleet base
+        let home_star = engine.state.empires[&empire_id].home_star;
+        let fast_scout_id = FleetId(900);
+        engine.state.fleets.insert(
+            fast_scout_id,
+            Fleet {
+                id: fast_scout_id,
+                owner: empire_id,
+                location: home_star,
+                ships: 1,
+                kind: FleetKind::FastScout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        // Pick any star that is NOT already explored
+        let target = engine
+            .state
+            .stars
+            .keys()
+            .find(|&&sid| !engine.state.explored_stars.contains(&sid))
+            .copied()
+            .expect("need at least one unexplored star");
+
+        let events = engine.apply_turn(vec![Command::SendScout {
+            fleet: fast_scout_id,
+            destination: target,
+        }]);
+        assert!(
+            !events.iter().any(|e| e.is_error()),
+            "Fast Scout should be able to perform scout missions, errors: {:?}",
+            events.iter().filter(|e| e.is_error()).collect::<Vec<_>>()
+        );
+        assert!(engine.state.scout_missions.contains_key(&fast_scout_id));
+    }
+
+    #[test]
+    fn survey_cutter_can_survey_planets() {
+        let mut engine = Engine::new(42);
+        let empire_id = engine.state.player_empire;
+
+        // Unlock survey capability
+        engine
+            .state
+            .empires
+            .get_mut(&empire_id)
+            .unwrap()
+            .research
+            .completed
+            .extend([TechId::SURVEY_DRONES, TechId::ADVANCED_SURVEY]);
+
+        // Find a star with an unsurveyed planet that is explored
+        let star_id = *engine.state.stars.keys().next().unwrap();
+        engine.state.explored_stars.insert(star_id);
+
+        let survey_cutter_id = FleetId(901);
+        engine.state.fleets.insert(
+            survey_cutter_id,
+            Fleet {
+                id: survey_cutter_id,
+                owner: empire_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::SurveyCutter,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::SurveyPlanet {
+            fleet: survey_cutter_id,
+            star: star_id,
+            planet_index: 0,
+        }]);
+        assert!(
+            !events.iter().any(|e| e.is_error()),
+            "Survey Cutter should be able to survey planets"
+        );
+    }
+
+    #[test]
+    fn colony_ark_can_colonize() {
+        let mut engine = Engine::new(42);
+        let empire_id = engine.state.player_empire;
+
+        // Unlock colonization
+        engine
+            .state
+            .empires
+            .get_mut(&empire_id)
+            .unwrap()
+            .research
+            .completed
+            .extend([TechId::HABITAT_SEEDING, TechId::COLONIAL_VANGUARD]);
+
+        // Find a star with a free habitable planet (may not yet be explored/surveyed)
+        let star_id = engine
+            .state
+            .stars
+            .iter()
+            .find(|(_, s)| s.planets.iter().any(|p| p.habitable && p.colony.is_none()))
+            .map(|(id, _)| *id)
+            .expect("need a star with a free habitable planet");
+
+        // Mark the star as explored and the planet as surveyed
+        engine.state.explored_stars.insert(star_id);
+        let planet_index = engine
+            .state
+            .stars
+            .get(&star_id)
+            .unwrap()
+            .planets
+            .iter()
+            .position(|p| p.habitable && p.colony.is_none())
+            .unwrap();
+        if let Some(star) = engine.state.stars.get_mut(&star_id) {
+            if let Some(planet) = star.planets.get_mut(planet_index) {
+                planet.surveyed = true;
+            }
+        }
+
+        let ark_id = FleetId(902);
+        engine.state.fleets.insert(
+            ark_id,
+            Fleet {
+                id: ark_id,
+                owner: empire_id,
+                location: star_id,
+                ships: 1,
+                kind: FleetKind::ColonyArk,
+                strength: 2,
+                integrity: 100,
+            },
+        );
+
+        let events = engine.apply_turn(vec![Command::Colonize {
+            fleet: ark_id,
+            star: star_id,
+            planet_index,
+        }]);
+        assert!(
+            !events.iter().any(|e| e.is_error()),
+            "Colony Ark should be able to colonize, errors: {:?}",
+            events.iter().filter(|e| e.is_error()).collect::<Vec<_>>()
         );
     }
 

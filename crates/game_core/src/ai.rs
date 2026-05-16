@@ -18,7 +18,7 @@ use crate::events::Event;
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, BuildItem, BuildingType, Colony,
     ColonyId, ColonyRole, EmpireId, FleetId, FleetKind, GameState, OrbitalStructureType,
-    PlanetClass, PlaystyleTag, ScoutMission, StarId, TechDomain, TechId,
+    PlanetClass, PlaystyleTag, ScoutMission, ShipDesignId, StarId, TechDomain, TechId,
 };
 
 /// Run one AI decision pass for the given empire.
@@ -198,25 +198,25 @@ fn pick_build_item(
     let is_expansionist = playstyle.contains(&PlaystyleTag::Expansionist);
     let is_agrarian = playstyle.contains(&PlaystyleTag::Agrarian);
 
+    // Helper: check if empire has researched a tech
+    let has_tech = |tech: TechId| -> bool {
+        state
+            .empires
+            .get(&empire_id)
+            .is_some_and(|e| e.research.completed.contains(&tech))
+    };
+
     // Expansionist: dispatch scouts early before building infrastructure,
     // but only while colonisation is not yet available.
     if is_expansionist && colony.has_shipyard() {
-        let has_habitat_seeding = state
-            .empires
-            .get(&empire_id)
-            .is_some_and(|e| e.research.completed.contains(&TechId::HABITAT_SEEDING));
-        let has_survey_drones = state
-            .empires
-            .get(&empire_id)
-            .is_some_and(|e| e.research.completed.contains(&TechId::SURVEY_DRONES));
-        let has_troop_transports = state
-            .empires
-            .get(&empire_id)
-            .is_some_and(|e| e.research.completed.contains(&TechId::TROOP_TRANSPORTS));
+        let has_habitat_seeding = has_tech(TechId::HABITAT_SEEDING);
+        let has_survey_drones = has_tech(TechId::SURVEY_DRONES);
+        let has_troop_transports = has_tech(TechId::TROOP_TRANSPORTS);
+        let has_rapid_transit = has_tech(TechId::RAPID_TRANSIT);
         let has_science_ship = state
             .fleets
             .values()
-            .any(|f| f.owner == empire_id && f.kind == FleetKind::Science);
+            .any(|f| f.owner == empire_id && f.kind.is_survey());
         let has_transport = state
             .fleets
             .values()
@@ -228,12 +228,16 @@ fn pick_build_item(
         // Only skip FabricationYard for scouting when no colonizer tech yet
         if has_unexplored && !has_habitat_seeding {
             if ai_profile.prefers_science_ships && has_survey_drones && !has_science_ship {
-                return Some(BuildItem::Ship(crate::state::ShipDesignId::SCIENCE));
+                return Some(BuildItem::Ship(ShipDesignId::SCIENCE));
             }
             if ai_profile.prefers_troop_transports && has_troop_transports && !has_transport {
-                return Some(BuildItem::Ship(crate::state::ShipDesignId::TROOP_TRANSPORT));
+                return Some(BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT));
             }
-            return Some(BuildItem::Ship(crate::state::ShipDesignId::SCOUT));
+            // Prefer Fast Scout if researched and faction prefers it
+            if ai_profile.prefers_fast_scouts && has_rapid_transit {
+                return Some(BuildItem::Ship(ShipDesignId::FAST_SCOUT));
+            }
+            return Some(BuildItem::Ship(ShipDesignId::SCOUT));
         }
     }
 
@@ -254,11 +258,8 @@ fn pick_build_item(
         }
     }
 
-    if ai_profile.prefers_troop_transports {
-        let has_orbital_engineering = state
-            .empires
-            .get(&empire_id)
-            .is_some_and(|e| e.research.completed.contains(&TechId::ORBITAL_ENGINEERING));
+    if ai_profile.prefers_troop_transports || ai_profile.prefers_combat_ships {
+        let has_orbital_engineering = has_tech(TechId::ORBITAL_ENGINEERING);
         if has_orbital_engineering && !colony.has_shipyard() {
             let can_place_orbital =
                 planet_size.is_some_and(|size| colony.can_place_orbital_installation(size));
@@ -279,10 +280,7 @@ fn pick_build_item(
 
     // Priority 2: Shipyard — only if Orbital Engineering researched, not yet installed,
     // and orbital slot available
-    let has_orbital_engineering = state
-        .empires
-        .get(&empire_id)
-        .is_some_and(|e| e.research.completed.contains(&TechId::ORBITAL_ENGINEERING));
+    let has_orbital_engineering = has_tech(TechId::ORBITAL_ENGINEERING);
     if has_orbital_engineering && !colony.has_shipyard() {
         let can_place_orbital =
             planet_size.is_some_and(|size| colony.can_place_orbital_installation(size));
@@ -296,49 +294,105 @@ fn pick_build_item(
         return None;
     }
 
+    // Science/survey preferences
     if ai_profile.prefers_science_ships {
-        let has_survey_drones = state
-            .empires
-            .get(&empire_id)
-            .is_some_and(|e| e.research.completed.contains(&TechId::SURVEY_DRONES));
+        let has_survey_drones = has_tech(TechId::SURVEY_DRONES);
+        let has_advanced_survey = has_tech(TechId::ADVANCED_SURVEY);
         let has_science_ship = state
             .fleets
             .values()
-            .any(|f| f.owner == empire_id && f.kind == FleetKind::Science);
+            .any(|f| f.owner == empire_id && f.kind.is_survey());
+        // Prefer Survey Cutter if unlocked, else Science Ship
+        if has_advanced_survey && !has_science_ship {
+            return Some(BuildItem::Ship(ShipDesignId::SURVEY_CUTTER));
+        }
         if has_survey_drones && !has_science_ship {
-            return Some(BuildItem::Ship(crate::state::ShipDesignId::SCIENCE));
+            return Some(BuildItem::Ship(ShipDesignId::SCIENCE));
         }
     }
 
+    // Fast Scout preference
+    if ai_profile.prefers_fast_scouts {
+        let has_rapid_transit = has_tech(TechId::RAPID_TRANSIT);
+        let has_fast_scout = state
+            .fleets
+            .values()
+            .any(|f| f.owner == empire_id && f.kind == FleetKind::FastScout);
+        if has_rapid_transit && !has_fast_scout {
+            return Some(BuildItem::Ship(ShipDesignId::FAST_SCOUT));
+        }
+    }
+
+    // Troop transport preference
     if ai_profile.prefers_troop_transports {
-        let has_troop_transports = state
-            .empires
-            .get(&empire_id)
-            .is_some_and(|e| e.research.completed.contains(&TechId::TROOP_TRANSPORTS));
+        let has_troop_transports = has_tech(TechId::TROOP_TRANSPORTS);
         let has_transport = state
             .fleets
             .values()
             .any(|f| f.owner == empire_id && f.kind == FleetKind::TroopTransport);
         if has_troop_transports && !has_transport {
-            return Some(BuildItem::Ship(crate::state::ShipDesignId::TROOP_TRANSPORT));
+            return Some(BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT));
         }
     }
 
-    // Priority 3: Colony Ship if no colonizer exists
+    // Combat ship preferences (Destroyer > Missile Frigate > Escort Frigate).
+    // Only engage this path when the empire already has a colonizer or colonisation
+    // is not yet available — prevents militarist AIs from never building colony ships.
+    if ai_profile.prefers_combat_ships {
+        let has_colonizer = state
+            .fleets
+            .values()
+            .any(|f| f.owner == empire_id && f.kind.is_colonizer());
+        let colonization_available = has_tech(TechId::HABITAT_SEEDING);
+        if has_colonizer || !colonization_available {
+            let has_fleet_coordination = has_tech(TechId::FLEET_COORDINATION);
+            let has_strike_doctrine = has_tech(TechId::STRIKE_DOCTRINE);
+            let has_perimeter_defense = has_tech(TechId::PERIMETER_DEFENSE);
+            // Prefer Destroyer if unlocked
+            if has_fleet_coordination {
+                return Some(BuildItem::Ship(ShipDesignId::DESTROYER));
+            }
+            // Otherwise Missile Frigate
+            if has_strike_doctrine {
+                return Some(BuildItem::Ship(ShipDesignId::MISSILE_FRIGATE));
+            }
+            // Fallback to Escort Frigate when only perimeter defense is available
+            if has_perimeter_defense {
+                return Some(BuildItem::Ship(ShipDesignId::ESCORT_FRIGATE));
+            }
+        }
+    }
+
+    // Defensive ship preference
+    if ai_profile.prefers_defensive_ships {
+        let has_perimeter_defense = has_tech(TechId::PERIMETER_DEFENSE);
+        let has_patrol_corvette = state
+            .fleets
+            .values()
+            .any(|f| f.owner == empire_id && f.kind == FleetKind::PatrolCorvette);
+        if has_perimeter_defense && !has_patrol_corvette {
+            return Some(BuildItem::Ship(ShipDesignId::PATROL_CORVETTE));
+        }
+    }
+
+    // Colony Ark preference (if researched, prefer over standard Colony Ship)
     let has_colonizer = state
         .fleets
         .values()
-        .any(|f| f.owner == empire_id && f.kind == FleetKind::Colonizer);
-    let has_habitat_seeding = state
-        .empires
-        .get(&empire_id)
-        .is_some_and(|e| e.research.completed.contains(&TechId::HABITAT_SEEDING));
+        .any(|f| f.owner == empire_id && f.kind.is_colonizer());
+    let has_habitat_seeding = has_tech(TechId::HABITAT_SEEDING);
     if !has_colonizer && has_habitat_seeding {
-        return Some(BuildItem::Ship(crate::state::ShipDesignId::COLONY));
+        if ai_profile.prefers_colony_arks && has_tech(TechId::COLONIAL_VANGUARD) {
+            return Some(BuildItem::Ship(ShipDesignId::COLONY_ARK));
+        }
+        return Some(BuildItem::Ship(ShipDesignId::COLONY));
     }
 
     // Priority 4: Scout for continued exploration
-    Some(BuildItem::Ship(crate::state::ShipDesignId::SCOUT))
+    if ai_profile.prefers_fast_scouts && has_tech(TechId::RAPID_TRANSIT) {
+        return Some(BuildItem::Ship(ShipDesignId::FAST_SCOUT));
+    }
+    Some(BuildItem::Ship(ShipDesignId::SCOUT))
 }
 
 // ---------------------------------------------------------------------------
@@ -380,10 +434,11 @@ fn ai_dispatch_scouts(state: &mut GameState, empire_id: EmpireId, events: &mut V
 /// Returns `(fleet_id, destination)` or `None` if no valid target exists.
 fn pick_scout_target(state: &GameState, empire_id: EmpireId) -> Option<(FleetId, StarId)> {
     // Find first idle scout fleet owned by this empire (deterministic: BTreeMap key order)
+    // Both Scout and FastScout can perform scout missions.
     let fleet_id = state.fleets.keys().copied().find(|&fid| {
         let f = &state.fleets[&fid];
         f.owner == empire_id
-            && f.kind == FleetKind::Scout
+            && (f.kind == FleetKind::Scout || f.kind == FleetKind::FastScout)
             && !state.scout_missions.contains_key(&fid)
             && !state.fleet_missions.contains_key(&fid)
     })?;
@@ -484,10 +539,11 @@ fn pick_colonize_target(
     empire_id: EmpireId,
 ) -> Option<(FleetId, StarId, usize)> {
     // Deterministic iteration order via BTreeMap keys
+    // Both Colonizer and ColonyArk can perform colonization missions.
     let fleet_id = state.fleets.keys().copied().find(|&fid| {
         let f = &state.fleets[&fid];
         f.owner == empire_id
-            && f.kind == FleetKind::Colonizer
+            && (f.kind == FleetKind::Colonizer || f.kind == FleetKind::ColonyArk)
             && !state.scout_missions.contains_key(&fid)
             && !state.fleet_missions.contains_key(&fid)
     })?;
@@ -839,7 +895,7 @@ mod tests {
             .get_mut(&ai_colony_id)
             .unwrap()
             .build_queue
-            .push(BuildItem::Ship(crate::state::ShipDesignId::SCOUT));
+            .push(BuildItem::Ship(ShipDesignId::SCOUT));
 
         let events = engine.apply_turn(vec![crate::commands::Command::EndTurn]);
 
@@ -911,13 +967,13 @@ mod tests {
         assert!(
             colony
                 .build_queue
-                .contains(&BuildItem::Ship(crate::state::ShipDesignId::COLONY)),
+                .contains(&BuildItem::Ship(ShipDesignId::COLONY)),
             "AI must queue Colony Ship when no colonizer exists"
         );
         assert!(events.iter().any(|e| matches!(
             e,
             Event::AiBuildQueued { empire, item, .. }
-            if *empire == ai && *item == BuildItem::Ship(crate::state::ShipDesignId::COLONY)
+            if *empire == ai && *item == BuildItem::Ship(ShipDesignId::COLONY)
         )));
     }
 
@@ -973,13 +1029,13 @@ mod tests {
         assert!(
             colony
                 .build_queue
-                .contains(&BuildItem::Ship(crate::state::ShipDesignId::SCOUT)),
+                .contains(&BuildItem::Ship(ShipDesignId::SCOUT)),
             "AI must queue Scout when FabricationYard built and colonizer exists"
         );
         assert!(events.iter().any(|e| matches!(
             e,
             Event::AiBuildQueued { empire, item, .. }
-            if *empire == ai && *item == BuildItem::Ship(crate::state::ShipDesignId::SCOUT)
+            if *empire == ai && *item == BuildItem::Ship(ShipDesignId::SCOUT)
         )));
     }
 
@@ -1571,13 +1627,13 @@ mod tests {
         assert!(
             !colony
                 .build_queue
-                .contains(&BuildItem::Ship(crate::state::ShipDesignId::SCOUT)),
+                .contains(&BuildItem::Ship(ShipDesignId::SCOUT)),
             "AI must not queue Scout without a Shipyard"
         );
         assert!(
             !colony
                 .build_queue
-                .contains(&BuildItem::Ship(crate::state::ShipDesignId::COLONY)),
+                .contains(&BuildItem::Ship(ShipDesignId::COLONY)),
             "AI must not queue Colony Ship without a Shipyard"
         );
     }
@@ -1964,7 +2020,7 @@ mod tests {
         let (engine_b, ai_b, colony_b) = make();
         assert_eq!(
             pick_build_item(&engine_a.state, ai_a, colony_a),
-            Some(BuildItem::Ship(crate::state::ShipDesignId::SCIENCE))
+            Some(BuildItem::Ship(ShipDesignId::SCIENCE))
         );
         assert_eq!(
             pick_build_item(&engine_a.state, ai_a, colony_a),
@@ -2015,7 +2071,7 @@ mod tests {
         let (engine_b, ai_b, colony_b) = make();
         assert_eq!(
             pick_build_item(&engine_a.state, ai_a, colony_a),
-            Some(BuildItem::Ship(crate::state::ShipDesignId::TROOP_TRANSPORT))
+            Some(BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT))
         );
         assert_eq!(
             pick_build_item(&engine_a.state, ai_a, colony_a),
@@ -2049,5 +2105,279 @@ mod tests {
             &engine.state,
         );
         assert_eq!(role, ColonyRole::Military);
+    }
+
+    #[test]
+    fn militarist_ai_prefers_combat_ships_deterministically() {
+        use crate::state::{
+            DifficultyLevel, EmpireDefinitionId, GalaxySize, OrbitalStructureType, ScenarioSetup,
+        };
+        let make = || {
+            let mut engine = Engine::new_from_setup(ScenarioSetup {
+                seed: 77,
+                galaxy_size: GalaxySize::Medium,
+                ai_empire_count: 1,
+                sector_count_override: None,
+                difficulty: DifficultyLevel::Standard,
+                player_empire_def: Some(EmpireDefinitionId(0)),
+            });
+            let ai = ai_id(&engine);
+            let ai_colony = engine
+                .state
+                .colonies
+                .values()
+                .find(|c| c.owner == ai)
+                .map(|c| c.id)
+                .unwrap();
+            // Vorath Dominion (id=4) — prefers_combat_ships
+            engine.state.empires.get_mut(&ai).unwrap().empire_def = Some(EmpireDefinitionId(4));
+            engine
+                .state
+                .empires
+                .get_mut(&ai)
+                .unwrap()
+                .research
+                .completed
+                .extend([
+                    TechId::ORBITAL_ENGINEERING,
+                    TechId::KINETIC_BARRIERS,
+                    TechId::BATTLE_DOCTRINE,
+                    TechId::FLEET_COORDINATION,
+                ]);
+            let star_id = engine.state.colonies.get(&ai_colony).unwrap().star;
+            let colony = engine.state.colonies.get_mut(&ai_colony).unwrap();
+            colony
+                .orbital_installations
+                .push(OrbitalStructureType::Shipyard);
+            // Pre-install FabricationYard so it doesn't block ship production
+            colony.buildings.push(BuildingType::FabricationYard);
+            // Add a TroopTransport fleet so the AI won't prioritise building another one
+            engine.state.fleets.insert(
+                FleetId(801),
+                crate::state::Fleet {
+                    id: FleetId(801),
+                    owner: ai,
+                    location: star_id,
+                    ships: 1,
+                    kind: FleetKind::TroopTransport,
+                    strength: 2,
+                    integrity: 100,
+                },
+            );
+            (engine, ai, ai_colony)
+        };
+
+        let (engine_a, ai_a, colony_a) = make();
+        let (engine_b, ai_b, colony_b) = make();
+        // Should pick Destroyer (highest priority for prefers_combat_ships with Fleet Coordination)
+        assert_eq!(
+            pick_build_item(&engine_a.state, ai_a, colony_a),
+            Some(BuildItem::Ship(ShipDesignId::DESTROYER))
+        );
+        assert_eq!(
+            pick_build_item(&engine_a.state, ai_a, colony_a),
+            pick_build_item(&engine_b.state, ai_b, colony_b),
+            "Combat ship selection must be deterministic"
+        );
+    }
+
+    #[test]
+    fn scientific_ai_prefers_fast_scouts_deterministically() {
+        use crate::state::{
+            DifficultyLevel, EmpireDefinitionId, GalaxySize, OrbitalStructureType, ScenarioSetup,
+        };
+        let make = || {
+            let mut engine = Engine::new_from_setup(ScenarioSetup {
+                seed: 88,
+                galaxy_size: GalaxySize::Medium,
+                ai_empire_count: 1,
+                sector_count_override: None,
+                difficulty: DifficultyLevel::Standard,
+                player_empire_def: Some(EmpireDefinitionId(0)),
+            });
+            let ai = ai_id(&engine);
+            let ai_colony = engine
+                .state
+                .colonies
+                .values()
+                .find(|c| c.owner == ai)
+                .map(|c| c.id)
+                .unwrap();
+            // Elarith Confluence (id=5) — prefers_science_ships + prefers_fast_scouts
+            engine.state.empires.get_mut(&ai).unwrap().empire_def = Some(EmpireDefinitionId(5));
+            engine
+                .state
+                .empires
+                .get_mut(&ai)
+                .unwrap()
+                .research
+                .completed
+                .extend([TechId::ORBITAL_ENGINEERING, TechId::RAPID_TRANSIT]);
+            let colony = engine.state.colonies.get_mut(&ai_colony).unwrap();
+            colony
+                .orbital_installations
+                .push(OrbitalStructureType::Shipyard);
+            // Pre-install FabricationYard and ScienceNexus so ship priorities take effect
+            colony.buildings.push(BuildingType::FabricationYard);
+            colony.buildings.push(BuildingType::ScienceNexus);
+            (engine, ai, ai_colony)
+        };
+
+        let (engine_a, ai_a, colony_a) = make();
+        let (engine_b, ai_b, colony_b) = make();
+        // Elarith Confluence has prefers_fast_scouts. With RAPID_TRANSIT researched
+        // and no SURVEY_DRONES, the prefers_science_ships sub-path is skipped.
+        // The prefers_fast_scouts path fires and returns FAST_SCOUT.
+        assert_eq!(
+            pick_build_item(&engine_a.state, ai_a, colony_a),
+            Some(BuildItem::Ship(ShipDesignId::FAST_SCOUT)),
+            "Scientific faction with Rapid Transit and no survey tech should pick Fast Scout"
+        );
+        assert_eq!(
+            pick_build_item(&engine_a.state, ai_a, colony_a),
+            pick_build_item(&engine_b.state, ai_b, colony_b),
+            "Fast scout selection must be deterministic"
+        );
+    }
+
+    #[test]
+    fn defensive_ai_prefers_patrol_corvette_deterministically() {
+        use crate::state::{
+            DifficultyLevel, EmpireDefinitionId, GalaxySize, OrbitalStructureType, ScenarioSetup,
+        };
+        let make = || {
+            let mut engine = Engine::new_from_setup(ScenarioSetup {
+                seed: 99,
+                galaxy_size: GalaxySize::Medium,
+                ai_empire_count: 1,
+                sector_count_override: None,
+                difficulty: DifficultyLevel::Standard,
+                player_empire_def: Some(EmpireDefinitionId(0)),
+            });
+            let ai = ai_id(&engine);
+            let ai_colony = engine
+                .state
+                .colonies
+                .values()
+                .find(|c| c.owner == ai)
+                .map(|c| c.id)
+                .unwrap();
+            // Thalori Exchange (id=3) — prefers_defensive_ships
+            engine.state.empires.get_mut(&ai).unwrap().empire_def = Some(EmpireDefinitionId(3));
+            engine
+                .state
+                .empires
+                .get_mut(&ai)
+                .unwrap()
+                .research
+                .completed
+                .extend([TechId::ORBITAL_ENGINEERING, TechId::PERIMETER_DEFENSE]);
+            let colony = engine.state.colonies.get_mut(&ai_colony).unwrap();
+            colony
+                .orbital_installations
+                .push(OrbitalStructureType::Shipyard);
+            // Pre-install FabricationYard so it doesn't block ship production
+            colony.buildings.push(BuildingType::FabricationYard);
+            // Also set colony habitat seeding so it doesn't default to colony ship
+            engine
+                .state
+                .empires
+                .get_mut(&ai)
+                .unwrap()
+                .research
+                .completed
+                .push(TechId::HABITAT_SEEDING);
+            // Add a colonizer so it won't pick colony ship
+            let star_id = engine.state.colonies.get(&ai_colony).unwrap().star;
+            engine.state.fleets.insert(
+                FleetId(800),
+                crate::state::Fleet {
+                    id: FleetId(800),
+                    owner: ai,
+                    location: star_id,
+                    ships: 1,
+                    kind: FleetKind::Colonizer,
+                    strength: 1,
+                    integrity: 100,
+                },
+            );
+            (engine, ai, ai_colony)
+        };
+
+        let (engine_a, ai_a, colony_a) = make();
+        let (engine_b, ai_b, colony_b) = make();
+        let result = pick_build_item(&engine_a.state, ai_a, colony_a);
+        assert_eq!(
+            result,
+            Some(BuildItem::Ship(ShipDesignId::PATROL_CORVETTE)),
+            "Defensive faction should prefer Patrol Corvette, got {:?}",
+            result
+        );
+        assert_eq!(
+            pick_build_item(&engine_a.state, ai_a, colony_a),
+            pick_build_item(&engine_b.state, ai_b, colony_b),
+            "Defensive ship selection must be deterministic"
+        );
+    }
+
+    #[test]
+    fn expansionist_ai_prefers_colony_arks_when_available() {
+        use crate::state::{
+            DifficultyLevel, EmpireDefinitionId, GalaxySize, OrbitalStructureType, ScenarioSetup,
+        };
+        let make = || {
+            let mut engine = Engine::new_from_setup(ScenarioSetup {
+                seed: 101,
+                galaxy_size: GalaxySize::Medium,
+                ai_empire_count: 1,
+                sector_count_override: None,
+                difficulty: DifficultyLevel::Standard,
+                player_empire_def: Some(EmpireDefinitionId(0)),
+            });
+            let ai = ai_id(&engine);
+            let ai_colony = engine
+                .state
+                .colonies
+                .values()
+                .find(|c| c.owner == ai)
+                .map(|c| c.id)
+                .unwrap();
+            // Sylvaran Accord (id=2) — prefers_colony_arks
+            engine.state.empires.get_mut(&ai).unwrap().empire_def = Some(EmpireDefinitionId(2));
+            engine
+                .state
+                .empires
+                .get_mut(&ai)
+                .unwrap()
+                .research
+                .completed
+                .extend([
+                    TechId::ORBITAL_ENGINEERING,
+                    TechId::HABITAT_SEEDING,
+                    TechId(10), // Colonial Logistics
+                    TechId::COLONIAL_VANGUARD,
+                ]);
+            let colony = engine.state.colonies.get_mut(&ai_colony).unwrap();
+            colony
+                .orbital_installations
+                .push(OrbitalStructureType::Shipyard);
+            // Pre-install required buildings so they don't take priority over ship construction
+            colony.buildings.push(BuildingType::FabricationYard);
+            colony.buildings.push(BuildingType::AquacultureBay);
+            (engine, ai, ai_colony)
+        };
+
+        let (engine_a, ai_a, colony_a) = make();
+        let (engine_b, ai_b, colony_b) = make();
+        assert_eq!(
+            pick_build_item(&engine_a.state, ai_a, colony_a),
+            Some(BuildItem::Ship(ShipDesignId::COLONY_ARK)),
+            "Expansionist/agrarian faction with Colonial Vanguard should prefer Colony Ark"
+        );
+        assert_eq!(
+            pick_build_item(&engine_a.state, ai_a, colony_a),
+            pick_build_item(&engine_b.state, ai_b, colony_b),
+            "Colony Ark preference must be deterministic"
+        );
     }
 }

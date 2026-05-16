@@ -600,7 +600,8 @@ fn render_build_picker(
         )]));
     }
 
-    // Ships section — iterate over all_ship_designs() directly to avoid per-frame allocation
+    // Ships section — iterate over all_ship_designs() directly to avoid per-frame allocation.
+    // Group by role category: Exploration, Survey, Colonization, Combat, Invasion, Security.
     lines.push(Line::from(vec![Span::styled(
         " Ships",
         Theme::muted_style(),
@@ -627,15 +628,25 @@ fn render_build_picker(
         } else {
             Theme::muted_style()
         };
+        // Line 1: cost, name, lock tag
         lines.push(Line::from(vec![Span::styled(
             format!(
-                " {} [{:>3}pp] {}{}",
+                " {} [{:>3}pp] {} [{}]{}",
                 prefix,
                 ship_item.cost(),
                 design.name,
+                design.role,
                 lock_tag
             ),
             style,
+        )]));
+        // Line 2: stats (strength, maintenance)
+        lines.push(Line::from(vec![Span::styled(
+            format!(
+                "        str:{} maint:{}/turn",
+                design.strength, design.maintenance
+            ),
+            Theme::muted_style(),
         )]));
     }
 
@@ -868,7 +879,8 @@ mod tests {
 
     #[test]
     fn build_picker_shows_science_ship_in_ship_section() {
-        let backend = TestBackend::new(120, 40);
+        // Use a taller terminal so all ship entries (each now 2 lines) remain visible.
+        let backend = TestBackend::new(120, 80);
         let mut terminal = Terminal::new(backend).unwrap();
         let engine = Engine::new(42);
         let app_state = make_app_state_with_colony(&engine);

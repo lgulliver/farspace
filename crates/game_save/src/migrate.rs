@@ -297,6 +297,19 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // and no state rewrite is needed.
             // Keep this explicit version step so post-invasion saves are distinguishable.
             let mut metadata = save.metadata;
+            metadata.schema_version = 25;
+            migrate(SaveFile {
+                version: 25,
+                metadata,
+                state: save.state,
+            })
+        }
+        25 => {
+            // v25 → v26: FleetKind gained FastScout, SurveyCutter, ColonyArk,
+            // EscortFrigate, MissileFrigate, Destroyer, PatrolCorvette.
+            // v25 saves cannot contain the new variants, so deserialization remains
+            // valid and no state rewrite is needed.
+            let mut metadata = save.metadata;
             metadata.schema_version = CURRENT_VERSION;
             Ok(SaveFile {
                 version: CURRENT_VERSION,
@@ -973,5 +986,91 @@ mod tests {
             blockaded_before, blockaded_after,
             "Blockaded colonies must be the same before and after save/load"
         );
+    }
+
+    #[test]
+    fn migrate_v25_to_v26_passthrough() {
+        let state = GameState::default();
+        let metadata = crate::schema::SaveMetadata {
+            schema_version: 25,
+            ..Default::default()
+        };
+        let v25_save = SaveFile {
+            version: 25,
+            state,
+            metadata,
+        };
+        let migrated = migrate(v25_save).expect("v25→v26 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        assert_eq!(migrated.metadata.schema_version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn save_load_preserves_new_fleet_kinds() {
+        use game_core::state::{Fleet, FleetId, FleetKind};
+
+        let engine = game_core::Engine::new(42);
+        let mut state = engine.state.clone();
+        let star_id = *state.stars.keys().next().unwrap();
+        let empire_id = state.player_empire;
+
+        // Insert a fleet of each new archetype kind
+        for (i, kind) in [
+            FleetKind::FastScout,
+            FleetKind::SurveyCutter,
+            FleetKind::ColonyArk,
+            FleetKind::EscortFrigate,
+            FleetKind::MissileFrigate,
+            FleetKind::Destroyer,
+            FleetKind::PatrolCorvette,
+        ]
+        .iter()
+        .enumerate()
+        {
+            state.fleets.insert(
+                FleetId(200 + i as u64),
+                Fleet {
+                    id: FleetId(200 + i as u64),
+                    owner: empire_id,
+                    location: star_id,
+                    ships: 1,
+                    kind: *kind,
+                    strength: 1,
+                    integrity: 100,
+                },
+            );
+        }
+
+        let save = SaveFile::new(state.clone());
+        let serialized = serde_json::to_string(&save).expect("serialization must succeed");
+        let deserialized: SaveFile =
+            serde_json::from_str(&serialized).expect("deserialization must succeed");
+        let loaded = migrate(deserialized).expect("migration must succeed");
+
+        // Verify all new fleet kinds round-trip correctly
+        for (i, kind) in [
+            FleetKind::FastScout,
+            FleetKind::SurveyCutter,
+            FleetKind::ColonyArk,
+            FleetKind::EscortFrigate,
+            FleetKind::MissileFrigate,
+            FleetKind::Destroyer,
+            FleetKind::PatrolCorvette,
+        ]
+        .iter()
+        .enumerate()
+        {
+            let fid = FleetId(200 + i as u64);
+            let loaded_fleet = loaded
+                .state
+                .fleets
+                .get(&fid)
+                .expect("fleet must survive round-trip");
+            assert_eq!(
+                loaded_fleet.kind, *kind,
+                "FleetKind {:?} must survive save/load round-trip",
+                kind
+            );
+        }
     }
 }

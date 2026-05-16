@@ -41,6 +41,18 @@ impl TechId {
     pub const HYPERSPACE_CARTOGRAPHY: TechId = TechId(8);
     pub const SURVEY_DRONES: TechId = TechId(12);
     pub const TROOP_TRANSPORTS: TechId = TechId(11);
+    // Root-tier named constants for use in prerequisites
+    pub const VOID_PROPULSION: TechId = TechId(1);
+    pub const KINETIC_BARRIERS: TechId = TechId(4);
+    pub const COLONIAL_LOGISTICS: TechId = TechId(10);
+    pub const BATTLE_DOCTRINE: TechId = TechId(11);
+    // Advanced ship archetype techs
+    pub const RAPID_TRANSIT: TechId = TechId(13);
+    pub const ADVANCED_SURVEY: TechId = TechId(14);
+    pub const COLONIAL_VANGUARD: TechId = TechId(15);
+    pub const PERIMETER_DEFENSE: TechId = TechId(16);
+    pub const STRIKE_DOCTRINE: TechId = TechId(17);
+    pub const FLEET_COORDINATION: TechId = TechId(18);
 }
 
 /// Unique identifier for a ship design template.
@@ -148,6 +160,9 @@ pub struct EmpireMilitaryModifiers {
     pub fleet_maintenance_modifier_per_fleet: i64,
     /// Flat invasion strength bonus per troop transport ship.
     pub invasion_strength_bonus_per_transport: u32,
+    /// Percentage adjustment applied to combat ship production cost
+    /// (Escort Frigate, Missile Frigate, Destroyer, Patrol Corvette).
+    pub combat_ship_cost_modifier_pct: i8,
 }
 
 impl EmpireMilitaryModifiers {
@@ -159,6 +174,7 @@ impl EmpireMilitaryModifiers {
             shipyard_cost_modifier_pct: 0,
             fleet_maintenance_modifier_per_fleet: 0,
             invasion_strength_bonus_per_transport: 0,
+            combat_ship_cost_modifier_pct: 0,
         }
     }
 }
@@ -176,6 +192,14 @@ pub struct EmpireAiProfile {
     pub prefers_stable_colonies: bool,
     /// Whether the AI should favour Military roles on high-output worlds.
     pub prefers_military_roles: bool,
+    /// Whether the AI should prioritise Fast Scouts over standard scouts.
+    pub prefers_fast_scouts: bool,
+    /// Whether the AI should prioritise Colony Arks over standard colony ships.
+    pub prefers_colony_arks: bool,
+    /// Whether the AI should prioritise combat ships (Destroyer, Missile Frigate).
+    pub prefers_combat_ships: bool,
+    /// Whether the AI should prioritise defensive ships (Escort Frigate, Patrol Corvette).
+    pub prefers_defensive_ships: bool,
 }
 
 impl Default for EmpireAiProfile {
@@ -192,15 +216,24 @@ impl EmpireAiProfile {
             prefers_troop_transports: false,
             prefers_stable_colonies: false,
             prefers_military_roles: false,
+            prefers_fast_scouts: false,
+            prefers_colony_arks: false,
+            prefers_combat_ships: false,
+            prefers_defensive_ships: false,
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub const fn new(
         research_focus: &'static [TechDomain],
         prefers_science_ships: bool,
         prefers_troop_transports: bool,
         prefers_stable_colonies: bool,
         prefers_military_roles: bool,
+        prefers_fast_scouts: bool,
+        prefers_colony_arks: bool,
+        prefers_combat_ships: bool,
+        prefers_defensive_ships: bool,
     ) -> Self {
         Self {
             research_focus,
@@ -208,6 +241,10 @@ impl EmpireAiProfile {
             prefers_troop_transports,
             prefers_stable_colonies,
             prefers_military_roles,
+            prefers_fast_scouts,
+            prefers_colony_arks,
+            prefers_combat_ships,
+            prefers_defensive_ships,
         }
     }
 }
@@ -296,6 +333,12 @@ impl EmpireDefinition {
                 military.invasion_strength_bonus_per_transport
             ));
         }
+        if military.combat_ship_cost_modifier_pct != 0 {
+            effects.push(format!(
+                "{:+}% combat ship cost",
+                military.combat_ship_cost_modifier_pct
+            ));
+        }
 
         if self.diplomacy_profile.first_contact_status != RelationshipStatus::Contacted {
             effects.push(format!(
@@ -341,10 +384,8 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         military_modifiers: EmpireMilitaryModifiers::none(),
         ai_profile: EmpireAiProfile::new(
             &[TechDomain::Engineering, TechDomain::Economy],
-            false,
-            false,
-            false,
-            false,
+            false, false, false, false,
+            false, false, false, true, // prefers_defensive_ships: patrol corvettes for security
         ),
     },
     EmpireDefinition {
@@ -368,10 +409,8 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         },
         ai_profile: EmpireAiProfile::new(
             &[TechDomain::Exploration, TechDomain::Economy],
-            false,
-            false,
-            false,
-            false,
+            false, false, false, false,
+            true, false, false, false, // prefers_fast_scouts: pathfinder identity
         ),
     },
     EmpireDefinition {
@@ -398,10 +437,8 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         military_modifiers: EmpireMilitaryModifiers::none(),
         ai_profile: EmpireAiProfile::new(
             &[TechDomain::Biology, TechDomain::Economy],
-            false,
-            false,
-            true,
-            false,
+            false, false, true, false,
+            false, true, false, false, // prefers_colony_arks: population-first doctrine
         ),
     },
     EmpireDefinition {
@@ -428,10 +465,8 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         military_modifiers: EmpireMilitaryModifiers::none(),
         ai_profile: EmpireAiProfile::new(
             &[TechDomain::Economy, TechDomain::Engineering],
-            false,
-            false,
-            true,
-            false,
+            false, false, true, false,
+            false, false, false, true, // prefers_defensive_ships: trade-lane security corvettes
         ),
     },
     EmpireDefinition {
@@ -457,14 +492,13 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         military_modifiers: EmpireMilitaryModifiers {
             troop_transport_cost_modifier_pct: -10,
             invasion_strength_bonus_per_transport: 2,
+            combat_ship_cost_modifier_pct: -10,
             ..EmpireMilitaryModifiers::none()
         },
         ai_profile: EmpireAiProfile::new(
             &[TechDomain::Military, TechDomain::Engineering],
-            false,
-            true,
-            false,
-            true,
+            false, true, false, true,
+            false, false, true, false, // prefers_combat_ships: militarist warfleet doctrine
         ),
     },
     EmpireDefinition {
@@ -489,10 +523,8 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         },
         ai_profile: EmpireAiProfile::new(
             &[TechDomain::Exploration, TechDomain::Biology, TechDomain::Economy],
-            true,
-            false,
-            true,
-            false,
+            true, false, true, false,
+            true, false, false, false, // prefers_fast_scouts + prefers_science_ships
         ),
     },
     EmpireDefinition {
@@ -528,10 +560,8 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         },
         ai_profile: EmpireAiProfile::new(
             &[TechDomain::Exploration, TechDomain::Economy, TechDomain::Biology],
-            true,
-            false,
-            true,
-            false,
+            true, false, true, false,
+            true, false, false, false, // prefers_fast_scouts: exploration mandate
         ),
     },
     EmpireDefinition {
@@ -565,6 +595,7 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             shipyard_cost_modifier_pct: -10,
             fleet_maintenance_modifier_per_fleet: -1,
             invasion_strength_bonus_per_transport: 4,
+            combat_ship_cost_modifier_pct: -15,
             ..EmpireMilitaryModifiers::none()
         },
         ai_profile: EmpireAiProfile::new(
@@ -573,10 +604,8 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
                 TechDomain::Engineering,
                 TechDomain::Exploration,
             ],
-            false,
-            true,
-            false,
-            true,
+            false, true, false, true,
+            false, true, true, false, // prefers_colony_arks + prefers_combat_ships
         ),
     },
 ];
@@ -845,6 +874,75 @@ pub fn all_techs() -> &'static [TechRecord] {
             ],
             cost: 95,
         },
+        TechRecord {
+            id: TechId::RAPID_TRANSIT,
+            name: "Rapid Transit Drives",
+            description:
+                "Compact high-efficiency drives cut reconnaissance mission duration significantly.",
+            domain: TechDomain::Exploration,
+            tier: TechTier::II,
+            prerequisites: &[TechId::VOID_PROPULSION],
+            unlocks: &[TechUnlock::ShipDesign(ShipDesignId::FAST_SCOUT)],
+            cost: 90,
+        },
+        TechRecord {
+            id: TechId::ADVANCED_SURVEY,
+            name: "Advanced Survey Array",
+            description:
+                "Integrated multi-spectrum sensor platforms accelerate deep planetary profiling.",
+            domain: TechDomain::Exploration,
+            tier: TechTier::III,
+            prerequisites: &[TechId::SURVEY_DRONES],
+            unlocks: &[TechUnlock::ShipDesign(ShipDesignId::SURVEY_CUTTER)],
+            cost: 160,
+        },
+        TechRecord {
+            id: TechId::COLONIAL_VANGUARD,
+            name: "Colonial Vanguard Protocol",
+            description:
+                "Integrated habitat prefabrication and seed-vault logistics support larger founding expeditions.",
+            domain: TechDomain::Biology,
+            tier: TechTier::III,
+            prerequisites: &[TechId::HABITAT_SEEDING, TechId::COLONIAL_LOGISTICS],
+            unlocks: &[TechUnlock::ShipDesign(ShipDesignId::COLONY_ARK)],
+            cost: 200,
+        },
+        TechRecord {
+            id: TechId::PERIMETER_DEFENSE,
+            name: "Perimeter Defense Doctrine",
+            description:
+                "Modular point-defense batteries and intercept patterns provide local system security.",
+            domain: TechDomain::Military,
+            tier: TechTier::II,
+            prerequisites: &[TechId::KINETIC_BARRIERS],
+            unlocks: &[
+                TechUnlock::ShipDesign(ShipDesignId::ESCORT_FRIGATE),
+                TechUnlock::ShipDesign(ShipDesignId::PATROL_CORVETTE),
+            ],
+            cost: 110,
+        },
+        TechRecord {
+            id: TechId::STRIKE_DOCTRINE,
+            name: "Long-Range Strike Doctrine",
+            description:
+                "Stand-off kinetic projectors optimised for high-tempo engagement protocols.",
+            domain: TechDomain::Military,
+            tier: TechTier::III,
+            prerequisites: &[TechId::BATTLE_DOCTRINE],
+            unlocks: &[TechUnlock::ShipDesign(ShipDesignId::MISSILE_FRIGATE)],
+            cost: 170,
+        },
+        TechRecord {
+            id: TechId::FLEET_COORDINATION,
+            name: "Fleet Coordination",
+            description:
+                "Multi-vessel engagement frameworks enable coordinated heavy combat operations.",
+            domain: TechDomain::Military,
+            tier: TechTier::III,
+            prerequisites: &[TechId::BATTLE_DOCTRINE],
+            unlocks: &[TechUnlock::ShipDesign(ShipDesignId::DESTROYER)],
+            cost: 200,
+        },
     ]
 }
 
@@ -898,6 +996,10 @@ pub struct ShipDesignRecord {
     pub fleet_kind: FleetKind,
     pub ships: u32,
     pub strength: u32,
+    /// Credits-per-turn upkeep cost for one fleet of this design.
+    pub maintenance: u32,
+    /// Short role description shown in the production UI.
+    pub role: &'static str,
     pub required_tech: Option<TechId>,
 }
 
@@ -911,6 +1013,8 @@ pub fn all_ship_designs() -> &'static [ShipDesignRecord] {
             fleet_kind: FleetKind::Scout,
             ships: 1,
             strength: 1,
+            maintenance: 1,
+            role: "Exploration",
             required_tech: None,
         },
         ShipDesignRecord {
@@ -920,6 +1024,8 @@ pub fn all_ship_designs() -> &'static [ShipDesignRecord] {
             fleet_kind: FleetKind::Colonizer,
             ships: 1,
             strength: 1,
+            maintenance: 1,
+            role: "Colonization",
             required_tech: Some(TechId::HABITAT_SEEDING),
         },
         ShipDesignRecord {
@@ -929,6 +1035,8 @@ pub fn all_ship_designs() -> &'static [ShipDesignRecord] {
             fleet_kind: FleetKind::Science,
             ships: 1,
             strength: 1,
+            maintenance: 1,
+            role: "Survey",
             required_tech: Some(TechId::SURVEY_DRONES),
         },
         ShipDesignRecord {
@@ -938,7 +1046,86 @@ pub fn all_ship_designs() -> &'static [ShipDesignRecord] {
             fleet_kind: FleetKind::TroopTransport,
             ships: 1,
             strength: 1,
+            maintenance: 2,
+            role: "Invasion",
             required_tech: Some(TechId::TROOP_TRANSPORTS),
+        },
+        ShipDesignRecord {
+            id: ShipDesignId::FAST_SCOUT,
+            name: "Fast Scout",
+            cost: 75,
+            fleet_kind: FleetKind::FastScout,
+            ships: 1,
+            strength: 1,
+            maintenance: 1,
+            role: "Rapid Exploration",
+            required_tech: Some(TechId::RAPID_TRANSIT),
+        },
+        ShipDesignRecord {
+            id: ShipDesignId::SURVEY_CUTTER,
+            name: "Survey Cutter",
+            cost: 150,
+            fleet_kind: FleetKind::SurveyCutter,
+            ships: 1,
+            strength: 1,
+            maintenance: 2,
+            role: "Deep Survey",
+            required_tech: Some(TechId::ADVANCED_SURVEY),
+        },
+        ShipDesignRecord {
+            id: ShipDesignId::COLONY_ARK,
+            name: "Colony Ark",
+            cost: 350,
+            fleet_kind: FleetKind::ColonyArk,
+            ships: 1,
+            strength: 2,
+            maintenance: 2,
+            role: "Mass Colonization",
+            required_tech: Some(TechId::COLONIAL_VANGUARD),
+        },
+        ShipDesignRecord {
+            id: ShipDesignId::ESCORT_FRIGATE,
+            name: "Escort Frigate",
+            cost: 120,
+            fleet_kind: FleetKind::EscortFrigate,
+            ships: 2,
+            strength: 3,
+            maintenance: 2,
+            role: "Defensive Combat",
+            required_tech: Some(TechId::PERIMETER_DEFENSE),
+        },
+        ShipDesignRecord {
+            id: ShipDesignId::MISSILE_FRIGATE,
+            name: "Missile Frigate",
+            cost: 200,
+            fleet_kind: FleetKind::MissileFrigate,
+            ships: 2,
+            strength: 5,
+            maintenance: 3,
+            role: "Strike Combat",
+            required_tech: Some(TechId::STRIKE_DOCTRINE),
+        },
+        ShipDesignRecord {
+            id: ShipDesignId::DESTROYER,
+            name: "Destroyer",
+            cost: 300,
+            fleet_kind: FleetKind::Destroyer,
+            ships: 3,
+            strength: 8,
+            maintenance: 4,
+            role: "Heavy Combat",
+            required_tech: Some(TechId::FLEET_COORDINATION),
+        },
+        ShipDesignRecord {
+            id: ShipDesignId::PATROL_CORVETTE,
+            name: "Patrol Corvette",
+            cost: 80,
+            fleet_kind: FleetKind::PatrolCorvette,
+            ships: 1,
+            strength: 2,
+            maintenance: 1,
+            role: "Local Security",
+            required_tech: Some(TechId::PERIMETER_DEFENSE),
         },
     ]
 }
@@ -948,6 +1135,13 @@ impl ShipDesignId {
     pub const COLONY: ShipDesignId = ShipDesignId(2);
     pub const SCIENCE: ShipDesignId = ShipDesignId(3);
     pub const TROOP_TRANSPORT: ShipDesignId = ShipDesignId(4);
+    pub const FAST_SCOUT: ShipDesignId = ShipDesignId(5);
+    pub const SURVEY_CUTTER: ShipDesignId = ShipDesignId(6);
+    pub const COLONY_ARK: ShipDesignId = ShipDesignId(7);
+    pub const ESCORT_FRIGATE: ShipDesignId = ShipDesignId(8);
+    pub const MISSILE_FRIGATE: ShipDesignId = ShipDesignId(9);
+    pub const DESTROYER: ShipDesignId = ShipDesignId(10);
+    pub const PATROL_CORVETTE: ShipDesignId = ShipDesignId(11);
 
     /// All design IDs in deterministic display order, derived from `all_ship_designs()`
     /// to ensure both stay in sync automatically.
@@ -1972,6 +2166,69 @@ pub enum FleetKind {
     Colonizer,
     /// Troop transport ship — used for strategic planetary invasions
     TroopTransport,
+    /// Fast Scout — reduced travel time, preferred by explorer factions
+    FastScout,
+    /// Survey Cutter — improved deep-survey capability
+    SurveyCutter,
+    /// Colony Ark — larger colony ship with better starting conditions
+    ColonyArk,
+    /// Escort Frigate — defensive light combat ship
+    EscortFrigate,
+    /// Missile Frigate — high-attack stand-off combatant
+    MissileFrigate,
+    /// Destroyer — strong mid-tier combat ship
+    Destroyer,
+    /// Patrol Corvette — cheap local security ship
+    PatrolCorvette,
+}
+
+impl FleetKind {
+    /// Credits-per-turn maintenance cost for one fleet of this kind.
+    pub fn maintenance_cost(self) -> u32 {
+        match self {
+            FleetKind::Scout
+            | FleetKind::FastScout
+            | FleetKind::Science
+            | FleetKind::Colonizer
+            | FleetKind::PatrolCorvette => 1,
+            FleetKind::SurveyCutter
+            | FleetKind::ColonyArk
+            | FleetKind::TroopTransport
+            | FleetKind::EscortFrigate => 2,
+            FleetKind::MissileFrigate => 3,
+            FleetKind::Destroyer => 4,
+        }
+    }
+
+    /// Returns true if this fleet kind is a dedicated combat archetype.
+    ///
+    /// Note: `TroopTransport` is intentionally excluded — it is an invasion
+    /// fleet handled separately in the engine, with its own cost modifier and
+    /// AI preference flag (`prefers_troop_transports`).
+    pub fn is_combat(self) -> bool {
+        matches!(
+            self,
+            FleetKind::EscortFrigate
+                | FleetKind::MissileFrigate
+                | FleetKind::Destroyer
+                | FleetKind::PatrolCorvette
+        )
+    }
+
+    /// Returns true if this fleet kind is a colonization archetype.
+    pub fn is_colonizer(self) -> bool {
+        matches!(self, FleetKind::Colonizer | FleetKind::ColonyArk)
+    }
+
+    /// Returns true if this fleet kind is an exploration/scout archetype.
+    pub fn is_scout(self) -> bool {
+        matches!(self, FleetKind::Scout | FleetKind::FastScout)
+    }
+
+    /// Returns true if this fleet kind is a survey/science archetype.
+    pub fn is_survey(self) -> bool {
+        matches!(self, FleetKind::Science | FleetKind::SurveyCutter)
+    }
 }
 
 /// A fleet of ships
@@ -2849,9 +3106,159 @@ mod tests {
     #[test]
     fn all_ship_designs_contains_science_ship() {
         let all = all_ship_designs();
-        assert_eq!(all.len(), 4);
+        assert_eq!(all.len(), 11);
         assert!(all.iter().any(|d| d.name == "Science Ship"));
         assert!(all.iter().any(|d| d.name == "Troop Transport"));
+        assert!(all.iter().any(|d| d.name == "Fast Scout"));
+        assert!(all.iter().any(|d| d.name == "Destroyer"));
+    }
+
+    #[test]
+    fn ship_design_maintenance_values_are_deterministic() {
+        let designs = all_ship_designs();
+        // Check all known designs have expected deterministic maintenance
+        let find = |name: &str| designs.iter().find(|d| d.name == name).unwrap();
+        assert_eq!(find("Scout").maintenance, 1);
+        assert_eq!(find("Colony Ship").maintenance, 1);
+        assert_eq!(find("Science Ship").maintenance, 1);
+        assert_eq!(find("Troop Transport").maintenance, 2);
+        assert_eq!(find("Fast Scout").maintenance, 1);
+        assert_eq!(find("Survey Cutter").maintenance, 2);
+        assert_eq!(find("Colony Ark").maintenance, 2);
+        assert_eq!(find("Escort Frigate").maintenance, 2);
+        assert_eq!(find("Missile Frigate").maintenance, 3);
+        assert_eq!(find("Destroyer").maintenance, 4);
+        assert_eq!(find("Patrol Corvette").maintenance, 1);
+    }
+
+    #[test]
+    fn ship_design_role_descriptions_are_non_empty() {
+        for design in all_ship_designs() {
+            assert!(
+                !design.role.is_empty(),
+                "design {} has empty role description",
+                design.name
+            );
+        }
+    }
+
+    #[test]
+    fn ship_design_strength_values_are_positive() {
+        for design in all_ship_designs() {
+            assert!(
+                design.strength >= 1,
+                "design {} strength must be >= 1",
+                design.name
+            );
+        }
+    }
+
+    #[test]
+    fn fleet_kind_maintenance_cost_is_deterministic() {
+        // Light ships cost 1
+        assert_eq!(FleetKind::Scout.maintenance_cost(), 1);
+        assert_eq!(FleetKind::FastScout.maintenance_cost(), 1);
+        assert_eq!(FleetKind::Science.maintenance_cost(), 1);
+        assert_eq!(FleetKind::Colonizer.maintenance_cost(), 1);
+        assert_eq!(FleetKind::PatrolCorvette.maintenance_cost(), 1);
+        // Medium ships cost 2
+        assert_eq!(FleetKind::TroopTransport.maintenance_cost(), 2);
+        assert_eq!(FleetKind::SurveyCutter.maintenance_cost(), 2);
+        assert_eq!(FleetKind::ColonyArk.maintenance_cost(), 2);
+        assert_eq!(FleetKind::EscortFrigate.maintenance_cost(), 2);
+        // Heavy ships cost 3-4
+        assert_eq!(FleetKind::MissileFrigate.maintenance_cost(), 3);
+        assert_eq!(FleetKind::Destroyer.maintenance_cost(), 4);
+    }
+
+    #[test]
+    fn new_ship_designs_require_expected_techs() {
+        use crate::state::ShipDesignId;
+        let find = |id: ShipDesignId| id.record().unwrap();
+        // Free designs (no tech required)
+        assert!(find(ShipDesignId::SCOUT).required_tech.is_none());
+        // Locked designs need a specific tech
+        assert_eq!(
+            find(ShipDesignId::FAST_SCOUT).required_tech,
+            Some(TechId::RAPID_TRANSIT)
+        );
+        assert_eq!(
+            find(ShipDesignId::SURVEY_CUTTER).required_tech,
+            Some(TechId::ADVANCED_SURVEY)
+        );
+        assert_eq!(
+            find(ShipDesignId::COLONY_ARK).required_tech,
+            Some(TechId::COLONIAL_VANGUARD)
+        );
+        assert_eq!(
+            find(ShipDesignId::ESCORT_FRIGATE).required_tech,
+            Some(TechId::PERIMETER_DEFENSE)
+        );
+        assert_eq!(
+            find(ShipDesignId::PATROL_CORVETTE).required_tech,
+            Some(TechId::PERIMETER_DEFENSE)
+        );
+        assert_eq!(
+            find(ShipDesignId::MISSILE_FRIGATE).required_tech,
+            Some(TechId::STRIKE_DOCTRINE)
+        );
+        assert_eq!(
+            find(ShipDesignId::DESTROYER).required_tech,
+            Some(TechId::FLEET_COORDINATION)
+        );
+    }
+
+    #[test]
+    fn fleet_kind_helpers_classify_correctly() {
+        assert!(FleetKind::EscortFrigate.is_combat());
+        assert!(FleetKind::MissileFrigate.is_combat());
+        assert!(FleetKind::Destroyer.is_combat());
+        assert!(FleetKind::PatrolCorvette.is_combat());
+        assert!(!FleetKind::Scout.is_combat());
+        assert!(!FleetKind::Colonizer.is_combat());
+
+        assert!(FleetKind::Colonizer.is_colonizer());
+        assert!(FleetKind::ColonyArk.is_colonizer());
+        assert!(!FleetKind::Scout.is_colonizer());
+
+        assert!(FleetKind::Scout.is_scout());
+        assert!(FleetKind::FastScout.is_scout());
+        assert!(!FleetKind::Science.is_scout());
+    }
+
+    #[test]
+    fn all_new_tech_ids_resolve() {
+        assert!(tech_by_id(TechId::RAPID_TRANSIT).is_some());
+        assert!(tech_by_id(TechId::ADVANCED_SURVEY).is_some());
+        assert!(tech_by_id(TechId::COLONIAL_VANGUARD).is_some());
+        assert!(tech_by_id(TechId::PERIMETER_DEFENSE).is_some());
+        assert!(tech_by_id(TechId::STRIKE_DOCTRINE).is_some());
+        assert!(tech_by_id(TechId::FLEET_COORDINATION).is_some());
+    }
+
+    #[test]
+    fn new_techs_unlock_expected_ship_designs() {
+        let rapid_transit = tech_by_id(TechId::RAPID_TRANSIT).unwrap();
+        assert!(rapid_transit.unlocks.iter().any(|u| matches!(
+            u,
+            TechUnlock::ShipDesign(id) if *id == ShipDesignId::FAST_SCOUT
+        )));
+
+        let fleet_coord = tech_by_id(TechId::FLEET_COORDINATION).unwrap();
+        assert!(fleet_coord.unlocks.iter().any(|u| matches!(
+            u,
+            TechUnlock::ShipDesign(id) if *id == ShipDesignId::DESTROYER
+        )));
+
+        let perimeter = tech_by_id(TechId::PERIMETER_DEFENSE).unwrap();
+        assert!(perimeter.unlocks.iter().any(|u| matches!(
+            u,
+            TechUnlock::ShipDesign(id) if *id == ShipDesignId::ESCORT_FRIGATE
+        )));
+        assert!(perimeter.unlocks.iter().any(|u| matches!(
+            u,
+            TechUnlock::ShipDesign(id) if *id == ShipDesignId::PATROL_CORVETTE
+        )));
     }
 
     #[test]
@@ -2901,7 +3308,7 @@ mod tests {
     #[test]
     fn all_techs_returns_twelve_entries() {
         let techs = all_techs();
-        assert_eq!(techs.len(), 12);
+        assert_eq!(techs.len(), 18);
         assert!(
             techs.iter().any(|t| t.name == "Orbital Engineering"),
             "Orbital Engineering tech must be present"

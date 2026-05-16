@@ -395,7 +395,13 @@ fn render_system_details(
                 FleetKind::Colonizer => {
                     format!("  Colony Ship {}{}", fleet.id.0, order_label)
                 }
+                FleetKind::ColonyArk => {
+                    format!("  Colony Ark {}{}", fleet.id.0, order_label)
+                }
                 FleetKind::Scout => format!("  Scout {}{}", fleet.id.0, order_label),
+                FleetKind::FastScout => {
+                    format!("  Fast Scout {}{}", fleet.id.0, order_label)
+                }
                 FleetKind::Science => {
                     let mission = game_state.survey_missions.get(&fleet.id);
                     match mission {
@@ -408,8 +414,44 @@ fn render_system_details(
                         None => format!("  Science Ship {}{}", fleet.id.0, order_label),
                     }
                 }
+                FleetKind::SurveyCutter => {
+                    let mission = game_state.survey_missions.get(&fleet.id);
+                    match mission {
+                        Some(mission) => format!(
+                            "  Survey Cutter {} (Surveying orbit {}){}",
+                            fleet.id.0,
+                            mission.planet_index + 1,
+                            order_label
+                        ),
+                        None => format!("  Survey Cutter {}{}", fleet.id.0, order_label),
+                    }
+                }
                 FleetKind::TroopTransport => {
                     format!("  Troop Transport {}{}", fleet.id.0, order_label)
+                }
+                FleetKind::EscortFrigate => {
+                    format!(
+                        "  Escort Frigate {} [str:{}]{}",
+                        fleet.id.0, fleet.strength, order_label
+                    )
+                }
+                FleetKind::MissileFrigate => {
+                    format!(
+                        "  Missile Frigate {} [str:{}]{}",
+                        fleet.id.0, fleet.strength, order_label
+                    )
+                }
+                FleetKind::Destroyer => {
+                    format!(
+                        "  Destroyer {} [str:{}]{}",
+                        fleet.id.0, fleet.strength, order_label
+                    )
+                }
+                FleetKind::PatrolCorvette => {
+                    format!(
+                        "  Patrol Corvette {} [str:{}]{}",
+                        fleet.id.0, fleet.strength, order_label
+                    )
                 }
             };
             lines.push(Line::from(Span::raw(label)));

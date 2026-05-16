@@ -511,9 +511,7 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
         )));
     } else {
         for (idx, tech_id) in empire.research.queue.iter().enumerate() {
-            let label = all
-                .iter()
-                .find(|t| t.id == *tech_id)
+            let label = tech_by_id(*tech_id)
                 .map(|t| t.name)
                 .unwrap_or("Unknown Tech");
             lines.push(Line::from(vec![

@@ -564,8 +564,6 @@ impl Engine {
         if let Some(star) = stars.get_mut(&home_star_id) {
             if let Some(planet) = star.planets.get_mut(0) {
                 planet.colony = Some(player_colony_id);
-            }
-            for planet in &mut star.planets {
                 planet.surveyed = true;
             }
         }
@@ -2278,52 +2276,7 @@ impl Engine {
 
         let mut transition_source = completed_tech;
         loop {
-            let mut next_started = None;
-
-            loop {
-                let next_candidate = {
-                    let Some(empire) = self.state.empires.get_mut(&empire_id) else {
-                        return;
-                    };
-                    if empire.research.queue.is_empty() {
-                        None
-                    } else {
-                        Some(empire.research.queue.remove(0))
-                    }
-                };
-
-                let Some(candidate) = next_candidate else {
-                    break;
-                };
-
-                let reason = match tech_by_id(candidate) {
-                    None => Some("unknown technology".to_string()),
-                    Some(_) => {
-                        let completed = match self.state.empires.get(&empire_id) {
-                            Some(e) => &e.research.completed,
-                            None => return,
-                        };
-                        if completed.contains(&candidate) {
-                            Some("already completed".to_string())
-                        } else if !is_tech_available(completed, candidate) {
-                            Some("prerequisites not met".to_string())
-                        } else {
-                            None
-                        }
-                    }
-                };
-
-                if let Some(reason) = reason {
-                    events.push(Event::QueuedResearchSkipped {
-                        tech: candidate,
-                        reason,
-                    });
-                    continue;
-                }
-
-                next_started = Some(candidate);
-                break;
-            }
+            let next_started = self.dequeue_next_valid_queued_research(empire_id, events);
 
             events.push(Event::ResearchCompletedWithQueueTransition {
                 completed: transition_source,
@@ -2373,6 +2326,46 @@ impl Engine {
                 empire.research.current_tech = Some(started);
             }
             return;
+        }
+    }
+
+    fn dequeue_next_valid_queued_research(
+        &mut self,
+        empire_id: EmpireId,
+        events: &mut Vec<Event>,
+    ) -> Option<TechId> {
+        loop {
+            let candidate = {
+                let empire = self.state.empires.get_mut(&empire_id)?;
+                if empire.research.queue.is_empty() {
+                    return None;
+                }
+                empire.research.queue.remove(0)
+            };
+
+            let reason = match tech_by_id(candidate) {
+                None => Some("unknown technology".to_string()),
+                Some(_) => {
+                    let completed = &self.state.empires.get(&empire_id)?.research.completed;
+                    if completed.contains(&candidate) {
+                        Some("already completed".to_string())
+                    } else if !is_tech_available(completed, candidate) {
+                        Some("prerequisites not met".to_string())
+                    } else {
+                        None
+                    }
+                }
+            };
+
+            if let Some(reason) = reason {
+                events.push(Event::QueuedResearchSkipped {
+                    tech: candidate,
+                    reason,
+                });
+                continue;
+            }
+
+            return Some(candidate);
         }
     }
 
@@ -4517,7 +4510,7 @@ mod tests {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
         let tech_a = TechId(1);
-        let tech_b = TechId(2);
+        let tech_b = TechId(3);
 
         engine.apply_turn(vec![Command::SetColonyFocus {
             colony: colony_id,
@@ -4628,7 +4621,7 @@ mod tests {
         // TechId(1) = Void Propulsion, cost 50.
         // 50 / 7 = 7.14... → completes on turn 8 with 7*8=56 → overflow = 6.
         let tech_a = TechId(1); // cost 50
-        let tech_b = TechId(2); // Habitat Seeding, cost 80
+        let tech_b = TechId(3); // Neutrino Sensors, cost 60
 
         engine.apply_turn(vec![Command::SetColonyFocus {
             colony: colony_id,

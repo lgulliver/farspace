@@ -9,12 +9,10 @@ use crate::screens::research::{
 };
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
-#[cfg(test)]
-use game_core::TechId;
 use game_core::{
     empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, Engine,
     Event as CoreEvent, FleetId, FleetKind, GalaxySize, OrbitalStructureType, ScenarioSetup,
-    SectorId, StarId,
+    SectorId, StarId, TechId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -1259,121 +1257,66 @@ impl App {
 
     /// Select the highlighted technology for research
     fn select_research_tech(&mut self) {
-        let tech_id = {
-            let Some(engine) = &self.engine else {
-                let msg = "Unavailable: select research — no game in progress.";
-                self.state.log.push(msg.to_string());
-                self.state.status_message = Some(msg.to_string());
-                return;
-            };
-
-            let visible = filtered_research_techs(&self.state, &engine.state);
-            if visible.is_empty() {
-                let msg = "Unavailable: select research — no technologies match current filters.";
-                self.state.log.push(msg.to_string());
-                self.state.status_message = Some(msg.to_string());
-                return;
-            }
-            let cursor = self.state.research.cursor % visible.len();
-            visible[cursor].id
+        let Some(tech_id) = self.highlighted_research_tech("select research") else {
+            return;
         };
 
         self.dispatch_command(Command::SelectResearch { tech: tech_id });
     }
 
     fn queue_research_tech(&mut self) {
-        let tech_id = {
-            let Some(engine) = &self.engine else {
-                let msg = "Unavailable: queue research — no game in progress.";
-                self.state.log.push(msg.to_string());
-                self.state.status_message = Some(msg.to_string());
-                return;
-            };
-
-            let visible = filtered_research_techs(&self.state, &engine.state);
-            if visible.is_empty() {
-                let msg = "Unavailable: queue research — no technologies match current filters.";
-                self.state.log.push(msg.to_string());
-                self.state.status_message = Some(msg.to_string());
-                return;
-            }
-            let cursor = self.state.research.cursor % visible.len();
-            visible[cursor].id
+        let Some(tech_id) = self.highlighted_research_tech("queue research") else {
+            return;
         };
 
         self.dispatch_command(Command::QueueResearch { tech: tech_id });
     }
 
     fn remove_queued_research_tech(&mut self) {
-        let tech_id = {
-            let Some(engine) = &self.engine else {
-                let msg = "Unavailable: remove queued research — no game in progress.";
-                self.state.log.push(msg.to_string());
-                self.state.status_message = Some(msg.to_string());
-                return;
-            };
-
-            let visible = filtered_research_techs(&self.state, &engine.state);
-            if visible.is_empty() {
-                let msg =
-                    "Unavailable: remove queued research — no technologies match current filters.";
-                self.state.log.push(msg.to_string());
-                self.state.status_message = Some(msg.to_string());
-                return;
-            }
-            let cursor = self.state.research.cursor % visible.len();
-            visible[cursor].id
+        let Some(tech_id) = self.highlighted_research_tech("remove queued research") else {
+            return;
         };
 
         self.dispatch_command(Command::RemoveQueuedResearch { tech: tech_id });
     }
 
     fn move_queued_research_up(&mut self) {
-        let tech_id = {
-            let Some(engine) = &self.engine else {
-                let msg = "Unavailable: reorder queued research — no game in progress.";
-                self.state.log.push(msg.to_string());
-                self.state.status_message = Some(msg.to_string());
-                return;
-            };
-
-            let visible = filtered_research_techs(&self.state, &engine.state);
-            if visible.is_empty() {
-                let msg =
-                    "Unavailable: reorder queued research — no technologies match current filters.";
-                self.state.log.push(msg.to_string());
-                self.state.status_message = Some(msg.to_string());
-                return;
-            }
-            let cursor = self.state.research.cursor % visible.len();
-            visible[cursor].id
+        let Some(tech_id) = self.highlighted_research_tech("reorder queued research") else {
+            return;
         };
 
         self.dispatch_command(Command::MoveQueuedResearchUp { tech: tech_id });
     }
 
     fn move_queued_research_down(&mut self) {
-        let tech_id = {
-            let Some(engine) = &self.engine else {
-                let msg = "Unavailable: reorder queued research — no game in progress.";
-                self.state.log.push(msg.to_string());
-                self.state.status_message = Some(msg.to_string());
-                return;
-            };
-
-            let visible = filtered_research_techs(&self.state, &engine.state);
-            if visible.is_empty() {
-                let msg =
-                    "Unavailable: reorder queued research — no technologies match current filters.";
-                self.state.log.push(msg.to_string());
-                self.state.status_message = Some(msg.to_string());
-                return;
-            }
-            let cursor = self.state.research.cursor % visible.len();
-            visible[cursor].id
+        let Some(tech_id) = self.highlighted_research_tech("reorder queued research") else {
+            return;
         };
 
         self.dispatch_command(Command::MoveQueuedResearchDown { tech: tech_id });
+    }
+
+    fn highlighted_research_tech(&mut self, action: &str) -> Option<TechId> {
+        let Some(engine) = &self.engine else {
+            let msg = format!("Unavailable: {} — no game in progress.", action);
+            self.state.log.push(msg.clone());
+            self.state.status_message = Some(msg);
+            return None;
+        };
+
+        let visible = filtered_research_techs(&self.state, &engine.state);
+        if visible.is_empty() {
+            let msg = format!(
+                "Unavailable: {} — no technologies match current filters.",
+                action
+            );
+            self.state.log.push(msg.clone());
+            self.state.status_message = Some(msg);
+            return None;
+        }
+
+        let cursor = self.state.research.cursor % visible.len();
+        Some(visible[cursor].id)
     }
 
     /// Queue the currently selected build item at the active colony

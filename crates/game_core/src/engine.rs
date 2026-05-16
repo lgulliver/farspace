@@ -39,9 +39,14 @@ const FLEET_TRAVEL_SPEED: f64 = 500.0;
 const HYPERSPACE_TRAVEL_DIVISOR: u32 = 2;
 const ISOLATED_YIELD_PERCENT: i64 = 50;
 const ISOLATED_STABILITY_PENALTY: u8 = 5;
+const MAX_HOUSING_DEFICIT_STABILITY_PENALTY: u8 = 10;
+const MAX_UNEMPLOYMENT_STABILITY_PENALTY: u8 = 5;
+const MAX_ISOLATED_FOOD_DEFICIT_STABILITY_PENALTY: u8 = 5;
 /// Stability penalty applied each turn to a blockaded colony.
 /// Blockade yield reduction reuses `ISOLATED_YIELD_PERCENT` via `apply_isolation_penalty`.
 const BLOCKADED_STABILITY_PENALTY: u8 = 5;
+const MIN_STABILITY_FOR_POP_GROWTH: u8 = 90;
+const POP_GROWTH_PERIOD_TURNS: u32 = 12;
 /// Fixed invasion strength contributed by one troop transport ship.
 const TROOP_TRANSPORT_INVASION_STRENGTH: u32 = 12;
 /// Colony stability after a successful capture.
@@ -982,13 +987,20 @@ impl Engine {
             }
             let mut pressure_penalty = 0u8;
             if housing_deficit > 0 {
-                pressure_penalty = pressure_penalty.saturating_add(housing_deficit.min(10) as u8);
+                pressure_penalty = pressure_penalty.saturating_add(
+                    housing_deficit.min(MAX_HOUSING_DEFICIT_STABILITY_PENALTY as u64) as u8,
+                );
             }
             if unemployed > 0 {
-                pressure_penalty = pressure_penalty.saturating_add(unemployed.min(5) as u8);
+                pressure_penalty =
+                    pressure_penalty.saturating_add(
+                        unemployed.min(MAX_UNEMPLOYMENT_STABILITY_PENALTY as u64) as u8,
+                    );
             }
             if !is_connected && food_deficit > 0 {
-                pressure_penalty = pressure_penalty.saturating_add(food_deficit.min(5) as u8);
+                pressure_penalty = pressure_penalty.saturating_add(
+                    food_deficit.min(MAX_ISOLATED_FOOD_DEFICIT_STABILITY_PENALTY as i64) as u8,
+                );
             }
             if pressure_penalty > 0 {
                 if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
@@ -1456,7 +1468,9 @@ impl Engine {
                     Some(c) => (c.star, c.planet_index, c.stability, c.owner),
                     None => continue,
                 };
-            if self.state.colony_blockade.contains_key(&colony_id) || stability < 90 {
+            if self.state.colony_blockade.contains_key(&colony_id)
+                || stability < MIN_STABILITY_FOR_POP_GROWTH
+            {
                 continue;
             }
             if self
@@ -1480,7 +1494,7 @@ impl Engine {
             if y.workforce.housing_deficit > 0 || y.food < y.food_consumed {
                 continue;
             }
-            if !(self.state.turn + colony_id.0 as u32).is_multiple_of(12) {
+            if !(self.state.turn + colony_id.0 as u32).is_multiple_of(POP_GROWTH_PERIOD_TURNS) {
                 continue;
             }
             if let Some(colony) = self.state.colonies.get_mut(&colony_id) {

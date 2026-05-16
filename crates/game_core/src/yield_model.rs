@@ -221,13 +221,13 @@ pub fn calculate_yield_with_context(
     let mut total_slots: BTreeMap<JobType, u64> = BTreeMap::new();
     total_slots.insert(
         JobType::Farmer,
-        aquaculture_count.saturating_mul(colony.population),
+        aquaculture_count.saturating_mul(assignable_pops),
     );
     total_slots.insert(JobType::Miner, fabrication_count);
     total_slots.insert(JobType::Technician, fabrication_count);
     total_slots.insert(
         JobType::Researcher,
-        nexus_count.saturating_mul(colony.population),
+        nexus_count.saturating_mul(assignable_pops),
     );
     total_slots.insert(JobType::Administrator, 1);
     total_slots.insert(JobType::Security, 1);

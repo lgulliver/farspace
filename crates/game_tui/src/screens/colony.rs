@@ -84,23 +84,34 @@ fn render_colony_portrait(
         return;
     }
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(6), Constraint::Length(4)])
-        .split(inner);
+    // Reserve caption only when there is enough height for portrait canvas to reach at least
+    // Compact detail (requires height >= 10). Caption needs 2 rows minimum, so threshold is 12.
+    let caption_height = 2u16;
+    let min_portrait_height = 10u16;
+    let show_caption = inner.height >= min_portrait_height + caption_height;
 
-    let mut canvas = Canvas::new(chunks[0].width, chunks[0].height);
+    let (portrait_area, caption_area_opt) = if show_caption {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(6), Constraint::Length(caption_height)])
+            .split(inner);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (inner, None)
+    };
+
+    let mut canvas = Canvas::new(portrait_area.width, portrait_area.height);
     canvas.fill(ColorToken::SpaceBg, RenderLayer::Background.z_base());
-    let detail = detail_for_area(chunks[0]);
+    let detail = detail_for_area(portrait_area);
     let Some(colony_id) = app_state.colony.selected_colony else {
         canvas.draw_text(
             1,
-            chunks[0].height / 2,
+            portrait_area.height / 2,
             "No colony selected",
             ColorToken::Muted.to_style(None),
             RenderLayer::Labels.z_base(),
         );
-        canvas.render_to_buffer(chunks[0], frame.buffer_mut());
+        canvas.render_to_buffer(portrait_area, frame.buffer_mut());
         return;
     };
     let Some(colony) = game_state.colonies.get(&colony_id) else {
@@ -113,8 +124,8 @@ fn render_colony_portrait(
         portrait_input_from_colony(planet_class, Some(colony)),
         detail,
     );
-    let x = chunks[0].width.saturating_sub(portrait.width) / 2;
-    let y = chunks[0].height.saturating_sub(portrait.height) / 2;
+    let x = portrait_area.width.saturating_sub(portrait.width) / 2;
+    let y = portrait_area.height.saturating_sub(portrait.height) / 2;
     canvas.draw_sprite(&portrait, x, y, 0, RenderLayer::Bodies.z_base());
     canvas.draw_text(
         1,
@@ -123,21 +134,23 @@ fn render_colony_portrait(
         ColorToken::Accent.to_style(None),
         RenderLayer::Labels.z_base(),
     );
-    canvas.render_to_buffer(chunks[0], frame.buffer_mut());
+    canvas.render_to_buffer(portrait_area, frame.buffer_mut());
 
-    let planet_name = planet.map(|p| p.name.as_str()).unwrap_or("Unknown");
-    let class_name = planet.map(|p| p.class.name()).unwrap_or("Unknown");
-    let star_name = star.map(|s| s.name.as_str()).unwrap_or("Unknown");
-    let status_line = format!(
-        "{}  |  {}  |  pop {}",
-        class_name, star_name, colony.population
-    );
-    let caption = Paragraph::new(vec![
-        Line::from(vec![Span::styled(planet_name, Theme::title_style())]),
-        Line::from(vec![Span::styled(status_line, Theme::muted_style())]),
-    ])
-    .style(Theme::default_style());
-    frame.render_widget(caption, chunks[1]);
+    if let Some(caption_area) = caption_area_opt {
+        let planet_name = planet.map(|p| p.name.as_str()).unwrap_or("Unknown");
+        let class_name = planet.map(|p| p.class.name()).unwrap_or("Unknown");
+        let star_name = star.map(|s| s.name.as_str()).unwrap_or("Unknown");
+        let status_line = format!(
+            "{}  |  {}  |  pop {}",
+            class_name, star_name, colony.population
+        );
+        let caption = Paragraph::new(vec![
+            Line::from(vec![Span::styled(planet_name, Theme::title_style())]),
+            Line::from(vec![Span::styled(status_line, Theme::muted_style())]),
+        ])
+        .style(Theme::default_style());
+        frame.render_widget(caption, caption_area);
+    }
 }
 
 /// Render colony statistics panel

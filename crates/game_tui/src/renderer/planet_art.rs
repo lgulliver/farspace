@@ -485,6 +485,100 @@ mod tests {
         assert!(glyphs.contains(&'◉') || glyphs.contains(&'●'));
     }
 
+    /// Table-driven coverage for every per-class overlay branch.
+    /// Each entry: (kind, expected overlay glyph that the overlay branch injects).
+    #[test]
+    fn planet_sprite_class_overlays_all_kinds() {
+        // (kind, glyph that must appear in the overlay for Standard detail)
+        let cases: &[(PlanetVisualKind, char)] = &[
+            (PlanetVisualKind::Terran, '~'),
+            (PlanetVisualKind::Ocean, '='),
+            (PlanetVisualKind::Arid, '='),
+            (PlanetVisualKind::Desert, '~'),
+            (PlanetVisualKind::Ice, '^'),
+            (PlanetVisualKind::Volcanic, '#'),
+            (PlanetVisualKind::Barren, 'o'),
+            (PlanetVisualKind::GasGiant, '='),
+            (PlanetVisualKind::Toxic, 'x'),
+            (PlanetVisualKind::Unknown, '?'),
+        ];
+
+        for &(kind, expected_glyph) in cases {
+            let sprite = planet_sprite(kind, DetailLevel::Standard);
+            let glyphs: BTreeSet<char> = sprite.frames[0]
+                .cells
+                .iter()
+                .map(|cell| cell.glyph)
+                .collect();
+            assert!(
+                glyphs.contains(&expected_glyph),
+                "kind {:?} overlay missing glyph '{}'",
+                kind,
+                expected_glyph
+            );
+        }
+    }
+
+    /// Tiny detail must suppress all overlays — only the single tiny glyph is present.
+    #[test]
+    fn planet_sprite_tiny_detail_suppresses_overlays() {
+        let all_kinds = [
+            PlanetVisualKind::Terran,
+            PlanetVisualKind::Ocean,
+            PlanetVisualKind::Arid,
+            PlanetVisualKind::Desert,
+            PlanetVisualKind::Ice,
+            PlanetVisualKind::Volcanic,
+            PlanetVisualKind::Barren,
+            PlanetVisualKind::GasGiant,
+            PlanetVisualKind::Toxic,
+            PlanetVisualKind::Unknown,
+        ];
+        let overlay_glyphs: BTreeSet<char> = ['~', '=', '^', '#', 'o', 'x', '?'].into();
+
+        for kind in all_kinds {
+            let sprite = planet_sprite(kind, DetailLevel::Tiny);
+            assert_eq!(
+                sprite.frames[0].cells.len(),
+                1,
+                "kind {:?} Tiny sprite should have exactly 1 cell",
+                kind
+            );
+            let glyph = sprite.frames[0].cells[0].glyph;
+            assert!(
+                !overlay_glyphs.contains(&glyph),
+                "kind {:?} Tiny glyph '{}' looks like an overlay glyph",
+                kind,
+                glyph
+            );
+        }
+    }
+
+    /// Compact detail must also carry overlay glyphs (non-tiny path is taken).
+    #[test]
+    fn planet_sprite_compact_detail_has_overlay_glyphs() {
+        let cases: &[(PlanetVisualKind, char)] = &[
+            (PlanetVisualKind::Terran, '~'),
+            (PlanetVisualKind::Volcanic, '#'),
+            (PlanetVisualKind::Ice, '^'),
+            (PlanetVisualKind::Unknown, '?'),
+        ];
+        for &(kind, expected_glyph) in cases {
+            let sprite = planet_sprite(kind, DetailLevel::Compact);
+            let glyphs: BTreeSet<char> = sprite.frames[0]
+                .cells
+                .iter()
+                .map(|cell| cell.glyph)
+                .collect();
+            assert!(
+                glyphs.contains(&expected_glyph),
+                "kind {:?} Compact overlay missing glyph '{}'",
+                kind,
+                expected_glyph
+            );
+        }
+    }
+
     #[test]
     fn colony_portrait_adds_horizon_and_skyline_for_settled_worlds() {
         let portrait = colony_portrait(
@@ -506,5 +600,28 @@ mod tests {
         assert!(glyphs.contains(&'_'));
         assert!(glyphs.contains(&'▮'));
         assert!(glyphs.contains(&'◌'));
+    }
+
+    /// Colony portrait tiny detail must not add horizon/skyline cells.
+    #[test]
+    fn colony_portrait_tiny_detail_suppresses_surface_art() {
+        let portrait = colony_portrait(
+            ColonyPortraitInput {
+                planet_kind: PlanetVisualKind::Terran,
+                population_level: 120,
+                industry_level: 120,
+                pollution_level: 0,
+                has_orbital_infrastructure: true,
+            },
+            DetailLevel::Tiny,
+        );
+        let glyphs: BTreeSet<char> = portrait.frames[0]
+            .cells
+            .iter()
+            .map(|cell| cell.glyph)
+            .collect();
+
+        assert!(!glyphs.contains(&'_'), "horizon should be absent at Tiny");
+        assert!(!glyphs.contains(&'▮'), "skyline should be absent at Tiny");
     }
 }

@@ -284,8 +284,8 @@ fn render_system_visual(
                 RenderLayer::Bodies.z_base() + 1,
             );
             let label_y = y
-                .saturating_add(sprite.height / 2)
-                .saturating_add(1)
+                .saturating_sub(sprite.height / 2)
+                .saturating_sub(2)
                 .min(area.height.saturating_sub(1));
             canvas.draw_text(
                 x.saturating_sub(1),
@@ -440,7 +440,7 @@ fn render_system_details(
     let survey_state = planet_survey_state(game_state, star.id, selected_planet, planet.surveyed);
     let detail_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(12), Constraint::Min(8)])
+        .constraints([Constraint::Percentage(40), Constraint::Min(0)])
         .split(inner);
 
     render_selected_planet_hero(
@@ -490,7 +490,14 @@ fn render_selected_planet_hero(
     };
     let sprite = if let Some(colony_id) = planet.colony {
         colony_portrait(
-            portrait_input_from_colony(Some(planet.class), game_state.colonies.get(&colony_id)),
+            portrait_input_from_colony(
+                if survey_state == "Surveyed" {
+                    Some(planet.class)
+                } else {
+                    None
+                },
+                game_state.colonies.get(&colony_id),
+            ),
             render_detail,
         )
     } else {

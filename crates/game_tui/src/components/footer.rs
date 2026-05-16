@@ -5,9 +5,58 @@ use crate::theme::Theme;
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
+
+fn line_width(line: &Line<'_>) -> usize {
+    line.width()
+}
+
+fn push_wrapped_hint_lines<'a>(
+    lines: &mut Vec<Line<'a>>,
+    hints: &'a [(&'a str, &'a str)],
+    max_width: usize,
+) {
+    if hints.is_empty() || max_width == 0 {
+        return;
+    }
+
+    let separator = Span::styled("  │  ", Theme::dim_border_style());
+    let separator_width = separator.width();
+    let mut current_spans: Vec<Span<'static>> = Vec::new();
+    let mut current_width = 0usize;
+
+    for (index, (key, desc)) in hints.iter().enumerate() {
+        let entry = vec![
+            Span::styled((*key).to_string(), Theme::title_style()),
+            Span::raw(" ".to_string()),
+            Span::styled((*desc).to_string(), Theme::muted_style()),
+        ];
+        let entry_line = Line::from(entry.clone());
+        let entry_width = line_width(&entry_line);
+        let needs_separator = !current_spans.is_empty();
+        let projected_width = current_width
+            + if needs_separator { separator_width } else { 0 }
+            + entry_width;
+
+        if needs_separator && projected_width > max_width {
+            lines.push(Line::from(std::mem::take(&mut current_spans)));
+            current_width = 0;
+        }
+
+        if !current_spans.is_empty() {
+            current_spans.push(separator.clone());
+            current_width += separator_width;
+        }
+        current_spans.extend(entry);
+        current_width += entry_width;
+
+        if index == hints.len() - 1 && !current_spans.is_empty() {
+            lines.push(Line::from(std::mem::take(&mut current_spans)));
+        }
+    }
+}
 
 /// Render the footer with contextual hints
 pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Option<&str>) {
@@ -94,23 +143,9 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Op
         ],
     };
 
-    let spans: Vec<Span> = hints
-        .iter()
-        .enumerate()
-        .flat_map(|(i, (key, desc))| {
-            let mut v = vec![
-                Span::styled(*key, Theme::title_style()),
-                Span::raw(" "),
-                Span::styled(*desc, Theme::muted_style()),
-            ];
-            if i < hints.len() - 1 {
-                v.push(Span::styled("  │  ", Theme::dim_border_style()));
-            }
-            v
-        })
-        .collect();
-
-    let mut lines = vec![Line::from(spans)];
+    let inner_width = usize::from(area.width.saturating_sub(2)).max(1);
+    let mut lines = Vec::new();
+    push_wrapped_hint_lines(&mut lines, &hints, inner_width);
     if let Some(context_line) = context {
         lines.push(Line::from(vec![
             Span::styled("Hint: ", Theme::title_style()),
@@ -120,7 +155,8 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Op
 
     let paragraph = Paragraph::new(lines)
         .block(Block::default().borders(Borders::TOP))
-        .style(Theme::default_style());
+        .style(Theme::default_style())
+        .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, area);
 }

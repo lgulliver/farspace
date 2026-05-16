@@ -8,7 +8,7 @@ use crate::AppState;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 
@@ -24,49 +24,16 @@ const TITLE_LINES: &[&str] = &[
     "  ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝╚══════╝",
 ];
 
-/// Height of the menu box with title, actions, and quickstart guidance.
-const MENU_BOX_HEIGHT: u16 = 24;
+const COMPACT_TITLE: &str = "FARSPACE";
 
-/// Width of the menu box: wide enough for the 66-char title plus borders/padding
-const MENU_BOX_WIDTH: u16 = 70;
-
-/// Render the main menu
-pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
-    let (_header_area, main_area, footer_area) = compose_layout(area);
-
-    // Footer shows keyboard hints for the menu screen
-    let menu_hint = app_state.status_message.as_deref().or(Some(
-        "Quickstart: N, Enter, r, Enter, then S/C in system view.",
-    ));
-    render_footer(frame, footer_area, &Screen::Menu, menu_hint);
-
-    // Center the menu box vertically within the main area
-    let v_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Fill(1),
-            Constraint::Length(MENU_BOX_HEIGHT),
-            Constraint::Fill(1),
-        ])
-        .split(main_area);
-
-    // Center the menu box horizontally
-    let h_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Fill(1),
-            Constraint::Length(MENU_BOX_WIDTH),
-            Constraint::Fill(1),
-        ])
-        .split(v_chunks[1]);
-
-    let menu_area = h_chunks[1];
-
-    // Build menu items — each title row is its own Line so ratatui renders
-    // them on separate rows (a single Span with '\n' chars would be stripped).
+fn build_menu_lines(use_ascii_title: bool) -> Vec<Line<'static>> {
     let mut menu_items: Vec<Line> = vec![Line::from("")];
-    for line in TITLE_LINES {
-        menu_items.push(Line::from(Span::styled(*line, Theme::title_style())));
+    if use_ascii_title {
+        for line in TITLE_LINES {
+            menu_items.push(Line::from(Span::styled(*line, Theme::title_style())));
+        }
+    } else {
+        menu_items.push(Line::from(Span::styled(COMPACT_TITLE, Theme::title_style())));
     }
     menu_items.extend([
         Line::from(""),
@@ -95,6 +62,57 @@ pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
         Line::from("  4) [r] research and [Enter] to choose active tech"),
         Line::from("  5) [:] then save / load"),
     ]);
+    menu_items
+}
+
+fn menu_box_size(main_area: Rect) -> (u16, u16, bool) {
+    let ascii_title_width = TITLE_LINES.iter().map(|line| line.chars().count()).max().unwrap_or(0);
+    let use_ascii_title = main_area.width > (ascii_title_width as u16 + 4);
+    let content_lines = build_menu_lines(use_ascii_title);
+    let content_width = content_lines
+        .iter()
+        .map(|line| line.width() as u16)
+        .max()
+        .unwrap_or(0);
+    let width = (content_width + 4).min(main_area.width).max(24);
+    let height = ((content_lines.len() as u16) + 2).min(main_area.height).max(8);
+    (width, height, use_ascii_title)
+}
+
+/// Render the main menu
+pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
+    let (_header_area, main_area, footer_area) = compose_layout(area);
+
+    // Footer shows keyboard hints for the menu screen
+    let menu_hint = app_state.status_message.as_deref().or(Some(
+        "Quickstart: N, Enter, r, Enter, then S/C in system view.",
+    ));
+    render_footer(frame, footer_area, &Screen::Menu, menu_hint);
+
+    let (menu_width, menu_height, use_ascii_title) = menu_box_size(main_area);
+
+    let v_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(menu_height),
+            Constraint::Fill(1),
+        ])
+        .split(main_area);
+
+    // Center the menu box horizontally
+    let h_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(menu_width),
+            Constraint::Fill(1),
+        ])
+        .split(v_chunks[1]);
+
+    let menu_area = h_chunks[1];
+
+    let menu_items = build_menu_lines(use_ascii_title);
 
     let paragraph = Paragraph::new(menu_items)
         .block(
@@ -103,7 +121,8 @@ pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
                 .style(Theme::default_style()),
         )
         .alignment(Alignment::Center)
-        .style(Theme::default_style());
+        .style(Theme::default_style())
+        .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, menu_area);
 }

@@ -6,7 +6,7 @@ use crate::theme::Theme;
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
 
@@ -22,7 +22,7 @@ enum HelpEntry {
 
 /// Render the help overlay
 pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
-    let popup_area = centered_rect(65, 75, area);
+    let popup_area = centered_rect(80, 80, area);
 
     // Clear the background
     frame.render_widget(Clear, popup_area);
@@ -200,24 +200,24 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         ],
     };
 
+    let key_width = usize::from(popup_area.width.saturating_sub(8)).clamp(6, 14);
+    let divider_len = usize::from(popup_area.width.saturating_sub(4)).clamp(8, 36);
+
     let lines: Vec<Line> = entries
         .iter()
         .map(|entry| match entry {
             HelpEntry::Section(label) => Line::from(vec![
                 Span::raw(" "),
                 Span::styled(*label, Theme::accent_style()),
-                Span::styled(
-                    " ─────────────────────────────────────",
-                    Theme::dim_border_style(),
-                ),
+                Span::styled(format!(" {}", "─".repeat(divider_len)), Theme::dim_border_style()),
             ]),
             HelpEntry::Binding(key, desc) => Line::from(vec![
-                Span::styled(format!("{:>14}", key), Theme::title_style()),
+                Span::styled(format!("{key:>width$}", width = key_width), Theme::title_style()),
                 Span::raw("  "),
                 Span::styled(*desc, Theme::default_style()),
             ]),
             HelpEntry::Note(desc) => Line::from(vec![
-                Span::styled(format!("{:>14}", "·"), Theme::dim_border_style()),
+                Span::styled(format!("{:>width$}", "·", width = key_width), Theme::dim_border_style()),
                 Span::raw("  "),
                 Span::styled(*desc, Theme::muted_style()),
             ]),
@@ -231,7 +231,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
                 .borders(Borders::ALL)
                 .style(Theme::default_style()),
         )
-        .style(Theme::default_style());
+        .style(Theme::default_style())
+        .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, popup_area);
 }

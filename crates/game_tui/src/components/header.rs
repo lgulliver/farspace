@@ -9,6 +9,10 @@ use ratatui::{
     Frame,
 };
 
+fn join_segments(segments: &[String]) -> String {
+    segments.join(" │ ")
+}
+
 /// Snapshot of top-bar values for the player empire.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderData {
@@ -71,29 +75,99 @@ pub fn render_header(frame: &mut Frame, area: Rect, data: &HeaderData) {
         Theme::default_style()
     };
 
-    let spans = vec![
-        Span::styled(format!(" Turn {} ", data.turn), Theme::header_style()),
-        Span::raw(" │ "),
-        Span::styled(data.empire_name.as_str(), Theme::title_style()),
-        Span::raw(" │ "),
-        Span::styled("Credits: ", Theme::muted_style()),
-        Span::styled(format!("{}", data.credits), credits_style),
-        Span::raw(" │ "),
-        Span::styled("Food: ", Theme::muted_style()),
-        Span::styled(format!("{}", data.food), food_style),
-        Span::raw(" │ "),
-        Span::styled("Science: ", Theme::muted_style()),
-        Span::raw(format!("{}", data.science)),
-        Span::raw(" │ "),
-        Span::styled("Research: ", Theme::muted_style()),
-        Span::raw(data.active_research.clone()),
-        Span::raw(" │ "),
-        Span::styled("Colonies: ", Theme::muted_style()),
-        Span::raw(format!("{}", data.colonies)),
-        Span::raw(" │ "),
-        Span::styled("Fleets: ", Theme::muted_style()),
-        Span::raw(format!("{}", data.fleets)),
+    let wide_segments = vec![
+        format!("Turn {}", data.turn),
+        data.empire_name.clone(),
+        format!("Credits: {}", data.credits),
+        format!("Food: {}", data.food),
+        format!("Science: {}", data.science),
+        format!("Research: {}", data.active_research),
+        format!("Colonies: {}", data.colonies),
+        format!("Fleets: {}", data.fleets),
     ];
+    let medium_segments = vec![
+        format!("T{}", data.turn),
+        data.empire_name.clone(),
+        format!("Cr {}", data.credits),
+        format!("Fd {}", data.food),
+        format!("Sci {}", data.science),
+        format!("Res {}", data.active_research),
+        format!("Col {}", data.colonies),
+        format!("Fl {}", data.fleets),
+    ];
+    let narrow_segments = vec![
+        format!("T{}", data.turn),
+        format!("Cr {}", data.credits),
+        format!("Fd {}", data.food),
+        format!("Sci {}", data.science),
+        format!("Col {}", data.colonies),
+        format!("Fl {}", data.fleets),
+    ];
+
+    let area_width = usize::from(area.width);
+    let chosen = if join_segments(&wide_segments).chars().count() <= area_width {
+        wide_segments
+    } else if join_segments(&medium_segments).chars().count() <= area_width {
+        medium_segments
+    } else {
+        narrow_segments
+    };
+
+    let mut spans = Vec::new();
+    for (index, segment) in chosen.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(" │ ", Theme::dim_border_style()));
+        }
+
+        let span = if index == 0 {
+            Span::styled(format!(" {} ", segment), Theme::header_style())
+        } else if segment.starts_with(&data.empire_name) {
+            Span::styled(segment.clone(), Theme::title_style())
+        } else if segment.starts_with("Credits:") || segment.starts_with("Cr ") {
+            let label = if segment.starts_with("Credits:") {
+                "Credits: "
+            } else {
+                "Cr "
+            };
+            spans.push(Span::styled(label, Theme::muted_style()));
+            Span::styled(segment[label.len()..].to_string(), credits_style)
+        } else if segment.starts_with("Food:") || segment.starts_with("Fd ") {
+            let label = if segment.starts_with("Food:") {
+                "Food: "
+            } else {
+                "Fd "
+            };
+            spans.push(Span::styled(label, Theme::muted_style()));
+            Span::styled(segment[label.len()..].to_string(), food_style)
+        } else if let Some(value) = segment.strip_prefix("Science: ") {
+            spans.push(Span::styled("Science: ", Theme::muted_style()));
+            Span::raw(value.to_string())
+        } else if let Some(value) = segment.strip_prefix("Sci ") {
+            spans.push(Span::styled("Sci ", Theme::muted_style()));
+            Span::raw(value.to_string())
+        } else if let Some(value) = segment.strip_prefix("Research: ") {
+            spans.push(Span::styled("Research: ", Theme::muted_style()));
+            Span::raw(value.to_string())
+        } else if let Some(value) = segment.strip_prefix("Res ") {
+            spans.push(Span::styled("Res ", Theme::muted_style()));
+            Span::raw(value.to_string())
+        } else if let Some(value) = segment.strip_prefix("Colonies: ") {
+            spans.push(Span::styled("Colonies: ", Theme::muted_style()));
+            Span::raw(value.to_string())
+        } else if let Some(value) = segment.strip_prefix("Col ") {
+            spans.push(Span::styled("Col ", Theme::muted_style()));
+            Span::raw(value.to_string())
+        } else if let Some(value) = segment.strip_prefix("Fleets: ") {
+            spans.push(Span::styled("Fleets: ", Theme::muted_style()));
+            Span::raw(value.to_string())
+        } else if let Some(value) = segment.strip_prefix("Fl ") {
+            spans.push(Span::styled("Fl ", Theme::muted_style()));
+            Span::raw(value.to_string())
+        } else {
+            Span::raw(segment.clone())
+        };
+        spans.push(span);
+    }
 
     let paragraph = Paragraph::new(Line::from(spans)).style(Theme::default_style());
 

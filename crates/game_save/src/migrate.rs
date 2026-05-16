@@ -311,7 +311,7 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // valid and no state rewrite is needed.
             let mut metadata = save.metadata;
             metadata.schema_version = 26;
-            Ok(SaveFile {
+            migrate(SaveFile {
                 version: 26,
                 metadata,
                 state: save.state,

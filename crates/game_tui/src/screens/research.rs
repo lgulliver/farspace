@@ -505,7 +505,10 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
     lines.push(Line::from(""));
 
     if empire.research.queue.is_empty() {
-        lines.push(Line::from(Span::styled("None queued", Theme::muted_style())));
+        lines.push(Line::from(Span::styled(
+            "None queued",
+            Theme::muted_style(),
+        )));
     } else {
         for (idx, tech_id) in empire.research.queue.iter().enumerate() {
             let label = all

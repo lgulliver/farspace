@@ -1315,7 +1315,8 @@ impl App {
 
             let visible = filtered_research_techs(&self.state, &engine.state);
             if visible.is_empty() {
-                let msg = "Unavailable: remove queued research — no technologies match current filters.";
+                let msg =
+                    "Unavailable: remove queued research — no technologies match current filters.";
                 self.state.log.push(msg.to_string());
                 self.state.status_message = Some(msg.to_string());
                 return;

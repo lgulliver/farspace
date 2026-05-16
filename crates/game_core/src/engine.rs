@@ -1114,10 +1114,7 @@ impl Engine {
                     // Tech completed — overflow carries into deterministic queue processing.
                     let overflow = new_progress - tech_cost;
                     self.process_research_completion_with_queue(
-                        *empire_id,
-                        tech_id,
-                        overflow,
-                        events,
+                        *empire_id, tech_id, overflow, events,
                     );
                 } else {
                     if let Some(empire) = self.state.empires.get_mut(empire_id) {
@@ -2143,8 +2140,16 @@ impl Engine {
                 return;
             }
         };
-        let Some(index) = empire.research.queue.iter().position(|queued| *queued == tech_id) else {
-            events.push(Event::error(format!("Tech {} is not in research queue", tech_id.0)));
+        let Some(index) = empire
+            .research
+            .queue
+            .iter()
+            .position(|queued| *queued == tech_id)
+        else {
+            events.push(Event::error(format!(
+                "Tech {} is not in research queue",
+                tech_id.0
+            )));
             return;
         };
 
@@ -2163,8 +2168,16 @@ impl Engine {
                 return;
             }
         };
-        let Some(from_index) = empire.research.queue.iter().position(|queued| *queued == tech_id) else {
-            events.push(Event::error(format!("Tech {} is not in research queue", tech_id.0)));
+        let Some(from_index) = empire
+            .research
+            .queue
+            .iter()
+            .position(|queued| *queued == tech_id)
+        else {
+            events.push(Event::error(format!(
+                "Tech {} is not in research queue",
+                tech_id.0
+            )));
             return;
         };
         if from_index == 0 {
@@ -2195,8 +2208,16 @@ impl Engine {
                 return;
             }
         };
-        let Some(from_index) = empire.research.queue.iter().position(|queued| *queued == tech_id) else {
-            events.push(Event::error(format!("Tech {} is not in research queue", tech_id.0)));
+        let Some(from_index) = empire
+            .research
+            .queue
+            .iter()
+            .position(|queued| *queued == tech_id)
+        else {
+            events.push(Event::error(format!(
+                "Tech {} is not in research queue",
+                tech_id.0
+            )));
             return;
         };
         if from_index + 1 >= empire.research.queue.len() {
@@ -4240,10 +4261,16 @@ mod tests {
     fn completion_skips_locked_queued_research_and_starts_next() {
         use crate::state::TechId;
         let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
         let tech_a = TechId(1);
         let locked = TechId(6);
         let fallback = TechId(3);
 
+        engine.apply_turn(vec![Command::SetColonyFocus {
+            colony: colony_id,
+            prod_pct: 0,
+            research_pct: 100,
+        }]);
         engine.apply_turn(vec![Command::SelectResearch { tech: tech_a }]);
         engine.apply_turn(vec![
             Command::QueueResearch { tech: locked },
@@ -4251,7 +4278,7 @@ mod tests {
         ]);
 
         let mut completion_events = Vec::new();
-        for _ in 0..8 {
+        for _ in 0..12 {
             let events = engine.apply_turn(vec![Command::EndTurn]);
             if events
                 .iter()

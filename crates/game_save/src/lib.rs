@@ -465,9 +465,9 @@ mod tests {
     #[test]
     fn load_legacy_research_state_without_queue_defaults_empty_queue() {
         // Simulate older saves that had no `research.queue` field.
-        let mut legacy_json =
-            serde_json::to_value(crate::schema::SaveFile::new(game_core::state::GameState::default()))
-                .expect("serialize save");
+        let populated_state = game_core::Engine::new(42).state;
+        let mut legacy_json = serde_json::to_value(crate::schema::SaveFile::new(populated_state))
+            .expect("serialize save");
         legacy_json["version"] = serde_json::json!(26);
         legacy_json["metadata"]["schema_version"] = serde_json::json!(26);
 
@@ -480,7 +480,7 @@ mod tests {
         }
 
         let encoded = serde_json::to_string(&legacy_json).expect("encode legacy json");
-        let loaded = load(&encoded).expect("legacy load should succeed");
+        let loaded = load(encoded.as_bytes()).expect("legacy load should succeed");
         let empire = loaded.empires.get(&loaded.player_empire).unwrap();
         assert!(
             empire.research.queue.is_empty(),

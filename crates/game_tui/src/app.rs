@@ -3,7 +3,10 @@
 use crate::components::{render_help, render_palette, EventLog, LogEntryKind, PaletteCommand};
 use crate::keys::KeyMap;
 use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData, OverviewSort};
-use crate::screens::research::filtered_research_techs;
+use crate::screens::research::{
+    filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_ERA_FILTER_COUNT,
+    RESEARCH_STATUS_FILTER_COUNT,
+};
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 #[cfg(test)]
@@ -1139,15 +1142,18 @@ impl App {
                 self.state.research.query_input = true;
             }
             KeyCode::Tab => {
-                self.state.research.domain_filter = (self.state.research.domain_filter + 1) % 7;
+                self.state.research.domain_filter =
+                    (self.state.research.domain_filter + 1) % RESEARCH_DOMAIN_FILTER_COUNT;
                 self.state.research.cursor = 0;
             }
             KeyCode::Char('[') => {
-                self.state.research.era_filter = (self.state.research.era_filter + 1) % 7;
+                self.state.research.era_filter =
+                    (self.state.research.era_filter + 1) % RESEARCH_ERA_FILTER_COUNT;
                 self.state.research.cursor = 0;
             }
             KeyCode::Char(']') => {
-                self.state.research.status_filter = (self.state.research.status_filter + 1) % 5;
+                self.state.research.status_filter =
+                    (self.state.research.status_filter + 1) % RESEARCH_STATUS_FILTER_COUNT;
                 self.state.research.cursor = 0;
             }
             // Navigate tech list

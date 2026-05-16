@@ -18,8 +18,7 @@ use crate::events::Event;
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, BuildItem, BuildingType, Colony,
     ColonyId, ColonyRole, EmpireId, FleetId, FleetKind, GameState, OrbitalStructureType,
-    PlanetClass, PlaystyleTag, ScoutMission, ShipDesignId, StarId, TechDomain, TechId, TechRarity,
-    TechTag,
+    PlanetClass, PlaystyleTag, ScoutMission, ShipDesignId, StarId, TechDomain, TechId, TechTag,
 };
 
 /// Run one AI decision pass for the given empire.
@@ -175,36 +174,14 @@ fn pick_research(state: &GameState, empire_id: EmpireId) -> Option<TechId> {
             1
         };
 
-        let future_penalty_a = if a.future_hook && a.unlocks.is_empty() {
-            2u8
-        } else if a.future_hook {
-            1
-        } else {
-            0
-        };
-        let future_penalty_b = if b.future_hook && b.unlocks.is_empty() {
-            2u8
-        } else if b.future_hook {
-            1
-        } else {
-            0
-        };
-
-        let rarity_penalty = |rarity: TechRarity| -> u8 {
-            match rarity {
-                TechRarity::Common => 0,
-                TechRarity::Uncommon => 1,
-                TechRarity::Rare => 2,
-                TechRarity::Breakthrough => 3,
-                TechRarity::Dangerous => 4,
-            }
-        };
+        let future_penalty_a = future_penalty(a.future_hook, a.unlocks.is_empty());
+        let future_penalty_b = future_penalty(b.future_hook, b.unlocks.is_empty());
 
         future_penalty_a
             .cmp(&future_penalty_b)
             .then(domain_pref_a.cmp(&domain_pref_b))
             .then(tag_pref_a.cmp(&tag_pref_b))
-            .then(rarity_penalty(a.rarity).cmp(&rarity_penalty(b.rarity)))
+            .then(a.rarity.ai_penalty().cmp(&b.rarity.ai_penalty()))
             .then(a.tier.cmp(&b.tier))
             .then(a.cost.cmp(&b.cost))
             .then(b.ai_weight.cmp(&a.ai_weight))
@@ -212,6 +189,16 @@ fn pick_research(state: &GameState, empire_id: EmpireId) -> Option<TechId> {
             .then(a.id.cmp(&b.id))
     });
     candidates.first().map(|t| t.id)
+}
+
+fn future_penalty(is_future_hook: bool, has_no_unlocks: bool) -> u8 {
+    if is_future_hook && has_no_unlocks {
+        2
+    } else if is_future_hook {
+        1
+    } else {
+        0
+    }
 }
 
 // ---------------------------------------------------------------------------

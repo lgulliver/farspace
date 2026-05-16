@@ -44,6 +44,9 @@ const TECH_DOMAIN_ORDER: [TechDomain; 6] = [
     TechDomain::Economy,
     TechDomain::Biology,
 ];
+pub(crate) const RESEARCH_DOMAIN_FILTER_COUNT: usize = TECH_DOMAIN_ORDER.len() + 1;
+pub(crate) const RESEARCH_ERA_FILTER_COUNT: usize = 7; // all + 6 eras
+pub(crate) const RESEARCH_STATUS_FILTER_COUNT: usize = 5; // all + 4 statuses
 
 pub(crate) fn ordered_research_techs() -> Vec<&'static TechRecord> {
     let all = all_techs();
@@ -86,7 +89,7 @@ pub(crate) fn filtered_research_techs<'a>(
                     4 => TechTier::IV,
                     5 => TechTier::V,
                     6 => TechTier::VI,
-                    _ => TechTier::I,
+                    _ => unreachable!("era_filter is clamped to 0..=6"),
                 };
                 tech.tier == tier
             }
@@ -192,6 +195,7 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
     let cursor = app_state.research.cursor % ordered.len();
     let selected_id = ordered[cursor].id;
     let mut lines = Vec::new();
+    let mut selected_line_idx = 0usize;
 
     let domain_filter_label = if app_state.research.domain_filter == 0 {
         "All".to_string()
@@ -275,11 +279,14 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
                     prefix,
                     tech.cost,
                     tech.name,
-                    tech.tier.label().replace(" · ", " "),
+                    tech.tier.short_label(),
                     status_tag
                 ),
                 style,
             )));
+            if is_selected {
+                selected_line_idx = lines.len().saturating_sub(1);
+            }
             if !rarity_tag.is_empty() || !hook_tag.is_empty() {
                 lines.push(Line::from(Span::styled(
                     format!("   {} {}", rarity_tag, hook_tag).trim().to_string(),
@@ -290,12 +297,8 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
         lines.push(Line::from(""));
     }
 
-    let selected_line = lines
-        .iter()
-        .position(|line| line.to_string().starts_with("> "))
-        .unwrap_or(0);
     let height = inner.height.saturating_sub(1) as usize;
-    let scroll = selected_line.saturating_sub(height / 2) as u16;
+    let scroll = selected_line_idx.saturating_sub(height / 2) as u16;
     let paragraph = Paragraph::new(lines)
         .style(Theme::default_style())
         .scroll((scroll, 0));

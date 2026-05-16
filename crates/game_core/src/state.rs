@@ -677,6 +677,17 @@ impl TechTier {
             TechTier::VI => "Era 6 · Transcendent Age",
         }
     }
+
+    pub fn short_label(&self) -> &'static str {
+        match self {
+            TechTier::I => "Era 1",
+            TechTier::II => "Era 2",
+            TechTier::III => "Era 3",
+            TechTier::IV => "Era 4",
+            TechTier::V => "Era 5",
+            TechTier::VI => "Era 6",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -696,6 +707,16 @@ impl TechRarity {
             TechRarity::Rare => "Rare",
             TechRarity::Breakthrough => "Breakthrough",
             TechRarity::Dangerous => "Dangerous",
+        }
+    }
+
+    pub fn ai_penalty(&self) -> u8 {
+        match self {
+            TechRarity::Common => 0,
+            TechRarity::Uncommon => 1,
+            TechRarity::Rare => 2,
+            TechRarity::Breakthrough => 3,
+            TechRarity::Dangerous => 4,
         }
     }
 }

@@ -5,6 +5,20 @@ Read this file before making any changes.
 
 ---
 
+## Start Here (Source of Truth Docs)
+
+- `README.md`
+- `docs/architecture.md`
+- `docs/roadmap.md`
+- `docs/current-state.md`
+- `docs/next-slices.md`
+- `docs/testing.md`
+- `docs/design/index.md`
+
+Use these docs as primary planning and execution references for all slices.
+
+---
+
 ## Stack
 
 - **Language:** Rust (2021 edition)

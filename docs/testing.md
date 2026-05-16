@@ -1,93 +1,51 @@
 # Testing Standards
 
-## Coverage Requirement
+This file defines mandatory testing expectations for FARSPACE.
 
-Total workspace coverage must stay at or above **80%**, enforced by CI via `cargo llvm-cov`.
+## Coverage Gate
 
-Coverage is checked on every push and pull request. A PR that drops coverage below 80% will not merge.
+- Workspace line coverage must stay at or above **80%**.
+- CI enforces this with `cargo llvm-cov`.
+- A PR that drops total coverage below 80% is not mergeable.
 
----
+## Required Test Types
 
-## What to Test
+### Positive and Negative Paths
 
-### Core logic (`game_core`)
+Every meaningful feature change must include:
 
-Cover every meaningful path through:
+- positive-path tests (valid flow)
+- negative/error-path tests (invalid input, rejected command, or failure behavior)
 
-- Command validation (valid inputs, invalid inputs, boundary values)
-- Turn processing and event emission
-- Budget and resource calculations
-- Galaxy generation (use fixed seeds)
-- Colony production queue processing
-- Save/load round-trips
-- Deterministic ordering helpers
+### Deterministic Tests
 
-### TUI (`game_tui`)
+For simulation-affecting logic:
 
-Avoid fragile full-screen character snapshots. Instead focus on:
+- use fixed seeds
+- assert reproducible outcomes/events/state
+- avoid non-deterministic dependencies in assertions
 
-- App state transitions (e.g., active screen changes, toggle help/palette)
-- Key input handling (correct commands dispatched, correct state updates)
-- Layout decisions (correct constraint splits, resize handling)
-- Rendering smoke tests: assert the output is non-empty and contains expected text strings
+### Save/Load Round-Trip and Migration
 
-### Save/load (`game_save`)
+- save/load round-trip tests are required for schema-affecting changes
+- migration behavior must be tested for changed schema versions
+- corrupted/missing-field cases must return errors, not panic
 
-- Valid save → deserialises to identical `GameState`
-- Corrupted or truncated save → returns a descriptive error, does not panic
-- Missing fields (forwards compatibility) → handled gracefully
+### Regression Tests
 
----
+Every bug fix must include a regression test covering the failed behavior.
 
-## Test Kinds
+## TUI Testing Guidance
 
-### Positive tests
+- Prefer state-transition and render-smoke tests
+- Avoid brittle full-screen snapshot assertions
+- Validate key handling and command dispatch behavior
 
-Assert the happy path: given valid input, the correct output is produced.
-
-### Negative / error tests
-
-Assert that invalid input is rejected cleanly: correct `Event::Error` is emitted, state is unchanged.
-
-### Regression tests
-
-Every bug fix must include a test that would have caught the bug. Name it after the issue or behaviour.
-
-### Property-style tests
-
-For deterministic systems, run the same commands with the same seed multiple times and assert identical results. For generation algorithms, run with varied seeds and assert invariants (e.g., star count in expected range, no duplicate IDs).
-
----
-
-## Deterministic Systems
-
-Any code that uses the seeded RNG must be tested with a **fixed seed**. Assert exact output so the test catches any change to generation order or RNG consumption.
-
-```rust
-let mut engine = Engine::new(42); // fixed seed
-let events = engine.apply_turn(&[Command::EndTurn]);
-assert_eq!(events, vec![Event::TurnAdvanced { new_turn: 2 }]);
-```
-
----
-
-## What Not to Over-Test
-
-- Do not write exhaustive snapshot tests for entire rendered screens — they break on cosmetic changes.
-- Do not test private implementation details that are likely to be refactored.
-- Do not duplicate tests across layers: if `game_core` covers validation, `game_tui` only needs to verify the command is dispatched, not re-test the validation.
-
----
-
-## Running Coverage Locally
+## Local Validation Commands
 
 ```bash
-# Install once
-cargo install cargo-llvm-cov
-
-# Run with summary
-cargo llvm-cov --workspace --all-targets --summary-only
-
-# Generate HTML report
-cargo llvm-cov --workspace --all-targets --open
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --all-targets
+cargo llvm-cov --workspace --all-targets --fail-under-lines 80
 ```

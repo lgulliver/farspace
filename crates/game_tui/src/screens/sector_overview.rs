@@ -257,7 +257,7 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
             match fog {
                 FogState::Visible => ('◉', Style::default().fg(Color::White), 6),
                 FogState::Explored => ('◌', Style::default().fg(Color::Gray), 5),
-                FogState::Unexplored => ('?', Theme::muted_style(), 5),
+                FogState::Unexplored => ('◌', Theme::muted_style(), 5),
             }
         };
 
@@ -360,7 +360,7 @@ fn render_map_legend(frame: &mut Frame, area: Rect) {
         Span::styled(" Fleets  ", Theme::dim_border_style()),
         Span::styled("·", Style::default().fg(Color::DarkGray)),
         Span::styled(" Route  ", Theme::dim_border_style()),
-        Span::styled("?", Theme::muted_style()),
+        Span::styled("◌", Theme::muted_style()),
         Span::styled(" Unexplored", Theme::dim_border_style()),
     ];
 
@@ -785,7 +785,7 @@ mod tests {
         let visual = empire_visual(&engine.state, owner);
         assert_eq!(owned_cell.symbol(), visual.symbol.to_string());
         assert_eq!(owned_cell.fg, visual.color);
-        assert_eq!(unexplored_cell.symbol(), "?");
+        assert_eq!(unexplored_cell.symbol(), "◌");
     }
 
     #[test]
@@ -870,7 +870,7 @@ mod tests {
                 .cell((render_area.x + pos.x, render_area.y + pos.y))
                 .unwrap()
                 .symbol(),
-            "?",
+            "◌",
         );
         assert_eq!(
             with_buffer

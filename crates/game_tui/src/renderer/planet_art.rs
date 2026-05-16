@@ -1,7 +1,6 @@
 use game_core::{Colony, PlanetClass, SpectralClass};
 
 use crate::renderer::{
-    glyphs::{ramp_pick, DENSITY_RAMP_UNICODE},
     palette::ColorToken,
     sprite::{AlphaMode, DetailLevel, Sprite, SpriteCell, SpriteFrame},
 };
@@ -11,6 +10,11 @@ const POPULATION_SCALE_FACTOR: u64 = 8;
 const POPULATION_PER_CITY_LIGHT: u8 = 40;
 const HIGH_POLLUTION_THRESHOLD: u8 = 128;
 const HIGH_INDUSTRY_THRESHOLD: u8 = 96;
+// Terminal glyph cells are typically taller than they are wide. These coefficients
+// bias the radial falloff so spheres render visually round instead of vertically oval.
+// Approximation is width:height ≈ 4:9 for common monospace terminal fonts.
+const TERMINAL_ASPECT_X: i16 = 4;
+const TERMINAL_ASPECT_Y: i16 = 9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlanetVisualKind {
@@ -136,18 +140,31 @@ fn sphere_sprite(
 
     let cx = i16::try_from(width / 2).unwrap_or(0);
     let cy = i16::try_from(height / 2).unwrap_or(0);
+    let max_dist = radius * radius * TERMINAL_ASPECT_X;
     let mut cells = Vec::new();
 
     for y in 0..height {
         for x in 0..width {
             let dx = i16::try_from(x).unwrap_or(0) - cx;
             let dy = i16::try_from(y).unwrap_or(0) - cy;
-            let dist = dx * dx + dy * dy;
-            if dist > radius * radius {
+            let dist = dx * dx * TERMINAL_ASPECT_X + dy * dy * TERMINAL_ASPECT_Y;
+            if dist > max_dist {
                 continue;
             }
-            let shade = ((radius * radius - dist) * 255 / (radius * radius).max(1)) as u8;
-            let glyph = ramp_pick(&DENSITY_RAMP_UNICODE, shade);
+            let shade = ((max_dist - dist) * 255 / max_dist.max(1)) as u8;
+            let glyph = if shade > 220 {
+                '●'
+            } else if shade > 180 {
+                '◉'
+            } else if shade > 140 {
+                '◍'
+            } else if shade > 90 {
+                '○'
+            } else if shade > 40 {
+                '·'
+            } else {
+                ' '
+            };
             let fg = if dx < 0 { primary } else { secondary };
             cells.push(SpriteCell {
                 x,
@@ -256,7 +273,7 @@ fn kind_glyph(kind: PlanetVisualKind) -> char {
         PlanetVisualKind::Volcanic => '◐',
         PlanetVisualKind::GasGiant => '◎',
         PlanetVisualKind::Toxic => '◒',
-        PlanetVisualKind::Unknown => '?',
+        PlanetVisualKind::Unknown => '○',
     }
 }
 

@@ -276,7 +276,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
                     Style::default().fg(Color::Gray),
                     5,
                 ),
-                FogState::Unexplored => ('?', Theme::muted_style(), 5),
+                FogState::Unexplored => ('◌', Theme::muted_style(), 5),
             }
         };
 
@@ -493,7 +493,7 @@ fn render_local_legend(frame: &mut Frame, area: Rect) {
         Span::styled(" Fleet Route  ", Theme::dim_border_style()),
         Span::styled("►", Style::default().fg(Color::Magenta)),
         Span::styled(" Transit  ", Theme::dim_border_style()),
-        Span::styled("?", Theme::muted_style()),
+        Span::styled("◌", Theme::muted_style()),
         Span::styled(" Unexplored", Theme::dim_border_style()),
     ];
 
@@ -563,7 +563,7 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
         let symbol = if let Some(owner) = owner {
             empire_visual(game_state, owner).symbol
         } else if matches!(fog, FogState::Unexplored) {
-            '?'
+            '◌'
         } else {
             star.spectral_class.as_char()
         };
@@ -977,7 +977,7 @@ mod tests {
         let visual = empire_visual(&game_state, game_state.player_empire);
         assert_eq!(owned_cell.symbol(), visual.symbol.to_string());
         assert_eq!(owned_cell.fg, visual.color);
-        assert_eq!(hidden_cell.symbol(), "?");
+        assert_eq!(hidden_cell.symbol(), "◌");
     }
 
     #[test]
@@ -1034,7 +1034,7 @@ mod tests {
         let text = buffer_text(&buffer, Rect::new(0, 0, 48, 18));
         let visual = empire_visual(&game_state, game_state.player_empire);
 
-        assert!(text.contains("? ???"));
+        assert!(text.contains("◌ ???"));
         assert!(!text.contains(&format!("{} ???", visual.symbol)));
     }
 
@@ -1084,7 +1084,7 @@ mod tests {
                 .cell((render_area.x + pos.x, render_area.y + pos.y))
                 .unwrap()
                 .symbol(),
-            "?",
+            "◌",
         );
         assert_eq!(
             with_buffer

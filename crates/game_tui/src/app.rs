@@ -3504,9 +3504,23 @@ mod tests {
             first_idle_player_fleet(&engine.state, Some(FleetKind::Scout), None),
             Some(idle_scout)
         );
+        let expected_home_science = engine
+            .state
+            .fleets
+            .values()
+            .filter(|fleet| {
+                fleet.owner == engine.state.player_empire
+                    && fleet.kind == FleetKind::Science
+                    && fleet.location == home
+                    && !engine.state.scout_missions.contains_key(&fleet.id)
+                    && !engine.state.survey_missions.contains_key(&fleet.id)
+                    && !engine.state.fleet_missions.contains_key(&fleet.id)
+            })
+            .map(|fleet| fleet.id)
+            .min();
         assert_eq!(
             first_idle_player_fleet(&engine.state, Some(FleetKind::Science), Some(home)),
-            Some(idle_science)
+            expected_home_science
         );
         assert_eq!(
             first_idle_player_fleet(&engine.state, Some(FleetKind::Science), Some(destination)),

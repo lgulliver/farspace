@@ -486,12 +486,8 @@ fn render_selected_planet_hero(
 
     let mut canvas = Canvas::new(chunks[0].width, chunks[0].height);
     canvas.fill(ColorToken::SpaceBg, RenderLayer::Background.z_base());
-    let detail = detail_for_area(chunks[0]);
-    let render_detail = if matches!(detail, DetailLevel::Tiny) {
-        DetailLevel::Compact
-    } else {
-        detail
-    };
+    let render_detail = selected_world_detail(chunks[0]);
+    let needs_identity_overlay = needs_planet_identity_overlay(chunks[0], render_detail);
     let sprite = if let Some(colony_id) = planet.colony {
         colony_portrait(
             portrait_input_from_colony(
@@ -517,6 +513,9 @@ fn render_selected_planet_hero(
     let sprite_x = chunks[0].width.saturating_sub(sprite.width) / 2;
     let sprite_y = chunks[0].height.saturating_sub(sprite.height) / 2;
     canvas.draw_sprite(&sprite, sprite_x, sprite_y, 0, RenderLayer::Bodies.z_base());
+    if needs_identity_overlay {
+        draw_planet_identity_overlay(&mut canvas, chunks[0]);
+    }
     draw_selection_brackets(
         &mut canvas,
         chunks[0],
@@ -581,6 +580,51 @@ fn render_selected_planet_hero(
         Paragraph::new(lines).style(Theme::default_style()),
         chunks[1],
     );
+}
+
+fn selected_world_detail(area: Rect) -> DetailLevel {
+    if area.width >= 17 && area.height >= 11 {
+        DetailLevel::Cinematic
+    } else if area.width >= 9 && area.height >= 7 {
+        DetailLevel::Standard
+    } else if area.width >= 5 && area.height >= 3 {
+        DetailLevel::Compact
+    } else {
+        DetailLevel::Tiny
+    }
+}
+
+fn needs_planet_identity_overlay(area: Rect, detail: DetailLevel) -> bool {
+    matches!(detail, DetailLevel::Tiny | DetailLevel::Compact) || area.width < 9 || area.height < 7
+}
+
+fn draw_planet_identity_overlay(canvas: &mut Canvas, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let center_x = area.width / 2;
+    let center_y = area.height / 2;
+    canvas.set_cell(
+        center_x,
+        center_y,
+        '◉',
+        ColorToken::Accent.to_style(None),
+        RenderLayer::Labels.z_base() + 2,
+    );
+    if area.width >= 8 && area.height >= 4 {
+        let label = "PLANET";
+        let label_x = center_x.saturating_sub((label.len() as u16) / 2);
+        let label_y = center_y
+            .saturating_add(1)
+            .min(area.height.saturating_sub(1));
+        canvas.draw_text(
+            label_x,
+            label_y,
+            label,
+            ColorToken::Muted.to_style(None),
+            RenderLayer::Labels.z_base() + 2,
+        );
+    }
 }
 
 fn render_system_detail_facts(
@@ -839,7 +883,7 @@ fn planet_signature(planet: &game_core::Planet, survey_state: &str) -> &'static 
 mod tests {
     use super::*;
     use game_core::Engine;
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{backend::TestBackend, layout::Rect, Terminal};
 
     #[test]
     fn system_screen_renders_without_panic() {
@@ -1038,5 +1082,45 @@ mod tests {
             rendered.contains("Survey: Surveying"),
             "surveying details should show surveying state"
         );
+    }
+
+    #[test]
+    fn selected_world_detail_prefers_standard_when_it_fits() {
+        assert_eq!(
+            selected_world_detail(Rect::new(0, 0, 20, 9)),
+            DetailLevel::Standard
+        );
+        assert_eq!(
+            selected_world_detail(Rect::new(0, 0, 10, 7)),
+            DetailLevel::Standard
+        );
+    }
+
+    #[test]
+    fn selected_world_detail_downgrades_when_canvas_is_too_small() {
+        assert_eq!(
+            selected_world_detail(Rect::new(0, 0, 8, 6)),
+            DetailLevel::Compact
+        );
+        assert_eq!(
+            selected_world_detail(Rect::new(0, 0, 4, 2)),
+            DetailLevel::Tiny
+        );
+    }
+
+    #[test]
+    fn selected_world_identity_overlay_applies_for_small_or_low_detail() {
+        assert!(needs_planet_identity_overlay(
+            Rect::new(0, 0, 8, 6),
+            DetailLevel::Compact
+        ));
+        assert!(needs_planet_identity_overlay(
+            Rect::new(0, 0, 12, 6),
+            DetailLevel::Standard
+        ));
+        assert!(!needs_planet_identity_overlay(
+            Rect::new(0, 0, 20, 12),
+            DetailLevel::Cinematic
+        ));
     }
 }

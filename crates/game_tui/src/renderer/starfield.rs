@@ -1,11 +1,13 @@
 use ratatui::{layout::Rect, style::Color};
 
 use crate::renderer::{
-    glyphs::{DENSITY_RAMP_ASCII, DENSITY_RAMP_UNICODE, STARFIELD_RAMP},
+    glyphs::{DENSITY_RAMP_UNICODE, STARFIELD_RAMP},
     sprite::{detail_for_area, DetailLevel},
 };
 
 pub fn detail_star_glyph(hash: u64, detail: DetailLevel) -> char {
+    const COMPACT_STARS: [char; 3] = ['·', '•', '✦'];
+    const STANDARD_STARS: [char; 4] = ['•', '✦', '✶', '✷'];
     match detail {
         DetailLevel::Tiny => {
             if hash.is_multiple_of(2) {
@@ -14,12 +16,8 @@ pub fn detail_star_glyph(hash: u64, detail: DetailLevel) -> char {
                 '·'
             }
         }
-        DetailLevel::Compact => {
-            DENSITY_RAMP_ASCII[(hash % DENSITY_RAMP_ASCII.len() as u64) as usize]
-        }
-        DetailLevel::Standard => {
-            DENSITY_RAMP_UNICODE[(hash % DENSITY_RAMP_UNICODE.len() as u64) as usize]
-        }
+        DetailLevel::Compact => COMPACT_STARS[(hash % COMPACT_STARS.len() as u64) as usize],
+        DetailLevel::Standard => STANDARD_STARS[(hash % STANDARD_STARS.len() as u64) as usize],
         DetailLevel::Cinematic => STARFIELD_RAMP[(hash % STARFIELD_RAMP.len() as u64) as usize],
     }
 }
@@ -34,8 +32,8 @@ pub fn star_magnitude_color(hash: u64, twinkle_hash: u64) -> Color {
     };
     let bump = match twinkle_hash % 3 {
         0 => 0,
-        1 => 10,
-        _ => 20,
+        1 => 28,
+        _ => 56,
     };
     Color::Rgb(
         r.saturating_add(bump),
@@ -70,5 +68,21 @@ mod tests {
     fn nebula_density_glyph_is_deterministic() {
         assert_eq!(nebula_density_glyph(42), nebula_density_glyph(42));
         assert_ne!(nebula_density_glyph(1), nebula_density_glyph(4));
+    }
+
+    #[test]
+    fn star_glyphs_avoid_block_characters() {
+        for hash in 0..64 {
+            let standard = detail_star_glyph(hash, DetailLevel::Standard);
+            let cinematic = detail_star_glyph(hash, DetailLevel::Cinematic);
+            assert_ne!(standard, '█');
+            assert_ne!(standard, '▓');
+            assert_ne!(standard, '▒');
+            assert_ne!(standard, '░');
+            assert_ne!(cinematic, '█');
+            assert_ne!(cinematic, '▓');
+            assert_ne!(cinematic, '▒');
+            assert_ne!(cinematic, '░');
+        }
     }
 }

@@ -1,4 +1,4 @@
-use game_core::{Colony, PlanetClass};
+use game_core::{Colony, PlanetClass, SpectralClass};
 
 use crate::renderer::{
     glyphs::{ramp_pick, DENSITY_RAMP_UNICODE},
@@ -52,7 +52,10 @@ pub fn portrait_input_from_colony(
     colony: Option<&Colony>,
 ) -> ColonyPortraitInput {
     let population = colony
-        .map(|c| (c.population.min(MAX_VISUAL_POPULATION) * POPULATION_SCALE_FACTOR) as u8)
+        .map(|c| {
+            let scaled = c.population.min(MAX_VISUAL_POPULATION) * POPULATION_SCALE_FACTOR;
+            scaled.min(u64::from(u8::MAX)) as u8
+        })
         .unwrap_or_default();
     let industry = colony
         .map(|c| {
@@ -73,6 +76,35 @@ pub fn portrait_input_from_colony(
 }
 
 pub fn planet_sprite(kind: PlanetVisualKind, detail: DetailLevel) -> Sprite {
+    sphere_sprite(
+        kind_primary_color(kind),
+        kind_secondary_color(kind),
+        kind_glyph(kind),
+        detail,
+    )
+}
+
+pub fn star_sprite(class: SpectralClass, detail: DetailLevel) -> Sprite {
+    let (primary, secondary) = spectral_class_color_tokens(class);
+    sphere_sprite(primary, secondary, '☉', detail)
+}
+
+fn spectral_class_color_tokens(class: SpectralClass) -> (ColorToken, ColorToken) {
+    match class {
+        SpectralClass::O | SpectralClass::B => (ColorToken::StarCold, ColorToken::Default),
+        SpectralClass::A => (ColorToken::Default, ColorToken::StarCold),
+        SpectralClass::F | SpectralClass::G => (ColorToken::StarWarm, ColorToken::Default),
+        SpectralClass::K => (ColorToken::Warning, ColorToken::StarWarm),
+        SpectralClass::M => (ColorToken::Error, ColorToken::Warning),
+    }
+}
+
+fn sphere_sprite(
+    primary: ColorToken,
+    secondary: ColorToken,
+    tiny_glyph: char,
+    detail: DetailLevel,
+) -> Sprite {
     let (width, height, radius) = match detail {
         DetailLevel::Tiny => (1, 1, 0i16),
         DetailLevel::Compact => (5, 3, 2),
@@ -88,8 +120,8 @@ pub fn planet_sprite(kind: PlanetVisualKind, detail: DetailLevel) -> Sprite {
                 cells: vec![SpriteCell {
                     x: 0,
                     y: 0,
-                    glyph: kind_glyph(kind),
-                    fg: kind_primary_color(kind),
+                    glyph: tiny_glyph,
+                    fg: primary,
                     bg: None,
                     alpha: AlphaMode::Opaque,
                 }],
@@ -111,11 +143,7 @@ pub fn planet_sprite(kind: PlanetVisualKind, detail: DetailLevel) -> Sprite {
             }
             let shade = ((radius * radius - dist) * 255 / (radius * radius).max(1)) as u8;
             let glyph = ramp_pick(&DENSITY_RAMP_UNICODE, shade);
-            let fg = if dx < 0 {
-                kind_primary_color(kind)
-            } else {
-                kind_secondary_color(kind)
-            };
+            let fg = if dx < 0 { primary } else { secondary };
             cells.push(SpriteCell {
                 x,
                 y,

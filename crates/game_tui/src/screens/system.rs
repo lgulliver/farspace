@@ -6,7 +6,7 @@ use crate::components::{derive_header_data, render_footer, render_header, render
 use crate::layout::{compose_layout, split_horizontal};
 use crate::renderer::{
     palette::ColorToken,
-    planet_art::{planet_kind_from_class, planet_sprite, PlanetVisualKind},
+    planet_art::{planet_kind_from_class, planet_sprite, star_sprite, PlanetVisualKind},
     sprite::{detail_for_area, DetailLevel},
     Canvas, RenderLayer,
 };
@@ -214,7 +214,7 @@ fn render_system_visual(
     } else {
         detail
     };
-    let star_visual_sprite = planet_sprite(PlanetVisualKind::GasGiant, star_detail);
+    let star_visual_sprite = star_sprite(star.spectral_class, star_detail);
     let center_x = area.width / 2;
     let center_y = area.height / 2;
     let star_x = center_x.saturating_sub(star_visual_sprite.width / 2);

@@ -63,6 +63,7 @@ pub fn render_sector_map(
 
 fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_state: &AppState) {
     let sector_name = app_state
+        .navigation
         .selected_sector
         .and_then(|id| game_state.sectors.get(&id))
         .map(|s| s.name.as_str())
@@ -94,7 +95,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
         return;
     }
 
-    let sector_id = match app_state.selected_sector {
+    let sector_id = match app_state.navigation.selected_sector {
         Some(id) => id,
         None => return,
     };
@@ -224,7 +225,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
             continue;
         };
 
-        let is_selected = app_state.selected_star == Some(star.id);
+        let is_selected = app_state.navigation.selected_star == Some(star.id);
         let fog = star_fog_state(game_state, &visible_stars, star.id);
         let owner = if matches!(fog, FogState::Unexplored) {
             None
@@ -495,7 +496,7 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let sector_id = match app_state.selected_sector {
+    let sector_id = match app_state.navigation.selected_sector {
         Some(id) => id,
         None => {
             let no_selection = Paragraph::new("No sector selected").style(Theme::muted_style());
@@ -528,7 +529,7 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
     lines.push(Line::from(""));
 
     for star in &stars_in_sector {
-        let is_selected = app_state.selected_star == Some(star.id);
+        let is_selected = app_state.navigation.selected_star == Some(star.id);
         let fog = star_fog_state(game_state, &visible_stars, star.id);
         let owner = if matches!(fog, FogState::Unexplored) {
             None
@@ -599,7 +600,7 @@ fn render_known_lanes_in_sector(
                 .contains(&TechId::HYPERSPACE_CARTOGRAPHY)
         });
 
-    let highlighted_lane = app_state.selected_star.and_then(|destination| {
+    let highlighted_lane = app_state.navigation.selected_star.and_then(|destination| {
         let origin = game_state
             .fleets
             .values()
@@ -736,8 +737,11 @@ mod tests {
             .map(|star| star.id);
 
         let app_state = AppState {
-            selected_sector: first_sector,
-            selected_star: first_star_in_sector,
+            navigation: crate::app::NavigationState {
+                selected_sector: first_sector,
+                selected_star: first_star_in_sector,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -819,7 +823,7 @@ mod tests {
         let sector_points: Vec<_> = game_state
             .stars
             .values()
-            .filter(|star| Some(star.sector) == app_state.selected_sector)
+            .filter(|star| Some(star.sector) == app_state.navigation.selected_sector)
             .map(|star| WorldPoint::new(star.x as f64, star.y as f64))
             .collect();
         MapViewport::fit_points(&sector_points, render_area.width, render_area.height, 40.0)
@@ -841,10 +845,7 @@ mod tests {
     #[test]
     fn sector_map_no_selection_renders() {
         let engine = Engine::new(42);
-        let app_state = AppState {
-            selected_sector: None,
-            ..Default::default()
-        };
+        let app_state = AppState::default();
         render_to_buffer(&app_state, &engine.state, 120, 40);
     }
 
@@ -924,7 +925,7 @@ mod tests {
             .and_then(|colony| game_state.stars.get(&colony.star))
             .map(|star| star.sector)
             .unwrap();
-        app_state.selected_sector = Some(selected_sector);
+        app_state.navigation.selected_sector = Some(selected_sector);
         let player_owned_star = game_state
             .colonies
             .values()
@@ -939,7 +940,7 @@ mod tests {
             .find(|star| star.sector == selected_sector && star.id != player_owned_star)
             .map(|star| star.id)
             .unwrap();
-        app_state.selected_star = None;
+        app_state.navigation.selected_star = None;
         game_state.explored_stars.remove(&hidden_star);
 
         let buf = render_to_buffer(&app_state, &game_state, 120, 40);
@@ -971,7 +972,7 @@ mod tests {
     #[test]
     fn selected_star_renders_at_marker_and_stays_readable_with_labels() {
         let (app_state, game_state) = create_app_with_sector();
-        let star_id = app_state.selected_star.unwrap();
+        let star_id = app_state.navigation.selected_star.unwrap();
         let buf = render_to_buffer(&app_state, &game_state, 120, 40);
         let render_area = map_render_area(120, 40);
         let viewport = sector_viewport(&game_state, &app_state, 120, 40);
@@ -1014,8 +1015,8 @@ mod tests {
                     .map(|star| star.id)
             })
             .unwrap();
-        app_state.selected_sector = Some(selected_sector);
-        app_state.selected_star = None;
+        app_state.navigation.selected_sector = Some(selected_sector);
+        app_state.navigation.selected_star = None;
         game_state.explored_stars.remove(&hidden_owned_star);
 
         let buffer = render_system_list_to_buffer(&app_state, &game_state, 48, 18);
@@ -1046,8 +1047,8 @@ mod tests {
                 })
             })
             .unwrap();
-        app_state.selected_sector = Some(selected_sector);
-        app_state.selected_star = None;
+        app_state.navigation.selected_sector = Some(selected_sector);
+        app_state.navigation.selected_star = None;
         game_state.explored_stars.remove(&hidden_owned_star);
 
         let mut without_colony = game_state.clone();

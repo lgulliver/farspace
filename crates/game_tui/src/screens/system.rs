@@ -43,6 +43,7 @@ fn selected_star<'a>(
     game_state: &'a GameState,
 ) -> Option<&'a game_core::Star> {
     app_state
+        .navigation
         .selected_star
         .and_then(|id| game_state.stars.get(&id))
 }
@@ -105,6 +106,7 @@ fn render_orbital_panel(
     lines.push(Line::from(""));
 
     let selected_planet = app_state
+        .navigation
         .selected_planet_index
         .min(star.planets.len().saturating_sub(1));
     for (index, planet) in star.planets.iter().enumerate() {
@@ -206,6 +208,7 @@ fn render_system_details(
     }
 
     let selected_planet = app_state
+        .navigation
         .selected_planet_index
         .min(star.planets.len().saturating_sub(1));
     let planet = &star.planets[selected_planet];
@@ -428,7 +431,10 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let engine = Engine::new(42);
         let app_state = AppState {
-            selected_star: engine.state.stars.keys().next().copied(),
+            navigation: crate::app::NavigationState {
+                selected_star: engine.state.stars.keys().next().copied(),
+                ..Default::default()
+            },
             ..Default::default()
         };
         terminal
@@ -448,8 +454,11 @@ mod tests {
             }
         }
         let app_state = AppState {
-            selected_star: Some(star_id),
-            selected_planet_index: 0,
+            navigation: crate::app::NavigationState {
+                selected_star: Some(star_id),
+                selected_planet_index: 0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         terminal
@@ -486,8 +495,11 @@ mod tests {
             }
         }
         let app_state = AppState {
-            selected_star: Some(star_id),
-            selected_planet_index: 0,
+            navigation: crate::app::NavigationState {
+                selected_star: Some(star_id),
+                selected_planet_index: 0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         terminal
@@ -522,8 +534,11 @@ mod tests {
             .colony_supply
             .insert(colony_id, game_core::ColonySupplyState::Isolated);
         let app_state = AppState {
-            selected_star: Some(star_id),
-            selected_planet_index: 0,
+            navigation: crate::app::NavigationState {
+                selected_star: Some(star_id),
+                selected_planet_index: 0,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -580,8 +595,11 @@ mod tests {
             },
         );
         let app_state = AppState {
-            selected_star: Some(star_id),
-            selected_planet_index: 0,
+            navigation: crate::app::NavigationState {
+                selected_star: Some(star_id),
+                selected_planet_index: 0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         terminal

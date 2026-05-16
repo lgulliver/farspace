@@ -320,8 +320,8 @@ pub fn render_empire_overview(
     let data = derive_empire_overview(
         game_state,
         game_state.player_empire,
-        app_state.overview_sort,
-        &app_state.overview_filter,
+        app_state.overview.sort,
+        &app_state.overview.filter,
     );
 
     let chunks = Layout::default()
@@ -401,19 +401,19 @@ fn render_colony_table(
     app_state: &AppState,
     rows: &[ColonyOverviewRow],
 ) {
-    let title = if app_state.overview_filter_input {
+    let title = if app_state.overview.filter_input {
         format!(
             " Colonies [Sort:{}]  /{} (typing) ",
-            app_state.overview_sort.label(),
-            app_state.overview_filter
+            app_state.overview.sort.label(),
+            app_state.overview.filter
         )
-    } else if app_state.overview_filter.is_empty() {
-        format!(" Colonies [Sort:{}] ", app_state.overview_sort.label())
+    } else if app_state.overview.filter.is_empty() {
+        format!(" Colonies [Sort:{}] ", app_state.overview.sort.label())
     } else {
         format!(
             " Colonies [Sort:{}] [Filter:{}] ",
-            app_state.overview_sort.label(),
-            app_state.overview_filter
+            app_state.overview.sort.label(),
+            app_state.overview.filter
         )
     };
 
@@ -458,7 +458,7 @@ fn render_colony_table(
         Span::styled("Warnings", Theme::title_style()),
     ]));
 
-    let selected = app_state.overview_cursor.min(rows.len().saturating_sub(1));
+    let selected = app_state.overview.cursor.min(rows.len().saturating_sub(1));
     let max_rows = inner.height.saturating_sub(1) as usize;
     let start = if max_rows == 0 {
         0

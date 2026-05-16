@@ -108,7 +108,7 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
         frame.render_widget(Paragraph::new("No technologies defined."), inner);
         return;
     }
-    let cursor = app_state.research_cursor % ordered.len();
+    let cursor = app_state.research.cursor % ordered.len();
     let selected_id = ordered[cursor].id;
     let mut lines = Vec::new();
 
@@ -194,7 +194,7 @@ fn render_selected_tech_detail(
         frame.render_widget(Paragraph::new("No technology selected."), inner);
         return;
     }
-    let tech = ordered[app_state.research_cursor % ordered.len()];
+    let tech = ordered[app_state.research.cursor % ordered.len()];
     let status = tech_status(game_state, tech);
     let empire = game_state.empires.get(&game_state.player_empire);
     let completed = empire
@@ -416,7 +416,7 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let engine = Engine::new(42);
         let app_state = AppState {
-            research_cursor: 999,
+            research: crate::app::ResearchScreenState { cursor: 999 },
             ..Default::default()
         };
 

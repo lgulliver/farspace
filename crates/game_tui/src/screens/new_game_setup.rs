@@ -30,10 +30,10 @@ pub const FIELD_AI_COUNT: usize = 2;
 pub const FIELD_SEED: usize = 3;
 
 fn enter_hint(app_state: &AppState) -> &'static str {
-    if app_state.setup_seed_editing {
+    if app_state.new_game_setup.seed_editing {
         "Confirm Seed"
     } else {
-        match app_state.setup_cursor {
+        match app_state.new_game_setup.cursor {
             FIELD_EMPIRE => "Next Empire",
             FIELD_SEED => "Edit Seed",
             _ => "Start",
@@ -162,13 +162,14 @@ pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState
 
     let all_defs = all_empire_definitions();
     let empire_idx = app_state
-        .setup_empire_cursor
+        .new_game_setup
+        .empire_cursor
         .min(all_defs.len().saturating_sub(1));
     let selected_def = &all_defs[empire_idx];
 
     // Derived summary values
-    let star_count = app_state.setup_galaxy_size.default_star_count();
-    let sector_count = app_state.setup_galaxy_size.default_sector_count();
+    let star_count = app_state.new_game_setup.galaxy_size.default_star_count();
+    let sector_count = app_state.new_game_setup.galaxy_size.default_sector_count();
 
     // Build content lines
     let mut lines: Vec<Line> = vec![Line::from("")];
@@ -181,7 +182,7 @@ pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState
 
     // Empire Selection field
     {
-        let is_active = app_state.setup_cursor == FIELD_EMPIRE;
+        let is_active = app_state.new_game_setup.cursor == FIELD_EMPIRE;
         let has_prev = empire_idx > 0;
         let has_next = empire_idx + 1 < all_defs.len();
         let value = selector_value(
@@ -234,12 +235,12 @@ pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState
 
     // Galaxy Size field
     {
-        let is_active = app_state.setup_cursor == FIELD_GALAXY_SIZE;
+        let is_active = app_state.new_game_setup.cursor == FIELD_GALAXY_SIZE;
         let all_sizes = GalaxySize::all();
-        let current_label = app_state.setup_galaxy_size.label();
+        let current_label = app_state.new_game_setup.galaxy_size.label();
         let idx = all_sizes
             .iter()
-            .position(|s| *s == app_state.setup_galaxy_size)
+            .position(|s| *s == app_state.new_game_setup.galaxy_size)
             .unwrap_or(0);
         let has_prev = idx > 0;
         let has_next = idx + 1 < all_sizes.len();
@@ -251,8 +252,8 @@ pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState
 
     // AI Empire Count field
     {
-        let is_active = app_state.setup_cursor == FIELD_AI_COUNT;
-        let count = app_state.setup_ai_count;
+        let is_active = app_state.new_game_setup.cursor == FIELD_AI_COUNT;
+        let count = app_state.new_game_setup.ai_count;
         let value = selector_value(count, count > 1, count < 4);
         lines.push(field_line("AI Empires", &value, is_active, content_width));
     }
@@ -261,16 +262,16 @@ pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState
 
     // Seed field
     {
-        let is_active = app_state.setup_cursor == FIELD_SEED;
-        let seed_display = if app_state.setup_seed_editing {
-            let mut s = app_state.setup_seed_str.clone();
+        let is_active = app_state.new_game_setup.cursor == FIELD_SEED;
+        let seed_display = if app_state.new_game_setup.seed_editing {
+            let mut s = app_state.new_game_setup.seed_str.clone();
             s.push('_'); // cursor indicator
             s
         } else {
-            app_state.setup_seed_str.clone()
+            app_state.new_game_setup.seed_str.clone()
         };
         lines.push(field_line("Seed", &seed_display, is_active, content_width));
-        if is_active && !app_state.setup_seed_editing {
+        if is_active && !app_state.new_game_setup.seed_editing {
             lines.push(Line::from(vec![Span::styled(
                 "  (press Enter to edit seed)",
                 Theme::muted_style(),
@@ -372,7 +373,10 @@ mod tests {
     #[test]
     fn setup_screen_shows_second_empire_when_cursor_advances() {
         let state = AppState {
-            setup_empire_cursor: 1,
+            new_game_setup: crate::app::NewGameSetupState {
+                empire_cursor: 1,
+                ..Default::default()
+            },
             ..AppState::default()
         };
         let rendered = render_to_string(&state);
@@ -387,7 +391,10 @@ mod tests {
     #[test]
     fn setup_screen_shows_galaxy_size_label() {
         let state = AppState {
-            setup_galaxy_size: GalaxySize::Large,
+            new_game_setup: crate::app::NewGameSetupState {
+                galaxy_size: GalaxySize::Large,
+                ..Default::default()
+            },
             ..AppState::default()
         };
         let rendered = render_to_string(&state);
@@ -400,7 +407,10 @@ mod tests {
     #[test]
     fn setup_screen_shows_ai_count() {
         let state = AppState {
-            setup_ai_count: 3,
+            new_game_setup: crate::app::NewGameSetupState {
+                ai_count: 3,
+                ..Default::default()
+            },
             ..AppState::default()
         };
         let rendered = render_to_string(&state);
@@ -415,7 +425,10 @@ mod tests {
     #[test]
     fn setup_screen_shows_seed() {
         let state = AppState {
-            setup_seed_str: "12345".to_string(),
+            new_game_setup: crate::app::NewGameSetupState {
+                seed_str: "12345".to_string(),
+                ..Default::default()
+            },
             ..AppState::default()
         };
         let rendered = render_to_string(&state);
@@ -425,7 +438,10 @@ mod tests {
     #[test]
     fn setup_screen_derived_summary_shown() {
         let state = AppState {
-            setup_galaxy_size: GalaxySize::Small,
+            new_game_setup: crate::app::NewGameSetupState {
+                galaxy_size: GalaxySize::Small,
+                ..Default::default()
+            },
             ..AppState::default()
         };
         let rendered = render_to_string(&state);
@@ -457,7 +473,10 @@ mod tests {
     #[test]
     fn active_setup_field_uses_highlight_background() {
         let state = AppState {
-            setup_cursor: FIELD_AI_COUNT,
+            new_game_setup: crate::app::NewGameSetupState {
+                cursor: FIELD_AI_COUNT,
+                ..Default::default()
+            },
             ..AppState::default()
         };
         let buf = render_to_buffer(&state, 100, 40);
@@ -481,8 +500,11 @@ mod tests {
     #[test]
     fn setup_screen_shows_terran_concord_details() {
         let state = AppState {
-            setup_empire_cursor: 6,
-            setup_cursor: FIELD_EMPIRE,
+            new_game_setup: crate::app::NewGameSetupState {
+                empire_cursor: 6,
+                cursor: FIELD_EMPIRE,
+                ..Default::default()
+            },
             ..AppState::default()
         };
         let rendered = render_to_string(&state);
@@ -493,8 +515,11 @@ mod tests {
     #[test]
     fn setup_screen_shows_terran_dominion_playstyle_summary() {
         let state = AppState {
-            setup_empire_cursor: 7,
-            setup_cursor: FIELD_EMPIRE,
+            new_game_setup: crate::app::NewGameSetupState {
+                empire_cursor: 7,
+                cursor: FIELD_EMPIRE,
+                ..Default::default()
+            },
             ..AppState::default()
         };
         let rendered = render_to_string(&state);
@@ -513,7 +538,10 @@ mod tests {
     #[test]
     fn setup_screen_shows_field_specific_enter_hint_for_seed() {
         let state = AppState {
-            setup_cursor: FIELD_SEED,
+            new_game_setup: crate::app::NewGameSetupState {
+                cursor: FIELD_SEED,
+                ..Default::default()
+            },
             ..AppState::default()
         };
         let rendered = render_to_string(&state);

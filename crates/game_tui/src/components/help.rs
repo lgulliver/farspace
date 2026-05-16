@@ -209,15 +209,24 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section(label) => Line::from(vec![
                 Span::raw(" "),
                 Span::styled(*label, Theme::accent_style()),
-                Span::styled(format!(" {}", "─".repeat(divider_len)), Theme::dim_border_style()),
+                Span::styled(
+                    format!(" {}", "─".repeat(divider_len)),
+                    Theme::dim_border_style(),
+                ),
             ]),
             HelpEntry::Binding(key, desc) => Line::from(vec![
-                Span::styled(format!("{key:>width$}", width = key_width), Theme::title_style()),
+                Span::styled(
+                    format!("{key:>width$}", width = key_width),
+                    Theme::title_style(),
+                ),
                 Span::raw("  "),
                 Span::styled(*desc, Theme::default_style()),
             ]),
             HelpEntry::Note(desc) => Line::from(vec![
-                Span::styled(format!("{:>width$}", "·", width = key_width), Theme::dim_border_style()),
+                Span::styled(
+                    format!("{:>width$}", "·", width = key_width),
+                    Theme::dim_border_style(),
+                ),
                 Span::raw("  "),
                 Span::styled(*desc, Theme::muted_style()),
             ]),

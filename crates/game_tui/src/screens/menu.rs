@@ -33,7 +33,10 @@ fn build_menu_lines(use_ascii_title: bool) -> Vec<Line<'static>> {
             menu_items.push(Line::from(Span::styled(*line, Theme::title_style())));
         }
     } else {
-        menu_items.push(Line::from(Span::styled(COMPACT_TITLE, Theme::title_style())));
+        menu_items.push(Line::from(Span::styled(
+            COMPACT_TITLE,
+            Theme::title_style(),
+        )));
     }
     menu_items.extend([
         Line::from(""),
@@ -66,7 +69,11 @@ fn build_menu_lines(use_ascii_title: bool) -> Vec<Line<'static>> {
 }
 
 fn menu_box_size(main_area: Rect) -> (u16, u16, bool) {
-    let ascii_title_width = TITLE_LINES.iter().map(|line| line.chars().count()).max().unwrap_or(0);
+    let ascii_title_width = TITLE_LINES
+        .iter()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0);
     let use_ascii_title = main_area.width > (ascii_title_width as u16 + 4);
     let content_lines = build_menu_lines(use_ascii_title);
     let content_width = content_lines
@@ -75,7 +82,9 @@ fn menu_box_size(main_area: Rect) -> (u16, u16, bool) {
         .max()
         .unwrap_or(0);
     let width = (content_width + 4).min(main_area.width).max(24);
-    let height = ((content_lines.len() as u16) + 2).min(main_area.height).max(8);
+    let height = ((content_lines.len() as u16) + 2)
+        .min(main_area.height)
+        .max(8);
     (width, height, use_ascii_title)
 }
 

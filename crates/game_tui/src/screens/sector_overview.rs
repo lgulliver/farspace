@@ -50,7 +50,7 @@ pub fn render_sector_overview(
         frame,
         right_chunks[0],
         game_state,
-        app_state.selected_sector,
+        app_state.navigation.selected_sector,
     );
     render_log(frame, right_chunks[1], &app_state.log);
 
@@ -157,7 +157,7 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
         }
     }
 
-    if app_state.show_inter_sector_lanes {
+    if app_state.sector_overview.show_inter_sector_lanes {
         for lane in &game_state.known_hyperspace_lanes {
             let Some(a_star) = game_state.stars.get(&lane.a()) else {
                 continue;
@@ -176,6 +176,7 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
             };
 
             let highlighted = app_state
+                .navigation
                 .selected_sector
                 .is_some_and(|selected| selected == a_sector.id || selected == b_sector.id);
             let glyph = if highlighted { '•' } else { '·' };
@@ -215,7 +216,7 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
         } else {
             sector_dominant_owner(game_state, sector.id)
         };
-        let is_selected = app_state.selected_sector == Some(sector.id);
+        let is_selected = app_state.navigation.selected_sector == Some(sector.id);
         let has_capital = capital_sectors.contains_key(&sector.id);
         let show_capital = has_capital && !matches!(fog, FogState::Unexplored);
         let fleet_count = sector_fleet_counts
@@ -656,7 +657,10 @@ mod tests {
         let engine = Engine::new(42);
         let first_sector = engine.state.sectors.keys().next().copied();
         let app_state = AppState {
-            selected_sector: first_sector,
+            navigation: crate::app::NavigationState {
+                selected_sector: first_sector,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -675,7 +679,9 @@ mod tests {
         let engine = Engine::new(42);
         let app_state = AppState {
             tick_count: 12,
-            show_inter_sector_lanes: true,
+            sector_overview: crate::app::SectorOverviewState {
+                show_inter_sector_lanes: true,
+            },
             ..Default::default()
         };
         let a = render_to_buffer(&app_state, &engine.state, 120, 40);
@@ -777,7 +783,10 @@ mod tests {
         let engine = Engine::new(42);
         let selected_sector = engine.state.sectors.keys().next().copied().unwrap();
         let app_state = AppState {
-            selected_sector: Some(selected_sector),
+            navigation: crate::app::NavigationState {
+                selected_sector: Some(selected_sector),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let buf = render_to_buffer(&app_state, &engine.state, 120, 40);

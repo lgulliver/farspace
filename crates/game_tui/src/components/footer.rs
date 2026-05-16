@@ -36,9 +36,8 @@ fn push_wrapped_hint_lines<'a>(
         let entry_line = Line::from(entry.clone());
         let entry_width = line_width(&entry_line);
         let needs_separator = !current_spans.is_empty();
-        let projected_width = current_width
-            + if needs_separator { separator_width } else { 0 }
-            + entry_width;
+        let projected_width =
+            current_width + if needs_separator { separator_width } else { 0 } + entry_width;
 
         if needs_separator && projected_width > max_width {
             lines.push(Line::from(std::mem::take(&mut current_spans)));

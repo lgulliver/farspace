@@ -13,6 +13,7 @@ use ratatui::{
 #[derive(Debug, Clone)]
 pub struct EventLog {
     entries: Vec<String>,
+    metadata: Vec<LogEntryKind>,
     max_entries: usize,
 }
 
@@ -27,15 +28,23 @@ impl EventLog {
     pub fn new() -> Self {
         EventLog {
             entries: Vec::new(),
+            metadata: Vec::new(),
             max_entries: 50,
         }
     }
 
     /// Add an entry to the log
     pub fn push(&mut self, entry: String) {
+        self.push_with_kind(LogEntryKind::from_message(&entry), entry);
+    }
+
+    /// Add an entry with explicit display metadata.
+    pub fn push_with_kind(&mut self, kind: LogEntryKind, entry: String) {
         self.entries.push(entry);
+        self.metadata.push(kind);
         if self.entries.len() > self.max_entries {
             self.entries.remove(0);
+            self.metadata.remove(0);
         }
     }
 
@@ -48,6 +57,7 @@ impl EventLog {
     /// Clear all entries
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.metadata.clear();
     }
 
     /// Get number of entries
@@ -59,10 +69,18 @@ impl EventLog {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+
+    fn last_n_with_kind(&self, n: usize) -> impl Iterator<Item = (&str, LogEntryKind)> {
+        let start = self.entries.len().saturating_sub(n);
+        self.entries[start..]
+            .iter()
+            .zip(self.metadata[start..].iter().copied())
+            .map(|(entry, kind)| (entry.as_str(), kind))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LogClass {
+pub enum LogEntryKind {
     LowSignal,
     Error,
     Warning,
@@ -78,81 +96,92 @@ enum LogClass {
     Other,
 }
 
-fn classify_log_entry(lower: &str) -> LogClass {
+impl LogEntryKind {
+    pub fn from_message(entry: &str) -> Self {
+        classify_log_entry(&entry.to_ascii_lowercase())
+    }
+
+    pub fn from_core_event(event: &game_core::Event) -> Self {
+        Self::from_message(&event.to_log_message())
+    }
+}
+
+fn classify_log_entry(lower: &str) -> LogEntryKind {
     if (lower.starts_with("colony ") && lower.contains(" produced "))
         || (lower.starts_with("empire ") && lower.contains(" generated "))
         || lower.starts_with("ai empire ")
     {
-        LogClass::LowSignal
+        LogEntryKind::LowSignal
     } else if lower.starts_with("error:") {
-        LogClass::Error
+        LogEntryKind::Error
     } else if lower.starts_with("warning:")
         || lower.contains(" shortage")
         || lower.contains(" deficit")
     {
-        LogClass::Warning
+        LogEntryKind::Warning
     } else if lower.starts_with("turn ") && lower.contains(" report:") {
-        LogClass::TurnReport
+        LogEntryKind::TurnReport
     } else if lower.starts_with("turn ")
         || lower.starts_with("game started")
         || lower.starts_with("game saved")
         || lower.starts_with("game loaded")
     {
-        LogClass::TurnFlow
+        LogEntryKind::TurnFlow
     } else if lower.contains("research") || lower.contains("technology") || lower.contains("tech ")
     {
-        LogClass::Research
+        LogEntryKind::Research
     } else if lower.contains("survey") {
-        LogClass::Survey
+        LogEntryKind::Survey
     } else if lower.contains("colony") || lower.contains("coloniz") {
-        LogClass::Colony
+        LogEntryKind::Colony
     } else if lower.contains("scout") || lower.contains("explored") {
-        LogClass::Scout
+        LogEntryKind::Scout
     } else if lower.contains("fleet")
         || lower.contains("ship")
         || lower.contains("depart")
         || lower.contains("arriv")
     {
-        LogClass::Fleet
+        LogEntryKind::Fleet
     } else if lower.contains("save:") || lower.contains("load:") {
-        LogClass::SaveLoad
+        LogEntryKind::SaveLoad
     } else if lower.contains("contact") || lower.contains("diplomacy") || lower.contains("empire") {
-        LogClass::Diplomacy
+        LogEntryKind::Diplomacy
     } else {
-        LogClass::Other
+        LogEntryKind::Other
     }
 }
 
-fn style_for_class(class: LogClass) -> Style {
+fn style_for_class(class: LogEntryKind) -> Style {
     match class {
-        LogClass::LowSignal => Theme::muted_style(),
-        LogClass::Error => Theme::error_style(),
-        LogClass::Warning => Theme::warning_style(),
-        LogClass::TurnReport | LogClass::TurnFlow | LogClass::Survey | LogClass::Colony => {
-            Theme::accent_style()
-        }
-        LogClass::Research => Theme::success_style(),
-        LogClass::Scout => Style::default().fg(ratatui::style::Color::Yellow),
-        LogClass::Fleet => Style::default().fg(ratatui::style::Color::LightBlue),
-        LogClass::SaveLoad => Theme::accent_style(),
-        LogClass::Diplomacy => Style::default().fg(ratatui::style::Color::LightMagenta),
-        LogClass::Other => Theme::muted_style(),
+        LogEntryKind::LowSignal => Theme::muted_style(),
+        LogEntryKind::Error => Theme::error_style(),
+        LogEntryKind::Warning => Theme::warning_style(),
+        LogEntryKind::TurnReport
+        | LogEntryKind::TurnFlow
+        | LogEntryKind::Survey
+        | LogEntryKind::Colony => Theme::accent_style(),
+        LogEntryKind::Research => Theme::success_style(),
+        LogEntryKind::Scout => Style::default().fg(ratatui::style::Color::Yellow),
+        LogEntryKind::Fleet => Style::default().fg(ratatui::style::Color::LightBlue),
+        LogEntryKind::SaveLoad => Theme::accent_style(),
+        LogEntryKind::Diplomacy => Style::default().fg(ratatui::style::Color::LightMagenta),
+        LogEntryKind::Other => Theme::muted_style(),
     }
 }
 
-fn prefix_for_class(class: LogClass) -> &'static str {
+fn prefix_for_class(class: LogEntryKind) -> &'static str {
     match class {
-        LogClass::LowSignal => "",
-        LogClass::Error => "✖ ",
-        LogClass::Warning => "⚠ ",
-        LogClass::TurnReport => "📊 ",
-        LogClass::TurnFlow => "⏵ ",
-        LogClass::Research => "✓ ",
-        LogClass::Survey => "◌ ",
-        LogClass::Colony => "◎ ",
-        LogClass::Scout | LogClass::Fleet => "➤ ",
-        LogClass::SaveLoad => "💾 ",
-        LogClass::Diplomacy | LogClass::Other => "• ",
+        LogEntryKind::LowSignal => "",
+        LogEntryKind::Error => "✖ ",
+        LogEntryKind::Warning => "⚠ ",
+        LogEntryKind::TurnReport => "📊 ",
+        LogEntryKind::TurnFlow => "⏵ ",
+        LogEntryKind::Research => "✓ ",
+        LogEntryKind::Survey => "◌ ",
+        LogEntryKind::Colony => "◎ ",
+        LogEntryKind::Scout | LogEntryKind::Fleet => "➤ ",
+        LogEntryKind::SaveLoad => "💾 ",
+        LogEntryKind::Diplomacy | LogEntryKind::Other => "• ",
     }
 }
 
@@ -160,12 +189,9 @@ fn prefix_for_class(class: LogClass) -> &'static str {
 pub fn render_log(frame: &mut Frame, area: Rect, log: &EventLog) {
     let visible_lines = (area.height.saturating_sub(2)) as usize;
     let formatted: Vec<(String, Style)> = log
-        .last_n(log.len())
-        .iter()
-        .filter_map(|entry| {
-            let lower = entry.to_ascii_lowercase();
-            let class = classify_log_entry(&lower);
-            if class == LogClass::LowSignal {
+        .last_n_with_kind(log.len())
+        .filter_map(|(entry, class)| {
+            if class == LogEntryKind::LowSignal {
                 None
             } else {
                 Some((
@@ -208,13 +234,13 @@ mod tests {
 
     fn test_is_low_signal(entry: &str) -> bool {
         let lower = entry.to_ascii_lowercase();
-        classify_log_entry(&lower) == LogClass::LowSignal
+        classify_log_entry(&lower) == LogEntryKind::LowSignal
     }
 
     fn test_format_entry(entry: &str) -> Option<String> {
         let lower = entry.to_ascii_lowercase();
         let class = classify_log_entry(&lower);
-        if class == LogClass::LowSignal {
+        if class == LogEntryKind::LowSignal {
             None
         } else {
             Some(format!("{}{}", prefix_for_class(class), entry))
@@ -235,6 +261,7 @@ mod tests {
     fn event_log_trims_old_entries() {
         let mut log = EventLog {
             entries: Vec::new(),
+            metadata: Vec::new(),
             max_entries: 3,
         };
 

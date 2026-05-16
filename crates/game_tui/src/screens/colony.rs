@@ -71,7 +71,7 @@ fn render_colony_stats(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let colony_id = match app_state.selected_colony {
+    let colony_id = match app_state.colony.selected_colony {
         Some(id) => id,
         None => {
             frame.render_widget(
@@ -301,7 +301,7 @@ fn render_colony_buildings(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let colony_id = match app_state.selected_colony {
+    let colony_id = match app_state.colony.selected_colony {
         Some(id) => id,
         None => return,
     };
@@ -339,7 +339,7 @@ fn render_role_selector(
     app_state: &AppState,
     game_state: &GameState,
 ) {
-    let is_active = app_state.colony_role_panel_active;
+    let is_active = app_state.colony.role_panel_active;
     let border_style = if is_active {
         Theme::focused_border_style()
     } else {
@@ -355,6 +355,7 @@ fn render_role_selector(
 
     // Determine the current role for the selected colony
     let current_role = app_state
+        .colony
         .selected_colony
         .and_then(|cid| game_state.colonies.get(&cid))
         .map(|c| c.role)
@@ -363,7 +364,7 @@ fn render_role_selector(
     let roles = ColonyRole::all();
     let total = roles.len();
     let cursor = if total > 0 {
-        app_state.colony_role_cursor % total
+        app_state.colony.role_cursor % total
     } else {
         0
     };
@@ -414,7 +415,7 @@ fn render_production_queue(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let colony_id = match app_state.selected_colony {
+    let colony_id = match app_state.colony.selected_colony {
         Some(id) => id,
         None => return,
     };
@@ -483,7 +484,7 @@ fn render_build_picker(
     app_state: &AppState,
     game_state: &GameState,
 ) {
-    let is_active = !app_state.colony_role_panel_active;
+    let is_active = !app_state.colony.role_panel_active;
     let border_style = if is_active {
         Theme::focused_border_style()
     } else {
@@ -506,6 +507,7 @@ fn render_build_picker(
 
     // Look up the selected colony and its planet size for slot checks
     let (has_shipyard, has_surface_slot) = app_state
+        .colony
         .selected_colony
         .and_then(|cid| game_state.colonies.get(&cid))
         .map(|colony| {
@@ -527,7 +529,7 @@ fn render_build_picker(
     let ship_count = game_core::all_ship_designs().len();
     let total_count = surface_count + orbital_count + ship_count;
     let cursor = if total_count > 0 {
-        app_state.colony_build_cursor % total_count
+        app_state.colony.build_cursor % total_count
     } else {
         0
     };
@@ -657,7 +659,10 @@ mod tests {
             .find(|(_, c)| c.owner == engine.state.player_empire)
             .map(|(id, _)| *id);
         AppState {
-            selected_colony: colony_id,
+            colony: crate::app::ColonyScreenState {
+                selected_colony: colony_id,
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
@@ -682,10 +687,7 @@ mod tests {
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
         let engine = Engine::new(42);
-        let app_state = AppState {
-            selected_colony: None,
-            ..Default::default()
-        };
+        let app_state = AppState::default();
 
         terminal
             .draw(|frame| {
@@ -740,7 +742,10 @@ mod tests {
         }]);
 
         let app_state = AppState {
-            selected_colony: Some(colony_id),
+            colony: crate::app::ColonyScreenState {
+                selected_colony: Some(colony_id),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -778,7 +783,10 @@ mod tests {
         }
 
         let app_state = AppState {
-            selected_colony: Some(colony_id),
+            colony: crate::app::ColonyScreenState {
+                selected_colony: Some(colony_id),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -796,14 +804,17 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let engine = Engine::new(42);
         let app_state = AppState {
-            selected_colony: engine
-                .state
-                .colonies
-                .iter()
-                .find(|(_, c)| c.owner == engine.state.player_empire)
-                .map(|(id, _)| *id),
-            // cursor beyond bounds wraps via modulo
-            colony_build_cursor: 100,
+            colony: crate::app::ColonyScreenState {
+                selected_colony: engine
+                    .state
+                    .colonies
+                    .iter()
+                    .find(|(_, c)| c.owner == engine.state.player_empire)
+                    .map(|(id, _)| *id),
+                // cursor beyond bounds wraps via modulo
+                build_cursor: 100,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -826,8 +837,11 @@ mod tests {
         // Set cursor to the Shipyard position (after surface buildings)
         let shipyard_cursor = BuildingType::all().len(); // first orbital = after all surface
         let app_state_at_shipyard = AppState {
-            selected_colony: app_state.selected_colony,
-            colony_build_cursor: shipyard_cursor,
+            colony: crate::app::ColonyScreenState {
+                selected_colony: app_state.colony.selected_colony,
+                build_cursor: shipyard_cursor,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -989,7 +1003,10 @@ mod tests {
             .accumulated_production = 17;
 
         let app_state = AppState {
-            selected_colony: Some(colony_id),
+            colony: crate::app::ColonyScreenState {
+                selected_colony: Some(colony_id),
+                ..Default::default()
+            },
             ..Default::default()
         };
 

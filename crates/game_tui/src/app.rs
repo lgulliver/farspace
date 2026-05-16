@@ -1,6 +1,6 @@
 //! Application state and main run loop
 
-use crate::components::{render_help, render_palette, EventLog};
+use crate::components::{render_help, render_palette, EventLog, LogEntryKind, PaletteCommand};
 use crate::keys::KeyMap;
 use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData, OverviewSort};
 use crate::screens::research::ordered_research_techs;
@@ -20,116 +20,151 @@ const DEFAULT_SAVE_PATH: &str = "farspace.sav";
 
 /// Main application state
 pub struct App {
-    pub state: AppState,
-    pub engine: Option<Engine>,
-    pub pending_commands: Vec<Command>,
+    state: AppState,
+    engine: Option<Engine>,
 }
 
 /// UI state
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AppState {
-    pub active: Screen,
-    pub show_help: bool,
-    pub show_palette: bool,
-    pub palette_input: String,
-    pub search_input: String,
-    pub show_search: bool,
-    pub selected_sector: Option<SectorId>,
-    pub selected_star: Option<StarId>,
-    /// Toggle for rendering inter-sector hyperspace lanes on galaxy overview.
-    pub show_inter_sector_lanes: bool,
-    /// Selected planet index when inspecting a system
-    pub selected_planet_index: usize,
-    /// Currently viewed colony (set when entering the colony screen)
-    pub selected_colony: Option<ColonyId>,
-    /// Cursor index for the build-picker on the colony screen
-    pub colony_build_cursor: usize,
-    /// Cursor index for the role selector on the colony screen
-    pub colony_role_cursor: usize,
-    /// Whether the role selector is the active panel (true) or build picker (false)
-    pub colony_role_panel_active: bool,
-    /// Cursor index for the tech list on the research screen
-    pub research_cursor: usize,
-    /// Cursor index for selected row on empire overview
-    pub overview_cursor: usize,
-    /// Current sort mode for empire overview
-    pub overview_sort: OverviewSort,
-    /// Optional overview filter query
-    pub overview_filter: String,
-    /// Whether filter input mode is active on the overview screen
-    pub overview_filter_input: bool,
-    pub log: EventLog,
-    pub quit: bool,
+    pub(crate) active: Screen,
+    pub(crate) overlay: OverlayState,
+    pub(crate) navigation: NavigationState,
+    pub(crate) sector_overview: SectorOverviewState,
+    pub(crate) colony: ColonyScreenState,
+    pub(crate) research: ResearchScreenState,
+    pub(crate) overview: EmpireOverviewScreenState,
+    pub(crate) new_game_setup: NewGameSetupState,
+    pub(crate) log: EventLog,
+    pub(crate) quit: bool,
     /// Monotonically-increasing frame counter, incremented once per render loop iteration.
     /// Used only for low-frequency UI animations; never affects simulation state.
-    pub tick_count: u64,
+    pub(crate) tick_count: u64,
     /// When true, all fleet travel animations are suppressed (accessibility / low-motion).
-    pub reduced_motion: bool,
+    pub(crate) reduced_motion: bool,
     /// Status line shown in contextual footer hints.
-    pub status_message: Option<String>,
+    pub(crate) status_message: Option<String>,
+}
+
+/// UI overlay state shared by all screens.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct OverlayState {
+    pub(crate) show_help: bool,
+    pub(crate) show_palette: bool,
+    pub(crate) palette_input: String,
+}
+
+/// Cross-screen map/system selection state.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct NavigationState {
+    pub(crate) selected_sector: Option<SectorId>,
+    pub(crate) selected_star: Option<StarId>,
+    /// Selected planet index when inspecting a system.
+    pub(crate) selected_planet_index: usize,
+}
+
+/// Sector overview screen state.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SectorOverviewState {
+    /// Toggle for rendering inter-sector hyperspace lanes on galaxy overview.
+    pub(crate) show_inter_sector_lanes: bool,
+}
+
+/// Colony screen state.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ColonyScreenState {
+    /// Currently viewed colony (set when entering the colony screen).
+    pub(crate) selected_colony: Option<ColonyId>,
+    /// Cursor index for the build-picker on the colony screen.
+    pub(crate) build_cursor: usize,
+    /// Cursor index for the role selector on the colony screen.
+    pub(crate) role_cursor: usize,
+    /// Whether the role selector is the active panel (true) or build picker (false).
+    pub(crate) role_panel_active: bool,
     /// Colony for which a rally point is being picked.
     ///
     /// When `Some`, the sector map shows a prompt and pressing 'R' or Enter
     /// while navigating will confirm the selected star as the rally destination.
     /// Pressing Esc cancels.
-    pub pending_rally_colony: Option<ColonyId>,
-
-    // ── New Game Setup screen state ──────────────────────────────────────────
-    /// Galaxy size selected on the setup screen.
-    pub setup_galaxy_size: GalaxySize,
-    /// Number of AI empires selected on the setup screen (1–4).
-    pub setup_ai_count: u8,
-    /// Seed string shown on the setup screen (ASCII digits only).
-    pub setup_seed_str: String,
-    /// Which field is currently highlighted on the setup screen.
-    /// 0 = empire selection, 1 = galaxy size, 2 = AI count, 3 = seed.
-    pub setup_cursor: usize,
-    /// Whether the seed text-edit mode is active.
-    pub setup_seed_editing: bool,
-    /// Snapshot of `setup_seed_str` taken when seed editing begins, used to
-    /// restore the original value if the user presses Esc to discard changes.
-    pub setup_seed_pre_edit: String,
-    /// Index into `all_empire_definitions()` for the empire the player has chosen.
-    pub setup_empire_cursor: usize,
+    pub(crate) pending_rally_colony: Option<ColonyId>,
 }
 
-impl Default for AppState {
+/// Research screen state.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ResearchScreenState {
+    /// Cursor index for the tech list on the research screen.
+    pub(crate) cursor: usize,
+}
+
+/// Empire overview screen state.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct EmpireOverviewScreenState {
+    /// Cursor index for selected row on empire overview.
+    pub(crate) cursor: usize,
+    /// Current sort mode for empire overview.
+    pub(crate) sort: OverviewSort,
+    /// Optional overview filter query.
+    pub(crate) filter: String,
+    /// Whether filter input mode is active on the overview screen.
+    pub(crate) filter_input: bool,
+}
+
+/// New Game Setup screen state.
+#[derive(Debug, Clone)]
+pub(crate) struct NewGameSetupState {
+    /// Galaxy size selected on the setup screen.
+    pub(crate) galaxy_size: GalaxySize,
+    /// Number of AI empires selected on the setup screen (1–4).
+    pub(crate) ai_count: u8,
+    /// Seed string shown on the setup screen (ASCII digits only).
+    pub(crate) seed_str: String,
+    /// Which field is currently highlighted on the setup screen.
+    /// 0 = empire selection, 1 = galaxy size, 2 = AI count, 3 = seed.
+    pub(crate) cursor: usize,
+    /// Whether the seed text-edit mode is active.
+    pub(crate) seed_editing: bool,
+    /// Snapshot of `setup_seed_str` taken when seed editing begins, used to
+    /// restore the original value if the user presses Esc to discard changes.
+    pub(crate) seed_pre_edit: String,
+    /// Index into `all_empire_definitions()` for the empire the player has chosen.
+    pub(crate) empire_cursor: usize,
+}
+
+impl Default for NewGameSetupState {
     fn default() -> Self {
-        AppState {
-            active: Screen::default(),
-            show_help: false,
-            show_palette: false,
-            palette_input: String::new(),
-            search_input: String::new(),
-            show_search: false,
-            selected_sector: None,
-            selected_star: None,
-            show_inter_sector_lanes: false,
-            selected_planet_index: 0,
-            selected_colony: None,
-            colony_build_cursor: 0,
-            colony_role_cursor: 0,
-            colony_role_panel_active: false,
-            research_cursor: 0,
-            overview_cursor: 0,
-            overview_sort: OverviewSort::default(),
-            overview_filter: String::new(),
-            overview_filter_input: false,
-            log: EventLog::default(),
-            quit: false,
-            tick_count: 0,
-            reduced_motion: false,
-            status_message: None,
-            pending_rally_colony: None,
-            setup_galaxy_size: GalaxySize::Medium,
-            setup_ai_count: 1,
-            setup_seed_str: "42".to_string(),
-            setup_cursor: 0,
-            setup_seed_editing: false,
-            setup_seed_pre_edit: String::new(),
-            setup_empire_cursor: 0,
+        Self {
+            galaxy_size: GalaxySize::Medium,
+            ai_count: 1,
+            seed_str: "42".to_string(),
+            cursor: 0,
+            seed_editing: false,
+            seed_pre_edit: String::new(),
+            empire_cursor: 0,
         }
     }
+}
+
+fn fleet_is_idle(state: &game_core::GameState, fleet_id: FleetId) -> bool {
+    !state.scout_missions.contains_key(&fleet_id)
+        && !state.survey_missions.contains_key(&fleet_id)
+        && !state.fleet_missions.contains_key(&fleet_id)
+}
+
+fn first_idle_player_fleet(
+    state: &game_core::GameState,
+    kind: Option<FleetKind>,
+    location: Option<StarId>,
+) -> Option<FleetId> {
+    state
+        .fleets
+        .values()
+        .find(|fleet| {
+            fleet.owner == state.player_empire
+                && kind.is_none_or(|kind| fleet.kind == kind)
+                && location.is_none_or(|location| fleet.location == location)
+                && fleet_is_idle(state, fleet.id)
+        })
+        .map(|fleet| fleet.id)
 }
 
 impl App {
@@ -209,7 +244,18 @@ impl App {
 
     fn push_core_event_to_log(&mut self, event: &CoreEvent) {
         let message = self.format_core_event_for_log(event);
-        self.state.log.push(message);
+        let kind = LogEntryKind::from_message(&message);
+        self.state.log.push_with_kind(kind, message);
+    }
+
+    fn push_status(&mut self, kind: LogEntryKind, message: impl Into<String>) {
+        let message = message.into();
+        self.state.log.push_with_kind(kind, message.clone());
+        self.state.status_message = Some(message);
+    }
+
+    fn push_error_status(&mut self, message: impl Into<String>) {
+        self.push_status(LogEntryKind::Error, message);
     }
 
     /// Create a new application
@@ -217,7 +263,6 @@ impl App {
         App {
             state: AppState::default(),
             engine: None,
-            pending_commands: Vec::new(),
         }
     }
 
@@ -236,9 +281,9 @@ impl App {
         let engine = Engine::new_from_setup(setup);
 
         // Select the first sector and first star by default
-        self.state.selected_sector = engine.state.sectors.keys().next().copied();
-        self.state.selected_star = engine.state.stars.keys().next().copied();
-        self.state.selected_planet_index = 0;
+        self.state.navigation.selected_sector = engine.state.sectors.keys().next().copied();
+        self.state.navigation.selected_star = engine.state.stars.keys().next().copied();
+        self.state.navigation.selected_planet_index = 0;
 
         // Add initial log entry with setup summary and playability hints
         let scenario_summary = if let Some(s) = &engine.state.scenario {
@@ -292,50 +337,49 @@ impl App {
         let selected_star = state.stars.keys().next().copied();
         let selected_sector = state.sectors.keys().next().copied();
         self.engine = Some(Engine::from_state(state));
-        self.state.selected_sector = selected_sector;
-        self.state.selected_star = selected_star;
-        self.state.selected_planet_index = 0;
+        self.state.navigation.selected_sector = selected_sector;
+        self.state.navigation.selected_star = selected_star;
+        self.state.navigation.selected_planet_index = 0;
         self.state.active = Screen::SectorOverview;
         Ok(())
     }
 
-    /// Execute a palette command string (e.g. "save", ":save")
-    fn execute_palette_command(&mut self, cmd: &str) {
-        let cmd = cmd.trim_start_matches(':').trim();
-        if cmd.is_empty() {
-            return;
-        }
+    /// Parse and execute palette input (e.g. "save", ":save").
+    fn execute_palette_input(&mut self, input: &str) {
+        let command = match PaletteCommand::parse(input) {
+            Ok(Some(command)) => command,
+            Ok(None) => return,
+            Err(err) => {
+                self.push_error_status(format!("Error: Unknown command: {}", err.command()));
+                return;
+            }
+        };
+        self.execute_palette_command(command);
+    }
+
+    fn execute_palette_command(&mut self, cmd: PaletteCommand) {
         let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);
         match cmd {
-            "save" => match self.save_game(&path) {
+            PaletteCommand::Save => match self.save_game(&path) {
                 Ok(()) => {
                     let msg = format!("Save: wrote {}", path.display());
-                    self.state.log.push(msg.clone());
-                    self.state.status_message = Some(msg);
+                    self.push_status(LogEntryKind::SaveLoad, msg);
                 }
                 Err(e) => {
-                    self.state.log.push(e.clone());
-                    self.state.status_message = Some(e);
+                    self.push_error_status(e);
                 }
             },
-            "load" => match self.load_game(&path) {
+            PaletteCommand::Load => match self.load_game(&path) {
                 Ok(()) => {
                     let msg = format!("Load: loaded {}", path.display());
-                    self.state.log.push(msg.clone());
-                    self.state.status_message = Some(msg);
+                    self.push_status(LogEntryKind::SaveLoad, msg);
                 }
                 Err(e) => {
-                    self.state.log.push(e.clone());
-                    self.state.status_message = Some(e);
+                    self.push_error_status(e);
                 }
             },
-            "clear-rally" => {
+            PaletteCommand::ClearRally => {
                 self.clear_rally_point();
-            }
-            other => {
-                let msg = format!("Error: Unknown command: {}", other);
-                self.state.log.push(msg.clone());
-                self.state.status_message = Some(msg);
             }
         }
     }
@@ -370,46 +414,42 @@ impl App {
             .render(frame, area, &self.state, game_state);
 
         // Render overlays
-        if self.state.show_help {
+        if self.state.overlay.show_help {
             render_help(frame, area, &self.state.active);
         }
 
-        if self.state.show_palette {
-            render_palette(frame, area, &self.state.palette_input);
+        if self.state.overlay.show_palette {
+            render_palette(frame, area, &self.state.overlay.palette_input);
         }
     }
 
     /// Handle a key event
     fn handle_key(&mut self, key: KeyEvent) {
         // Handle overlays first
-        if self.state.show_help {
+        if self.state.overlay.show_help {
             if KeyMap::is_help(key) || KeyMap::is_escape(key) {
-                self.state.show_help = false;
+                self.state.overlay.show_help = false;
             }
             return;
         }
 
-        if self.state.show_palette {
+        if self.state.overlay.show_palette {
             match key.code {
                 KeyCode::Esc => {
-                    self.state.show_palette = false;
-                    self.state.palette_input.clear();
+                    self.state.overlay.show_palette = false;
+                    self.state.overlay.palette_input.clear();
                 }
                 KeyCode::Enter => {
-                    let cmd = self.state.palette_input.clone();
-                    self.state.show_palette = false;
-                    self.state.palette_input.clear();
-                    // Normalize before checking — skip empty, whitespace-only, or bare ":"
-                    let normalized = cmd.trim_start_matches(':').trim();
-                    if !normalized.is_empty() {
-                        self.execute_palette_command(&cmd);
-                    }
+                    let cmd = self.state.overlay.palette_input.clone();
+                    self.state.overlay.show_palette = false;
+                    self.state.overlay.palette_input.clear();
+                    self.execute_palette_input(&cmd);
                 }
                 KeyCode::Backspace => {
-                    self.state.palette_input.pop();
+                    self.state.overlay.palette_input.pop();
                 }
                 KeyCode::Char(c) => {
-                    self.state.palette_input.push(c);
+                    self.state.overlay.palette_input.push(c);
                 }
                 _ => {}
             }
@@ -418,12 +458,12 @@ impl App {
 
         // Global keys
         if KeyMap::is_help(key) {
-            self.state.show_help = true;
+            self.state.overlay.show_help = true;
             return;
         }
 
         if KeyMap::is_palette(key) {
-            self.state.show_palette = true;
+            self.state.overlay.show_palette = true;
             return;
         }
 
@@ -434,7 +474,7 @@ impl App {
 
         if key.code == KeyCode::Char('O') && self.engine.is_some() {
             self.state.active = Screen::EmpireOverview;
-            self.state.overview_filter_input = false;
+            self.state.overview.filter_input = false;
             return;
         }
 
@@ -478,27 +518,30 @@ impl App {
         const NUM_FIELDS: usize = 4;
 
         // Seed editing mode intercepts most keys.
-        if self.state.setup_seed_editing {
+        if self.state.new_game_setup.seed_editing {
             match key.code {
                 KeyCode::Esc => {
                     // Cancel editing — restore the value that was active when editing began.
-                    self.state.setup_seed_str = self.state.setup_seed_pre_edit.clone();
-                    self.state.setup_seed_editing = false;
+                    self.state.new_game_setup.seed_str =
+                        self.state.new_game_setup.seed_pre_edit.clone();
+                    self.state.new_game_setup.seed_editing = false;
                 }
                 KeyCode::Enter => {
                     // Confirm edit.
-                    self.state.setup_seed_editing = false;
+                    self.state.new_game_setup.seed_editing = false;
                     // Ensure seed string is valid (non-empty).
-                    if self.state.setup_seed_str.is_empty() {
-                        self.state.setup_seed_str = "0".to_string();
+                    if self.state.new_game_setup.seed_str.is_empty() {
+                        self.state.new_game_setup.seed_str = "0".to_string();
                     }
                 }
                 KeyCode::Backspace => {
-                    self.state.setup_seed_str.pop();
+                    self.state.new_game_setup.seed_str.pop();
                 }
                 // Limit to 18 digits to stay within u64::MAX (20 digits).
-                KeyCode::Char(c) if c.is_ascii_digit() && self.state.setup_seed_str.len() < 18 => {
-                    self.state.setup_seed_str.push(c);
+                KeyCode::Char(c)
+                    if c.is_ascii_digit() && self.state.new_game_setup.seed_str.len() < 18 =>
+                {
+                    self.state.new_game_setup.seed_str.push(c);
                 }
                 _ => {}
             }
@@ -510,11 +553,12 @@ impl App {
                 self.state.active = Screen::Menu;
             }
             KeyCode::Enter => {
-                let cursor = self.state.setup_cursor;
+                let cursor = self.state.new_game_setup.cursor;
                 if cursor == FIELD_SEED {
                     // Enter edit mode for seed field — snapshot the current value so Esc can restore it.
-                    self.state.setup_seed_pre_edit = self.state.setup_seed_str.clone();
-                    self.state.setup_seed_editing = true;
+                    self.state.new_game_setup.seed_pre_edit =
+                        self.state.new_game_setup.seed_str.clone();
+                    self.state.new_game_setup.seed_editing = true;
                 } else if cursor == FIELD_EMPIRE {
                     // Enter on empire field cycles to next empire (same as →).
                     self.setup_cycle_field(true);
@@ -524,10 +568,12 @@ impl App {
                 }
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                self.state.setup_cursor = (self.state.setup_cursor + 1) % NUM_FIELDS;
+                self.state.new_game_setup.cursor =
+                    (self.state.new_game_setup.cursor + 1) % NUM_FIELDS;
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.state.setup_cursor = (self.state.setup_cursor + NUM_FIELDS - 1) % NUM_FIELDS;
+                self.state.new_game_setup.cursor =
+                    (self.state.new_game_setup.cursor + NUM_FIELDS - 1) % NUM_FIELDS;
             }
             // Cycle left/decrease
             KeyCode::Char('h') | KeyCode::Left | KeyCode::Char('-') => {
@@ -551,34 +597,36 @@ impl App {
         use game_core::GalaxySize;
         let all_sizes = GalaxySize::all();
         let all_defs = game_core::all_empire_definitions();
-        match self.state.setup_cursor {
+        match self.state.new_game_setup.cursor {
             FIELD_EMPIRE => {
                 let n = all_defs.len();
                 if forward {
-                    self.state.setup_empire_cursor = (self.state.setup_empire_cursor + 1) % n;
+                    self.state.new_game_setup.empire_cursor =
+                        (self.state.new_game_setup.empire_cursor + 1) % n;
                 } else {
-                    self.state.setup_empire_cursor = (self.state.setup_empire_cursor + n - 1) % n;
+                    self.state.new_game_setup.empire_cursor =
+                        (self.state.new_game_setup.empire_cursor + n - 1) % n;
                 }
             }
             FIELD_GALAXY_SIZE => {
                 let idx = all_sizes
                     .iter()
-                    .position(|s| *s == self.state.setup_galaxy_size)
+                    .position(|s| *s == self.state.new_game_setup.galaxy_size)
                     .unwrap_or(0);
                 let new_idx = if forward {
                     (idx + 1).min(all_sizes.len() - 1)
                 } else {
                     idx.saturating_sub(1)
                 };
-                self.state.setup_galaxy_size = all_sizes[new_idx];
+                self.state.new_game_setup.galaxy_size = all_sizes[new_idx];
             }
             FIELD_AI_COUNT => {
                 if forward {
-                    if self.state.setup_ai_count < 4 {
-                        self.state.setup_ai_count += 1;
+                    if self.state.new_game_setup.ai_count < 4 {
+                        self.state.new_game_setup.ai_count += 1;
                     }
-                } else if self.state.setup_ai_count > 1 {
-                    self.state.setup_ai_count -= 1;
+                } else if self.state.new_game_setup.ai_count > 1 {
+                    self.state.new_game_setup.ai_count -= 1;
                 }
             }
             _ => {}
@@ -587,23 +635,25 @@ impl App {
 
     /// Build a `ScenarioSetup` from the current setup screen state and start the game.
     fn start_game_from_setup(&mut self) {
-        let seed: u64 = match self.state.setup_seed_str.parse() {
+        let seed: u64 = match self.state.new_game_setup.seed_str.parse() {
             Ok(v) => v,
             Err(_) => {
                 self.state.log.push(format!(
                     "Invalid seed '{}' — using 0",
-                    self.state.setup_seed_str
+                    self.state.new_game_setup.seed_str
                 ));
-                self.state.setup_seed_str = "0".to_string();
+                self.state.new_game_setup.seed_str = "0".to_string();
                 0
             }
         };
         let all_defs = game_core::all_empire_definitions();
-        let player_empire_def = all_defs.get(self.state.setup_empire_cursor).map(|d| d.id);
+        let player_empire_def = all_defs
+            .get(self.state.new_game_setup.empire_cursor)
+            .map(|d| d.id);
         let setup = ScenarioSetup {
             seed,
-            galaxy_size: self.state.setup_galaxy_size,
-            ai_empire_count: self.state.setup_ai_count,
+            galaxy_size: self.state.new_game_setup.galaxy_size,
+            ai_empire_count: self.state.new_game_setup.ai_count,
             sector_count_override: None,
             difficulty: game_core::DifficultyLevel::Standard,
             player_empire_def,
@@ -624,7 +674,7 @@ impl App {
 
         if key.code == KeyCode::Char('r') {
             self.state.active = Screen::Research;
-            self.state.research_cursor = 0;
+            self.state.research.cursor = 0;
             return;
         }
 
@@ -634,7 +684,8 @@ impl App {
         }
 
         if key.code == KeyCode::Char('L') {
-            self.state.show_inter_sector_lanes = !self.state.show_inter_sector_lanes;
+            self.state.sector_overview.show_inter_sector_lanes =
+                !self.state.sector_overview.show_inter_sector_lanes;
             return;
         }
 
@@ -645,10 +696,10 @@ impl App {
 
     fn handle_sector_map_key(&mut self, key: KeyEvent) {
         // Rally-point picking mode: 'R' or Enter confirms, Esc cancels
-        if self.state.pending_rally_colony.is_some() {
+        if self.state.colony.pending_rally_colony.is_some() {
             match key.code {
                 KeyCode::Esc => {
-                    self.state.pending_rally_colony = None;
+                    self.state.colony.pending_rally_colony = None;
                     self.state
                         .log
                         .push("Rally point selection cancelled.".to_string());
@@ -679,7 +730,7 @@ impl App {
 
         if key.code == KeyCode::Enter {
             self.state.active = Screen::System;
-            self.state.selected_planet_index = 0;
+            self.state.navigation.selected_planet_index = 0;
             return;
         }
 
@@ -704,7 +755,7 @@ impl App {
 
         if key.code == KeyCode::Char('r') {
             self.state.active = Screen::Research;
-            self.state.research_cursor = 0;
+            self.state.research.cursor = 0;
             return;
         }
 
@@ -724,6 +775,7 @@ impl App {
             .as_ref()
             .and_then(|engine| {
                 self.state
+                    .navigation
                     .selected_star
                     .and_then(|star_id| engine.state.stars.get(&star_id))
             })
@@ -743,14 +795,15 @@ impl App {
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 if planet_count > 0 {
-                    self.state.selected_planet_index =
-                        (self.state.selected_planet_index + 1) % planet_count;
+                    self.state.navigation.selected_planet_index =
+                        (self.state.navigation.selected_planet_index + 1) % planet_count;
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 if planet_count > 0 {
-                    self.state.selected_planet_index =
-                        (self.state.selected_planet_index + planet_count - 1) % planet_count;
+                    self.state.navigation.selected_planet_index =
+                        (self.state.navigation.selected_planet_index + planet_count - 1)
+                            % planet_count;
                 }
             }
             KeyCode::Char('C') => {
@@ -782,38 +835,38 @@ impl App {
             // Return to sector map
             KeyCode::Esc => {
                 self.state.active = Screen::SectorMap;
-                self.state.selected_colony = None;
-                self.state.colony_role_panel_active = false;
-                self.state.colony_role_cursor = 0;
+                self.state.colony.selected_colony = None;
+                self.state.colony.role_panel_active = false;
+                self.state.colony.role_cursor = 0;
             }
             // Tab: switch active panel (build picker ↔ role selector)
             KeyCode::Tab => {
-                self.state.colony_role_panel_active = !self.state.colony_role_panel_active;
+                self.state.colony.role_panel_active = !self.state.colony.role_panel_active;
             }
             // Navigate the active panel
             KeyCode::Char('j') | KeyCode::Down => {
-                if self.state.colony_role_panel_active {
+                if self.state.colony.role_panel_active {
                     let count = ColonyRole::all().len();
-                    self.state.colony_role_cursor = (self.state.colony_role_cursor + 1) % count;
+                    self.state.colony.role_cursor = (self.state.colony.role_cursor + 1) % count;
                 } else {
                     let count = Self::all_build_item_count();
-                    self.state.colony_build_cursor = (self.state.colony_build_cursor + 1) % count;
+                    self.state.colony.build_cursor = (self.state.colony.build_cursor + 1) % count;
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                if self.state.colony_role_panel_active {
+                if self.state.colony.role_panel_active {
                     let count = ColonyRole::all().len();
-                    self.state.colony_role_cursor =
-                        (self.state.colony_role_cursor + count.saturating_sub(1)) % count;
+                    self.state.colony.role_cursor =
+                        (self.state.colony.role_cursor + count.saturating_sub(1)) % count;
                 } else {
                     let count = Self::all_build_item_count();
-                    self.state.colony_build_cursor =
-                        (self.state.colony_build_cursor + count.saturating_sub(1)) % count;
+                    self.state.colony.build_cursor =
+                        (self.state.colony.build_cursor + count.saturating_sub(1)) % count;
                 }
             }
             // Enter: confirm selection in the active panel
             KeyCode::Enter => {
-                if self.state.colony_role_panel_active {
+                if self.state.colony.role_panel_active {
                     self.set_colony_role();
                 } else {
                     self.queue_building();
@@ -821,11 +874,11 @@ impl App {
             }
             // R: start rally-point picking — return to Sector Map in pick mode
             KeyCode::Char('R') => {
-                if let Some(colony_id) = self.state.selected_colony {
-                    self.state.pending_rally_colony = Some(colony_id);
+                if let Some(colony_id) = self.state.colony.selected_colony {
+                    self.state.colony.pending_rally_colony = Some(colony_id);
                     self.state.active = Screen::SectorMap;
-                    self.state.selected_colony = None;
-                    self.state.colony_role_panel_active = false;
+                    self.state.colony.selected_colony = None;
+                    self.state.colony.role_panel_active = false;
                     self.state.log.push(
                         "Select a star and press R to set rally point. Esc to cancel.".to_string(),
                     );
@@ -845,21 +898,21 @@ impl App {
     }
 
     fn handle_empire_overview_key(&mut self, key: KeyEvent) {
-        if self.state.overview_filter_input {
+        if self.state.overview.filter_input {
             match key.code {
                 KeyCode::Esc => {
-                    self.state.overview_filter_input = false;
+                    self.state.overview.filter_input = false;
                 }
                 KeyCode::Enter => {
-                    self.state.overview_filter_input = false;
+                    self.state.overview.filter_input = false;
                 }
                 KeyCode::Backspace => {
-                    self.state.overview_filter.pop();
-                    self.state.overview_cursor = 0;
+                    self.state.overview.filter.pop();
+                    self.state.overview.cursor = 0;
                 }
                 KeyCode::Char(c) => {
-                    self.state.overview_filter.push(c);
-                    self.state.overview_cursor = 0;
+                    self.state.overview.filter.push(c);
+                    self.state.overview.cursor = 0;
                 }
                 _ => {}
             }
@@ -870,8 +923,8 @@ impl App {
             derive_empire_overview(
                 &engine.state,
                 engine.state.player_empire,
-                self.state.overview_sort,
-                &self.state.overview_filter,
+                self.state.overview.sort,
+                &self.state.overview.filter,
             )
         });
         let visible_count = overview_data.as_ref().map(|d| d.rows.len()).unwrap_or(0);
@@ -879,17 +932,17 @@ impl App {
         match key.code {
             KeyCode::Esc => {
                 self.state.active = Screen::SectorMap;
-                self.state.overview_filter_input = false;
+                self.state.overview.filter_input = false;
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 if visible_count > 0 {
-                    self.state.overview_cursor = (self.state.overview_cursor + 1) % visible_count;
+                    self.state.overview.cursor = (self.state.overview.cursor + 1) % visible_count;
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 if visible_count > 0 {
-                    self.state.overview_cursor =
-                        (self.state.overview_cursor + visible_count - 1) % visible_count;
+                    self.state.overview.cursor =
+                        (self.state.overview.cursor + visible_count - 1) % visible_count;
                 }
             }
             KeyCode::Enter => {
@@ -899,11 +952,11 @@ impl App {
                 self.jump_overview_to_system(overview_data.as_ref());
             }
             KeyCode::Char('s') => {
-                self.state.overview_sort = self.state.overview_sort.next();
-                self.state.overview_cursor = 0;
+                self.state.overview.sort = self.state.overview.sort.next();
+                self.state.overview.cursor = 0;
             }
             _ if KeyMap::is_search(key) => {
-                self.state.overview_filter_input = true;
+                self.state.overview.filter_input = true;
             }
             _ => {
                 if KeyMap::is_end_turn(key) && key.code != KeyCode::Enter {
@@ -925,15 +978,16 @@ impl App {
         };
         let selected = self
             .state
-            .overview_cursor
+            .overview
+            .cursor
             .min(data.rows.len().saturating_sub(1));
         let row = &data.rows[selected];
         let (star_id, planet_index, colony_id) = (row.star_id, row.planet_index, row.colony_id);
 
-        self.state.selected_star = Some(star_id);
-        self.state.selected_planet_index = planet_index;
-        self.state.selected_colony = Some(colony_id);
-        self.state.colony_build_cursor = 0;
+        self.state.navigation.selected_star = Some(star_id);
+        self.state.navigation.selected_planet_index = planet_index;
+        self.state.colony.selected_colony = Some(colony_id);
+        self.state.colony.build_cursor = 0;
         self.state.active = Screen::Colony;
     }
 
@@ -949,13 +1003,14 @@ impl App {
         };
         let selected = self
             .state
-            .overview_cursor
+            .overview
+            .cursor
             .min(data.rows.len().saturating_sub(1));
         let row = &data.rows[selected];
         let (star_id, planet_index) = (row.star_id, row.planet_index);
 
-        self.state.selected_star = Some(star_id);
-        self.state.selected_planet_index = planet_index;
+        self.state.navigation.selected_star = Some(star_id);
+        self.state.navigation.selected_planet_index = planet_index;
         self.state.active = Screen::System;
     }
 
@@ -974,7 +1029,7 @@ impl App {
             None => return false,
         };
 
-        let star_id = match self.state.selected_star {
+        let star_id = match self.state.navigation.selected_star {
             Some(id) => id,
             None => return false,
         };
@@ -987,13 +1042,14 @@ impl App {
         if !star.planets.is_empty() {
             let selected_planet = self
                 .state
+                .navigation
                 .selected_planet_index
                 .min(star.planets.len().saturating_sub(1));
             if let Some(colony_id) = star.planets[selected_planet].colony {
                 if let Some(colony) = engine.state.colonies.get(&colony_id) {
                     if colony.owner == engine.state.player_empire {
-                        self.state.selected_colony = Some(colony_id);
-                        self.state.colony_build_cursor = 0;
+                        self.state.colony.selected_colony = Some(colony_id);
+                        self.state.colony.build_cursor = 0;
                         self.state.active = Screen::Colony;
                         return true;
                     }
@@ -1006,8 +1062,8 @@ impl App {
             if let Some(colony_id) = planet.colony {
                 if let Some(colony) = engine.state.colonies.get(&colony_id) {
                     if colony.owner == engine.state.player_empire {
-                        self.state.selected_colony = Some(colony_id);
-                        self.state.colony_build_cursor = 0;
+                        self.state.colony.selected_colony = Some(colony_id);
+                        self.state.colony.build_cursor = 0;
                         self.state.active = Screen::Colony;
                         return true;
                     }
@@ -1027,14 +1083,14 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down => {
                 let count = self.tech_tree_count();
                 if count > 0 {
-                    self.state.research_cursor = (self.state.research_cursor + 1) % count;
+                    self.state.research.cursor = (self.state.research.cursor + 1) % count;
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 let count = self.tech_tree_count();
                 if count > 0 {
-                    self.state.research_cursor =
-                        (self.state.research_cursor + count.saturating_sub(1)) % count;
+                    self.state.research.cursor =
+                        (self.state.research.cursor + count.saturating_sub(1)) % count;
                 }
             }
             // Select the highlighted tech for research
@@ -1072,6 +1128,38 @@ impl App {
         ordered_research_techs().len()
     }
 
+    /// Dispatch one game-core command and centralize event logging/status updates.
+    fn dispatch_command(&mut self, command: Command) {
+        let is_end_turn = matches!(command, Command::EndTurn);
+        let (events, end_turn_report) = {
+            let engine = match &mut self.engine {
+                Some(engine) => engine,
+                None => return,
+            };
+            let events = engine.apply_turn(vec![command]);
+            let report =
+                is_end_turn.then(|| Self::build_end_turn_report(engine.state.turn, &events));
+            (events, report)
+        };
+
+        for event in &events {
+            self.push_core_event_to_log(event);
+        }
+
+        if let Some(report) = end_turn_report {
+            self.push_status(LogEntryKind::TurnReport, report);
+            return;
+        }
+
+        if let Some(CoreEvent::Error { message }) = events
+            .iter()
+            .rev()
+            .find(|event| matches!(event, CoreEvent::Error { .. }))
+        {
+            self.state.status_message = Some(format!("Error: {}", message));
+        }
+    }
+
     /// Select the highlighted technology for research
     fn select_research_tech(&mut self) {
         // Collect the tech_id first using a scoped borrow
@@ -1090,27 +1178,16 @@ impl App {
                 self.state.status_message = Some(msg.to_string());
                 return;
             }
-            let cursor = self.state.research_cursor % ordered.len();
+            let cursor = self.state.research.cursor % ordered.len();
             ordered[cursor].id
         };
 
-        self.pending_commands
-            .push(Command::SelectResearch { tech: tech_id });
-
-        let commands = std::mem::take(&mut self.pending_commands);
-        let engine = match &mut self.engine {
-            Some(e) => e,
-            None => return,
-        };
-        let events = engine.apply_turn(commands);
-        for event in events {
-            self.push_core_event_to_log(&event);
-        }
+        self.dispatch_command(Command::SelectResearch { tech: tech_id });
     }
 
     /// Queue the currently selected build item at the active colony
     fn queue_building(&mut self) {
-        let colony_id = match self.state.selected_colony {
+        let colony_id = match self.state.colony.selected_colony {
             Some(id) => id,
             None => {
                 let msg = "Unavailable: queue build — no colony selected.";
@@ -1131,7 +1208,7 @@ impl App {
             self.state.status_message = Some(msg.to_string());
             return;
         }
-        let cursor = self.state.colony_build_cursor % total;
+        let cursor = self.state.colony.build_cursor % total;
 
         let item = if cursor < surface_buildings.len() {
             game_core::BuildItem::SurfaceStructure(surface_buildings[cursor])
@@ -1145,25 +1222,15 @@ impl App {
             )
         };
 
-        self.pending_commands.push(Command::QueueBuild {
+        self.dispatch_command(Command::QueueBuild {
             colony: colony_id,
             item,
         });
-
-        let commands = std::mem::take(&mut self.pending_commands);
-        let engine = match &mut self.engine {
-            Some(e) => e,
-            None => return,
-        };
-        let events = engine.apply_turn(commands);
-        for event in events {
-            self.push_core_event_to_log(&event);
-        }
     }
 
     /// Assign the currently highlighted role to the active colony.
     fn set_colony_role(&mut self) {
-        let colony_id = match self.state.selected_colony {
+        let colony_id = match self.state.colony.selected_colony {
             Some(id) => id,
             None => {
                 let msg = "Unavailable: set role — no colony selected.";
@@ -1180,32 +1247,22 @@ impl App {
             self.state.status_message = Some(msg.to_string());
             return;
         }
-        let cursor = self.state.colony_role_cursor % roles.len();
+        let cursor = self.state.colony.role_cursor % roles.len();
         let role = roles[cursor];
 
-        self.pending_commands.push(Command::SetColonyRole {
+        self.dispatch_command(Command::SetColonyRole {
             colony: colony_id,
             role,
         });
-
-        let commands = std::mem::take(&mut self.pending_commands);
-        let engine = match &mut self.engine {
-            Some(e) => e,
-            None => return,
-        };
-        let events = engine.apply_turn(commands);
-        for event in events {
-            self.push_core_event_to_log(&event);
-        }
     }
 
     /// Confirm the selected star as the rally point for `pending_rally_colony`.
     fn confirm_rally_point(&mut self) {
-        let colony_id = match self.state.pending_rally_colony.take() {
+        let colony_id = match self.state.colony.pending_rally_colony.take() {
             Some(id) => id,
             None => return,
         };
-        let star_id = match self.state.selected_star {
+        let star_id = match self.state.navigation.selected_star {
             Some(id) => id,
             None => {
                 self.state
@@ -1215,26 +1272,19 @@ impl App {
             }
         };
 
-        let commands = vec![Command::SetRallyPoint {
+        self.dispatch_command(Command::SetRallyPoint {
             colony: colony_id,
             star: star_id,
-        }];
-        let engine = match &mut self.engine {
-            Some(e) => e,
-            None => return,
-        };
-        let events = engine.apply_turn(commands);
-        for event in events {
-            self.push_core_event_to_log(&event);
-        }
+        });
     }
 
     /// Clear the rally point for the currently selected colony (or the pending rally colony).
     fn clear_rally_point(&mut self) {
         let colony_id = self
             .state
+            .colony
             .selected_colony
-            .or(self.state.pending_rally_colony);
+            .or(self.state.colony.pending_rally_colony);
         let colony_id = match colony_id {
             Some(id) => id,
             None => {
@@ -1244,17 +1294,9 @@ impl App {
                 return;
             }
         };
-        self.state.pending_rally_colony = None;
+        self.state.colony.pending_rally_colony = None;
 
-        let commands = vec![Command::ClearRallyPoint { colony: colony_id }];
-        let engine = match &mut self.engine {
-            Some(e) => e,
-            None => return,
-        };
-        let events = engine.apply_turn(commands);
-        for event in events {
-            self.push_core_event_to_log(&event);
-        }
+        self.dispatch_command(Command::ClearRallyPoint { colony: colony_id });
     }
 
     #[allow(dead_code)]
@@ -1264,11 +1306,11 @@ impl App {
             None => return,
         };
 
-        let current = match self.state.selected_star {
+        let current = match self.state.navigation.selected_star {
             Some(id) => id,
             None => {
                 // Select first star if none selected
-                self.state.selected_star = engine.state.stars.keys().next().copied();
+                self.state.navigation.selected_star = engine.state.stars.keys().next().copied();
                 return;
             }
         };
@@ -1314,7 +1356,7 @@ impl App {
         }
 
         if let Some((id, _)) = best {
-            self.state.selected_star = Some(id);
+            self.state.navigation.selected_star = Some(id);
         }
     }
 
@@ -1324,10 +1366,10 @@ impl App {
             None => return,
         };
 
-        let current = match self.state.selected_sector {
+        let current = match self.state.navigation.selected_sector {
             Some(id) => id,
             None => {
-                self.state.selected_sector = engine.state.sectors.keys().next().copied();
+                self.state.navigation.selected_sector = engine.state.sectors.keys().next().copied();
                 return;
             }
         };
@@ -1371,8 +1413,8 @@ impl App {
         }
 
         if let Some((id, _)) = best {
-            self.state.selected_sector = Some(id);
-            self.state.selected_star = engine
+            self.state.navigation.selected_sector = Some(id);
+            self.state.navigation.selected_star = engine
                 .state
                 .stars
                 .values()
@@ -1387,15 +1429,15 @@ impl App {
             None => return,
         };
 
-        let sector_id = match self.state.selected_sector {
+        let sector_id = match self.state.navigation.selected_sector {
             Some(id) => id,
             None => return,
         };
 
-        let current = match self.state.selected_star {
+        let current = match self.state.navigation.selected_star {
             Some(id) => id,
             None => {
-                self.state.selected_star = engine
+                self.state.navigation.selected_star = engine
                     .state
                     .stars
                     .values()
@@ -1408,7 +1450,7 @@ impl App {
         let current_star = match engine.state.stars.get(&current) {
             Some(s) if s.sector == sector_id => s,
             _ => {
-                self.state.selected_star = engine
+                self.state.navigation.selected_star = engine
                     .state
                     .stars
                     .values()
@@ -1452,36 +1494,18 @@ impl App {
         }
 
         if let Some((id, _)) = best {
-            self.state.selected_star = Some(id);
+            self.state.navigation.selected_star = Some(id);
         }
     }
 
     fn end_turn(&mut self) {
-        let engine = match &mut self.engine {
-            Some(e) => e,
-            None => return,
-        };
-
-        // Add EndTurn command
-        self.pending_commands.push(Command::EndTurn);
-
-        // Process all pending commands
-        let commands = std::mem::take(&mut self.pending_commands);
-        let events = engine.apply_turn(commands);
-
-        // Add events to log
-        let report = Self::build_end_turn_report(engine.state.turn, &events);
-        for event in events {
-            self.push_core_event_to_log(&event);
-        }
-        self.state.log.push(report.clone());
-        self.state.status_message = Some(report);
+        self.dispatch_command(Command::EndTurn);
     }
 
     /// Dispatch an available scout fleet to the currently selected star system.
     /// Logs an error if no fleet is available or the destination is already explored.
     fn dispatch_scout(&mut self) {
-        let star_id = match self.state.selected_star {
+        let star_id = match self.state.navigation.selected_star {
             Some(id) => id,
             None => {
                 let msg = "Unavailable: dispatch scout — no star selected.";
@@ -1491,24 +1515,12 @@ impl App {
             }
         };
 
-        // Find the first player-owned fleet that is not on an active mission
         let fleet_id: Option<FleetId> = {
             let engine = match &self.engine {
                 Some(e) => e,
                 None => return,
             };
-            engine
-                .state
-                .fleets
-                .values()
-                .find(|f| {
-                    f.owner == engine.state.player_empire
-                        && f.kind == FleetKind::Scout
-                        && !engine.state.scout_missions.contains_key(&f.id)
-                        && !engine.state.survey_missions.contains_key(&f.id)
-                        && !engine.state.fleet_missions.contains_key(&f.id)
-                })
-                .map(|f| f.id)
+            first_idle_player_fleet(&engine.state, Some(FleetKind::Scout), None)
         };
 
         let fleet_id = match fleet_id {
@@ -1521,26 +1533,16 @@ impl App {
             }
         };
 
-        self.pending_commands.push(Command::SendScout {
+        self.dispatch_command(Command::SendScout {
             fleet: fleet_id,
             destination: star_id,
         });
-
-        let commands = std::mem::take(&mut self.pending_commands);
-        let engine = match &mut self.engine {
-            Some(e) => e,
-            None => return,
-        };
-        let events = engine.apply_turn(commands);
-        for event in events {
-            self.push_core_event_to_log(&event);
-        }
     }
 
     /// Move the first idle player fleet to the currently selected (explored) star system.
     /// Logs an error if no idle fleet is available or the destination is not explored.
     fn move_fleet(&mut self) {
-        let star_id = match self.state.selected_star {
+        let star_id = match self.state.navigation.selected_star {
             Some(id) => id,
             None => {
                 let msg = "Unavailable: move fleet — no star selected.";
@@ -1550,23 +1552,12 @@ impl App {
             }
         };
 
-        // Find the first idle player fleet (no scout mission, no fleet mission)
         let fleet_id: Option<FleetId> = {
             let engine = match &self.engine {
                 Some(e) => e,
                 None => return,
             };
-            engine
-                .state
-                .fleets
-                .values()
-                .find(|f| {
-                    f.owner == engine.state.player_empire
-                        && !engine.state.scout_missions.contains_key(&f.id)
-                        && !engine.state.survey_missions.contains_key(&f.id)
-                        && !engine.state.fleet_missions.contains_key(&f.id)
-                })
-                .map(|f| f.id)
+            first_idle_player_fleet(&engine.state, None, None)
         };
 
         let fleet_id = match fleet_id {
@@ -1579,26 +1570,16 @@ impl App {
             }
         };
 
-        self.pending_commands.push(Command::MoveFleet {
+        self.dispatch_command(Command::MoveFleet {
             fleet: fleet_id,
             destination: star_id,
         });
-
-        let commands = std::mem::take(&mut self.pending_commands);
-        let engine = match &mut self.engine {
-            Some(e) => e,
-            None => return,
-        };
-        let events = engine.apply_turn(commands);
-        for event in events {
-            self.push_core_event_to_log(&event);
-        }
     }
 
     /// Colonize the currently selected planet at the selected star system
     /// using an idle colonizer fleet present at that system.
     fn colonize_selected_planet(&mut self) {
-        let star_id = match self.state.selected_star {
+        let star_id = match self.state.navigation.selected_star {
             Some(id) => id,
             None => {
                 let msg = "Unavailable: colonize — no star selected.";
@@ -1608,25 +1589,12 @@ impl App {
             }
         };
 
-        // Find the first idle colonizer fleet at the selected star
         let fleet_id: Option<FleetId> = {
             let engine = match &self.engine {
                 Some(e) => e,
                 None => return,
             };
-            engine
-                .state
-                .fleets
-                .values()
-                .find(|f| {
-                    f.owner == engine.state.player_empire
-                        && f.location == star_id
-                        && f.kind == FleetKind::Colonizer
-                        && !engine.state.scout_missions.contains_key(&f.id)
-                        && !engine.state.survey_missions.contains_key(&f.id)
-                        && !engine.state.fleet_missions.contains_key(&f.id)
-                })
-                .map(|f| f.id)
+            first_idle_player_fleet(&engine.state, Some(FleetKind::Colonizer), Some(star_id))
         };
 
         let fleet_id = match fleet_id {
@@ -1658,28 +1626,22 @@ impl App {
             self.state.status_message = Some(msg.to_string());
             return;
         }
-        let planet_index = self.state.selected_planet_index.min(planet_count - 1);
+        let planet_index = self
+            .state
+            .navigation
+            .selected_planet_index
+            .min(planet_count - 1);
 
-        self.pending_commands.push(Command::Colonize {
+        self.dispatch_command(Command::Colonize {
             fleet: fleet_id,
             star: star_id,
             planet_index,
         });
-
-        let commands = std::mem::take(&mut self.pending_commands);
-        let engine = match &mut self.engine {
-            Some(e) => e,
-            None => return,
-        };
-        let events = engine.apply_turn(commands);
-        for event in events {
-            self.push_core_event_to_log(&event);
-        }
     }
 
     /// Survey the currently selected planet using an idle science ship at the selected star.
     fn survey_selected_planet(&mut self) {
-        let star_id = match self.state.selected_star {
+        let star_id = match self.state.navigation.selected_star {
             Some(id) => id,
             None => {
                 let msg = "Unavailable: survey — no star selected.";
@@ -1694,19 +1656,7 @@ impl App {
                 Some(e) => e,
                 None => return,
             };
-            engine
-                .state
-                .fleets
-                .values()
-                .find(|f| {
-                    f.owner == engine.state.player_empire
-                        && f.location == star_id
-                        && f.kind == FleetKind::Science
-                        && !engine.state.scout_missions.contains_key(&f.id)
-                        && !engine.state.survey_missions.contains_key(&f.id)
-                        && !engine.state.fleet_missions.contains_key(&f.id)
-                })
-                .map(|f| f.id)
+            first_idle_player_fleet(&engine.state, Some(FleetKind::Science), Some(star_id))
         };
 
         let fleet_id = match fleet_id {
@@ -1739,28 +1689,22 @@ impl App {
             return;
         }
 
-        let planet_index = self.state.selected_planet_index.min(planet_count - 1);
+        let planet_index = self
+            .state
+            .navigation
+            .selected_planet_index
+            .min(planet_count - 1);
 
-        self.pending_commands.push(Command::SurveyPlanet {
+        self.dispatch_command(Command::SurveyPlanet {
             fleet: fleet_id,
             star: star_id,
             planet_index,
         });
-
-        let commands = std::mem::take(&mut self.pending_commands);
-        let engine = match &mut self.engine {
-            Some(e) => e,
-            None => return,
-        };
-        let events = engine.apply_turn(commands);
-        for event in events {
-            self.push_core_event_to_log(&event);
-        }
     }
 
     /// Invade the currently selected enemy colony using an idle troop transport at this system.
     fn invade_selected_planet(&mut self) {
-        let star_id = match self.state.selected_star {
+        let star_id = match self.state.navigation.selected_star {
             Some(id) => id,
             None => {
                 let msg = "Unavailable: invade — no star selected.";
@@ -1775,19 +1719,11 @@ impl App {
                 Some(e) => e,
                 None => return,
             };
-            engine
-                .state
-                .fleets
-                .values()
-                .find(|f| {
-                    f.owner == engine.state.player_empire
-                        && f.location == star_id
-                        && f.kind == FleetKind::TroopTransport
-                        && !engine.state.scout_missions.contains_key(&f.id)
-                        && !engine.state.survey_missions.contains_key(&f.id)
-                        && !engine.state.fleet_missions.contains_key(&f.id)
-                })
-                .map(|f| f.id)
+            first_idle_player_fleet(
+                &engine.state,
+                Some(FleetKind::TroopTransport),
+                Some(star_id),
+            )
         };
 
         let fleet_id = match fleet_id {
@@ -1819,22 +1755,16 @@ impl App {
             return;
         }
 
-        let planet_index = self.state.selected_planet_index.min(planet_count - 1);
-        self.pending_commands.push(Command::Invade {
+        let planet_index = self
+            .state
+            .navigation
+            .selected_planet_index
+            .min(planet_count - 1);
+        self.dispatch_command(Command::Invade {
             fleet: fleet_id,
             star: star_id,
             planet_index,
         });
-
-        let commands = std::mem::take(&mut self.pending_commands);
-        let engine = match &mut self.engine {
-            Some(e) => e,
-            None => return,
-        };
-        let events = engine.apply_turn(commands);
-        for event in events {
-            self.push_core_event_to_log(&event);
-        }
     }
 
     fn build_end_turn_report(turn: u32, events: &[CoreEvent]) -> String {
@@ -1910,25 +1840,25 @@ mod tests {
     #[test]
     fn toggle_help_overlay_on_question_mark() {
         let mut app = App::new();
-        assert!(!app.state.show_help);
+        assert!(!app.state.overlay.show_help);
 
         app.handle_key(key(KeyCode::Char('?')));
-        assert!(app.state.show_help);
+        assert!(app.state.overlay.show_help);
 
         app.handle_key(key(KeyCode::Char('?')));
-        assert!(!app.state.show_help);
+        assert!(!app.state.overlay.show_help);
     }
 
     #[test]
     fn toggle_palette_on_colon() {
         let mut app = App::new();
-        assert!(!app.state.show_palette);
+        assert!(!app.state.overlay.show_palette);
 
         app.handle_key(key(KeyCode::Char(':')));
-        assert!(app.state.show_palette);
+        assert!(app.state.overlay.show_palette);
 
         app.handle_key(key(KeyCode::Esc));
-        assert!(!app.state.show_palette);
+        assert!(!app.state.overlay.show_palette);
     }
 
     #[test]
@@ -1986,7 +1916,7 @@ mod tests {
         let mut app = App::new();
         app.new_game(42);
         app.state.active = Screen::EmpireOverview;
-        app.state.overview_cursor = 0;
+        app.state.overview.cursor = 0;
 
         let expected_colony = app
             .engine
@@ -2002,7 +1932,7 @@ mod tests {
         app.handle_key(key(KeyCode::Enter));
 
         assert_eq!(app.state.active, Screen::Colony);
-        assert_eq!(app.state.selected_colony, Some(expected_colony));
+        assert_eq!(app.state.colony.selected_colony, Some(expected_colony));
     }
 
     #[test]
@@ -2010,7 +1940,7 @@ mod tests {
         let mut app = App::new();
         app.new_game(42);
         app.state.active = Screen::EmpireOverview;
-        app.state.overview_cursor = 0;
+        app.state.overview.cursor = 0;
 
         let expected_star = app
             .engine
@@ -2026,7 +1956,7 @@ mod tests {
         app.handle_key(key(KeyCode::Char('S')));
 
         assert_eq!(app.state.active, Screen::System);
-        assert_eq!(app.state.selected_star, Some(expected_star));
+        assert_eq!(app.state.navigation.selected_star, Some(expected_star));
     }
 
     #[test]
@@ -2051,8 +1981,8 @@ mod tests {
             .iter()
             .find(|&&sid| sid != engine.state.empires[&engine.state.player_empire].home_star)
             .expect("need explored non-home star");
-        app.state.selected_star = Some(target);
-        app.state.selected_planet_index = 1;
+        app.state.navigation.selected_star = Some(target);
+        app.state.navigation.selected_planet_index = 1;
         app.state.active = Screen::System;
 
         {
@@ -2103,8 +2033,8 @@ mod tests {
             .iter()
             .find(|&&sid| sid != engine.state.empires[&engine.state.player_empire].home_star)
             .expect("need explored non-home star");
-        app.state.selected_star = Some(target);
-        app.state.selected_planet_index = 0;
+        app.state.navigation.selected_star = Some(target);
+        app.state.navigation.selected_planet_index = 0;
         app.state.active = Screen::System;
 
         let enemy_id = engine.state.ai_empire.expect("AI empire required");
@@ -2166,7 +2096,7 @@ mod tests {
         let mut app = App::new();
         app.new_game(42);
 
-        let initial = app.state.selected_star;
+        let initial = app.state.navigation.selected_star;
         assert!(initial.is_some());
 
         // Move right
@@ -2174,7 +2104,7 @@ mod tests {
 
         // Selection should change (might be same if no star to right)
         // Just verify it doesn't crash
-        assert!(app.state.selected_star.is_some());
+        assert!(app.state.navigation.selected_star.is_some());
     }
 
     #[test]
@@ -2234,14 +2164,14 @@ mod tests {
     fn move_star_selection_without_engine_does_nothing() {
         let mut app = App::new();
         app.move_star_selection(1, 0);
-        assert!(app.state.selected_star.is_none());
+        assert!(app.state.navigation.selected_star.is_none());
     }
 
     #[test]
     fn move_star_selection_with_no_selection_selects_first() {
         let mut app = App::new();
         app.new_game(42);
-        app.state.selected_star = None;
+        app.state.navigation.selected_star = None;
 
         // With no selection, move should select first star
         app.move_star_selection(1, 0);
@@ -2263,52 +2193,52 @@ mod tests {
     #[test]
     fn escape_closes_help_overlay() {
         let mut app = App::new();
-        app.state.show_help = true;
+        app.state.overlay.show_help = true;
 
         app.handle_key(key(KeyCode::Esc));
-        assert!(!app.state.show_help);
+        assert!(!app.state.overlay.show_help);
     }
 
     #[test]
     fn palette_key_closes_palette() {
         let mut app = App::new();
-        app.state.show_palette = true;
-        app.state.palette_input = String::new();
+        app.state.overlay.show_palette = true;
+        app.state.overlay.palette_input = String::new();
 
         // Pressing `:` when palette is open adds `:` to input (does not close)
         app.handle_key(key(KeyCode::Char(':')));
-        assert!(app.state.show_palette);
-        assert_eq!(app.state.palette_input, ":");
+        assert!(app.state.overlay.show_palette);
+        assert_eq!(app.state.overlay.palette_input, ":");
 
         // Pressing Esc closes the palette
         app.handle_key(key(KeyCode::Esc));
-        assert!(!app.state.show_palette);
-        assert!(app.state.palette_input.is_empty());
+        assert!(!app.state.overlay.show_palette);
+        assert!(app.state.overlay.palette_input.is_empty());
     }
 
     #[test]
     fn palette_accepts_character_input() {
         let mut app = App::new();
-        app.state.show_palette = true;
-        app.state.palette_input.clear();
+        app.state.overlay.show_palette = true;
+        app.state.overlay.palette_input.clear();
 
         app.handle_key(key(KeyCode::Char('s')));
         app.handle_key(key(KeyCode::Char('a')));
         app.handle_key(key(KeyCode::Char('v')));
         app.handle_key(key(KeyCode::Char('e')));
 
-        assert_eq!(app.state.palette_input, "save");
+        assert_eq!(app.state.overlay.palette_input, "save");
     }
 
     #[test]
     fn palette_backspace_removes_last_char() {
         let mut app = App::new();
-        app.state.show_palette = true;
-        app.state.palette_input = "sav".to_string();
+        app.state.overlay.show_palette = true;
+        app.state.overlay.palette_input = "sav".to_string();
 
         app.handle_key(key(KeyCode::Backspace));
 
-        assert_eq!(app.state.palette_input, "sa");
+        assert_eq!(app.state.overlay.palette_input, "sa");
     }
 
     #[test]
@@ -2317,7 +2247,7 @@ mod tests {
         app.new_game(42);
         let before = app.state.log.len();
 
-        app.execute_palette_command("unknowncmd");
+        app.execute_palette_input("unknowncmd");
 
         assert!(app.state.log.len() > before);
     }
@@ -2325,13 +2255,13 @@ mod tests {
     #[test]
     fn palette_enter_executes_and_closes() {
         let mut app = App::new();
-        app.state.show_palette = true;
-        app.state.palette_input = "unknowncmd".to_string();
+        app.state.overlay.show_palette = true;
+        app.state.overlay.palette_input = "unknowncmd".to_string();
 
         app.handle_key(key(KeyCode::Enter));
 
-        assert!(!app.state.show_palette);
-        assert!(app.state.palette_input.is_empty());
+        assert!(!app.state.overlay.show_palette);
+        assert!(app.state.overlay.palette_input.is_empty());
     }
 
     #[test]
@@ -2441,9 +2371,9 @@ mod tests {
         let before = app.state.log.len();
 
         // A bare ":" should be a no-op after normalization
-        app.execute_palette_command(":");
-        app.execute_palette_command("  ");
-        app.execute_palette_command(":  ");
+        app.execute_palette_input(":");
+        app.execute_palette_input("  ");
+        app.execute_palette_input(":  ");
 
         assert_eq!(app.state.log.len(), before, "No-op commands should not log");
     }
@@ -2452,13 +2382,13 @@ mod tests {
     fn palette_enter_with_colon_only_does_not_execute() {
         let mut app = App::new();
         app.new_game(42);
-        app.state.show_palette = true;
-        app.state.palette_input = ":".to_string();
+        app.state.overlay.show_palette = true;
+        app.state.overlay.palette_input = ":".to_string();
         let before = app.state.log.len();
 
         app.handle_key(key(KeyCode::Enter));
 
-        assert!(!app.state.show_palette);
+        assert!(!app.state.overlay.show_palette);
         // No command should have been executed → log unchanged
         assert_eq!(app.state.log.len(), before);
     }
@@ -2580,6 +2510,37 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_command_logs_events_and_updates_error_status() {
+        let mut app = App::new();
+        app.new_game(42);
+        let before = app.state.log.len();
+
+        app.dispatch_command(Command::SelectResearch { tech: TechId(9999) });
+
+        assert!(app.state.log.len() > before);
+        assert_eq!(
+            app.state.status_message.as_deref(),
+            Some("Error: Tech 9999 not found")
+        );
+    }
+
+    #[test]
+    fn dispatch_command_end_turn_sets_summary_status() {
+        let mut app = App::new();
+        app.new_game(42);
+        let initial_turn = app.engine.as_ref().unwrap().state.turn;
+
+        app.dispatch_command(Command::EndTurn);
+
+        assert_eq!(app.engine.as_ref().unwrap().state.turn, initial_turn + 1);
+        assert!(app
+            .state
+            .status_message
+            .as_deref()
+            .is_some_and(|message| message.starts_with("Turn 2 global summary")));
+    }
+
+    #[test]
     fn galaxy_renders_with_log_entries() {
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -2608,7 +2569,7 @@ mod tests {
             .map(|c| c.star);
 
         if let Some(star_id) = home_star_id {
-            app.state.selected_star = Some(star_id);
+            app.state.navigation.selected_star = Some(star_id);
             app.try_enter_colony()
         } else {
             false
@@ -2632,13 +2593,13 @@ mod tests {
             .values()
             .find(|c| c.owner == player_empire)
             .map(|c| c.star);
-        app.state.selected_star = home_star_id;
+        app.state.navigation.selected_star = home_star_id;
 
         // Press 'c' to enter the colony screen — exercises the actual key binding
         app.handle_key(key(KeyCode::Char('c')));
 
         assert_eq!(app.state.active, Screen::Colony);
-        assert!(app.state.selected_colony.is_some());
+        assert!(app.state.colony.selected_colony.is_some());
     }
 
     #[test]
@@ -2687,10 +2648,10 @@ mod tests {
         }
         star.planets[1].colony = Some(second_colony_id);
 
-        app.state.selected_star = Some(home_star_id);
-        app.state.selected_planet_index = 1;
+        app.state.navigation.selected_star = Some(home_star_id);
+        app.state.navigation.selected_planet_index = 1;
         assert!(app.try_enter_colony());
-        assert_eq!(app.state.selected_colony, Some(second_colony_id));
+        assert_eq!(app.state.colony.selected_colony, Some(second_colony_id));
         assert_eq!(app.state.active, Screen::Colony);
     }
 
@@ -2741,12 +2702,12 @@ mod tests {
         star.planets[1].colony = Some(second_colony_id);
 
         app.state.active = Screen::System;
-        app.state.selected_star = Some(home_star_id);
-        app.state.selected_planet_index = 1;
+        app.state.navigation.selected_star = Some(home_star_id);
+        app.state.navigation.selected_planet_index = 1;
         app.handle_key(key(KeyCode::Char('c')));
 
         assert_eq!(app.state.active, Screen::Colony);
-        assert_eq!(app.state.selected_colony, Some(second_colony_id));
+        assert_eq!(app.state.colony.selected_colony, Some(second_colony_id));
     }
 
     #[test]
@@ -2766,14 +2727,15 @@ mod tests {
         let home_star_id = engine.state.colonies[&home_colony_id].star;
 
         app.state.active = Screen::System;
-        app.state.selected_star = Some(home_star_id);
-        app.state.selected_planet_index = engine.state.colonies[&home_colony_id].planet_index;
-        app.state.selected_colony = None;
+        app.state.navigation.selected_star = Some(home_star_id);
+        app.state.navigation.selected_planet_index =
+            engine.state.colonies[&home_colony_id].planet_index;
+        app.state.colony.selected_colony = None;
 
         app.handle_key(key(KeyCode::Enter));
 
         assert_eq!(app.state.active, Screen::Colony);
-        assert_eq!(app.state.selected_colony, Some(home_colony_id));
+        assert_eq!(app.state.colony.selected_colony, Some(home_colony_id));
     }
 
     #[test]
@@ -2802,14 +2764,14 @@ mod tests {
             .expect("need a star without a player colony");
 
         app.state.active = Screen::System;
-        app.state.selected_star = Some(target_star);
-        app.state.selected_planet_index = 0;
-        app.state.selected_colony = None;
+        app.state.navigation.selected_star = Some(target_star);
+        app.state.navigation.selected_planet_index = 0;
+        app.state.colony.selected_colony = None;
 
         app.handle_key(key(KeyCode::Enter));
 
         assert_eq!(app.state.active, Screen::System);
-        assert!(app.state.selected_colony.is_none());
+        assert!(app.state.colony.selected_colony.is_none());
     }
 
     #[test]
@@ -2822,7 +2784,7 @@ mod tests {
     fn try_enter_colony_returns_false_without_selected_star() {
         let mut app = App::new();
         app.new_game(42);
-        app.state.selected_star = None;
+        app.state.navigation.selected_star = None;
         assert!(!app.try_enter_colony());
     }
 
@@ -2853,7 +2815,7 @@ mod tests {
             .map(|(id, _)| *id);
 
         if let Some(star_id) = empty_star {
-            app.state.selected_star = Some(star_id);
+            app.state.navigation.selected_star = Some(star_id);
             assert!(!app.try_enter_colony());
             assert_eq!(app.state.active, Screen::SectorMap);
         }
@@ -2869,7 +2831,7 @@ mod tests {
 
         app.handle_key(key(KeyCode::Esc));
         assert_eq!(app.state.active, Screen::SectorMap);
-        assert!(app.state.selected_colony.is_none());
+        assert!(app.state.colony.selected_colony.is_none());
     }
 
     #[test]
@@ -2878,12 +2840,12 @@ mod tests {
         app.new_game(42);
         goto_colony_screen(&mut app);
 
-        let initial = app.state.colony_build_cursor;
+        let initial = app.state.colony.build_cursor;
         app.handle_key(key(KeyCode::Char('j')));
-        assert_ne!(app.state.colony_build_cursor, initial);
+        assert_ne!(app.state.colony.build_cursor, initial);
 
         app.handle_key(key(KeyCode::Char('k')));
-        assert_eq!(app.state.colony_build_cursor, initial);
+        assert_eq!(app.state.colony.build_cursor, initial);
     }
 
     #[test]
@@ -2898,7 +2860,7 @@ mod tests {
             app.handle_key(key(KeyCode::Char('j')));
         }
         // Cursor should have wrapped to the start
-        assert_eq!(app.state.colony_build_cursor, 0);
+        assert_eq!(app.state.colony.build_cursor, 0);
     }
 
     #[test]
@@ -2910,7 +2872,7 @@ mod tests {
         // Move up from 0 should wrap to last
         app.handle_key(key(KeyCode::Char('k')));
         let count = App::all_build_item_count();
-        assert_eq!(app.state.colony_build_cursor, count - 1);
+        assert_eq!(app.state.colony.build_cursor, count - 1);
     }
 
     #[test]
@@ -2919,7 +2881,7 @@ mod tests {
         app.new_game(42);
         goto_colony_screen(&mut app);
 
-        let colony_id = app.state.selected_colony.unwrap();
+        let colony_id = app.state.colony.selected_colony.unwrap();
         let initial_queue_len = app
             .engine
             .as_ref()
@@ -3054,7 +3016,7 @@ mod tests {
         app.handle_key(key(KeyCode::Char('r')));
 
         assert_eq!(app.state.active, Screen::Research);
-        assert_eq!(app.state.research_cursor, 0);
+        assert_eq!(app.state.research.cursor, 0);
     }
 
     #[test]
@@ -3073,12 +3035,12 @@ mod tests {
         let mut app = App::new();
         app.new_game(42);
         app.state.active = Screen::Research;
-        app.state.research_cursor = 0;
+        app.state.research.cursor = 0;
 
         // j increments cursor; just verify no panic and cursor stays in bounds
         app.handle_key(key(KeyCode::Char('j')));
         let techs_len = game_core::all_techs().len();
-        assert!(app.state.research_cursor < techs_len);
+        assert!(app.state.research.cursor < techs_len);
     }
 
     #[test]
@@ -3086,13 +3048,13 @@ mod tests {
         let mut app = App::new();
         app.new_game(42);
         app.state.active = Screen::Research;
-        app.state.research_cursor = 0;
+        app.state.research.cursor = 0;
 
         // k at position 0 should wrap to last
         app.handle_key(key(KeyCode::Char('k')));
         // cursor should now point to last tech (5 for 6 techs with index 0..5)
         let techs_len = game_core::all_techs().len();
-        assert!(app.state.research_cursor < techs_len);
+        assert!(app.state.research.cursor < techs_len);
     }
 
     #[test]
@@ -3100,7 +3062,7 @@ mod tests {
         let mut app = App::new();
         app.new_game(42);
         app.state.active = Screen::Research;
-        app.state.research_cursor = 0;
+        app.state.research.cursor = 0;
 
         app.handle_key(key(KeyCode::Enter));
 
@@ -3146,7 +3108,7 @@ mod tests {
         let mut app = App::new();
         app.new_game(42);
         app.state.active = Screen::Research;
-        app.state.research_cursor = 0;
+        app.state.research.cursor = 0;
 
         // Select tech and end a turn
         app.handle_key(key(KeyCode::Enter));
@@ -3209,7 +3171,7 @@ mod tests {
                 .expect("Engine::new(42) must have unexplored stars")
         };
 
-        app.state.selected_star = Some(star_id);
+        app.state.navigation.selected_star = Some(star_id);
         let before = app.state.log.len();
 
         app.handle_key(key(KeyCode::Char('S')));
@@ -3243,7 +3205,7 @@ mod tests {
     fn dispatch_scout_without_star_selection_logs_message() {
         let mut app = App::new();
         app.new_game(42);
-        app.state.selected_star = None;
+        app.state.navigation.selected_star = None;
 
         let before = app.state.log.len();
         app.dispatch_scout();
@@ -3265,7 +3227,7 @@ mod tests {
             .iter()
             .next()
             .unwrap();
-        app.state.selected_star = Some(explored_star);
+        app.state.navigation.selected_star = Some(explored_star);
 
         let before = app.state.log.len();
         app.dispatch_scout();
@@ -3293,12 +3255,78 @@ mod tests {
             .copied()
             .expect("Engine::new(42) must have unexplored stars");
 
-        app.state.selected_star = Some(unexplored);
+        app.state.navigation.selected_star = Some(unexplored);
         let before = app.state.log.len();
         app.dispatch_scout();
         assert!(
             app.state.log.len() > before,
             "Should log 'no scout available'"
+        );
+    }
+
+    #[test]
+    fn first_idle_player_fleet_filters_busy_kind_and_location() {
+        let mut app = App::new();
+        app.new_game(42);
+        let engine = app.engine.as_mut().unwrap();
+        let home = engine.state.empires[&engine.state.player_empire].home_star;
+        let busy_scout = FleetId(1);
+        let idle_scout = FleetId(7000);
+        let idle_science = FleetId(7001);
+
+        let destination = engine
+            .state
+            .stars
+            .keys()
+            .find(|id| **id != home)
+            .copied()
+            .expect("test galaxy should have another star");
+        engine.state.scout_missions.insert(
+            busy_scout,
+            game_core::ScoutMission {
+                fleet: busy_scout,
+                destination,
+                turns_remaining: 2,
+                origin: home,
+                total_duration: 2,
+            },
+        );
+        engine.state.fleets.insert(
+            idle_scout,
+            game_core::Fleet {
+                id: idle_scout,
+                owner: engine.state.player_empire,
+                location: destination,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        engine.state.fleets.insert(
+            idle_science,
+            game_core::Fleet {
+                id: idle_science,
+                owner: engine.state.player_empire,
+                location: home,
+                ships: 1,
+                kind: FleetKind::Science,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        assert_eq!(
+            first_idle_player_fleet(&engine.state, Some(FleetKind::Scout), None),
+            Some(idle_scout)
+        );
+        assert_eq!(
+            first_idle_player_fleet(&engine.state, Some(FleetKind::Science), Some(home)),
+            Some(idle_science)
+        );
+        assert_eq!(
+            first_idle_player_fleet(&engine.state, Some(FleetKind::Science), Some(destination)),
+            None
         );
     }
 
@@ -3324,7 +3352,7 @@ mod tests {
             .iter()
             .find(|&&id| id != initial_location)
             .expect("Need explored star other than home");
-        app.state.selected_star = Some(dest);
+        app.state.navigation.selected_star = Some(dest);
 
         let before_log_len = app.state.log.len();
         app.handle_key(key(KeyCode::Char('M')));
@@ -3351,7 +3379,7 @@ mod tests {
     fn move_fleet_without_selection_logs_error() {
         let mut app = App::new();
         app.new_game(42);
-        app.state.selected_star = None;
+        app.state.navigation.selected_star = None;
         let before = app.state.log.len();
         app.move_fleet();
         assert!(app.state.log.len() > before);
@@ -3388,7 +3416,7 @@ mod tests {
             .iter()
             .next()
             .expect("Need explored star");
-        app.state.selected_star = Some(explored);
+        app.state.navigation.selected_star = Some(explored);
 
         let before = app.state.log.len();
         app.move_fleet();
@@ -3409,7 +3437,7 @@ mod tests {
             .iter()
             .find(|&&id| id != initial)
             .expect("Need explored star other than home");
-        app.state.selected_star = Some(dest);
+        app.state.navigation.selected_star = Some(dest);
         let before = app.state.log.len();
         app.move_fleet();
 
@@ -3429,7 +3457,7 @@ mod tests {
         // No colonizer fleet exists at game start
         let engine = app.engine.as_ref().unwrap();
         let star = *engine.state.explored_stars.iter().next().unwrap();
-        app.state.selected_star = Some(star);
+        app.state.navigation.selected_star = Some(star);
         app.state.active = Screen::System;
 
         let before = app.state.log.len();
@@ -3463,8 +3491,8 @@ mod tests {
             },
         );
         engine.state.stars.get_mut(&star).unwrap().planets[0].surveyed = false;
-        app.state.selected_star = Some(star);
-        app.state.selected_planet_index = 0;
+        app.state.navigation.selected_star = Some(star);
+        app.state.navigation.selected_planet_index = 0;
         app.state.active = Screen::System;
 
         app.handle_key(key(KeyCode::Char('S')));
@@ -3496,7 +3524,7 @@ mod tests {
     fn colonize_without_selection_logs_error() {
         let mut app = App::new();
         app.new_game(42);
-        app.state.selected_star = None;
+        app.state.navigation.selected_star = None;
         let before = app.state.log.len();
         app.colonize_selected_planet();
         assert!(app.state.log.len() > before);
@@ -3605,7 +3633,7 @@ mod tests {
         let colonies_before = engine.state.colonies.len();
 
         // Select target star and press C
-        app.state.selected_star = Some(target);
+        app.state.navigation.selected_star = Some(target);
         app.state.active = Screen::System;
         app.handle_key(key(KeyCode::Char('C')));
 
@@ -3651,8 +3679,11 @@ mod tests {
 
         let sector = engine.state.stars.get(&home).map(|s| s.sector);
         let app_state = crate::AppState {
-            selected_sector: sector,
-            selected_star: Some(home),
+            navigation: crate::app::NavigationState {
+                selected_sector: sector,
+                selected_star: Some(home),
+                ..Default::default()
+            },
             ..Default::default()
         };
 

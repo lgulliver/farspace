@@ -109,6 +109,36 @@ FARSPACE uses original content only. When adding factions, technologies, ships, 
 
 ---
 
+## Agent Team
+
+Six specialised agents scope work to individual crates. Each agent mirrors a crate boundary.
+
+| Agent | Scope | Tool locations |
+|---|---|---|
+| `core-sim` | `crates/game_core/` | `.claude/agents/`, `.codex/`, `.github/instructions/` |
+| `tui-ux` | `crates/game_tui/` | `.claude/agents/`, `.codex/`, `.github/instructions/` |
+| `content-balance` | `crates/game_content/` | `.claude/agents/`, `.codex/`, `.github/instructions/` |
+| `persistence` | `crates/game_save/` | `.claude/agents/`, `.codex/`, `.github/instructions/` |
+| `test-coverage` | all crates | `.claude/agents/`, `.codex/`, `.github/instructions/` |
+| `arch-guard` | all crates (review only) | `.claude/agents/`, `.codex/`, `.github/instructions/` |
+
+Claude Code agents: `.claude/agents/*.md`
+Codex context: `.codex/*.md`
+Copilot path-scoped instructions: `.github/instructions/*.instructions.md`
+
+### Skills (slash commands — Claude Code)
+
+| Skill | Command | Purpose |
+|---|---|---|
+| `new-command` | `/new-command <Name>` | Scaffold command variant + validation + events + tests |
+| `new-screen` | `/new-screen <Name>` | Scaffold TUI screen with nav, help, resize layout |
+| `check-determinism` | `/check-determinism <path>` | Audit for SystemTime/HashMap/RNG violations |
+| `check-boundaries` | `/check-boundaries` | Audit cross-crate dep boundary violations |
+| `new-migration` | `/new-migration <desc>` | Bump CURRENT_VERSION + migration arm + tests |
+| `scaffold-content` | `/scaffold-content <ship\|tech\|trait> <Name>` | New content with original IP |
+
+---
+
 ## Response Style
 
 Respond terse like smart caveman. All technical substance stay. Only fluff die.

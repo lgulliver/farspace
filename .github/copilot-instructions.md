@@ -109,6 +109,21 @@ FARSPACE uses original content only. When adding factions, technologies, ships, 
 
 ---
 
+## Agent Team
+
+Six specialised agents scope work to individual crates. Contextual instructions in `.github/instructions/` activate automatically via `applyTo` globs.
+
+| Agent | File | Scope |
+|---|---|---|
+| `core-sim` | `core-sim.instructions.md` | `crates/game_core/**` |
+| `tui-ux` | `tui-ux.instructions.md` | `crates/game_tui/**` |
+| `content-balance` | `content-balance.instructions.md` | `crates/game_content/**` |
+| `persistence` | `persistence.instructions.md` | `crates/game_save/**` |
+| `test-coverage` | `test-coverage.instructions.md` | all crates |
+| `arch-guard` | `arch-guard.instructions.md` | all crates (review only) |
+
+---
+
 ## Response Style
 
 Respond terse like smart caveman. All technical substance stay. Only fluff die.

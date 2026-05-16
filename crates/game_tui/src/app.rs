@@ -3,13 +3,18 @@
 use crate::components::{render_help, render_palette, EventLog, LogEntryKind, PaletteCommand};
 use crate::keys::KeyMap;
 use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData, OverviewSort};
-use crate::screens::research::ordered_research_techs;
+use crate::screens::research::{
+    filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_ERA_FILTER_COUNT,
+    RESEARCH_STATUS_FILTER_COUNT,
+};
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+#[cfg(test)]
+use game_core::TechId;
 use game_core::{
     empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, Engine,
     Event as CoreEvent, FleetId, FleetKind, GalaxySize, OrbitalStructureType, ScenarioSetup,
-    SectorId, StarId, TechId,
+    SectorId, StarId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -94,6 +99,16 @@ pub(crate) struct ColonyScreenState {
 pub(crate) struct ResearchScreenState {
     /// Cursor index for the tech list on the research screen.
     pub(crate) cursor: usize,
+    /// Domain filter index (0 = all, then domain order).
+    pub(crate) domain_filter: usize,
+    /// Era filter index (0 = all, then Era 1..6).
+    pub(crate) era_filter: usize,
+    /// Status filter index (0 = all, then available/locked/active/completed).
+    pub(crate) status_filter: usize,
+    /// Case-insensitive text query for technology name/description/tag.
+    pub(crate) query: String,
+    /// True while text input mode is active for query editing.
+    pub(crate) query_input: bool,
 }
 
 /// Empire overview screen state.
@@ -1102,9 +1117,44 @@ impl App {
     }
 
     fn handle_research_key(&mut self, key: KeyEvent) {
+        if self.state.research.query_input {
+            match key.code {
+                KeyCode::Esc | KeyCode::Enter => {
+                    self.state.research.query_input = false;
+                }
+                KeyCode::Backspace => {
+                    self.state.research.query.pop();
+                }
+                KeyCode::Char(c) => {
+                    self.state.research.query.push(c);
+                }
+                _ => {}
+            }
+            self.state.research.cursor = 0;
+            return;
+        }
+
         match key.code {
             KeyCode::Esc => {
                 self.state.active = Screen::SectorMap;
+            }
+            KeyCode::Char('/') => {
+                self.state.research.query_input = true;
+            }
+            KeyCode::Tab => {
+                self.state.research.domain_filter =
+                    (self.state.research.domain_filter + 1) % RESEARCH_DOMAIN_FILTER_COUNT;
+                self.state.research.cursor = 0;
+            }
+            KeyCode::Char('[') => {
+                self.state.research.era_filter =
+                    (self.state.research.era_filter + 1) % RESEARCH_ERA_FILTER_COUNT;
+                self.state.research.cursor = 0;
+            }
+            KeyCode::Char(']') => {
+                self.state.research.status_filter =
+                    (self.state.research.status_filter + 1) % RESEARCH_STATUS_FILTER_COUNT;
+                self.state.research.cursor = 0;
             }
             // Navigate tech list
             KeyCode::Char('j') | KeyCode::Down => {
@@ -1149,10 +1199,10 @@ impl App {
 
     /// Returns the number of technologies in the tree.
     fn tech_tree_count(&self) -> usize {
-        if self.engine.is_none() {
+        let Some(engine) = &self.engine else {
             return 0;
-        }
-        ordered_research_techs().len()
+        };
+        filtered_research_techs(&self.state, &engine.state).len()
     }
 
     /// Dispatch one game-core command and centralize event logging/status updates.
@@ -1189,24 +1239,23 @@ impl App {
 
     /// Select the highlighted technology for research
     fn select_research_tech(&mut self) {
-        // Collect the tech_id first using a scoped borrow
-        let tech_id: TechId = {
-            if self.engine.is_none() {
+        let tech_id = {
+            let Some(engine) = &self.engine else {
                 let msg = "Unavailable: select research — no game in progress.";
                 self.state.log.push(msg.to_string());
                 self.state.status_message = Some(msg.to_string());
                 return;
-            }
+            };
 
-            let ordered = ordered_research_techs();
-            if ordered.is_empty() {
-                let msg = "Unavailable: select research — no technologies are defined.";
+            let visible = filtered_research_techs(&self.state, &engine.state);
+            if visible.is_empty() {
+                let msg = "Unavailable: select research — no technologies match current filters.";
                 self.state.log.push(msg.to_string());
                 self.state.status_message = Some(msg.to_string());
                 return;
             }
-            let cursor = self.state.research.cursor % ordered.len();
-            ordered[cursor].id
+            let cursor = self.state.research.cursor % visible.len();
+            visible[cursor].id
         };
 
         self.dispatch_command(Command::SelectResearch { tech: tech_id });

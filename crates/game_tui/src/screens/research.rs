@@ -7,7 +7,7 @@ use crate::theme::Theme;
 use crate::AppState;
 use game_core::{
     all_techs, is_tech_available, tech_by_id, tech_yield_bonus_per_colony, Empire, GameState,
-    TechDomain, TechRecord, YieldType,
+    TechDomain, TechRecord, TechTag, TechTier, YieldType,
 };
 use ratatui::{
     layout::{Constraint, Layout, Rect},
@@ -35,19 +35,96 @@ impl TechStatus {
     }
 }
 
-const TECH_DOMAIN_ORDER: [TechDomain; 5] = [
+const TECH_DOMAIN_ORDER: [TechDomain; 6] = [
     TechDomain::Exploration,
     TechDomain::Engineering,
     TechDomain::Military,
+    TechDomain::Society,
     TechDomain::Economy,
     TechDomain::Biology,
 ];
 
 pub(crate) fn ordered_research_techs() -> Vec<&'static TechRecord> {
     let all = all_techs();
-    TECH_DOMAIN_ORDER
+    let mut ordered: Vec<_> = TECH_DOMAIN_ORDER
         .into_iter()
         .flat_map(|domain| all.iter().filter(move |t| t.domain == domain))
+        .collect();
+    ordered.sort_by_key(|tech| (tech.display_order, tech.id));
+    ordered
+}
+
+pub(crate) fn filtered_research_techs<'a>(
+    app_state: &'a AppState,
+    game_state: &'a GameState,
+) -> Vec<&'static TechRecord> {
+    let domain_filter = app_state.research.domain_filter;
+    let era_filter = app_state.research.era_filter;
+    let status_filter = app_state.research.status_filter;
+    let query = app_state.research.query.trim().to_ascii_lowercase();
+
+    ordered_research_techs()
+        .into_iter()
+        .filter(|tech| {
+            if domain_filter == 0 {
+                true
+            } else {
+                TECH_DOMAIN_ORDER
+                    .get(domain_filter.saturating_sub(1))
+                    .is_some_and(|domain| tech.domain == *domain)
+            }
+        })
+        .filter(|tech| {
+            if era_filter == 0 {
+                true
+            } else {
+                let tier = match era_filter {
+                    1 => TechTier::I,
+                    2 => TechTier::II,
+                    3 => TechTier::III,
+                    4 => TechTier::IV,
+                    5 => TechTier::V,
+                    6 => TechTier::VI,
+                    _ => TechTier::I,
+                };
+                tech.tier == tier
+            }
+        })
+        .filter(|tech| {
+            if status_filter == 0 {
+                true
+            } else {
+                let status = tech_status(game_state, tech);
+                matches!(
+                    (status_filter, status),
+                    (1, TechStatus::Available)
+                        | (2, TechStatus::Locked)
+                        | (3, TechStatus::Active)
+                        | (4, TechStatus::Completed)
+                )
+            }
+        })
+        .filter(|tech| {
+            if query.is_empty() {
+                return true;
+            }
+            let tags = tech
+                .tags
+                .iter()
+                .map(TechTag::label)
+                .collect::<Vec<_>>()
+                .join(" ");
+            let text = format!(
+                "{} {} {} {} {}",
+                tech.name,
+                tech.description,
+                tech.domain.name(),
+                tech.tier.label(),
+                tags
+            )
+            .to_ascii_lowercase();
+            text.contains(&query)
+        })
         .collect()
 }
 
@@ -103,14 +180,54 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let ordered = ordered_research_techs();
+    let ordered = filtered_research_techs(app_state, game_state);
     if ordered.is_empty() {
-        frame.render_widget(Paragraph::new("No technologies defined."), inner);
+        frame.render_widget(
+            Paragraph::new("No technologies match current filters."),
+            inner,
+        );
         return;
     }
     let cursor = app_state.research.cursor % ordered.len();
     let selected_id = ordered[cursor].id;
     let mut lines = Vec::new();
+
+    let domain_filter_label = if app_state.research.domain_filter == 0 {
+        "All".to_string()
+    } else {
+        TECH_DOMAIN_ORDER[app_state.research.domain_filter.saturating_sub(1)]
+            .name()
+            .to_string()
+    };
+    let era_filter_label = match app_state.research.era_filter {
+        0 => "All Eras".to_string(),
+        1 => "Era 1".to_string(),
+        2 => "Era 2".to_string(),
+        3 => "Era 3".to_string(),
+        4 => "Era 4".to_string(),
+        5 => "Era 5".to_string(),
+        _ => "Era 6".to_string(),
+    };
+    let status_filter_label = match app_state.research.status_filter {
+        0 => "All".to_string(),
+        1 => "Available".to_string(),
+        2 => "Locked".to_string(),
+        3 => "Active".to_string(),
+        _ => "Completed".to_string(),
+    };
+    let query_label = if app_state.research.query.is_empty() {
+        "none".to_string()
+    } else {
+        app_state.research.query.clone()
+    };
+    lines.push(Line::from(Span::styled(
+        format!(
+            "Filters: Domain={} · Era={} · Status={} · Search={}",
+            domain_filter_label, era_filter_label, status_filter_label, query_label
+        ),
+        Theme::muted_style(),
+    )));
+    lines.push(Line::from(""));
 
     for domain in TECH_DOMAIN_ORDER {
         let domain_techs: Vec<_> = ordered
@@ -135,6 +252,13 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
                 TechStatus::Active => "[Active]",
                 TechStatus::Completed => "[Completed]",
             };
+            let rarity_tag = match tech.rarity.label() {
+                "Rare" => "[Rare]",
+                "Breakthrough" => "[Breakthrough]",
+                "Dangerous" => "[Dangerous]",
+                _ => "",
+            };
+            let hook_tag = if tech.future_hook { "[Planned]" } else { "" };
             let style = if is_selected {
                 Theme::highlight_style()
             } else if matches!(status, TechStatus::Active | TechStatus::Completed) {
@@ -150,16 +274,30 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
                     prefix,
                     tech.cost,
                     tech.name,
-                    tech.tier.label(),
+                    tech.tier.label().replace(" · ", " "),
                     status_tag
                 ),
                 style,
             )));
+            if !rarity_tag.is_empty() || !hook_tag.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("   {} {}", rarity_tag, hook_tag).trim().to_string(),
+                    Theme::muted_style(),
+                )));
+            }
         }
         lines.push(Line::from(""));
     }
 
-    let paragraph = Paragraph::new(lines).style(Theme::default_style());
+    let selected_line = lines
+        .iter()
+        .position(|line| line.to_string().starts_with("> "))
+        .unwrap_or(0);
+    let height = inner.height.saturating_sub(1) as usize;
+    let scroll = selected_line.saturating_sub(height / 2) as u16;
+    let paragraph = Paragraph::new(lines)
+        .style(Theme::default_style())
+        .scroll((scroll, 0));
     frame.render_widget(paragraph, inner);
 }
 
@@ -189,7 +327,7 @@ fn render_selected_tech_detail(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let ordered = ordered_research_techs();
+    let ordered = filtered_research_techs(app_state, game_state);
     if ordered.is_empty() {
         frame.render_widget(Paragraph::new("No technology selected."), inner);
         return;
@@ -214,6 +352,29 @@ fn render_selected_tech_detail(
         Line::from(Span::styled(
             format!("Status: {}", status.label()),
             Theme::default_style(),
+        )),
+        Line::from(Span::styled(
+            format!(
+                "Rarity: {}{}",
+                tech.rarity.label(),
+                if tech.future_hook { " · Planned/Future Hook" } else { "" }
+            ),
+            if tech.future_hook {
+                Theme::warning_style()
+            } else {
+                Theme::muted_style()
+            },
+        )),
+        Line::from(Span::styled(
+            format!(
+                "Tags: {}",
+                tech.tags
+                    .iter()
+                    .map(TechTag::label)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Theme::muted_style(),
         )),
         Line::from(""),
         Line::from(tech.description),
@@ -416,7 +577,10 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let engine = Engine::new(42);
         let app_state = AppState {
-            research: crate::app::ResearchScreenState { cursor: 999 },
+            research: crate::app::ResearchScreenState {
+                cursor: 999,
+                ..Default::default()
+            },
             ..Default::default()
         };
 

@@ -18,7 +18,8 @@ use crate::events::Event;
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, BuildItem, BuildingType, Colony,
     ColonyId, ColonyRole, EmpireId, FleetId, FleetKind, GameState, OrbitalStructureType,
-    PlanetClass, PlaystyleTag, ScoutMission, ShipDesignId, StarId, TechDomain, TechId,
+    PlanetClass, PlaystyleTag, ScoutMission, ShipDesignId, StarId, TechDomain, TechId, TechRarity,
+    TechTag,
 };
 
 /// Run one AI decision pass for the given empire.
@@ -94,10 +95,50 @@ fn pick_research(state: &GameState, empire_id: EmpireId) -> Option<TechId> {
                         PlaystyleTag::Industrial => vec![TechDomain::Engineering],
                         PlaystyleTag::Militarist => vec![TechDomain::Military],
                         PlaystyleTag::Agrarian => vec![TechDomain::Biology],
-                        PlaystyleTag::Diplomatic => vec![TechDomain::Economy],
+                        PlaystyleTag::Diplomatic => {
+                            vec![TechDomain::Society, TechDomain::Economy]
+                        }
                     })
                     .collect()
             }
+        })
+        .unwrap_or_default();
+
+    let preferred_tags: Vec<TechTag> = empire
+        .empire_def
+        .and_then(empire_definition_by_id)
+        .map(|def| {
+            def.playstyle
+                .iter()
+                .flat_map(|tag| match tag {
+                    PlaystyleTag::Scientific | PlaystyleTag::Expansionist => vec![
+                        TechTag::Survey,
+                        TechTag::Sensors,
+                        TechTag::Hyperspace,
+                        TechTag::SectorMapping,
+                    ],
+                    PlaystyleTag::Industrial => {
+                        vec![TechTag::Shipyard, TechTag::Production, TechTag::Orbital]
+                    }
+                    PlaystyleTag::Militarist => vec![
+                        TechTag::ShipClass,
+                        TechTag::Weapon,
+                        TechTag::Defense,
+                        TechTag::Invasion,
+                        TechTag::Blockade,
+                        TechTag::Command,
+                    ],
+                    PlaystyleTag::Agrarian => vec![
+                        TechTag::Food,
+                        TechTag::Growth,
+                        TechTag::Housing,
+                        TechTag::Terraforming,
+                    ],
+                    PlaystyleTag::Diplomatic => {
+                        vec![TechTag::Diplomacy, TechTag::Stability, TechTag::Trade]
+                    }
+                })
+                .collect()
         })
         .unwrap_or_default();
 
@@ -106,22 +147,68 @@ fn pick_research(state: &GameState, empire_id: EmpireId) -> Option<TechId> {
         .filter(|t| is_tech_available(completed, t.id))
         .collect();
 
-    // Sort: cheapest first; ties broken by playstyle preference (preferred = 0, other = 1),
-    // then ascending TechId for full determinism.
+    // Deterministic weighted sort:
+    // - playable unlocks over pure future hooks
+    // - preferred domains/tags first
+    // - concrete mechanics before pure speculative tracks
+    // - then era/cost/display-order/id
     candidates.sort_by(|a, b| {
-        let pref_a = if preferred_domains.contains(&a.domain) {
+        let domain_pref_a = if preferred_domains.contains(&a.domain) {
             0u8
         } else {
             1
         };
-        let pref_b = if preferred_domains.contains(&b.domain) {
+        let domain_pref_b = if preferred_domains.contains(&b.domain) {
             0u8
         } else {
             1
         };
-        a.cost
-            .cmp(&b.cost)
-            .then(pref_a.cmp(&pref_b))
+
+        let tag_pref_a = if a.tags.iter().any(|tag| preferred_tags.contains(tag)) {
+            0u8
+        } else {
+            1
+        };
+        let tag_pref_b = if b.tags.iter().any(|tag| preferred_tags.contains(tag)) {
+            0u8
+        } else {
+            1
+        };
+
+        let future_penalty_a = if a.future_hook && a.unlocks.is_empty() {
+            2u8
+        } else if a.future_hook {
+            1
+        } else {
+            0
+        };
+        let future_penalty_b = if b.future_hook && b.unlocks.is_empty() {
+            2u8
+        } else if b.future_hook {
+            1
+        } else {
+            0
+        };
+
+        let rarity_penalty = |rarity: TechRarity| -> u8 {
+            match rarity {
+                TechRarity::Common => 0,
+                TechRarity::Uncommon => 1,
+                TechRarity::Rare => 2,
+                TechRarity::Breakthrough => 3,
+                TechRarity::Dangerous => 4,
+            }
+        };
+
+        future_penalty_a
+            .cmp(&future_penalty_b)
+            .then(domain_pref_a.cmp(&domain_pref_b))
+            .then(tag_pref_a.cmp(&tag_pref_b))
+            .then(rarity_penalty(a.rarity).cmp(&rarity_penalty(b.rarity)))
+            .then(a.tier.cmp(&b.tier))
+            .then(a.cost.cmp(&b.cost))
+            .then(b.ai_weight.cmp(&a.ai_weight))
+            .then(a.display_order.cmp(&b.display_order))
             .then(a.id.cmp(&b.id))
     });
     candidates.first().map(|t| t.id)

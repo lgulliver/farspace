@@ -128,6 +128,9 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Op
         ],
         Screen::Research => vec![
             ("[j/k]", "Tree Cursor"),
+            ("[Tab]", "Domain"),
+            ("[[/]]", "Era/Status"),
+            ("[/]", "Search"),
             ("[Enter]", "Set Active Tech"),
             ("[O]", "Overview"),
             ("[e/t]", "End Turn"),

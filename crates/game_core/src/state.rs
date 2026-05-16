@@ -53,6 +53,9 @@ impl TechId {
     pub const PERIMETER_DEFENSE: TechId = TechId(16);
     pub const STRIKE_DOCTRINE: TechId = TechId(17);
     pub const FLEET_COORDINATION: TechId = TechId(18);
+    pub const SECTOR_CARTOGRAPHY: TechId = TechId(19);
+    pub const LANE_STABILIZATION: TechId = TechId(20);
+    pub const PAN_GALACTIC_SENSOR_NET: TechId = TechId(21);
 }
 
 /// Unique identifier for a ship design template.
@@ -621,6 +624,11 @@ pub struct TechRecord {
     pub prerequisites: &'static [TechId],
     pub unlocks: &'static [TechUnlock],
     pub cost: i64,
+    pub rarity: TechRarity,
+    pub tags: &'static [TechTag],
+    pub future_hook: bool,
+    pub display_order: u16,
+    pub ai_weight: i16,
 }
 
 /// High-level technology research domain.
@@ -629,6 +637,7 @@ pub enum TechDomain {
     Exploration,
     Engineering,
     Military,
+    Society,
     Economy,
     Biology,
 }
@@ -636,11 +645,12 @@ pub enum TechDomain {
 impl TechDomain {
     pub fn name(&self) -> &'static str {
         match self {
-            TechDomain::Exploration => "Exploration",
-            TechDomain::Engineering => "Engineering",
-            TechDomain::Military => "Military",
-            TechDomain::Economy => "Economy",
-            TechDomain::Biology => "Biology",
+            TechDomain::Exploration => "Physics & Exploration",
+            TechDomain::Engineering => "Engineering & Industry",
+            TechDomain::Military => "Warfare & Defense",
+            TechDomain::Society => "Society & Diplomacy",
+            TechDomain::Economy => "Economics & Logistics",
+            TechDomain::Biology => "Biology & Planetary Science",
         }
     }
 }
@@ -651,14 +661,110 @@ pub enum TechTier {
     I,
     II,
     III,
+    IV,
+    V,
+    VI,
 }
 
 impl TechTier {
     pub fn label(&self) -> &'static str {
         match self {
-            TechTier::I => "Tier I",
-            TechTier::II => "Tier II",
-            TechTier::III => "Tier III",
+            TechTier::I => "Era 1 · Orbital Age",
+            TechTier::II => "Era 2 · Expansion Age",
+            TechTier::III => "Era 3 · Interstellar Age",
+            TechTier::IV => "Era 4 · Ascendant Age",
+            TechTier::V => "Era 5 · Galactic Age",
+            TechTier::VI => "Era 6 · Transcendent Age",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TechRarity {
+    Common,
+    Uncommon,
+    Rare,
+    Breakthrough,
+    Dangerous,
+}
+
+impl TechRarity {
+    pub fn label(&self) -> &'static str {
+        match self {
+            TechRarity::Common => "Common",
+            TechRarity::Uncommon => "Uncommon",
+            TechRarity::Rare => "Rare",
+            TechRarity::Breakthrough => "Breakthrough",
+            TechRarity::Dangerous => "Dangerous",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TechTag {
+    Survey,
+    Colonization,
+    Shipyard,
+    ShipClass,
+    Weapon,
+    Defense,
+    Invasion,
+    Blockade,
+    Trade,
+    Supply,
+    Logistics,
+    Growth,
+    Housing,
+    Food,
+    Stability,
+    Terraforming,
+    Orbital,
+    Megastructure,
+    Gateway,
+    Precursor,
+    Crisis,
+    Diplomacy,
+    EspionageFuture,
+    PopulationJobsFuture,
+    Sensors,
+    Hyperspace,
+    SectorMapping,
+    Production,
+    Command,
+}
+
+impl TechTag {
+    pub fn label(&self) -> &'static str {
+        match self {
+            TechTag::Survey => "Survey",
+            TechTag::Colonization => "Colonization",
+            TechTag::Shipyard => "Shipyard",
+            TechTag::ShipClass => "ShipClass",
+            TechTag::Weapon => "Weapon",
+            TechTag::Defense => "Defense",
+            TechTag::Invasion => "Invasion",
+            TechTag::Blockade => "Blockade",
+            TechTag::Trade => "Trade",
+            TechTag::Supply => "Supply",
+            TechTag::Logistics => "Logistics",
+            TechTag::Growth => "Growth",
+            TechTag::Housing => "Housing",
+            TechTag::Food => "Food",
+            TechTag::Stability => "Stability",
+            TechTag::Terraforming => "Terraforming",
+            TechTag::Orbital => "Orbital",
+            TechTag::Megastructure => "Megastructure",
+            TechTag::Gateway => "Gateway",
+            TechTag::Precursor => "Precursor",
+            TechTag::Crisis => "Crisis",
+            TechTag::Diplomacy => "Diplomacy",
+            TechTag::EspionageFuture => "EspionageFuture",
+            TechTag::PopulationJobsFuture => "PopulationJobsFuture",
+            TechTag::Sensors => "Sensors",
+            TechTag::Hyperspace => "Hyperspace",
+            TechTag::SectorMapping => "SectorMapping",
+            TechTag::Production => "Production",
+            TechTag::Command => "Command",
         }
     }
 }
@@ -749,6 +855,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::SCOUT)],
             cost: 50,
+            rarity: TechRarity::Common,
+            tags: &[TechTag::Survey, TechTag::Hyperspace],
+            future_hook: false,
+            display_order: 1,
+            ai_weight: 2,
         },
         TechRecord {
             id: TechId::HABITAT_SEEDING,
@@ -759,6 +870,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::COLONY)],
             cost: 80,
+            rarity: TechRarity::Common,
+            tags: &[TechTag::Colonization, TechTag::Growth, TechTag::Housing],
+            future_hook: false,
+            display_order: 2,
+            ai_weight: 2,
         },
         TechRecord {
             id: TechId(3),
@@ -770,6 +886,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[],
             unlocks: &[],
             cost: 60,
+            rarity: TechRarity::Common,
+            tags: &[TechTag::Sensors, TechTag::Survey],
+            future_hook: false,
+            display_order: 3,
+            ai_weight: 2,
         },
         TechRecord {
             id: TechId(4),
@@ -780,6 +901,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[],
             unlocks: &[],
             cost: 100,
+            rarity: TechRarity::Common,
+            tags: &[TechTag::Defense, TechTag::ShipClass],
+            future_hook: false,
+            display_order: 4,
+            ai_weight: 2,
         },
         TechRecord {
             id: TechId(5),
@@ -793,6 +919,11 @@ pub fn all_techs() -> &'static [TechRecord] {
                 amount_per_colony: 1,
             }],
             cost: 120,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::Production],
+            future_hook: false,
+            display_order: 5,
+            ai_weight: 1,
         },
         TechRecord {
             id: TechId(6),
@@ -803,6 +934,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[TechId(3)],
             unlocks: &[],
             cost: 90,
+            rarity: TechRarity::Common,
+            tags: &[TechTag::SectorMapping, TechTag::Hyperspace],
+            future_hook: false,
+            display_order: 6,
+            ai_weight: 2,
         },
         TechRecord {
             id: TechId::ORBITAL_ENGINEERING,
@@ -814,6 +950,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[TechId(5)],
             unlocks: &[TechUnlock::OrbitalStructure(OrbitalStructureType::Shipyard)],
             cost: 150,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::Shipyard, TechTag::Orbital],
+            future_hook: false,
+            display_order: 7,
+            ai_weight: 3,
         },
         TechRecord {
             id: TechId::HYPERSPACE_CARTOGRAPHY,
@@ -824,6 +965,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[TechId(6)],
             unlocks: &[TechUnlock::Capability(TechCapability::HyperspaceLaneTravel)],
             cost: 140,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Hyperspace, TechTag::SectorMapping, TechTag::Supply],
+            future_hook: false,
+            display_order: 8,
+            ai_weight: 4,
         },
         TechRecord {
             id: TechId(9),
@@ -837,6 +983,11 @@ pub fn all_techs() -> &'static [TechRecord] {
                 amount_per_colony: 1,
             }],
             cost: 100,
+            rarity: TechRarity::Common,
+            tags: &[TechTag::Food, TechTag::Growth],
+            future_hook: false,
+            display_order: 9,
+            ai_weight: 2,
         },
         TechRecord {
             id: TechId(10),
@@ -850,6 +1001,11 @@ pub fn all_techs() -> &'static [TechRecord] {
                 amount_per_colony: 1,
             }],
             cost: 120,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::Logistics, TechTag::Trade, TechTag::Supply],
+            future_hook: false,
+            display_order: 10,
+            ai_weight: 3,
         },
         TechRecord {
             id: TechId(11),
@@ -860,6 +1016,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[TechId(4)],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::TROOP_TRANSPORT)],
             cost: 130,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::ShipClass, TechTag::Invasion, TechTag::Command],
+            future_hook: false,
+            display_order: 11,
+            ai_weight: 3,
         },
         TechRecord {
             id: TechId::SURVEY_DRONES,
@@ -873,6 +1034,11 @@ pub fn all_techs() -> &'static [TechRecord] {
                 TechUnlock::Capability(TechCapability::PlanetarySurvey),
             ],
             cost: 95,
+            rarity: TechRarity::Common,
+            tags: &[TechTag::Survey, TechTag::Sensors],
+            future_hook: false,
+            display_order: 12,
+            ai_weight: 4,
         },
         TechRecord {
             id: TechId::RAPID_TRANSIT,
@@ -884,6 +1050,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[TechId::VOID_PROPULSION],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::FAST_SCOUT)],
             cost: 90,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::Hyperspace, TechTag::Survey],
+            future_hook: false,
+            display_order: 13,
+            ai_weight: 3,
         },
         TechRecord {
             id: TechId::ADVANCED_SURVEY,
@@ -895,6 +1066,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[TechId::SURVEY_DRONES],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::SURVEY_CUTTER)],
             cost: 160,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Survey, TechTag::Sensors],
+            future_hook: false,
+            display_order: 14,
+            ai_weight: 4,
         },
         TechRecord {
             id: TechId::COLONIAL_VANGUARD,
@@ -906,6 +1082,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[TechId::HABITAT_SEEDING, TechId::COLONIAL_LOGISTICS],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::COLONY_ARK)],
             cost: 200,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Colonization, TechTag::Growth, TechTag::Logistics],
+            future_hook: false,
+            display_order: 15,
+            ai_weight: 3,
         },
         TechRecord {
             id: TechId::PERIMETER_DEFENSE,
@@ -920,6 +1101,11 @@ pub fn all_techs() -> &'static [TechRecord] {
                 TechUnlock::ShipDesign(ShipDesignId::PATROL_CORVETTE),
             ],
             cost: 110,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::Defense, TechTag::ShipClass, TechTag::Blockade],
+            future_hook: false,
+            display_order: 16,
+            ai_weight: 3,
         },
         TechRecord {
             id: TechId::STRIKE_DOCTRINE,
@@ -931,6 +1117,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[TechId::BATTLE_DOCTRINE],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::MISSILE_FRIGATE)],
             cost: 170,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Weapon, TechTag::ShipClass, TechTag::Blockade],
+            future_hook: false,
+            display_order: 17,
+            ai_weight: 4,
         },
         TechRecord {
             id: TechId::FLEET_COORDINATION,
@@ -942,6 +1133,655 @@ pub fn all_techs() -> &'static [TechRecord] {
             prerequisites: &[TechId::BATTLE_DOCTRINE],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::DESTROYER)],
             cost: 200,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::ShipClass, TechTag::Command, TechTag::Weapon],
+            future_hook: false,
+            display_order: 18,
+            ai_weight: 4,
+        },
+        TechRecord {
+            id: TechId::SECTOR_CARTOGRAPHY,
+            name: "Sector Cartography",
+            description: "Sector-scale stellar indexing supports confident deep-frontier pathing.",
+            domain: TechDomain::Exploration,
+            tier: TechTier::III,
+            prerequisites: &[TechId::HYPERSPACE_CARTOGRAPHY],
+            unlocks: &[],
+            cost: 220,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::SectorMapping, TechTag::Hyperspace, TechTag::Survey],
+            future_hook: false,
+            display_order: 19,
+            ai_weight: 3,
+        },
+        TechRecord {
+            id: TechId::LANE_STABILIZATION,
+            name: "Lane Stabilization",
+            description: "Resonance tuning reduces turbulence across known hyperspace corridors.",
+            domain: TechDomain::Exploration,
+            tier: TechTier::IV,
+            prerequisites: &[TechId::SECTOR_CARTOGRAPHY, TechId::ORBITAL_ENGINEERING],
+            unlocks: &[],
+            cost: 320,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Hyperspace, TechTag::Supply, TechTag::Gateway],
+            future_hook: true,
+            display_order: 20,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId::PAN_GALACTIC_SENSOR_NET,
+            name: "Pan-Galactic Sensor Network",
+            description: "Distributed observatories coordinate into a unified deep-space watch.",
+            domain: TechDomain::Exploration,
+            tier: TechTier::VI,
+            prerequisites: &[TechId::LANE_STABILIZATION],
+            unlocks: &[],
+            cost: 680,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Sensors, TechTag::Survey, TechTag::Precursor],
+            future_hook: true,
+            display_order: 21,
+            ai_weight: 1,
+        },
+        TechRecord {
+            id: TechId(22),
+            name: "Industrial Tooling",
+            description: "Precision tools and calibration standards streamline heavy fabrication.",
+            domain: TechDomain::Engineering,
+            tier: TechTier::I,
+            prerequisites: &[],
+            unlocks: &[],
+            cost: 70,
+            rarity: TechRarity::Common,
+            tags: &[TechTag::Production],
+            future_hook: false,
+            display_order: 22,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(23),
+            name: "Advanced Fabrication",
+            description: "Composite assembly lines improve throughput in constrained environments.",
+            domain: TechDomain::Engineering,
+            tier: TechTier::II,
+            prerequisites: &[TechId(22)],
+            unlocks: &[],
+            cost: 130,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::Production, TechTag::Orbital],
+            future_hook: false,
+            display_order: 23,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(24),
+            name: "Shipyard Systems",
+            description: "Dock traffic automation improves orbital build-flow reliability.",
+            domain: TechDomain::Engineering,
+            tier: TechTier::III,
+            prerequisites: &[TechId::ORBITAL_ENGINEERING],
+            unlocks: &[],
+            cost: 210,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::Shipyard, TechTag::Orbital],
+            future_hook: false,
+            display_order: 24,
+            ai_weight: 3,
+        },
+        TechRecord {
+            id: TechId(25),
+            name: "Modular Drydocks",
+            description: "Segmented drydock modules allow scalable orbital construction chains.",
+            domain: TechDomain::Engineering,
+            tier: TechTier::III,
+            prerequisites: &[TechId(24)],
+            unlocks: &[],
+            cost: 240,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Shipyard, TechTag::Orbital, TechTag::Production],
+            future_hook: false,
+            display_order: 25,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(26),
+            name: "Orbital Capacity Expansion",
+            description: "Distributed anchors increase safe mass limits for orbital installations.",
+            domain: TechDomain::Engineering,
+            tier: TechTier::IV,
+            prerequisites: &[TechId(25), TechId::FLEET_COORDINATION],
+            unlocks: &[],
+            cost: 310,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Orbital, TechTag::Shipyard, TechTag::Defense],
+            future_hook: false,
+            display_order: 26,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(27),
+            name: "Defense Platform Frames",
+            description: "Hardpoint ring standards for orbital defense bastion assemblies.",
+            domain: TechDomain::Engineering,
+            tier: TechTier::V,
+            prerequisites: &[TechId(26), TechId::PERIMETER_DEFENSE],
+            unlocks: &[],
+            cost: 430,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Orbital, TechTag::Defense, TechTag::Shipyard],
+            future_hook: true,
+            display_order: 27,
+            ai_weight: 1,
+        },
+        TechRecord {
+            id: TechId(28),
+            name: "Heavy Shipyards",
+            description: "Massive keel gantries support capital-scale hull construction plans.",
+            domain: TechDomain::Engineering,
+            tier: TechTier::V,
+            prerequisites: &[TechId(25), TechId::FLEET_COORDINATION],
+            unlocks: &[],
+            cost: 500,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Shipyard, TechTag::ShipClass, TechTag::Production],
+            future_hook: true,
+            display_order: 28,
+            ai_weight: 1,
+        },
+        TechRecord {
+            id: TechId(29),
+            name: "Megastructure Assembly",
+            description:
+                "Inter-domain assembly choreography enables civilization-scale orbital projects.",
+            domain: TechDomain::Engineering,
+            tier: TechTier::VI,
+            prerequisites: &[TechId(28), TechId(59), TechId::LANE_STABILIZATION],
+            unlocks: &[],
+            cost: 740,
+            rarity: TechRarity::Dangerous,
+            tags: &[TechTag::Megastructure, TechTag::Orbital, TechTag::Gateway],
+            future_hook: true,
+            display_order: 29,
+            ai_weight: 0,
+        },
+        TechRecord {
+            id: TechId(30),
+            name: "Fleet Drills",
+            description: "Standardized fleet exercises tighten formation response windows.",
+            domain: TechDomain::Military,
+            tier: TechTier::I,
+            prerequisites: &[],
+            unlocks: &[],
+            cost: 80,
+            rarity: TechRarity::Common,
+            tags: &[TechTag::ShipClass, TechTag::Command],
+            future_hook: false,
+            display_order: 30,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(31),
+            name: "Missile Systems",
+            description: "Guidance refinements improve stand-off strike lethality at range.",
+            domain: TechDomain::Military,
+            tier: TechTier::III,
+            prerequisites: &[TechId(30), TechId::BATTLE_DOCTRINE],
+            unlocks: &[],
+            cost: 220,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Weapon, TechTag::ShipClass],
+            future_hook: false,
+            display_order: 31,
+            ai_weight: 3,
+        },
+        TechRecord {
+            id: TechId(32),
+            name: "Escort Doctrine",
+            description: "Close-screen doctrines improve convoy and troop-route survivability.",
+            domain: TechDomain::Military,
+            tier: TechTier::IV,
+            prerequisites: &[TechId::PERIMETER_DEFENSE, TechId(31)],
+            unlocks: &[],
+            cost: 300,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Defense, TechTag::Blockade, TechTag::Supply],
+            future_hook: false,
+            display_order: 32,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(33),
+            name: "Invasion Logistics",
+            description: "Joint naval-ground planning improves coordinated orbital invasions.",
+            domain: TechDomain::Military,
+            tier: TechTier::V,
+            prerequisites: &[TechId::BATTLE_DOCTRINE, TechId(57)],
+            unlocks: &[],
+            cost: 420,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Invasion, TechTag::Logistics, TechTag::Command],
+            future_hook: false,
+            display_order: 33,
+            ai_weight: 3,
+        },
+        TechRecord {
+            id: TechId(34),
+            name: "Strategic Command Network",
+            description: "Real-time command relays synchronize fleets across sector fronts.",
+            domain: TechDomain::Military,
+            tier: TechTier::VI,
+            prerequisites: &[TechId(33), TechId(60)],
+            unlocks: &[],
+            cost: 700,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Command, TechTag::Blockade, TechTag::Crisis],
+            future_hook: true,
+            display_order: 34,
+            ai_weight: 1,
+        },
+        TechRecord {
+            id: TechId(35),
+            name: "Colonial Administration",
+            description: "Administrative charters formalize authority across remote settlements.",
+            domain: TechDomain::Society,
+            tier: TechTier::I,
+            prerequisites: &[],
+            unlocks: &[],
+            cost: 70,
+            rarity: TechRarity::Common,
+            tags: &[TechTag::Stability, TechTag::Housing],
+            future_hook: false,
+            display_order: 35,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(36),
+            name: "Stability Charters",
+            description: "Planetary charter standards reduce unrest from rapid expansion.",
+            domain: TechDomain::Society,
+            tier: TechTier::II,
+            prerequisites: &[TechId(35)],
+            unlocks: &[],
+            cost: 120,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::Stability, TechTag::Growth],
+            future_hook: false,
+            display_order: 36,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(37),
+            name: "Diplomatic Protocols",
+            description: "Interstellar protocol templates reduce first-contact friction.",
+            domain: TechDomain::Society,
+            tier: TechTier::II,
+            prerequisites: &[TechId(35)],
+            unlocks: &[],
+            cost: 130,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::Diplomacy, TechTag::Stability],
+            future_hook: false,
+            display_order: 37,
+            ai_weight: 3,
+        },
+        TechRecord {
+            id: TechId(38),
+            name: "Civic Cohesion",
+            description: "Civic program frameworks boost social resilience during frontier strain.",
+            domain: TechDomain::Society,
+            tier: TechTier::II,
+            prerequisites: &[TechId(36)],
+            unlocks: &[],
+            cost: 140,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::Stability, TechTag::Growth],
+            future_hook: false,
+            display_order: 38,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(39),
+            name: "Cultural Exchange",
+            description: "Cross-sector cultural exchanges ease integration of new member worlds.",
+            domain: TechDomain::Society,
+            tier: TechTier::III,
+            prerequisites: &[TechId(37)],
+            unlocks: &[],
+            cost: 200,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Diplomacy, TechTag::Stability],
+            future_hook: false,
+            display_order: 39,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(40),
+            name: "Influence Networks",
+            description: "Reliable policy relays project influence across newly connected sectors.",
+            domain: TechDomain::Society,
+            tier: TechTier::III,
+            prerequisites: &[TechId(39), TechId(53)],
+            unlocks: &[],
+            cost: 230,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Diplomacy, TechTag::Trade, TechTag::Command],
+            future_hook: false,
+            display_order: 40,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(41),
+            name: "Occupation Administration",
+            description: "Occupation governance doctrine stabilizes contested worlds post-conflict.",
+            domain: TechDomain::Society,
+            tier: TechTier::III,
+            prerequisites: &[TechId(38), TechId(33)],
+            unlocks: &[],
+            cost: 250,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Invasion, TechTag::Stability, TechTag::Command],
+            future_hook: false,
+            display_order: 41,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(42),
+            name: "War Powers Act",
+            description: "Emergency command statutes streamline strategic wartime authority.",
+            domain: TechDomain::Society,
+            tier: TechTier::IV,
+            prerequisites: &[TechId(37), TechId(30)],
+            unlocks: &[],
+            cost: 320,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Command, TechTag::Invasion, TechTag::Blockade],
+            future_hook: false,
+            display_order: 42,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(43),
+            name: "Alliance Frameworks",
+            description: "Legal frameworks define interoperable alliance governance structures.",
+            domain: TechDomain::Society,
+            tier: TechTier::V,
+            prerequisites: &[TechId(40), TechId(57)],
+            unlocks: &[],
+            cost: 460,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Diplomacy, TechTag::Trade],
+            future_hook: true,
+            display_order: 43,
+            ai_weight: 1,
+        },
+        TechRecord {
+            id: TechId(44),
+            name: "Federation Protocols",
+            description: "Advanced charter protocol stack for multi-polity federation operation.",
+            domain: TechDomain::Society,
+            tier: TechTier::VI,
+            prerequisites: &[TechId(43), TechId(59)],
+            unlocks: &[],
+            cost: 760,
+            rarity: TechRarity::Dangerous,
+            tags: &[TechTag::Diplomacy, TechTag::Command, TechTag::Crisis],
+            future_hook: true,
+            display_order: 44,
+            ai_weight: 0,
+        },
+        TechRecord {
+            id: TechId(45),
+            name: "Hydroponic Systems",
+            description: "High-density hydroponics stabilize food supply in marginal colonies.",
+            domain: TechDomain::Biology,
+            tier: TechTier::I,
+            prerequisites: &[],
+            unlocks: &[TechUnlock::YieldImprovement {
+                yield_type: YieldType::Food,
+                amount_per_colony: 1,
+            }],
+            cost: 70,
+            rarity: TechRarity::Common,
+            tags: &[TechTag::Food, TechTag::Growth],
+            future_hook: false,
+            display_order: 45,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(46),
+            name: "Adaptive Medicine",
+            description: "Adaptive treatment programs improve settler survival and growth.",
+            domain: TechDomain::Biology,
+            tier: TechTier::II,
+            prerequisites: &[TechId(45)],
+            unlocks: &[],
+            cost: 130,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::Growth, TechTag::Housing],
+            future_hook: false,
+            display_order: 46,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(47),
+            name: "Hostile-World Adaptation",
+            description: "Environmental adaptation suites enable reliable operation on harsh worlds.",
+            domain: TechDomain::Biology,
+            tier: TechTier::III,
+            prerequisites: &[TechId(9), TechId(46)],
+            unlocks: &[],
+            cost: 220,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Terraforming, TechTag::Growth, TechTag::Food],
+            future_hook: false,
+            display_order: 47,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(48),
+            name: "Climate Engineering",
+            description: "Atmospheric balancing and thermal controls improve colony resilience.",
+            domain: TechDomain::Biology,
+            tier: TechTier::IV,
+            prerequisites: &[TechId(47), TechId(26)],
+            unlocks: &[],
+            cost: 340,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Terraforming, TechTag::Housing, TechTag::Food],
+            future_hook: true,
+            display_order: 48,
+            ai_weight: 1,
+        },
+        TechRecord {
+            id: TechId(49),
+            name: "Biosphere Restoration",
+            description: "Large-scale biosphere repair protocols reclaim heavily damaged worlds.",
+            domain: TechDomain::Biology,
+            tier: TechTier::V,
+            prerequisites: &[TechId(48)],
+            unlocks: &[],
+            cost: 470,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Terraforming, TechTag::Growth, TechTag::PopulationJobsFuture],
+            future_hook: true,
+            display_order: 49,
+            ai_weight: 1,
+        },
+        TechRecord {
+            id: TechId(50),
+            name: "Directed Evolution",
+            description: "Ethically constrained adaptation programs tailor population survivability.",
+            domain: TechDomain::Biology,
+            tier: TechTier::V,
+            prerequisites: &[TechId(49), TechId(42)],
+            unlocks: &[],
+            cost: 520,
+            rarity: TechRarity::Dangerous,
+            tags: &[
+                TechTag::Growth,
+                TechTag::PopulationJobsFuture,
+                TechTag::EspionageFuture,
+            ],
+            future_hook: true,
+            display_order: 50,
+            ai_weight: 0,
+        },
+        TechRecord {
+            id: TechId(51),
+            name: "Gaia Synthesis",
+            description: "World-scale ecological harmonization projects create peak habitability.",
+            domain: TechDomain::Biology,
+            tier: TechTier::VI,
+            prerequisites: &[TechId(50), TechId(29)],
+            unlocks: &[],
+            cost: 780,
+            rarity: TechRarity::Dangerous,
+            tags: &[TechTag::Terraforming, TechTag::Megastructure, TechTag::Crisis],
+            future_hook: true,
+            display_order: 51,
+            ai_weight: 0,
+        },
+        TechRecord {
+            id: TechId(52),
+            name: "Market Coordination",
+            description: "Market signal routing reduces transaction friction across colonies.",
+            domain: TechDomain::Economy,
+            tier: TechTier::I,
+            prerequisites: &[],
+            unlocks: &[TechUnlock::YieldImprovement {
+                yield_type: YieldType::Credits,
+                amount_per_colony: 1,
+            }],
+            cost: 80,
+            rarity: TechRarity::Common,
+            tags: &[TechTag::Trade, TechTag::Logistics],
+            future_hook: false,
+            display_order: 52,
+            ai_weight: 3,
+        },
+        TechRecord {
+            id: TechId(53),
+            name: "Trade Route Administration",
+            description: "Trade administration offices improve route reliability and throughput.",
+            domain: TechDomain::Economy,
+            tier: TechTier::II,
+            prerequisites: &[TechId(52), TechId(10)],
+            unlocks: &[],
+            cost: 140,
+            rarity: TechRarity::Uncommon,
+            tags: &[TechTag::Trade, TechTag::Supply, TechTag::Logistics],
+            future_hook: false,
+            display_order: 53,
+            ai_weight: 3,
+        },
+        TechRecord {
+            id: TechId(54),
+            name: "Supply Manifolds",
+            description: "Manifold routing balances freight loads across hyperspace corridors.",
+            domain: TechDomain::Economy,
+            tier: TechTier::III,
+            prerequisites: &[TechId(53), TechId::SECTOR_CARTOGRAPHY],
+            unlocks: &[],
+            cost: 230,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Supply, TechTag::Logistics, TechTag::Hyperspace],
+            future_hook: false,
+            display_order: 54,
+            ai_weight: 3,
+        },
+        TechRecord {
+            id: TechId(55),
+            name: "Maintenance Optimization",
+            description: "Predictive maintenance cycles reduce fleet and infrastructure overhead.",
+            domain: TechDomain::Economy,
+            tier: TechTier::III,
+            prerequisites: &[TechId(53), TechId(23)],
+            unlocks: &[TechUnlock::YieldImprovement {
+                yield_type: YieldType::Credits,
+                amount_per_colony: 1,
+            }],
+            cost: 240,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Logistics, TechTag::Trade, TechTag::Supply],
+            future_hook: false,
+            display_order: 55,
+            ai_weight: 3,
+        },
+        TechRecord {
+            id: TechId(56),
+            name: "Rally Coordination",
+            description: "Command-grade logistics synchronize rally traffic between sectors.",
+            domain: TechDomain::Economy,
+            tier: TechTier::III,
+            prerequisites: &[TechId(54), TechId(33)],
+            unlocks: &[],
+            cost: 250,
+            rarity: TechRarity::Rare,
+            tags: &[TechTag::Logistics, TechTag::Command, TechTag::Supply],
+            future_hook: false,
+            display_order: 56,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(57),
+            name: "Interstellar Banking",
+            description: "Sector-clearing credit architecture enables faster wartime mobilization.",
+            domain: TechDomain::Economy,
+            tier: TechTier::IV,
+            prerequisites: &[TechId(55), TechId(40)],
+            unlocks: &[],
+            cost: 330,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Trade, TechTag::Logistics, TechTag::Diplomacy],
+            future_hook: false,
+            display_order: 57,
+            ai_weight: 2,
+        },
+        TechRecord {
+            id: TechId(58),
+            name: "Autonomous Freight",
+            description: "Autonomous convoy swarms self-route around disruption and blockade.",
+            domain: TechDomain::Economy,
+            tier: TechTier::IV,
+            prerequisites: &[TechId(54), TechId(57)],
+            unlocks: &[],
+            cost: 360,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Trade, TechTag::Supply, TechTag::EspionageFuture],
+            future_hook: true,
+            display_order: 58,
+            ai_weight: 1,
+        },
+        TechRecord {
+            id: TechId(59),
+            name: "Sector Administration",
+            description: "Administrative AI grids coordinate policy execution across entire sectors.",
+            domain: TechDomain::Economy,
+            tier: TechTier::V,
+            prerequisites: &[TechId(57), TechId::SECTOR_CARTOGRAPHY],
+            unlocks: &[],
+            cost: 470,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Logistics, TechTag::Command, TechTag::Megastructure],
+            future_hook: true,
+            display_order: 59,
+            ai_weight: 1,
+        },
+        TechRecord {
+            id: TechId(60),
+            name: "Command Logistics Lattice",
+            description: "Galaxy-spanning logistics lattice routes strategic resources instantly.",
+            domain: TechDomain::Economy,
+            tier: TechTier::VI,
+            prerequisites: &[TechId(59), TechId(34)],
+            unlocks: &[],
+            cost: 760,
+            rarity: TechRarity::Dangerous,
+            tags: &[TechTag::Logistics, TechTag::Command, TechTag::Crisis],
+            future_hook: true,
+            display_order: 60,
+            ai_weight: 0,
         },
     ]
 }
@@ -3306,9 +4146,9 @@ mod tests {
     }
 
     #[test]
-    fn all_techs_returns_twelve_entries() {
+    fn all_techs_returns_large_tree_entries() {
         let techs = all_techs();
-        assert_eq!(techs.len(), 18);
+        assert_eq!(techs.len(), 60);
         assert!(
             techs.iter().any(|t| t.name == "Orbital Engineering"),
             "Orbital Engineering tech must be present"
@@ -3323,6 +4163,8 @@ mod tests {
                     .iter()
                     .any(|u| matches!(u, TechUnlock::ShipDesign(ShipDesignId::TROOP_TRANSPORT)))
         }));
+        assert!(techs.iter().any(|t| t.domain == TechDomain::Society));
+        assert!(techs.iter().any(|t| t.tier == TechTier::VI));
     }
 
     #[test]
@@ -3332,6 +4174,63 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), techs.len(), "Tech IDs must be unique");
+    }
+
+    #[test]
+    fn all_tech_prerequisites_reference_existing_techs() {
+        let ids: std::collections::BTreeSet<TechId> = all_techs().iter().map(|t| t.id).collect();
+        for tech in all_techs() {
+            for req in tech.prerequisites {
+                assert!(
+                    ids.contains(req),
+                    "Tech {} has missing prerequisite id {}",
+                    tech.name,
+                    req.0
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tech_graph_is_acyclic_and_has_no_self_dependencies() {
+        use std::collections::BTreeSet;
+
+        fn dfs(
+            id: TechId,
+            visiting: &mut BTreeSet<TechId>,
+            visited: &mut BTreeSet<TechId>,
+        ) -> bool {
+            if visited.contains(&id) {
+                return true;
+            }
+            if !visiting.insert(id) {
+                return false;
+            }
+            let Some(node) = tech_by_id(id) else {
+                return false;
+            };
+            if node.prerequisites.iter().any(|req| *req == id) {
+                return false;
+            }
+            for req in node.prerequisites {
+                if !dfs(*req, visiting, visited) {
+                    return false;
+                }
+            }
+            visiting.remove(&id);
+            visited.insert(id);
+            true
+        }
+
+        let mut visiting = BTreeSet::new();
+        let mut visited = BTreeSet::new();
+        for tech in all_techs() {
+            assert!(
+                dfs(tech.id, &mut visiting, &mut visited),
+                "cycle detected involving tech {}",
+                tech.name
+            );
+        }
     }
 
     #[test]
@@ -3347,6 +4246,32 @@ mod tests {
             assert!(!tech.name.is_empty());
             assert!(!tech.description.is_empty());
         }
+    }
+
+    #[test]
+    fn tech_display_order_is_stable_and_unique() {
+        let mut orders: Vec<u16> = all_techs().iter().map(|t| t.display_order).collect();
+        let mut sorted = orders.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), orders.len(), "display_order must be unique");
+        orders.sort_unstable();
+        assert_eq!(
+            orders,
+            (1..=all_techs().len() as u16).collect::<Vec<_>>(),
+            "display_order must be contiguous for deterministic rendering"
+        );
+    }
+
+    #[test]
+    fn tech_rarity_tag_and_future_hook_metadata_is_present() {
+        let techs = all_techs();
+        assert!(techs.iter().all(|t| !t.tags.is_empty()));
+        assert!(techs.iter().any(|t| t.rarity == TechRarity::Rare));
+        assert!(techs.iter().any(|t| t.rarity == TechRarity::Breakthrough));
+        assert!(techs.iter().any(|t| t.rarity == TechRarity::Dangerous));
+        assert!(techs.iter().any(|t| t.future_hook));
+        assert!(techs.iter().any(|t| !t.future_hook));
     }
 
     #[test]
@@ -3392,9 +4317,32 @@ mod tests {
                 TechId(9),
                 TechId(10),
                 TechId(12),
+                TechId(22),
+                TechId(30),
+                TechId(35),
+                TechId(45),
+                TechId(52),
             ],
             "available tech order should follow static deterministic tech definition order"
         );
+    }
+
+    #[test]
+    fn important_unlock_chain_targets_are_reachable() {
+        let ids: std::collections::BTreeSet<TechId> = all_techs().iter().map(|t| t.id).collect();
+        for id in [
+            TechId::VOID_PROPULSION,
+            TechId::HABITAT_SEEDING,
+            TechId::SURVEY_DRONES,
+            TechId::ORBITAL_ENGINEERING,
+            TechId::PERIMETER_DEFENSE,
+            TechId::FLEET_COORDINATION,
+            TechId::BATTLE_DOCTRINE,
+            TechId::HYPERSPACE_CARTOGRAPHY,
+            TechId(10),
+        ] {
+            assert!(ids.contains(&id), "required unlock chain tech {:?} missing", id);
+        }
     }
 
     #[test]

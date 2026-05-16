@@ -84,36 +84,60 @@ fn render_colony_portrait(
         return;
     }
 
-    let mut canvas = Canvas::new(inner.width, inner.height);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(6), Constraint::Length(4)])
+        .split(inner);
+
+    let mut canvas = Canvas::new(chunks[0].width, chunks[0].height);
     canvas.fill(ColorToken::SpaceBg, RenderLayer::Background.z_base());
-    let detail = detail_for_area(inner);
+    let detail = detail_for_area(chunks[0]);
     let Some(colony_id) = app_state.colony.selected_colony else {
         canvas.draw_text(
             1,
-            inner.height / 2,
+            chunks[0].height / 2,
             "No colony selected",
             ColorToken::Muted.to_style(None),
             RenderLayer::Labels.z_base(),
         );
-        canvas.render_to_buffer(inner, frame.buffer_mut());
+        canvas.render_to_buffer(chunks[0], frame.buffer_mut());
         return;
     };
     let Some(colony) = game_state.colonies.get(&colony_id) else {
         return;
     };
-    let planet_class = game_state
-        .stars
-        .get(&colony.star)
-        .and_then(|star| star.planets.get(colony.planet_index))
-        .map(|planet| planet.class);
+    let star = game_state.stars.get(&colony.star);
+    let planet = star.and_then(|system| system.planets.get(colony.planet_index));
+    let planet_class = planet.map(|planet| planet.class);
     let portrait = colony_portrait(
         portrait_input_from_colony(planet_class, Some(colony)),
         detail,
     );
-    let x = inner.width.saturating_sub(portrait.width) / 2;
-    let y = inner.height.saturating_sub(portrait.height) / 2;
+    let x = chunks[0].width.saturating_sub(portrait.width) / 2;
+    let y = chunks[0].height.saturating_sub(portrait.height) / 2;
     canvas.draw_sprite(&portrait, x, y, 0, RenderLayer::Bodies.z_base());
-    canvas.render_to_buffer(inner, frame.buffer_mut());
+    canvas.draw_text(
+        1,
+        0,
+        "Surface View",
+        ColorToken::Accent.to_style(None),
+        RenderLayer::Labels.z_base(),
+    );
+    canvas.render_to_buffer(chunks[0], frame.buffer_mut());
+
+    let planet_name = planet.map(|p| p.name.as_str()).unwrap_or("Unknown");
+    let class_name = planet.map(|p| p.class.name()).unwrap_or("Unknown");
+    let star_name = star.map(|s| s.name.as_str()).unwrap_or("Unknown");
+    let status_line = format!(
+        "{}  |  {}  |  pop {}",
+        class_name, star_name, colony.population
+    );
+    let caption = Paragraph::new(vec![
+        Line::from(vec![Span::styled(planet_name, Theme::title_style())]),
+        Line::from(vec![Span::styled(status_line, Theme::muted_style())]),
+    ])
+    .style(Theme::default_style());
+    frame.render_widget(caption, chunks[1]);
 }
 
 /// Render colony statistics panel
@@ -788,6 +812,7 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect();
+        assert!(content.contains("Surface View"));
         assert!(content.contains("Supply:"));
         assert!(content.contains("Connected"));
     }

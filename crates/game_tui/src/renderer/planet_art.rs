@@ -80,12 +80,14 @@ pub fn portrait_input_from_colony(
 }
 
 pub fn planet_sprite(kind: PlanetVisualKind, detail: DetailLevel) -> Sprite {
-    sphere_sprite(
+    let mut sprite = sphere_sprite(
         kind_primary_color(kind),
         kind_secondary_color(kind),
         kind_glyph(kind),
         detail,
-    )
+    );
+    apply_planet_kind_overlay(&mut sprite, kind, detail);
+    sprite
 }
 
 pub fn star_sprite(class: SpectralClass, detail: DetailLevel) -> Sprite {
@@ -192,6 +194,17 @@ pub fn colony_portrait(input: ColonyPortraitInput, detail: DetailLevel) -> Sprit
 
     let mut frame = base.frames.remove(0);
     if detail != DetailLevel::Tiny {
+        let horizon_y = base.height.saturating_sub(2);
+        for x in 1..base.width.saturating_sub(1) {
+            frame.cells.push(SpriteCell {
+                x,
+                y: horizon_y,
+                glyph: '_',
+                fg: ColorToken::DimOverlay,
+                bg: None,
+                alpha: AlphaMode::BlendGlyph,
+            });
+        }
         let city_lights = usize::from(input.population_level / POPULATION_PER_CITY_LIGHT).max(1);
         for i in 0..city_lights {
             let x = ((i * 3 + 2) % usize::from(base.width)) as u16;
@@ -208,6 +221,22 @@ pub fn colony_portrait(input: ColonyPortraitInput, detail: DetailLevel) -> Sprit
                 bg: None,
                 alpha: AlphaMode::BlendGlyph,
             });
+        }
+        if input.population_level >= POPULATION_PER_CITY_LIGHT {
+            for i in 0..usize::from(base.width.saturating_sub(4) / 2) {
+                let x = 2 + (i as u16 * 2);
+                let height = (i as u16 % 3) + 1;
+                for step in 0..height {
+                    frame.cells.push(SpriteCell {
+                        x,
+                        y: horizon_y.saturating_sub(step),
+                        glyph: '▮',
+                        fg: ColorToken::Muted,
+                        bg: None,
+                        alpha: AlphaMode::BlendGlyph,
+                    });
+                }
+            }
         }
         if input.has_orbital_infrastructure {
             frame.cells.push(SpriteCell {
@@ -233,6 +262,154 @@ pub fn colony_portrait(input: ColonyPortraitInput, detail: DetailLevel) -> Sprit
 
     base.frames = vec![frame];
     base
+}
+
+fn apply_planet_kind_overlay(sprite: &mut Sprite, kind: PlanetVisualKind, detail: DetailLevel) {
+    if matches!(detail, DetailLevel::Tiny) || sprite.frames.is_empty() {
+        return;
+    }
+
+    let mut frame = sprite.frames.remove(0);
+    let width = sprite.width;
+    let height = sprite.height;
+
+    match kind {
+        PlanetVisualKind::Terran => {
+            add_cells(
+                &mut frame,
+                &[
+                    (2, 2, '~', ColorToken::PlanetWater),
+                    (width / 2, 1, '~', ColorToken::Default),
+                    (
+                        width.saturating_sub(3),
+                        height / 2,
+                        '~',
+                        ColorToken::PlanetWater,
+                    ),
+                ],
+            );
+        }
+        PlanetVisualKind::Ocean => {
+            for x in 2..width.saturating_sub(2) {
+                if x % 2 == 0 {
+                    frame.cells.push(SpriteCell {
+                        x,
+                        y: height / 2,
+                        glyph: '=',
+                        fg: ColorToken::Default,
+                        bg: None,
+                        alpha: AlphaMode::BlendGlyph,
+                    });
+                }
+            }
+        }
+        PlanetVisualKind::Arid | PlanetVisualKind::Desert => {
+            add_cells(
+                &mut frame,
+                &[
+                    (2, height / 2, '=', ColorToken::Accent2),
+                    (width / 2, height / 2 + 1, '~', ColorToken::PlanetDesert),
+                    (
+                        width.saturating_sub(3),
+                        height / 2,
+                        '=',
+                        ColorToken::Accent2,
+                    ),
+                ],
+            );
+        }
+        PlanetVisualKind::Ice => {
+            add_cells(
+                &mut frame,
+                &[
+                    (width / 2, 1, '^', ColorToken::Default),
+                    (2, 2, '*', ColorToken::PlanetIce),
+                    (width.saturating_sub(3), 2, '*', ColorToken::PlanetIce),
+                ],
+            );
+        }
+        PlanetVisualKind::Volcanic => {
+            add_cells(
+                &mut frame,
+                &[
+                    (2, 2, '#', ColorToken::Warning),
+                    (width / 2, height / 2, '#', ColorToken::PlanetLava),
+                    (
+                        width.saturating_sub(3),
+                        height.saturating_sub(3),
+                        '#',
+                        ColorToken::Warning,
+                    ),
+                ],
+            );
+        }
+        PlanetVisualKind::Barren => {
+            add_cells(
+                &mut frame,
+                &[
+                    (2, 2, 'o', ColorToken::DimOverlay),
+                    (width / 2, height / 2, 'o', ColorToken::DimOverlay),
+                    (width.saturating_sub(3), 2, 'o', ColorToken::DimOverlay),
+                ],
+            );
+        }
+        PlanetVisualKind::GasGiant => {
+            for y in 1..height.saturating_sub(1) {
+                if y % 2 == 1 {
+                    for x in 2..width.saturating_sub(2) {
+                        frame.cells.push(SpriteCell {
+                            x,
+                            y,
+                            glyph: '=',
+                            fg: ColorToken::StarWarm,
+                            bg: None,
+                            alpha: AlphaMode::BlendGlyph,
+                        });
+                    }
+                }
+            }
+        }
+        PlanetVisualKind::Toxic => {
+            add_cells(
+                &mut frame,
+                &[
+                    (2, 2, 'x', ColorToken::Warning),
+                    (width / 2, height / 2, 'x', ColorToken::Error),
+                    (width.saturating_sub(3), 2, 'x', ColorToken::Warning),
+                ],
+            );
+        }
+        PlanetVisualKind::Unknown => {
+            add_cells(
+                &mut frame,
+                &[
+                    (2, 2, '?', ColorToken::Muted),
+                    (width / 2, height / 2, '?', ColorToken::Muted),
+                    (
+                        width.saturating_sub(3),
+                        height.saturating_sub(3),
+                        '?',
+                        ColorToken::Muted,
+                    ),
+                ],
+            );
+        }
+    }
+
+    sprite.frames = vec![frame];
+}
+
+fn add_cells(frame: &mut SpriteFrame, cells: &[(u16, u16, char, ColorToken)]) {
+    for (x, y, glyph, fg) in cells {
+        frame.cells.push(SpriteCell {
+            x: *x,
+            y: *y,
+            glyph: *glyph,
+            fg: *fg,
+            bg: None,
+            alpha: AlphaMode::BlendGlyph,
+        });
+    }
 }
 
 fn kind_primary_color(kind: PlanetVisualKind) -> ColorToken {
@@ -280,6 +457,7 @@ fn kind_glyph(kind: PlanetVisualKind) -> char {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     #[test]
     fn planet_kind_mapping_has_safe_fallback() {
@@ -292,5 +470,41 @@ mod tests {
             planet_kind_from_class(Some(PlanetClass::Frozen)),
             PlanetVisualKind::Ice
         );
+    }
+
+    #[test]
+    fn planet_sprite_adds_class_signature_overlays() {
+        let sprite = planet_sprite(PlanetVisualKind::Volcanic, DetailLevel::Standard);
+        let glyphs: BTreeSet<char> = sprite.frames[0]
+            .cells
+            .iter()
+            .map(|cell| cell.glyph)
+            .collect();
+
+        assert!(glyphs.contains(&'#'));
+        assert!(glyphs.contains(&'◉') || glyphs.contains(&'●'));
+    }
+
+    #[test]
+    fn colony_portrait_adds_horizon_and_skyline_for_settled_worlds() {
+        let portrait = colony_portrait(
+            ColonyPortraitInput {
+                planet_kind: PlanetVisualKind::Terran,
+                population_level: 120,
+                industry_level: 120,
+                pollution_level: 0,
+                has_orbital_infrastructure: true,
+            },
+            DetailLevel::Standard,
+        );
+        let glyphs: BTreeSet<char> = portrait.frames[0]
+            .cells
+            .iter()
+            .map(|cell| cell.glyph)
+            .collect();
+
+        assert!(glyphs.contains(&'_'));
+        assert!(glyphs.contains(&'▮'));
+        assert!(glyphs.contains(&'◌'));
     }
 }

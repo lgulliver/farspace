@@ -24,6 +24,7 @@ use ratatui::{
 
 // Distinct salt keeps galaxy-view starfield noise stable but separate from sector-view noise.
 const GALAXY_STARFIELD_SALT: u64 = 0xA11;
+const GALAXY_STARFIELD_TWINKLE_SALT_XOR: u64 = 0x73;
 
 pub fn render_sector_overview(
     frame: &mut Frame,
@@ -527,12 +528,22 @@ fn background_cells(
                     order: 0,
                     x,
                     y,
-                    symbol: Some(if static_hash.is_multiple_of(2) { '·' } else { '.' }),
+                    symbol: Some(if static_hash.is_multiple_of(2) {
+                        '·'
+                    } else {
+                        '.'
+                    }),
                     style: style.fg(Color::Rgb(70, 85, 120)),
                     protect: 0,
                 });
             } else if static_hash.is_multiple_of(211) {
-                let twinkle_hash = visual_hash(game_state.seed, x, y, frame_group, salt ^ 0x73);
+                let twinkle_hash = visual_hash(
+                    game_state.seed,
+                    x,
+                    y,
+                    frame_group,
+                    salt ^ GALAXY_STARFIELD_TWINKLE_SALT_XOR,
+                );
                 let twinkle_color = if twinkle_hash.is_multiple_of(6) {
                     Color::Rgb(184, 202, 244)
                 } else {
@@ -675,15 +686,27 @@ mod tests {
     #[test]
     fn overview_background_starfield_stays_fixed_while_stars_twinkle() {
         let engine = Engine::new(42);
-        let a = background_cells(&engine.state, Rect::new(0, 0, 80, 24), 0, GALAXY_STARFIELD_SALT);
-        let b = background_cells(&engine.state, Rect::new(0, 0, 80, 24), 6, GALAXY_STARFIELD_SALT);
+        let a = background_cells(
+            &engine.state,
+            Rect::new(0, 0, 80, 24),
+            0,
+            GALAXY_STARFIELD_SALT,
+        );
+        let b = background_cells(
+            &engine.state,
+            Rect::new(0, 0, 80, 24),
+            6,
+            GALAXY_STARFIELD_SALT,
+        );
 
         let a_layout: Vec<_> = a.iter().map(|cell| (cell.x, cell.y, cell.symbol)).collect();
         let b_layout: Vec<_> = b.iter().map(|cell| (cell.x, cell.y, cell.symbol)).collect();
 
         assert_eq!(a_layout, b_layout, "background layout should stay fixed");
         assert!(
-            a.iter().zip(&b).any(|(left, right)| left.style != right.style),
+            a.iter()
+                .zip(&b)
+                .any(|(left, right)| left.style != right.style),
             "some background stars should still twinkle"
         );
     }

@@ -103,6 +103,115 @@ pub struct EmpireTraitModifiers {
     pub food_per_colony: i64,
 }
 
+/// Deterministic diplomacy posture granted by an empire's identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmpireDiplomacyProfile {
+    /// Relationship state established on first contact.
+    pub first_contact_status: RelationshipStatus,
+    /// Relationship state this empire drifts toward when borders are quiet.
+    pub resting_status: RelationshipStatus,
+    /// Relationship state this empire drifts toward when border pressure is present.
+    pub border_tension_status: RelationshipStatus,
+    /// Relationship state this empire drifts toward under severe border pressure.
+    pub severe_border_tension_status: RelationshipStatus,
+}
+
+impl Default for EmpireDiplomacyProfile {
+    fn default() -> Self {
+        Self::standard()
+    }
+}
+
+impl EmpireDiplomacyProfile {
+    pub const fn standard() -> Self {
+        Self {
+            first_contact_status: RelationshipStatus::Contacted,
+            resting_status: RelationshipStatus::Neutral,
+            border_tension_status: RelationshipStatus::Tense,
+            severe_border_tension_status: RelationshipStatus::Hostile,
+        }
+    }
+}
+
+/// Deterministic production and upkeep modifiers granted by an empire's identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EmpireMilitaryModifiers {
+    /// Percentage adjustment applied to scout ship production cost.
+    pub scout_cost_modifier_pct: i8,
+    /// Percentage adjustment applied to science ship production cost.
+    pub science_ship_cost_modifier_pct: i8,
+    /// Percentage adjustment applied to troop transport production cost.
+    pub troop_transport_cost_modifier_pct: i8,
+    /// Percentage adjustment applied to shipyard production cost.
+    pub shipyard_cost_modifier_pct: i8,
+    /// Per-fleet maintenance delta applied after the baseline cost.
+    pub fleet_maintenance_modifier_per_fleet: i64,
+    /// Flat invasion strength bonus per troop transport ship.
+    pub invasion_strength_bonus_per_transport: u32,
+}
+
+impl EmpireMilitaryModifiers {
+    pub const fn none() -> Self {
+        Self {
+            scout_cost_modifier_pct: 0,
+            science_ship_cost_modifier_pct: 0,
+            troop_transport_cost_modifier_pct: 0,
+            shipyard_cost_modifier_pct: 0,
+            fleet_maintenance_modifier_per_fleet: 0,
+            invasion_strength_bonus_per_transport: 0,
+        }
+    }
+}
+
+/// High-level deterministic AI preferences granted by an empire's identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmpireAiProfile {
+    /// Ordered list of preferred research domains, strongest to weakest.
+    pub research_focus: &'static [TechDomain],
+    /// Whether the AI should prioritise science ships once they become available.
+    pub prefers_science_ships: bool,
+    /// Whether the AI should prioritise troop transports once they become available.
+    pub prefers_troop_transports: bool,
+    /// Whether the AI should prefer Scientific/Balanced colonies over aggressive roles.
+    pub prefers_stable_colonies: bool,
+    /// Whether the AI should favour Military roles on high-output worlds.
+    pub prefers_military_roles: bool,
+}
+
+impl Default for EmpireAiProfile {
+    fn default() -> Self {
+        Self::none()
+    }
+}
+
+impl EmpireAiProfile {
+    pub const fn none() -> Self {
+        Self {
+            research_focus: &[],
+            prefers_science_ships: false,
+            prefers_troop_transports: false,
+            prefers_stable_colonies: false,
+            prefers_military_roles: false,
+        }
+    }
+
+    pub const fn new(
+        research_focus: &'static [TechDomain],
+        prefers_science_ships: bool,
+        prefers_troop_transports: bool,
+        prefers_stable_colonies: bool,
+        prefers_military_roles: bool,
+    ) -> Self {
+        Self {
+            research_focus,
+            prefers_science_ships,
+            prefers_troop_transports,
+            prefers_stable_colonies,
+            prefers_military_roles,
+        }
+    }
+}
+
 /// Static definition of a playable empire faction.
 ///
 /// These are compile-time records — not serialised.  An empire's chosen
@@ -114,12 +223,89 @@ pub struct EmpireDefinition {
     pub name: &'static str,
     /// One-line flavour description shown during setup and in diplomacy.
     pub short_description: &'static str,
+    /// Short tonal description used in diplomacy and empire overview displays.
+    pub tone: &'static str,
     /// Single-character symbol used in compact map display.
     pub symbol: char,
     /// Flat per-colony yield bonuses applied every turn.
     pub trait_modifiers: EmpireTraitModifiers,
     /// Ordered list of playstyle orientation tags.
     pub playstyle: &'static [PlaystyleTag],
+    /// One-line summary of how the faction tends to play.
+    pub playstyle_summary: &'static str,
+    /// Deterministic diplomacy posture.
+    pub diplomacy_profile: EmpireDiplomacyProfile,
+    /// Deterministic military/economy modifiers.
+    pub military_modifiers: EmpireMilitaryModifiers,
+    /// Deterministic AI preference profile.
+    pub ai_profile: EmpireAiProfile,
+}
+
+impl EmpireDefinition {
+    /// Human-readable effect summaries for setup and diplomacy displays.
+    pub fn effect_summaries(&self) -> Vec<String> {
+        let mut effects = Vec::new();
+        let mods = self.trait_modifiers;
+        if mods.industry_per_colony != 0 {
+            effects.push(format!("{:+} industry/colony", mods.industry_per_colony));
+        }
+        if mods.science_per_colony != 0 {
+            effects.push(format!("{:+} science/colony", mods.science_per_colony));
+        }
+        if mods.credits_per_colony != 0 {
+            effects.push(format!("{:+} credits/colony", mods.credits_per_colony));
+        }
+        if mods.food_per_colony != 0 {
+            effects.push(format!("{:+} food/colony", mods.food_per_colony));
+        }
+
+        let military = self.military_modifiers;
+        if military.scout_cost_modifier_pct != 0 {
+            effects.push(format!(
+                "{:+}% scout cost",
+                military.scout_cost_modifier_pct
+            ));
+        }
+        if military.science_ship_cost_modifier_pct != 0 {
+            effects.push(format!(
+                "{:+}% science ship cost",
+                military.science_ship_cost_modifier_pct
+            ));
+        }
+        if military.troop_transport_cost_modifier_pct != 0 {
+            effects.push(format!(
+                "{:+}% troop transport cost",
+                military.troop_transport_cost_modifier_pct
+            ));
+        }
+        if military.shipyard_cost_modifier_pct != 0 {
+            effects.push(format!(
+                "{:+}% shipyard cost",
+                military.shipyard_cost_modifier_pct
+            ));
+        }
+        if military.fleet_maintenance_modifier_per_fleet != 0 {
+            effects.push(format!(
+                "{:+} fleet maint/fleet",
+                military.fleet_maintenance_modifier_per_fleet
+            ));
+        }
+        if military.invasion_strength_bonus_per_transport != 0 {
+            effects.push(format!(
+                "+{} invasion/transport",
+                military.invasion_strength_bonus_per_transport
+            ));
+        }
+
+        if self.diplomacy_profile.first_contact_status != RelationshipStatus::Contacted {
+            effects.push(format!(
+                "First contact starts {}",
+                self.diplomacy_profile.first_contact_status.label()
+            ));
+        }
+
+        effects
+    }
 }
 
 /// All available empire definitions in stable ID order.
@@ -136,11 +322,12 @@ pub fn empire_definition_by_id(id: EmpireDefinitionId) -> Option<&'static Empire
     EMPIRE_DEFINITIONS.iter().find(|d| d.id == id)
 }
 
-static EMPIRE_DEFINITIONS: [EmpireDefinition; 6] = [
+static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
     EmpireDefinition {
         id: EmpireDefinitionId(0),
         name: "Ashveran Compact",
         short_description: "A federation of heavy-industry worlds united by supply-chain treaties.",
+        tone: "Pragmatic industrial coalition",
         symbol: '⚙',
         trait_modifiers: EmpireTraitModifiers {
             industry_per_colony: 1,
@@ -149,11 +336,22 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 6] = [
             food_per_colony: 0,
         },
         playstyle: &[PlaystyleTag::Industrial],
+        playstyle_summary: "Reliable infrastructure empire with steady production and logistics.",
+        diplomacy_profile: EmpireDiplomacyProfile::standard(),
+        military_modifiers: EmpireMilitaryModifiers::none(),
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Engineering, TechDomain::Economy],
+            false,
+            false,
+            false,
+            false,
+        ),
     },
     EmpireDefinition {
         id: EmpireDefinitionId(1),
         name: "Luminal Traverse",
         short_description: "Explorers driven by an obsession with mapping the unknown.",
+        tone: "Restless pathfinders",
         symbol: '◎',
         trait_modifiers: EmpireTraitModifiers {
             industry_per_colony: 0,
@@ -162,12 +360,26 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 6] = [
             food_per_colony: 0,
         },
         playstyle: &[PlaystyleTag::Expansionist, PlaystyleTag::Scientific],
+        playstyle_summary: "Fast early exploration with a research-led expansion curve.",
+        diplomacy_profile: EmpireDiplomacyProfile::standard(),
+        military_modifiers: EmpireMilitaryModifiers {
+            scout_cost_modifier_pct: -10,
+            ..EmpireMilitaryModifiers::none()
+        },
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Exploration, TechDomain::Economy],
+            false,
+            false,
+            false,
+            false,
+        ),
     },
     EmpireDefinition {
         id: EmpireDefinitionId(2),
         name: "Sylvaran Accord",
         short_description:
             "A biosphere-first collective that values growth and ecological balance.",
+        tone: "Patient ecological stewards",
         symbol: '✿',
         trait_modifiers: EmpireTraitModifiers {
             industry_per_colony: 0,
@@ -176,12 +388,28 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 6] = [
             food_per_colony: 2,
         },
         playstyle: &[PlaystyleTag::Agrarian],
+        playstyle_summary: "Food-rich colonies that favour long-term population growth.",
+        diplomacy_profile: EmpireDiplomacyProfile {
+            first_contact_status: RelationshipStatus::Neutral,
+            resting_status: RelationshipStatus::Neutral,
+            border_tension_status: RelationshipStatus::Tense,
+            severe_border_tension_status: RelationshipStatus::Hostile,
+        },
+        military_modifiers: EmpireMilitaryModifiers::none(),
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Biology, TechDomain::Economy],
+            false,
+            false,
+            true,
+            false,
+        ),
     },
     EmpireDefinition {
         id: EmpireDefinitionId(3),
         name: "Thalori Exchange",
         short_description:
             "A merchant alliance that turned commerce into a form of galactic power.",
+        tone: "Opportunistic commercial brokers",
         symbol: '◈',
         trait_modifiers: EmpireTraitModifiers {
             industry_per_colony: 0,
@@ -190,11 +418,27 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 6] = [
             food_per_colony: 0,
         },
         playstyle: &[PlaystyleTag::Diplomatic, PlaystyleTag::Industrial],
+        playstyle_summary: "Credit-rich empire that prefers secure trade and measured growth.",
+        diplomacy_profile: EmpireDiplomacyProfile {
+            first_contact_status: RelationshipStatus::Neutral,
+            resting_status: RelationshipStatus::Neutral,
+            border_tension_status: RelationshipStatus::Tense,
+            severe_border_tension_status: RelationshipStatus::Hostile,
+        },
+        military_modifiers: EmpireMilitaryModifiers::none(),
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Economy, TechDomain::Engineering],
+            false,
+            false,
+            true,
+            false,
+        ),
     },
     EmpireDefinition {
         id: EmpireDefinitionId(4),
         name: "Vorath Dominion",
         short_description: "A martial confederation bound by oaths of mutual defense and conquest.",
+        tone: "Martial frontier hegemony",
         symbol: '⚔',
         trait_modifiers: EmpireTraitModifiers {
             industry_per_colony: 0,
@@ -203,12 +447,32 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 6] = [
             food_per_colony: 0,
         },
         playstyle: &[PlaystyleTag::Militarist],
+        playstyle_summary: "Pressure-oriented power that turns frontier tension into war readiness.",
+        diplomacy_profile: EmpireDiplomacyProfile {
+            first_contact_status: RelationshipStatus::Tense,
+            resting_status: RelationshipStatus::Tense,
+            border_tension_status: RelationshipStatus::Hostile,
+            severe_border_tension_status: RelationshipStatus::War,
+        },
+        military_modifiers: EmpireMilitaryModifiers {
+            troop_transport_cost_modifier_pct: -10,
+            invasion_strength_bonus_per_transport: 2,
+            ..EmpireMilitaryModifiers::none()
+        },
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Military, TechDomain::Engineering],
+            false,
+            true,
+            false,
+            true,
+        ),
     },
     EmpireDefinition {
         id: EmpireDefinitionId(5),
         name: "Elarith Confluence",
         short_description:
             "A technocratic council that views scientific advancement as the highest law.",
+        tone: "Measured technocracy",
         symbol: '⟁',
         trait_modifiers: EmpireTraitModifiers {
             industry_per_colony: 0,
@@ -217,6 +481,103 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 6] = [
             food_per_colony: 0,
         },
         playstyle: &[PlaystyleTag::Scientific],
+        playstyle_summary: "Pure research specialists that convert safe worlds into laboratories.",
+        diplomacy_profile: EmpireDiplomacyProfile::standard(),
+        military_modifiers: EmpireMilitaryModifiers {
+            science_ship_cost_modifier_pct: -10,
+            ..EmpireMilitaryModifiers::none()
+        },
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Exploration, TechDomain::Biology, TechDomain::Economy],
+            true,
+            false,
+            true,
+            false,
+        ),
+    },
+    EmpireDefinition {
+        id: EmpireDefinitionId(6),
+        name: "Terran Concord",
+        short_description:
+            "An open Terran union that treats science, dialogue, and exploration as shared civic duties.",
+        tone: "Optimistic, pluralist, science-forward federation",
+        symbol: '☼',
+        trait_modifiers: EmpireTraitModifiers {
+            industry_per_colony: -1,
+            science_per_colony: 1,
+            credits_per_colony: 0,
+            food_per_colony: 0,
+        },
+        playstyle: &[
+            PlaystyleTag::Diplomatic,
+            PlaystyleTag::Scientific,
+            PlaystyleTag::Expansionist,
+        ],
+        playstyle_summary:
+            "Cooperative explorers that open with better relations, lean into research, and keep colonies stable before committing to war.",
+        diplomacy_profile: EmpireDiplomacyProfile {
+            first_contact_status: RelationshipStatus::Neutral,
+            resting_status: RelationshipStatus::Neutral,
+            border_tension_status: RelationshipStatus::Tense,
+            severe_border_tension_status: RelationshipStatus::Hostile,
+        },
+        military_modifiers: EmpireMilitaryModifiers {
+            scout_cost_modifier_pct: -20,
+            science_ship_cost_modifier_pct: -20,
+            ..EmpireMilitaryModifiers::none()
+        },
+        ai_profile: EmpireAiProfile::new(
+            &[TechDomain::Exploration, TechDomain::Economy, TechDomain::Biology],
+            true,
+            false,
+            true,
+            false,
+        ),
+    },
+    EmpireDefinition {
+        id: EmpireDefinitionId(7),
+        name: "Terran Dominion",
+        short_description:
+            "A hardline Terran hierarchy that secures frontier order through rapid militarisation and coercive expansion.",
+        tone: "Authoritarian, expansionist, order-through-force empire",
+        symbol: '▲',
+        trait_modifiers: EmpireTraitModifiers {
+            industry_per_colony: 1,
+            science_per_colony: 0,
+            credits_per_colony: 0,
+            food_per_colony: 0,
+        },
+        playstyle: &[
+            PlaystyleTag::Militarist,
+            PlaystyleTag::Industrial,
+            PlaystyleTag::Expansionist,
+        ],
+        playstyle_summary:
+            "Militarised colonisers that accept worse first contact, cheaper war logistics, and faster escalation when borders tighten.",
+        diplomacy_profile: EmpireDiplomacyProfile {
+            first_contact_status: RelationshipStatus::Tense,
+            resting_status: RelationshipStatus::Tense,
+            border_tension_status: RelationshipStatus::Hostile,
+            severe_border_tension_status: RelationshipStatus::War,
+        },
+        military_modifiers: EmpireMilitaryModifiers {
+            troop_transport_cost_modifier_pct: -20,
+            shipyard_cost_modifier_pct: -10,
+            fleet_maintenance_modifier_per_fleet: -1,
+            invasion_strength_bonus_per_transport: 4,
+            ..EmpireMilitaryModifiers::none()
+        },
+        ai_profile: EmpireAiProfile::new(
+            &[
+                TechDomain::Military,
+                TechDomain::Engineering,
+                TechDomain::Exploration,
+            ],
+            false,
+            true,
+            false,
+            true,
+        ),
     },
 ];
 
@@ -3127,8 +3488,8 @@ mod tests {
     // ── Empire Definition tests ─────────────────────────────────────────────
 
     #[test]
-    fn all_empire_definitions_returns_six_entries() {
-        assert_eq!(all_empire_definitions().len(), 6);
+    fn all_empire_definitions_returns_eight_entries() {
+        assert_eq!(all_empire_definitions().len(), 8);
     }
 
     #[test]

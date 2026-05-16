@@ -15,7 +15,7 @@ use ratatui::{
 };
 
 /// Height of the setup box (border×2 + padding + rows)
-const SETUP_BOX_HEIGHT: u16 = 30;
+const SETUP_BOX_HEIGHT: u16 = 32;
 /// Minimum width of the setup box.
 const SETUP_BOX_MIN_WIDTH: u16 = 72;
 /// Maximum width of the setup box.
@@ -196,26 +196,17 @@ pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState
                 selected_def.short_description,
                 content_width,
             ));
+            lines.extend(wrapped_info_lines(selected_def.tone, content_width));
             let tag_labels: Vec<&str> = selected_def.playstyle.iter().map(|t| t.label()).collect();
             lines.push(Line::from(vec![
                 Span::raw("  "),
                 Span::styled(tag_labels.join(" · "), Theme::accent_style()),
             ]));
-            // Show trait modifiers
-            let m = &selected_def.trait_modifiers;
-            let mut mods: Vec<String> = Vec::new();
-            if m.industry_per_colony != 0 {
-                mods.push(format!("{:+} industry/colony", m.industry_per_colony));
-            }
-            if m.science_per_colony != 0 {
-                mods.push(format!("{:+} science/colony", m.science_per_colony));
-            }
-            if m.credits_per_colony != 0 {
-                mods.push(format!("{:+} credits/colony", m.credits_per_colony));
-            }
-            if m.food_per_colony != 0 {
-                mods.push(format!("{:+} food/colony", m.food_per_colony));
-            }
+            lines.extend(wrapped_info_lines(
+                selected_def.playstyle_summary,
+                content_width,
+            ));
+            let mods = selected_def.effect_summaries();
             if !mods.is_empty() {
                 lines.push(Line::from(vec![
                     Span::raw("  "),
@@ -485,6 +476,30 @@ mod tests {
             .expect("active field marker cell not found");
 
         assert_eq!(ai_cell.bg, Theme::accent());
+    }
+
+    #[test]
+    fn setup_screen_shows_terran_concord_details() {
+        let state = AppState {
+            setup_empire_cursor: 6,
+            setup_cursor: FIELD_EMPIRE,
+            ..AppState::default()
+        };
+        let rendered = render_to_string(&state);
+        assert!(rendered.contains("Terran Concord"));
+        assert!(rendered.contains("science-forward federation"));
+    }
+
+    #[test]
+    fn setup_screen_shows_terran_dominion_playstyle_summary() {
+        let state = AppState {
+            setup_empire_cursor: 7,
+            setup_cursor: FIELD_EMPIRE,
+            ..AppState::default()
+        };
+        let rendered = render_to_string(&state);
+        assert!(rendered.contains("Terran Dominion"));
+        assert!(rendered.contains("Militarised colonisers"));
     }
 
     #[test]

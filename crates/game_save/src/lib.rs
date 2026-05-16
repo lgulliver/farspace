@@ -169,7 +169,10 @@ pub fn load_metadata_from_file(path: &std::path::Path) -> Result<SaveMetadata, S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_core::{Command, Engine, Fleet, FleetId, FleetKind, RelationshipStatus};
+    use game_core::{
+        Command, DifficultyLevel, EmpireDefinitionId, Engine, Fleet, FleetId, FleetKind,
+        GalaxySize, RelationshipStatus, ScenarioSetup,
+    };
 
     #[test]
     fn save_load_round_trip_preserves_state() {
@@ -1838,5 +1841,44 @@ mod tests {
         assert_eq!(stored.galaxy_size, GalaxySize::Large);
         assert_eq!(stored.ai_empire_count, 2);
         assert_eq!(loaded.ai_empires.len(), 2);
+    }
+
+    #[test]
+    fn save_load_preserves_terran_concord_identity_and_effects() {
+        let engine = Engine::new_from_setup(ScenarioSetup {
+            seed: 77,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 2,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(EmpireDefinitionId(6)),
+        });
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+        let player = loaded.empires.get(&loaded.player_empire).unwrap();
+        assert_eq!(player.empire_def, Some(EmpireDefinitionId(6)));
+
+        let mut restored_engine = Engine::from_state(loaded);
+        let events = restored_engine.apply_turn(vec![Command::EndTurn]);
+        let player_colony = restored_engine
+            .state
+            .colonies
+            .values()
+            .find(|colony| colony.owner == restored_engine.state.player_empire)
+            .map(|colony| colony.id)
+            .expect("player colony should exist");
+        let research = events
+            .iter()
+            .find_map(|event| match event {
+                game_core::Event::ColonyProduced {
+                    colony, research, ..
+                } if *colony == player_colony => Some(*research),
+                _ => None,
+            })
+            .expect("ColonyProduced should fire");
+        assert!(
+            research >= 6,
+            "Terran Concord bonus should survive save/load"
+        );
     }
 }

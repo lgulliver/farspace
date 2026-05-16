@@ -5,10 +5,11 @@ use crate::deterministic::sorted_colony_ids;
 use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hyperspace_lanes};
 use crate::state::{
-    all_techs, is_tech_available, tech_by_id, tech_yield_bonus_per_colony, BuildItem, Colony,
-    ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireId, Fleet, FleetId, FleetKind,
-    FleetMission, FleetOrder, GameState, HyperspaceLane, RelationshipStatus, ResearchState,
-    ScenarioSetup, ScoutMission, ShipDesignId, StarId, SurveyMission, TechId, YieldType,
+    all_techs, empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
+    BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireId, Fleet, FleetId,
+    FleetKind, FleetMission, FleetOrder, GameState, HyperspaceLane, OrbitalStructureType,
+    RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission, ShipDesignId, StarId,
+    SurveyMission, TechId, YieldType,
 };
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -44,6 +45,18 @@ const BLOCKADED_STABILITY_PENALTY: u8 = 5;
 const TROOP_TRANSPORT_INVASION_STRENGTH: u32 = 12;
 /// Colony stability after a successful capture.
 const CAPTURED_UNREST_STABILITY: u8 = 40;
+/// Squared-distance threshold for routine border pressure.
+///
+/// `40_000` corresponds to roughly 200 map units, which is close enough for
+/// neighboring home systems and early border colonies to feel contested without
+/// treating the entire sector as immediate pressure.
+const BORDER_TENSION_DISTANCE_SQ: i64 = 40_000;
+/// Squared-distance threshold for severe border pressure.
+///
+/// `12_000` corresponds to roughly 110 map units, representing very close
+/// frontier overlap where the AI is allowed to escalate toward its harshest
+/// diplomacy posture.
+const SEVERE_BORDER_TENSION_DISTANCE_SQ: i64 = 12_000;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct YieldBonuses {
@@ -83,6 +96,71 @@ fn apply_isolation_penalty(credits: i64, research: i64, _food: i64) -> (i64, i64
 /// ever change.
 fn apply_blockade_penalty(credits: i64, research: i64, food: i64) -> (i64, i64, i64) {
     apply_isolation_penalty(credits, research, food)
+}
+
+/// Apply an empire identity percentage modifier to a production cost.
+///
+/// Negative percentages reduce the cost, positive percentages increase it, and
+/// the result is clamped to at least `1` so extreme discounts never create
+/// zero-cost production items.
+fn apply_cost_modifier(base_cost: u64, modifier_pct: i8) -> u64 {
+    if modifier_pct == 0 {
+        return base_cost;
+    }
+    let adjusted = (base_cost as i64 * (100 + modifier_pct as i64)) / 100;
+    adjusted.max(1) as u64
+}
+
+/// Map relationship states onto an ordered numeric ladder used for diplomacy drift.
+///
+/// Lower values are calmer and higher values are more aggressive, allowing the
+/// engine to move one step at a time toward an empire's desired stance.
+fn relationship_level(status: RelationshipStatus) -> u8 {
+    match status {
+        RelationshipStatus::Unknown => 0,
+        RelationshipStatus::Contacted => 1,
+        RelationshipStatus::Neutral => 2,
+        RelationshipStatus::Tense => 3,
+        RelationshipStatus::Hostile => 4,
+        RelationshipStatus::War => 5,
+    }
+}
+
+fn relationship_from_level(level: u8) -> RelationshipStatus {
+    match level {
+        0 => RelationshipStatus::Unknown,
+        1 => RelationshipStatus::Contacted,
+        2 => RelationshipStatus::Neutral,
+        3 => RelationshipStatus::Tense,
+        4 => RelationshipStatus::Hostile,
+        _ => RelationshipStatus::War,
+    }
+}
+
+/// Move one diplomatic step from `current` toward `desired`.
+///
+/// This keeps diplomacy drift deterministic and bounded: each turn can only
+/// improve or worsen a relationship by a single status level.
+fn step_toward_relationship(
+    current: RelationshipStatus,
+    desired: RelationshipStatus,
+) -> RelationshipStatus {
+    let current_level = relationship_level(current);
+    let desired_level = relationship_level(desired);
+    if current_level == desired_level {
+        return current;
+    }
+    if current_level < desired_level {
+        return relationship_from_level(current_level + 1);
+    }
+    relationship_from_level(current_level.saturating_sub(1))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BorderPressure {
+    Calm,
+    Tense,
+    Severe,
 }
 
 fn has_tech(state: &GameState, empire_id: EmpireId, tech: TechId) -> bool {
@@ -145,6 +223,144 @@ pub struct Engine {
 }
 
 impl Engine {
+    fn empire_definition(
+        &self,
+        empire_id: EmpireId,
+    ) -> Option<&'static crate::state::EmpireDefinition> {
+        self.state
+            .empires
+            .get(&empire_id)
+            .and_then(|empire| empire.empire_def)
+            .and_then(empire_definition_by_id)
+    }
+
+    fn effective_build_cost(&self, empire_id: EmpireId, item: BuildItem) -> u64 {
+        let Some(def) = self.empire_definition(empire_id) else {
+            return item.cost();
+        };
+        match item {
+            BuildItem::Ship(ShipDesignId::SCOUT) => {
+                apply_cost_modifier(item.cost(), def.military_modifiers.scout_cost_modifier_pct)
+            }
+            BuildItem::Ship(ShipDesignId::SCIENCE) => apply_cost_modifier(
+                item.cost(),
+                def.military_modifiers.science_ship_cost_modifier_pct,
+            ),
+            BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT) => apply_cost_modifier(
+                item.cost(),
+                def.military_modifiers.troop_transport_cost_modifier_pct,
+            ),
+            BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard) => apply_cost_modifier(
+                item.cost(),
+                def.military_modifiers.shipyard_cost_modifier_pct,
+            ),
+            _ => item.cost(),
+        }
+    }
+
+    fn first_contact_status_for_empire(&self, empire_id: EmpireId) -> RelationshipStatus {
+        self.empire_definition(empire_id)
+            .map(|def| def.diplomacy_profile.first_contact_status)
+            .unwrap_or(RelationshipStatus::Contacted)
+    }
+
+    fn fleet_maintenance_for_empire(&self, empire_id: EmpireId, fleet_count: i64) -> i64 {
+        let modifier = self
+            .empire_definition(empire_id)
+            .map(|def| def.military_modifiers.fleet_maintenance_modifier_per_fleet)
+            .unwrap_or(0);
+        (fleet_count + fleet_count * modifier).max(0)
+    }
+
+    fn invasion_strength_for_empire(&self, empire_id: EmpireId, ships: u32) -> u32 {
+        let bonus = self
+            .empire_definition(empire_id)
+            .map(|def| def.military_modifiers.invasion_strength_bonus_per_transport)
+            .unwrap_or(0);
+        ships.saturating_mul(TROOP_TRANSPORT_INVASION_STRENGTH.saturating_add(bonus))
+    }
+
+    fn ai_border_pressure(&self, ai_empire_id: EmpireId) -> BorderPressure {
+        let player = self.state.player_empire;
+        let ai_colony_stars: Vec<StarId> = self
+            .state
+            .colonies
+            .values()
+            .filter(|c| c.owner == ai_empire_id)
+            .map(|c| c.star)
+            .collect();
+        if ai_colony_stars.is_empty() {
+            return BorderPressure::Calm;
+        }
+
+        let player_fleet_at_ai_colony = self
+            .state
+            .fleets
+            .values()
+            .any(|fleet| fleet.owner == player && ai_colony_stars.contains(&fleet.location));
+        if player_fleet_at_ai_colony {
+            return BorderPressure::Severe;
+        }
+
+        let player_colony_stars: Vec<StarId> = self
+            .state
+            .colonies
+            .values()
+            .filter(|c| c.owner == player)
+            .map(|c| c.star)
+            .collect();
+        let min_sq_dist = player_colony_stars
+            .iter()
+            .flat_map(|player_star| {
+                ai_colony_stars.iter().filter_map(move |ai_star| {
+                    let src = self.state.stars.get(player_star)?;
+                    let dst = self.state.stars.get(ai_star)?;
+                    let dx = (dst.x - src.x) as i64;
+                    let dy = (dst.y - src.y) as i64;
+                    Some(dx * dx + dy * dy)
+                })
+            })
+            .min();
+
+        match min_sq_dist {
+            Some(dist) if dist <= SEVERE_BORDER_TENSION_DISTANCE_SQ => BorderPressure::Severe,
+            Some(dist) if dist <= BORDER_TENSION_DISTANCE_SQ => BorderPressure::Tense,
+            _ => BorderPressure::Calm,
+        }
+    }
+
+    fn process_ai_diplomacy(&mut self) {
+        let player = self.state.player_empire;
+        let ai_ids = if !self.state.ai_empires.is_empty() {
+            self.state.ai_empires.clone()
+        } else {
+            self.state.ai_empire.into_iter().collect()
+        };
+
+        for ai_empire_id in ai_ids {
+            let current = self.state.relationship_status(player, ai_empire_id);
+            if matches!(
+                current,
+                RelationshipStatus::Unknown | RelationshipStatus::War
+            ) {
+                continue;
+            }
+
+            let desired = self
+                .empire_definition(ai_empire_id)
+                .map(|def| match self.ai_border_pressure(ai_empire_id) {
+                    BorderPressure::Calm => def.diplomacy_profile.resting_status,
+                    BorderPressure::Tense => def.diplomacy_profile.border_tension_status,
+                    BorderPressure::Severe => def.diplomacy_profile.severe_border_tension_status,
+                })
+                .unwrap_or(RelationshipStatus::Neutral);
+            let next = step_toward_relationship(current, desired);
+            if next != current {
+                self.state.diplomacy.insert(ai_empire_id, next);
+            }
+        }
+    }
+
     /// Create a new game engine with the given seed (default setup, 1 AI empire).
     pub fn new(seed: u64) -> Self {
         Self::new_from_setup(ScenarioSetup::default_for_seed(seed))
@@ -723,7 +939,7 @@ impl Engine {
                         .unwrap_or(&[]);
                     let mut completed = Vec::new();
                     for &q_item in queue {
-                        let cost = q_item.cost();
+                        let cost = self.effective_build_cost(owner, q_item);
                         if production_pool < cost {
                             break;
                         }
@@ -894,13 +1110,13 @@ impl Engine {
                 .copied()
                 .unwrap_or(0);
 
-            // Fleet maintenance: 1 credit per fleet owned by this empire
-            let fleet_maintenance = self
+            let fleet_count = self
                 .state
                 .fleets
                 .values()
                 .filter(|f| f.owner == empire_id)
                 .count() as i64;
+            let fleet_maintenance = self.fleet_maintenance_for_empire(empire_id, fleet_count);
 
             let maintenance = fleet_maintenance + colony_maint;
 
@@ -1073,6 +1289,7 @@ impl Engine {
             let ai_events = crate::ai::run_ai_turn(&mut self.state, ai_empire_id);
             events.extend(ai_events);
         }
+        self.process_ai_diplomacy();
 
         let updated_supply = self.state.recompute_colony_supply();
         let tracked_colonies: BTreeSet<ColonyId> = previous_supply
@@ -2320,9 +2537,7 @@ impl Engine {
             return;
         };
         let defense_strength = Self::colony_defense_strength(&target_colony);
-        let invasion_strength = fleet
-            .ships
-            .saturating_mul(TROOP_TRANSPORT_INVASION_STRENGTH);
+        let invasion_strength = self.invasion_strength_for_empire(fleet.owner, fleet.ships);
 
         if hostile_orbital_defenders {
             events.push(Event::InvasionFailed {
@@ -2484,7 +2699,7 @@ impl Engine {
             if status == RelationshipStatus::Unknown {
                 self.state
                     .diplomacy
-                    .insert(empire_id, RelationshipStatus::Contacted);
+                    .insert(empire_id, self.first_contact_status_for_empire(empire_id));
                 events.push(Event::FirstContact {
                     with_empire: empire_id,
                 });
@@ -2521,9 +2736,10 @@ impl Engine {
             .unwrap_or(RelationshipStatus::Unknown);
 
         if status == RelationshipStatus::Unknown {
-            self.state
-                .diplomacy
-                .insert(ai_empire_id, RelationshipStatus::Contacted);
+            self.state.diplomacy.insert(
+                ai_empire_id,
+                self.first_contact_status_for_empire(ai_empire_id),
+            );
             events.push(Event::FirstContact {
                 with_empire: ai_empire_id,
             });
@@ -6273,6 +6489,17 @@ mod tests {
         (engine, player_star_id, ai_star_id, ai_id)
     }
 
+    fn set_empire_definition(
+        engine: &mut Engine,
+        empire_id: EmpireId,
+        def_id: crate::state::EmpireDefinitionId,
+    ) {
+        let def = empire_definition_by_id(def_id).expect("empire def should exist");
+        let empire = engine.state.empires.get_mut(&empire_id).unwrap();
+        empire.empire_def = Some(def_id);
+        empire.name = def.name.to_string();
+    }
+
     /// A scout arriving at a star with a foreign colony establishes contact.
     #[test]
     fn scout_arrival_at_ai_colony_establishes_contact() {
@@ -6387,7 +6614,7 @@ mod tests {
                 home_star: ai_star_id,
                 research: ResearchState::default(),
                 food: 0,
-                empire_def: None,
+                empire_def: Some(crate::state::EmpireDefinitionId(0)),
             },
         );
         state.colonies.insert(
@@ -6476,7 +6703,89 @@ mod tests {
         // Diplomacy state updated
         assert_eq!(
             engine.state.diplomacy.get(&ai_id).copied(),
-            Some(RelationshipStatus::Contacted)
+            Some(RelationshipStatus::Neutral)
+        );
+    }
+
+    #[test]
+    fn terran_concord_first_contact_starts_neutral() {
+        let (mut engine, _player_star, ai_star, ai_id) = make_two_empire_state();
+        set_empire_definition(&mut engine, ai_id, crate::state::EmpireDefinitionId(6));
+        let mut events = Vec::new();
+        engine.check_contact_at_star(ai_star, &mut events);
+        assert_eq!(
+            engine.state.diplomacy.get(&ai_id).copied(),
+            Some(RelationshipStatus::Neutral)
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Event::FirstContact { with_empire } if *with_empire == ai_id
+        )));
+    }
+
+    #[test]
+    fn terran_dominion_first_contact_starts_tense() {
+        let (mut engine, _player_star, ai_star, ai_id) = make_two_empire_state();
+        set_empire_definition(&mut engine, ai_id, crate::state::EmpireDefinitionId(7));
+        let mut events = Vec::new();
+        engine.check_contact_at_star(ai_star, &mut events);
+        assert_eq!(
+            engine.state.diplomacy.get(&ai_id).copied(),
+            Some(RelationshipStatus::Tense)
+        );
+    }
+
+    #[test]
+    fn terran_concord_diplomacy_stays_calmer_under_pressure() {
+        let (mut engine, _player_star, ai_star, ai_id) = make_two_empire_state();
+        set_empire_definition(&mut engine, ai_id, crate::state::EmpireDefinitionId(6));
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Neutral);
+        engine.state.fleets.insert(
+            FleetId(99),
+            Fleet {
+                id: FleetId(99),
+                owner: engine.state.player_empire,
+                location: ai_star,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        engine.process_ai_diplomacy();
+        assert_eq!(
+            engine.state.diplomacy.get(&ai_id).copied(),
+            Some(RelationshipStatus::Tense)
+        );
+    }
+
+    #[test]
+    fn terran_dominion_escalates_to_war_under_severe_pressure() {
+        let (mut engine, _player_star, ai_star, ai_id) = make_two_empire_state();
+        set_empire_definition(&mut engine, ai_id, crate::state::EmpireDefinitionId(7));
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Hostile);
+        engine.state.fleets.insert(
+            FleetId(99),
+            Fleet {
+                id: FleetId(99),
+                owner: engine.state.player_empire,
+                location: ai_star,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        engine.process_ai_diplomacy();
+        assert_eq!(
+            engine.state.diplomacy.get(&ai_id).copied(),
+            Some(RelationshipStatus::War)
         );
     }
 
@@ -6484,6 +6793,7 @@ mod tests {
     #[test]
     fn fleet_arrival_at_ai_colony_establishes_contact() {
         let (mut engine, _player_star_id, ai_star_id, ai_id) = make_two_empire_state();
+        set_empire_definition(&mut engine, ai_id, crate::state::EmpireDefinitionId(0));
 
         // Put fleet on a mission that completes this turn
         engine.state.fleet_missions.insert(
@@ -6513,7 +6823,7 @@ mod tests {
         );
         assert_eq!(
             engine.state.diplomacy.get(&ai_id).copied(),
-            Some(RelationshipStatus::Contacted)
+            Some(RelationshipStatus::Neutral)
         );
     }
 
@@ -10438,6 +10748,46 @@ mod tests {
     }
 
     #[test]
+    fn player_can_select_terran_concord() {
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let engine = Engine::new_from_setup(ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(EmpireDefinitionId(6)),
+        });
+        let player = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert_eq!(player.empire_def, Some(EmpireDefinitionId(6)));
+        assert_eq!(player.name, "Terran Concord");
+    }
+
+    #[test]
+    fn player_can_select_terran_dominion() {
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let engine = Engine::new_from_setup(ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(EmpireDefinitionId(7)),
+        });
+        let player = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .unwrap();
+        assert_eq!(player.empire_def, Some(EmpireDefinitionId(7)));
+        assert_eq!(player.name, "Terran Dominion");
+    }
+
+    #[test]
     fn invalid_empire_selection_fails_validation() {
         use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
         let setup = ScenarioSetup {
@@ -10616,6 +10966,66 @@ mod tests {
         assert!(
             produced >= 12,
             "Sylvaran Accord food bonus must be applied; got {produced}"
+        );
+    }
+
+    #[test]
+    fn terran_concord_science_bonus_applied_per_colony() {
+        use crate::events::Event;
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let mut engine = Engine::new_from_setup(ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: Some(EmpireDefinitionId(6)),
+        });
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        let player_colony = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == engine.state.player_empire)
+            .map(|c| c.id)
+            .expect("player colony must exist");
+        let produced = events
+            .iter()
+            .find_map(|event| match event {
+                Event::ColonyProduced {
+                    colony, research, ..
+                } if *colony == player_colony => Some(*research),
+                _ => None,
+            })
+            .expect("ColonyProduced event expected");
+        assert!(produced >= 6, "Terran Concord should gain a science bonus");
+    }
+
+    #[test]
+    fn terran_dominion_troop_transports_are_cheaper() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        engine.state.empires.get_mut(&player).unwrap().empire_def =
+            Some(crate::state::EmpireDefinitionId(7));
+        let base_cost = BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT).cost();
+        let actual_cost =
+            engine.effective_build_cost(player, BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT));
+        assert!(
+            actual_cost < base_cost,
+            "Terran Dominion troop transports should be cheaper"
+        );
+    }
+
+    #[test]
+    fn terran_dominion_invasion_strength_bonus_applies() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        engine.state.empires.get_mut(&player).unwrap().empire_def =
+            Some(crate::state::EmpireDefinitionId(7));
+        let actual = engine.invasion_strength_for_empire(player, 2);
+        assert_eq!(
+            actual, 32,
+            "Terran Dominion should gain +4 invasion per transport"
         );
     }
 

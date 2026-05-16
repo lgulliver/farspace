@@ -82,18 +82,22 @@ fn pick_research(state: &GameState, empire_id: EmpireId) -> Option<TechId> {
         .empire_def
         .and_then(empire_definition_by_id)
         .map(|def| {
-            def.playstyle
-                .iter()
-                .flat_map(|tag| match tag {
-                    PlaystyleTag::Scientific | PlaystyleTag::Expansionist => {
-                        vec![TechDomain::Exploration, TechDomain::Economy]
-                    }
-                    PlaystyleTag::Industrial => vec![TechDomain::Engineering],
-                    PlaystyleTag::Militarist => vec![TechDomain::Military],
-                    PlaystyleTag::Agrarian => vec![TechDomain::Biology],
-                    PlaystyleTag::Diplomatic => vec![TechDomain::Economy],
-                })
-                .collect()
+            if !def.ai_profile.research_focus.is_empty() {
+                def.ai_profile.research_focus.to_vec()
+            } else {
+                def.playstyle
+                    .iter()
+                    .flat_map(|tag| match tag {
+                        PlaystyleTag::Scientific | PlaystyleTag::Expansionist => {
+                            vec![TechDomain::Exploration, TechDomain::Economy]
+                        }
+                        PlaystyleTag::Industrial => vec![TechDomain::Engineering],
+                        PlaystyleTag::Militarist => vec![TechDomain::Military],
+                        PlaystyleTag::Agrarian => vec![TechDomain::Biology],
+                        PlaystyleTag::Diplomatic => vec![TechDomain::Economy],
+                    })
+                    .collect()
+            }
         })
         .unwrap_or_default();
 
@@ -182,14 +186,14 @@ fn pick_build_item(
         .and_then(|s| s.planets.get(colony.planet_index))
         .map(|p| p.size);
 
-    // Determine playstyle tags for this empire
-    let playstyle: &[PlaystyleTag] = state
+    // Determine playstyle tags and AI profile for this empire.
+    let empire_def = state
         .empires
         .get(&empire_id)
         .and_then(|e| e.empire_def)
-        .and_then(empire_definition_by_id)
-        .map(|d| d.playstyle)
-        .unwrap_or(&[]);
+        .and_then(empire_definition_by_id);
+    let playstyle: &[PlaystyleTag] = empire_def.map(|d| d.playstyle).unwrap_or(&[]);
+    let ai_profile = empire_def.map(|d| d.ai_profile).unwrap_or_default();
 
     let is_expansionist = playstyle.contains(&PlaystyleTag::Expansionist);
     let is_agrarian = playstyle.contains(&PlaystyleTag::Agrarian);
@@ -201,12 +205,34 @@ fn pick_build_item(
             .empires
             .get(&empire_id)
             .is_some_and(|e| e.research.completed.contains(&TechId::HABITAT_SEEDING));
+        let has_survey_drones = state
+            .empires
+            .get(&empire_id)
+            .is_some_and(|e| e.research.completed.contains(&TechId::SURVEY_DRONES));
+        let has_troop_transports = state
+            .empires
+            .get(&empire_id)
+            .is_some_and(|e| e.research.completed.contains(&TechId::TROOP_TRANSPORTS));
+        let has_science_ship = state
+            .fleets
+            .values()
+            .any(|f| f.owner == empire_id && f.kind == FleetKind::Science);
+        let has_transport = state
+            .fleets
+            .values()
+            .any(|f| f.owner == empire_id && f.kind == FleetKind::TroopTransport);
         let has_unexplored = state
             .stars
             .keys()
             .any(|sid| !state.ai_explored_stars.contains(sid));
         // Only skip FabricationYard for scouting when no colonizer tech yet
         if has_unexplored && !has_habitat_seeding {
+            if ai_profile.prefers_science_ships && has_survey_drones && !has_science_ship {
+                return Some(BuildItem::Ship(crate::state::ShipDesignId::SCIENCE));
+            }
+            if ai_profile.prefers_troop_transports && has_troop_transports && !has_transport {
+                return Some(BuildItem::Ship(crate::state::ShipDesignId::TROOP_TRANSPORT));
+            }
             return Some(BuildItem::Ship(crate::state::ShipDesignId::SCOUT));
         }
     }
@@ -217,6 +243,28 @@ fn pick_build_item(
             planet_size.is_some_and(|size| colony.can_place_surface_building(size));
         if can_place_surface {
             return Some(BuildItem::SurfaceStructure(BuildingType::AquacultureBay));
+        }
+    }
+
+    if ai_profile.prefers_science_ships && !colony.buildings.contains(&BuildingType::ScienceNexus) {
+        let can_place_surface =
+            planet_size.is_some_and(|size| colony.can_place_surface_building(size));
+        if can_place_surface {
+            return Some(BuildItem::SurfaceStructure(BuildingType::ScienceNexus));
+        }
+    }
+
+    if ai_profile.prefers_troop_transports {
+        let has_orbital_engineering = state
+            .empires
+            .get(&empire_id)
+            .is_some_and(|e| e.research.completed.contains(&TechId::ORBITAL_ENGINEERING));
+        if has_orbital_engineering && !colony.has_shipyard() {
+            let can_place_orbital =
+                planet_size.is_some_and(|size| colony.can_place_orbital_installation(size));
+            if can_place_orbital {
+                return Some(BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard));
+            }
         }
     }
 
@@ -246,6 +294,34 @@ fn pick_build_item(
     // Priority 3 & 4: ships only if the colony has a Shipyard
     if !colony.has_shipyard() {
         return None;
+    }
+
+    if ai_profile.prefers_science_ships {
+        let has_survey_drones = state
+            .empires
+            .get(&empire_id)
+            .is_some_and(|e| e.research.completed.contains(&TechId::SURVEY_DRONES));
+        let has_science_ship = state
+            .fleets
+            .values()
+            .any(|f| f.owner == empire_id && f.kind == FleetKind::Science);
+        if has_survey_drones && !has_science_ship {
+            return Some(BuildItem::Ship(crate::state::ShipDesignId::SCIENCE));
+        }
+    }
+
+    if ai_profile.prefers_troop_transports {
+        let has_troop_transports = state
+            .empires
+            .get(&empire_id)
+            .is_some_and(|e| e.research.completed.contains(&TechId::TROOP_TRANSPORTS));
+        let has_transport = state
+            .fleets
+            .values()
+            .any(|f| f.owner == empire_id && f.kind == FleetKind::TroopTransport);
+        if has_troop_transports && !has_transport {
+            return Some(BuildItem::Ship(crate::state::ShipDesignId::TROOP_TRANSPORT));
+        }
     }
 
     // Priority 3: Colony Ship if no colonizer exists
@@ -358,7 +434,7 @@ fn ai_colonize(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Even
             .stars
             .get(&star_id)
             .and_then(|s| s.planets.get(planet_index))
-            .map(|p| ai_role_for_planet_class(p.class))
+            .map(|p| ai_role_for_planet_class_with_identity(p.class, empire_id, state))
             .unwrap_or(ColonyRole::Balanced);
 
         let new_colony = Colony {
@@ -451,6 +527,45 @@ pub(crate) fn ai_role_for_planet_class(class: PlanetClass) -> ColonyRole {
     }
 }
 
+/// Extend the base planet-class role mapping with faction-specific AI preferences.
+///
+/// This keeps the deterministic class-based baseline intact while allowing
+/// identities such as Terran Concord and Terran Dominion to bias colonies
+/// toward scientific stability or military specialization.
+fn ai_role_for_planet_class_with_identity(
+    class: PlanetClass,
+    empire_id: EmpireId,
+    state: &GameState,
+) -> ColonyRole {
+    let base = ai_role_for_planet_class(class);
+    let Some(def) = state
+        .empires
+        .get(&empire_id)
+        .and_then(|e| e.empire_def)
+        .and_then(empire_definition_by_id)
+    else {
+        return base;
+    };
+
+    if def.ai_profile.prefers_military_roles {
+        return match class {
+            PlanetClass::Terran | PlanetClass::Volcanic | PlanetClass::Barren => {
+                ColonyRole::Military
+            }
+            _ => base,
+        };
+    }
+
+    if def.ai_profile.prefers_stable_colonies {
+        return match class {
+            PlanetClass::Terran | PlanetClass::Frozen => ColonyRole::Scientific,
+            _ => base,
+        };
+    }
+
+    base
+}
+
 /// Assign specialisation roles to any AI-owned colony that still has the
 /// default `Balanced` role and whose planet class maps to a different role.
 ///
@@ -489,7 +604,7 @@ fn ai_assign_colony_roles(state: &mut GameState, empire_id: EmpireId, events: &m
             None => continue,
         };
 
-        let role = ai_role_for_planet_class(planet_class);
+        let role = ai_role_for_planet_class_with_identity(planet_class, empire_id, state);
         if role == ColonyRole::Balanced {
             // No change needed
             continue;
@@ -1804,5 +1919,135 @@ mod tests {
                 "AI empire must not share the player's empire def"
             );
         }
+    }
+
+    #[test]
+    fn terran_concord_ai_prioritizes_science_ship_deterministically() {
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let make = || {
+            let mut engine = Engine::new_from_setup(ScenarioSetup {
+                seed: 42,
+                galaxy_size: GalaxySize::Medium,
+                ai_empire_count: 1,
+                sector_count_override: None,
+                difficulty: DifficultyLevel::Standard,
+                player_empire_def: Some(EmpireDefinitionId(0)),
+            });
+            let ai = ai_id(&engine);
+            let ai_colony = engine
+                .state
+                .colonies
+                .values()
+                .find(|colony| colony.owner == ai)
+                .map(|colony| colony.id)
+                .unwrap();
+            engine.state.empires.get_mut(&ai).unwrap().empire_def = Some(EmpireDefinitionId(6));
+            engine
+                .state
+                .empires
+                .get_mut(&ai)
+                .unwrap()
+                .research
+                .completed
+                .extend([TechId::SURVEY_DRONES, TechId::ORBITAL_ENGINEERING]);
+            engine
+                .state
+                .colonies
+                .get_mut(&ai_colony)
+                .unwrap()
+                .orbital_installations
+                .push(OrbitalStructureType::Shipyard);
+            (engine, ai, ai_colony)
+        };
+
+        let (engine_a, ai_a, colony_a) = make();
+        let (engine_b, ai_b, colony_b) = make();
+        assert_eq!(
+            pick_build_item(&engine_a.state, ai_a, colony_a),
+            Some(BuildItem::Ship(crate::state::ShipDesignId::SCIENCE))
+        );
+        assert_eq!(
+            pick_build_item(&engine_a.state, ai_a, colony_a),
+            pick_build_item(&engine_b.state, ai_b, colony_b)
+        );
+    }
+
+    #[test]
+    fn terran_dominion_ai_prioritizes_military_transport_deterministically() {
+        use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
+        let make = || {
+            let mut engine = Engine::new_from_setup(ScenarioSetup {
+                seed: 52,
+                galaxy_size: GalaxySize::Medium,
+                ai_empire_count: 1,
+                sector_count_override: None,
+                difficulty: DifficultyLevel::Standard,
+                player_empire_def: Some(EmpireDefinitionId(0)),
+            });
+            let ai = ai_id(&engine);
+            let ai_colony = engine
+                .state
+                .colonies
+                .values()
+                .find(|colony| colony.owner == ai)
+                .map(|colony| colony.id)
+                .unwrap();
+            engine.state.empires.get_mut(&ai).unwrap().empire_def = Some(EmpireDefinitionId(7));
+            engine
+                .state
+                .empires
+                .get_mut(&ai)
+                .unwrap()
+                .research
+                .completed
+                .extend([TechId::TROOP_TRANSPORTS, TechId::ORBITAL_ENGINEERING]);
+            engine
+                .state
+                .colonies
+                .get_mut(&ai_colony)
+                .unwrap()
+                .orbital_installations
+                .push(OrbitalStructureType::Shipyard);
+            (engine, ai, ai_colony)
+        };
+
+        let (engine_a, ai_a, colony_a) = make();
+        let (engine_b, ai_b, colony_b) = make();
+        assert_eq!(
+            pick_build_item(&engine_a.state, ai_a, colony_a),
+            Some(BuildItem::Ship(crate::state::ShipDesignId::TROOP_TRANSPORT))
+        );
+        assert_eq!(
+            pick_build_item(&engine_a.state, ai_a, colony_a),
+            pick_build_item(&engine_b.state, ai_b, colony_b)
+        );
+    }
+
+    #[test]
+    fn terran_concord_ai_assigns_scientific_role_on_terran_world() {
+        let mut engine = Engine::new(42);
+        let ai_id = ai_id(&engine);
+        engine.state.empires.get_mut(&ai_id).unwrap().empire_def =
+            Some(crate::state::EmpireDefinitionId(6));
+        let role = ai_role_for_planet_class_with_identity(
+            crate::state::PlanetClass::Terran,
+            ai_id,
+            &engine.state,
+        );
+        assert_eq!(role, ColonyRole::Scientific);
+    }
+
+    #[test]
+    fn terran_dominion_ai_assigns_military_role_on_terran_world() {
+        let mut engine = Engine::new(42);
+        let ai_id = ai_id(&engine);
+        engine.state.empires.get_mut(&ai_id).unwrap().empire_def =
+            Some(crate::state::EmpireDefinitionId(7));
+        let role = ai_role_for_planet_class_with_identity(
+            crate::state::PlanetClass::Terran,
+            ai_id,
+            &engine.state,
+        );
+        assert_eq!(role, ColonyRole::Military);
     }
 }

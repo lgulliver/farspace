@@ -1,7 +1,6 @@
 use game_core::{Colony, PlanetClass, SpectralClass};
 
 use crate::renderer::{
-    glyphs::{ramp_pick, DENSITY_RAMP_UNICODE},
     palette::ColorToken,
     sprite::{AlphaMode, DetailLevel, Sprite, SpriteCell, SpriteFrame},
 };
@@ -136,18 +135,31 @@ fn sphere_sprite(
 
     let cx = i16::try_from(width / 2).unwrap_or(0);
     let cy = i16::try_from(height / 2).unwrap_or(0);
+    let radius_sq = radius * radius * 4;
     let mut cells = Vec::new();
 
     for y in 0..height {
         for x in 0..width {
             let dx = i16::try_from(x).unwrap_or(0) - cx;
             let dy = i16::try_from(y).unwrap_or(0) - cy;
-            let dist = dx * dx + dy * dy;
-            if dist > radius * radius {
+            let dist = dx * dx * 4 + dy * dy * 9;
+            if dist > radius_sq {
                 continue;
             }
-            let shade = ((radius * radius - dist) * 255 / (radius * radius).max(1)) as u8;
-            let glyph = ramp_pick(&DENSITY_RAMP_UNICODE, shade);
+            let shade = ((radius_sq - dist) * 255 / radius_sq.max(1)) as u8;
+            let glyph = if shade > 220 {
+                '●'
+            } else if shade > 180 {
+                '◉'
+            } else if shade > 140 {
+                '◍'
+            } else if shade > 90 {
+                '○'
+            } else if shade > 40 {
+                '·'
+            } else {
+                ' '
+            };
             let fg = if dx < 0 { primary } else { secondary };
             cells.push(SpriteCell {
                 x,
@@ -256,7 +268,7 @@ fn kind_glyph(kind: PlanetVisualKind) -> char {
         PlanetVisualKind::Volcanic => '◐',
         PlanetVisualKind::GasGiant => '◎',
         PlanetVisualKind::Toxic => '◒',
-        PlanetVisualKind::Unknown => '?',
+        PlanetVisualKind::Unknown => '○',
     }
 }
 

@@ -5,7 +5,7 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 
@@ -216,7 +216,8 @@ pub fn render_log(frame: &mut Frame, area: Rect, log: &EventLog) {
                 .borders(Borders::ALL)
                 .style(Theme::default_style()),
         )
-        .style(Theme::default_style());
+        .style(Theme::default_style())
+        .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, area);
 }
@@ -435,5 +436,35 @@ mod tests {
         assert!(!rendered.contains("generated"));
         assert!(!rendered.contains("AI Empire"));
         assert!(rendered.contains("Turn 3 report"));
+    }
+
+    #[test]
+    fn render_log_wraps_long_lines() {
+        let backend = TestBackend::new(30, 8);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut log = EventLog::new();
+        log.push(
+            "Turn 1 report: this is a long event log line that should wrap to show tail"
+                .to_string(),
+        );
+
+        terminal
+            .draw(|frame| {
+                render_log(frame, frame.area(), &log);
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer();
+        let rendered: String = (0..8u16)
+            .flat_map(|y| {
+                (0..30u16).map(move |x| {
+                    buf.cell((x, y))
+                        .and_then(|c| c.symbol().chars().next())
+                        .unwrap_or(' ')
+                })
+            })
+            .collect();
+
+        assert!(rendered.contains("show tail"));
     }
 }

@@ -1,6 +1,6 @@
 pub const DENSITY_RAMP_ASCII: [char; 5] = [' ', '.', ':', '*', '#'];
 pub const DENSITY_RAMP_UNICODE: [char; 6] = [' ', '·', '░', '▒', '▓', '█'];
-pub const BRAILLE_RAMP: [char; 4] = [' ', '⠂', '⠒', '⣿'];
+pub const STARFIELD_RAMP: [char; 5] = [' ', '·', '•', '✦', '✶'];
 
 pub fn ramp_pick(ramp: &[char], intensity: u8) -> char {
     if ramp.is_empty() {

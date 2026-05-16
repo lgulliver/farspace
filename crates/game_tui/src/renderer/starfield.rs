@@ -1,7 +1,7 @@
 use ratatui::{layout::Rect, style::Color};
 
 use crate::renderer::{
-    glyphs::{BRAILLE_RAMP, DENSITY_RAMP_ASCII, DENSITY_RAMP_UNICODE},
+    glyphs::{DENSITY_RAMP_ASCII, DENSITY_RAMP_UNICODE, STARFIELD_RAMP},
     sprite::{detail_for_area, DetailLevel},
 };
 
@@ -20,7 +20,7 @@ pub fn detail_star_glyph(hash: u64, detail: DetailLevel) -> char {
         DetailLevel::Standard => {
             DENSITY_RAMP_UNICODE[(hash % DENSITY_RAMP_UNICODE.len() as u64) as usize]
         }
-        DetailLevel::Cinematic => BRAILLE_RAMP[(hash % BRAILLE_RAMP.len() as u64) as usize],
+        DetailLevel::Cinematic => STARFIELD_RAMP[(hash % STARFIELD_RAMP.len() as u64) as usize],
     }
 }
 

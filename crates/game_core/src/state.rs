@@ -885,10 +885,10 @@ pub fn all_techs() -> &'static [TechRecord] {
         TechRecord {
             id: TechId::HABITAT_SEEDING,
             name: "Habitat Seeding",
-            description: "Rapid colony establishment protocols for marginal worlds.",
+            description: "Survey-informed colony establishment protocols for marginal worlds.",
             domain: TechDomain::Biology,
             tier: TechTier::I,
-            prerequisites: &[],
+            prerequisites: &[TechId::SURVEY_DRONES],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::COLONY)],
             cost: 80,
             rarity: TechRarity::Common,

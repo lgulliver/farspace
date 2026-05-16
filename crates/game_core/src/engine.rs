@@ -560,30 +560,31 @@ impl Engine {
             );
         }
 
-        // Update player home star's planet 0 to reference the player colony
+        // Update player home star's planet 0 to reference the player colony and mark only that
+        // inhabited world as surveyed at game start.
         if let Some(star) = stars.get_mut(&home_star_id) {
             if let Some(planet) = star.planets.get_mut(0) {
                 planet.colony = Some(player_colony_id);
-            }
-            for planet in &mut star.planets {
                 planet.surveyed = true;
             }
         }
 
-        // Update each AI home star's planet 0 to reference its colony
+        // Update each AI home star's planet 0 to reference its colony and mark only that
+        // inhabited world as surveyed at game start.
         for (i, _ai_empire_id) in ai_empire_ids.iter().enumerate() {
             let ai_colony_id = ColonyId(2 + i as u64);
             let ai_home_star_id = ai_home_star_ids[i];
             if let Some(star) = stars.get_mut(&ai_home_star_id) {
                 if let Some(planet) = star.planets.get_mut(0) {
                     planet.colony = Some(ai_colony_id);
+                    planet.surveyed = true;
                 }
             }
         }
 
-        // next_colony_id and next_fleet_id skip past used IDs
+        // next_colony_id skips past used IDs
         let next_colony_id = 2 + ai_count as u64;
-        let next_fleet_id = 2 + ai_count as u64;
+        let mut next_fleet_id = 2 + ai_count as u64;
 
         // Create player scout fleet (FleetId 1)
         let fleet_id = FleetId(1);
@@ -618,6 +619,23 @@ impl Engine {
                 },
             );
         }
+
+        // Create one player science fleet so early progression can focus on
+        // surveying local orbits before wider colonization.
+        let player_science_fleet_id = FleetId(next_fleet_id);
+        next_fleet_id += 1;
+        fleets.insert(
+            player_science_fleet_id,
+            Fleet {
+                id: player_science_fleet_id,
+                owner: player_empire_id,
+                location: home_star_id,
+                ships: 1,
+                kind: FleetKind::Science,
+                strength: 1,
+                integrity: 100,
+            },
+        );
 
         // Determine initially explored stars for player and each AI
         let explored_stars = initial_explored_stars(stars_vec, home_star_id);
@@ -4036,7 +4054,7 @@ mod tests {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
         let tech_a = TechId(1);
-        let tech_b = TechId(2);
+        let tech_b = TechId(4);
 
         engine.apply_turn(vec![Command::SetColonyFocus {
             colony: colony_id,
@@ -4084,7 +4102,7 @@ mod tests {
         // TechId(1) = Void Propulsion, cost 50.
         // 50 / 7 = 7.14... → completes on turn 8 with 7*8=56 → overflow = 6.
         let tech_a = TechId(1); // cost 50
-        let tech_b = TechId(2); // Habitat Seeding, cost 80
+        let tech_b = TechId(4); // Kinetic Barriers, cost 100
 
         engine.apply_turn(vec![Command::SetColonyFocus {
             colony: colony_id,
@@ -4258,7 +4276,7 @@ mod tests {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
         let tech_a = TechId(1); // cost 50
-        let tech_b = TechId(2); // cost 80
+        let tech_b = TechId(4); // cost 100
 
         // research_pct=70 → 7 rp/turn; cost-50 tech completes on turn 8 with overflow 6
         engine.apply_turn(vec![Command::SetColonyFocus {
@@ -4457,6 +4475,50 @@ mod tests {
         // Home + up to 3 neighbours = at most 4 (and at least 1)
         assert!(!engine.state.explored_stars.is_empty());
         assert!(engine.state.explored_stars.len() <= 4);
+    }
+
+    #[test]
+    fn game_start_has_player_scout_and_science_fleets() {
+        let engine = Engine::new(42);
+        let home_star = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .expect("player empire must exist")
+            .home_star;
+        let player = engine.state.player_empire;
+        let has_scout = engine.state.fleets.values().any(|fleet| {
+            fleet.owner == player && fleet.location == home_star && fleet.kind == FleetKind::Scout
+        });
+        let has_science = engine.state.fleets.values().any(|fleet| {
+            fleet.owner == player && fleet.location == home_star && fleet.kind == FleetKind::Science
+        });
+        assert!(has_scout, "player should start with a scout");
+        assert!(has_science, "player should start with a science ship");
+    }
+
+    #[test]
+    fn game_start_surveys_only_home_colony_orbit() {
+        let engine = Engine::new(42);
+        let home_star = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .expect("player empire must exist")
+            .home_star;
+        let star = engine
+            .state
+            .stars
+            .get(&home_star)
+            .expect("home star must exist");
+        assert!(
+            star.planets.first().is_some_and(|planet| planet.surveyed),
+            "home colony orbit should be surveyed"
+        );
+        assert!(
+            star.planets.iter().skip(1).all(|planet| !planet.surveyed),
+            "non-colony home-system orbits should start unsurveyed"
+        );
     }
 
     #[test]

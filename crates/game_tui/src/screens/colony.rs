@@ -5,7 +5,7 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::renderer::{
     palette::ColorToken,
     planet_art::{colony_portrait, portrait_input_from_colony},
-    sprite::detail_for_area,
+    sprite::DetailLevel,
     Canvas, RenderLayer,
 };
 use crate::screens::Screen;
@@ -109,7 +109,7 @@ fn render_colony_portrait(
 
     let mut canvas = Canvas::new(portrait_area.width, portrait_area.height);
     canvas.fill(ColorToken::SpaceBg, RenderLayer::Background.z_base());
-    let detail = detail_for_area(portrait_area);
+    let detail = surface_portrait_detail(portrait_area);
     let Some(colony_id) = app_state.colony.selected_colony else {
         canvas.draw_text(
             1,
@@ -133,7 +133,11 @@ fn render_colony_portrait(
     );
     let x = portrait_area.width.saturating_sub(portrait.width) / 2;
     let y = portrait_area.height.saturating_sub(portrait.height) / 2;
+    let needs_identity_overlay = needs_planet_identity_overlay(portrait_area, detail);
     canvas.draw_sprite(&portrait, x, y, 0, RenderLayer::Bodies.z_base());
+    if needs_identity_overlay {
+        draw_planet_identity_overlay(&mut canvas, portrait_area);
+    }
     canvas.draw_text(
         1,
         0,
@@ -157,6 +161,53 @@ fn render_colony_portrait(
         ])
         .style(Theme::default_style());
         frame.render_widget(caption, caption_area);
+    }
+}
+
+/// Surface view should prioritize a readable planet silhouette over coarse map-level detail
+/// thresholds. Pick the largest detail that physically fits in the portrait canvas.
+fn surface_portrait_detail(area: Rect) -> DetailLevel {
+    if area.width >= 17 && area.height >= 11 {
+        DetailLevel::Cinematic
+    } else if area.width >= 9 && area.height >= 7 {
+        DetailLevel::Standard
+    } else if area.width >= 5 && area.height >= 3 {
+        DetailLevel::Compact
+    } else {
+        DetailLevel::Tiny
+    }
+}
+
+fn needs_planet_identity_overlay(area: Rect, detail: DetailLevel) -> bool {
+    matches!(detail, DetailLevel::Tiny | DetailLevel::Compact) || area.width < 9 || area.height < 7
+}
+
+fn draw_planet_identity_overlay(canvas: &mut Canvas, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let center_x = area.width / 2;
+    let center_y = area.height / 2;
+    canvas.set_cell(
+        center_x,
+        center_y,
+        '◉',
+        ColorToken::Accent.to_style(None),
+        RenderLayer::Labels.z_base() + 2,
+    );
+    if area.width >= 8 && area.height >= 4 {
+        let label = "PLANET";
+        let label_x = center_x.saturating_sub((label.len() as u16) / 2);
+        let label_y = center_y
+            .saturating_add(1)
+            .min(area.height.saturating_sub(1));
+        canvas.draw_text(
+            label_x,
+            label_y,
+            label,
+            ColorToken::Muted.to_style(None),
+            RenderLayer::Labels.z_base() + 2,
+        );
     }
 }
 
@@ -762,6 +813,7 @@ mod tests {
     use super::*;
     use game_core::Engine;
     use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
     use ratatui::Terminal;
 
     fn make_app_state_with_colony(engine: &Engine) -> AppState {
@@ -1143,5 +1195,45 @@ mod tests {
         assert!(content.contains("Surface"));
         assert!(content.contains("[Ship]"));
         assert!(content.contains("17/60"));
+    }
+
+    #[test]
+    fn surface_portrait_detail_prefers_standard_when_it_fits() {
+        assert_eq!(
+            surface_portrait_detail(Rect::new(0, 0, 20, 9)),
+            DetailLevel::Standard
+        );
+        assert_eq!(
+            surface_portrait_detail(Rect::new(0, 0, 10, 7)),
+            DetailLevel::Standard
+        );
+    }
+
+    #[test]
+    fn surface_portrait_detail_downgrades_when_canvas_is_too_small() {
+        assert_eq!(
+            surface_portrait_detail(Rect::new(0, 0, 8, 6)),
+            DetailLevel::Compact
+        );
+        assert_eq!(
+            surface_portrait_detail(Rect::new(0, 0, 4, 2)),
+            DetailLevel::Tiny
+        );
+    }
+
+    #[test]
+    fn portrait_identity_overlay_applies_for_small_or_low_detail() {
+        assert!(needs_planet_identity_overlay(
+            Rect::new(0, 0, 8, 6),
+            DetailLevel::Compact
+        ));
+        assert!(needs_planet_identity_overlay(
+            Rect::new(0, 0, 12, 6),
+            DetailLevel::Standard
+        ));
+        assert!(!needs_planet_identity_overlay(
+            Rect::new(0, 0, 20, 12),
+            DetailLevel::Cinematic
+        ));
     }
 }

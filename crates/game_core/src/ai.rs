@@ -213,10 +213,10 @@ fn pick_build_item(
         let has_survey_drones = has_tech(TechId::SURVEY_DRONES);
         let has_troop_transports = has_tech(TechId::TROOP_TRANSPORTS);
         let has_rapid_transit = has_tech(TechId::RAPID_TRANSIT);
-        let has_science_ship = state.fleets.values().any(|f| {
-            f.owner == empire_id
-                && (f.kind == FleetKind::Science || f.kind == FleetKind::SurveyCutter)
-        });
+        let has_science_ship = state
+            .fleets
+            .values()
+            .any(|f| f.owner == empire_id && f.kind.is_survey());
         let has_transport = state
             .fleets
             .values()
@@ -298,10 +298,10 @@ fn pick_build_item(
     if ai_profile.prefers_science_ships {
         let has_survey_drones = has_tech(TechId::SURVEY_DRONES);
         let has_advanced_survey = has_tech(TechId::ADVANCED_SURVEY);
-        let has_science_ship = state.fleets.values().any(|f| {
-            f.owner == empire_id
-                && (f.kind == FleetKind::Science || f.kind == FleetKind::SurveyCutter)
-        });
+        let has_science_ship = state
+            .fleets
+            .values()
+            .any(|f| f.owner == empire_id && f.kind.is_survey());
         // Prefer Survey Cutter if unlocked, else Science Ship
         if has_advanced_survey && !has_science_ship {
             return Some(BuildItem::Ship(ShipDesignId::SURVEY_CUTTER));
@@ -367,9 +367,10 @@ fn pick_build_item(
     }
 
     // Colony Ark preference (if researched, prefer over standard Colony Ship)
-    let has_colonizer = state.fleets.values().any(|f| {
-        f.owner == empire_id && (f.kind == FleetKind::Colonizer || f.kind == FleetKind::ColonyArk)
-    });
+    let has_colonizer = state
+        .fleets
+        .values()
+        .any(|f| f.owner == empire_id && f.kind.is_colonizer());
     let has_habitat_seeding = has_tech(TechId::HABITAT_SEEDING);
     if !has_colonizer && has_habitat_seeding {
         if ai_profile.prefers_colony_arks && has_tech(TechId::COLONIAL_VANGUARD) {

@@ -2216,6 +2216,11 @@ impl FleetKind {
     pub fn is_scout(self) -> bool {
         matches!(self, FleetKind::Scout | FleetKind::FastScout)
     }
+
+    /// Returns true if this fleet kind is a survey/science archetype.
+    pub fn is_survey(self) -> bool {
+        matches!(self, FleetKind::Science | FleetKind::SurveyCutter)
+    }
 }
 
 /// A fleet of ships

@@ -7082,6 +7082,7 @@ mod tests {
     fn population_growth_suppressed_by_blockade() {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
+        let colony_star = engine.state.colonies[&colony_id].star;
         engine.state.turn = POP_GROWTH_PERIOD_TURNS - 1;
         engine
             .state
@@ -7089,7 +7090,29 @@ mod tests {
             .get_mut(&engine.state.player_empire)
             .unwrap()
             .food = 1;
-        engine.state.colony_blockade.insert(colony_id, EmpireId(2));
+        let enemy_id = engine.state.ai_empire.expect("AI empire must exist");
+        engine
+            .state
+            .diplomacy
+            .insert(enemy_id, RelationshipStatus::War);
+        engine.state.fleets.insert(
+            FleetId(9_001),
+            Fleet {
+                id: FleetId(9_001),
+                owner: enemy_id,
+                location: colony_star,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 2,
+                integrity: 100,
+            },
+        );
+        let player_id = engine.state.player_empire;
+        engine.state.fleets.retain(|_, f| f.owner != player_id);
+        engine.state.scout_missions.clear();
+        engine.state.survey_missions.clear();
+        engine.state.fleet_missions.clear();
+        engine.state.colony_blockade = engine.state.recompute_colony_blockade();
 
         let events = engine.apply_turn(vec![Command::EndTurn]);
         assert!(
@@ -7160,7 +7183,7 @@ mod tests {
             .empires
             .get_mut(&engine.state.player_empire)
             .unwrap()
-            .food = 0;
+            .food = -50;
 
         let events = engine.apply_turn(vec![Command::EndTurn]);
         assert!(

@@ -14,7 +14,9 @@ pub fn detail_star_glyph(hash: u64, detail: DetailLevel) -> char {
                 '·'
             }
         }
-        DetailLevel::Compact => DENSITY_RAMP_ASCII[(hash % DENSITY_RAMP_ASCII.len() as u64) as usize],
+        DetailLevel::Compact => {
+            DENSITY_RAMP_ASCII[(hash % DENSITY_RAMP_ASCII.len() as u64) as usize]
+        }
         DetailLevel::Standard => {
             DENSITY_RAMP_UNICODE[(hash % DENSITY_RAMP_UNICODE.len() as u64) as usize]
         }
@@ -23,19 +25,23 @@ pub fn detail_star_glyph(hash: u64, detail: DetailLevel) -> char {
 }
 
 pub fn star_magnitude_color(hash: u64, twinkle_hash: u64) -> Color {
-    match hash % 5 {
-        0 => Color::Rgb(109, 127, 170),
-        1 => Color::Rgb(130, 148, 194),
-        2 => Color::Rgb(152, 171, 224),
-        3 => Color::Rgb(181, 201, 246),
-        _ => {
-            if twinkle_hash.is_multiple_of(2) {
-                Color::Rgb(210, 225, 255)
-            } else {
-                Color::Rgb(170, 198, 245)
-            }
-        }
-    }
+    let (r, g, b) = match hash % 5 {
+        0 => (109u8, 127u8, 170u8),
+        1 => (130, 148, 194),
+        2 => (152, 171, 224),
+        3 => (181, 201, 246),
+        _ => (195, 214, 250),
+    };
+    let bump = match twinkle_hash % 3 {
+        0 => 0,
+        1 => 10,
+        _ => 20,
+    };
+    Color::Rgb(
+        r.saturating_add(bump),
+        g.saturating_add(bump),
+        b.saturating_add(bump),
+    )
 }
 
 pub fn should_render_star(hash: u64, detail: DetailLevel) -> bool {

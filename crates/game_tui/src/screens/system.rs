@@ -111,7 +111,9 @@ fn render_orbital_panel(
     ])];
     lines.push(Line::from(""));
 
-    let split_height = (inner.height / 2).max(4).min(inner.height.saturating_sub(2));
+    let split_height = (inner.height / 2)
+        .max(4)
+        .min(inner.height.saturating_sub(2));
     let panel_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(split_height), Constraint::Min(1)])

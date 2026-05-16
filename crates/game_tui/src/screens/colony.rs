@@ -106,7 +106,10 @@ fn render_colony_portrait(
         .get(&colony.star)
         .and_then(|star| star.planets.get(colony.planet_index))
         .map(|planet| planet.class);
-    let portrait = colony_portrait(portrait_input_from_colony(planet_class, Some(colony)), detail);
+    let portrait = colony_portrait(
+        portrait_input_from_colony(planet_class, Some(colony)),
+        detail,
+    );
     let x = inner.width.saturating_sub(portrait.width) / 2;
     let y = inner.height.saturating_sub(portrait.height) / 2;
     canvas.draw_sprite(&portrait, x, y, 0, RenderLayer::Bodies.z_base());

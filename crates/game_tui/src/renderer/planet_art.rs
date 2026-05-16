@@ -143,7 +143,11 @@ pub fn colony_portrait(input: ColonyPortraitInput, detail: DetailLevel) -> Sprit
             frame.cells.push(SpriteCell {
                 x,
                 y,
-                glyph: if input.pollution_level > 128 { '▒' } else { '▪' },
+                glyph: if input.pollution_level > 128 {
+                    '▒'
+                } else {
+                    '▪'
+                },
                 fg: ColorToken::ColonyLight,
                 bg: None,
                 alpha: AlphaMode::BlendGlyph,

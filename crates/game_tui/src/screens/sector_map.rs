@@ -20,7 +20,9 @@ use crate::viewport::{MapViewport, ScreenPoint, WorldPoint};
 use crate::{
     renderer::{
         sprite::DetailLevel,
-        starfield::{detail_for_map_area, detail_star_glyph, should_render_star, star_magnitude_color},
+        starfield::{
+            detail_for_map_area, detail_star_glyph, should_render_star, star_magnitude_color,
+        },
     },
     AppState,
 };
@@ -245,7 +247,8 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
         let stationary_fleets = fleets_at_star.get(&star.id).copied().unwrap_or_default();
 
         let (symbol, style, protect) = if is_selected {
-            let pulse_bright = !app_state.reduced_motion && (app_state.tick_count / 5).is_multiple_of(2);
+            let pulse_bright =
+                !app_state.reduced_motion && (app_state.tick_count / 3).is_multiple_of(2);
             let style = if pulse_bright {
                 Style::default().fg(Theme::accent2()).bg(Theme::accent())
             } else {
@@ -375,7 +378,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
     }
 
     if !app_state.reduced_motion {
-        let show_indicator = (app_state.tick_count / 5).is_multiple_of(2);
+        let show_indicator = (app_state.tick_count / 3).is_multiple_of(2);
         if show_indicator {
             render_travelling_fleets(&mut cells, game_state, sector_id, &viewport);
         }
@@ -692,13 +695,19 @@ fn background_cells(
             let static_hash = visual_hash(game_state.seed, x, y, 0, salt);
             let style = Style::default().bg(Theme::space_bg());
             if should_render_star(static_hash, detail) {
-                let twinkle_hash = visual_hash(game_state.seed, x, y, frame_group, salt ^ SECTOR_STARFIELD_TWINKLE_SALT_XOR);
+                let twinkle_hash = visual_hash(
+                    game_state.seed,
+                    x,
+                    y,
+                    frame_group,
+                    salt ^ SECTOR_STARFIELD_TWINKLE_SALT_XOR,
+                );
                 cells.push(CellCommand {
                     layer: MapLayer::Background,
                     order: 0,
                     x,
                     y,
-                    symbol: Some(detail_star_glyph(static_hash ^ twinkle_hash, detail)),
+                    symbol: Some(detail_star_glyph(static_hash, detail)),
                     style: style.fg(star_magnitude_color(static_hash, twinkle_hash)),
                     protect: 0,
                 });

@@ -59,8 +59,17 @@ mod tests {
     #[test]
     fn detail_selection_respects_area_size() {
         assert_eq!(detail_for_area(Rect::new(0, 0, 20, 8)), DetailLevel::Tiny);
-        assert_eq!(detail_for_area(Rect::new(0, 0, 40, 14)), DetailLevel::Compact);
-        assert_eq!(detail_for_area(Rect::new(0, 0, 70, 22)), DetailLevel::Standard);
-        assert_eq!(detail_for_area(Rect::new(0, 0, 120, 40)), DetailLevel::Cinematic);
+        assert_eq!(
+            detail_for_area(Rect::new(0, 0, 40, 14)),
+            DetailLevel::Compact
+        );
+        assert_eq!(
+            detail_for_area(Rect::new(0, 0, 70, 22)),
+            DetailLevel::Standard
+        );
+        assert_eq!(
+            detail_for_area(Rect::new(0, 0, 120, 40)),
+            DetailLevel::Cinematic
+        );
     }
 }

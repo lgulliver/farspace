@@ -243,7 +243,7 @@ fn render_system_visual(
             let kind = if planet.surveyed {
                 planet_kind_from_class(Some(planet.class))
             } else {
-                PlanetVisualKind::Barren
+                PlanetVisualKind::Unknown
             };
             let sprite = planet_sprite(kind, DetailLevel::Tiny);
             canvas.draw_sprite(

@@ -10,6 +10,8 @@ const POPULATION_SCALE_FACTOR: u64 = 8;
 const POPULATION_PER_CITY_LIGHT: u8 = 40;
 const HIGH_POLLUTION_THRESHOLD: u8 = 128;
 const HIGH_INDUSTRY_THRESHOLD: u8 = 96;
+const TERMINAL_ASPECT_X: i16 = 4;
+const TERMINAL_ASPECT_Y: i16 = 9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlanetVisualKind {
@@ -135,14 +137,14 @@ fn sphere_sprite(
 
     let cx = i16::try_from(width / 2).unwrap_or(0);
     let cy = i16::try_from(height / 2).unwrap_or(0);
-    let radius_sq = radius * radius * 4;
+    let radius_sq = radius * radius * TERMINAL_ASPECT_X;
     let mut cells = Vec::new();
 
     for y in 0..height {
         for x in 0..width {
             let dx = i16::try_from(x).unwrap_or(0) - cx;
             let dy = i16::try_from(y).unwrap_or(0) - cy;
-            let dist = dx * dx * 4 + dy * dy * 9;
+            let dist = dx * dx * TERMINAL_ASPECT_X + dy * dy * TERMINAL_ASPECT_Y;
             if dist > radius_sq {
                 continue;
             }

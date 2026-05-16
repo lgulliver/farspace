@@ -357,7 +357,14 @@ fn render_colony_stats(
         ]),
         Line::from(vec![
             Span::styled("Unemployed : ", Theme::muted_style()),
-            Span::styled(format!("{}", workforce.unemployed), Theme::warning_style()),
+            Span::styled(
+                format!("{}", workforce.unemployed),
+                if workforce.unemployed > 0 {
+                    Theme::warning_style()
+                } else {
+                    Theme::accent_style()
+                },
+            ),
         ]),
         Line::from(vec![
             Span::styled("Food/turn  : ", Theme::muted_style()),

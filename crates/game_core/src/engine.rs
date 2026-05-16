@@ -1494,7 +1494,8 @@ impl Engine {
             if y.workforce.housing_deficit > 0 || y.food < y.food_consumed {
                 continue;
             }
-            if !(self.state.turn + colony_id.0 as u32).is_multiple_of(POP_GROWTH_PERIOD_TURNS) {
+            let cadence = u64::from(self.state.turn) + colony_id.0;
+            if !cadence.is_multiple_of(u64::from(POP_GROWTH_PERIOD_TURNS)) {
                 continue;
             }
             if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
@@ -6985,6 +6986,188 @@ mod tests {
         assert_eq!(
             events1, events2,
             "Events must be identical for the same seed"
+        );
+    }
+
+    #[test]
+    fn colony_status_warning_emitted_when_pressure_exists() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let colony = engine.state.colonies.get_mut(&colony_id).unwrap();
+        colony.population = 30;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        let warning = events.iter().find_map(|e| match e {
+            Event::ColonyStatusWarning {
+                colony,
+                food_deficit,
+                housing_deficit,
+                unemployed,
+            } if *colony == colony_id => Some((*food_deficit, *housing_deficit, *unemployed)),
+            _ => None,
+        });
+
+        assert!(
+            warning.is_some(),
+            "ColonyStatusWarning should emit when deficits exist"
+        );
+        let (_food_deficit, housing_deficit, unemployed) = warning.unwrap();
+        assert!(housing_deficit > 0, "Housing deficit should be reported");
+        assert_eq!(unemployed, 0, "Unhoused pops are not unemployed");
+    }
+
+    #[test]
+    fn colony_status_warning_not_emitted_without_pressure() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            !events.iter().any(|e| matches!(
+                e,
+                Event::ColonyStatusWarning { colony, .. } if *colony == colony_id
+            )),
+            "No pressure should produce no colony warning"
+        );
+    }
+
+    #[test]
+    fn colony_pressure_penalty_housing_is_capped() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let before = engine.state.colonies[&colony_id].stability;
+        let colony = engine.state.colonies.get_mut(&colony_id).unwrap();
+        colony.population = 200;
+
+        engine.apply_turn(vec![Command::EndTurn]);
+        let after = engine.state.colonies[&colony_id].stability;
+        assert_eq!(
+            before.saturating_sub(after),
+            MAX_HOUSING_DEFICIT_STABILITY_PENALTY,
+            "Housing pressure penalty should be capped"
+        );
+    }
+
+    #[test]
+    fn population_growth_emits_once_on_expected_cadence() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        engine.state.turn = POP_GROWTH_PERIOD_TURNS - 1;
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .food = 1;
+        let before = engine.state.colonies[&colony_id].population;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        let growth_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, Event::PopulationGrew { colony, .. } if *colony == colony_id))
+            .collect();
+
+        assert_eq!(
+            growth_events.len(),
+            1,
+            "Growth should emit exactly one event"
+        );
+        assert_eq!(
+            engine.state.colonies[&colony_id].population,
+            before + 1,
+            "Population should increase by exactly one"
+        );
+    }
+
+    #[test]
+    fn population_growth_suppressed_by_blockade() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        engine.state.turn = POP_GROWTH_PERIOD_TURNS - 1;
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .food = 1;
+        engine.state.colony_blockade.insert(colony_id, EmpireId(2));
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::PopulationGrew { colony, .. } if *colony == colony_id)),
+            "Blockaded colony must not grow"
+        );
+    }
+
+    #[test]
+    fn population_growth_suppressed_by_low_stability() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        engine.state.turn = POP_GROWTH_PERIOD_TURNS - 1;
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .food = 1;
+        engine.state.colonies.get_mut(&colony_id).unwrap().stability =
+            MIN_STABILITY_FOR_POP_GROWTH - 1;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::PopulationGrew { colony, .. } if *colony == colony_id)),
+            "Low-stability colony must not grow"
+        );
+    }
+
+    #[test]
+    fn population_growth_suppressed_by_housing_deficit() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        engine.state.turn = POP_GROWTH_PERIOD_TURNS - 1;
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .food = 1;
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .population = 200;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::PopulationGrew { colony, .. } if *colony == colony_id)),
+            "Housing-deficit colony must not grow"
+        );
+    }
+
+    #[test]
+    fn population_growth_suppressed_by_empire_food_shortage() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        engine.state.turn = POP_GROWTH_PERIOD_TURNS - 1;
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .food = 0;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::PopulationGrew { colony, .. } if *colony == colony_id)),
+            "Food-short empire must suppress growth"
         );
     }
 

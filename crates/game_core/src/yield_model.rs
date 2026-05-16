@@ -76,6 +76,9 @@ pub struct ColonyWorkforceSummary {
     pub population: u64,
     pub housing: u64,
     pub employed: u64,
+    /// Pops without housing capacity this turn.
+    pub unhoused: u64,
+    /// Housed pops that did not receive a job assignment this turn.
     pub unemployed: u64,
     pub housing_deficit: u64,
     pub assignments: Vec<JobAssignment>,
@@ -255,13 +258,12 @@ pub fn calculate_yield_with_context(
     }
 
     let employed = assignable_pops.saturating_sub(remaining);
-    let unemployed = colony.population.saturating_sub(employed);
+    let unhoused = colony.population.saturating_sub(assignable_pops);
+    let unemployed = remaining;
     filled_by_job.insert(JobType::Unemployed, unemployed);
 
     // Workforce assignment is authoritative for UI + AI reasoning. Economic totals
     // keep legacy v2 arithmetic for balance continuity in this lite slice.
-    let _job_filled =
-        |job: JobType| -> i64 { filled_by_job.get(&job).copied().unwrap_or(0) as i64 };
     let industry_from_jobs = pop + fabrication_count as i64 * 2;
     let food_from_jobs = pop + aquaculture_count as i64 * pop;
     let direct_science_from_jobs = nexus_count as i64 * pop;
@@ -312,6 +314,7 @@ pub fn calculate_yield_with_context(
         population: colony.population,
         housing,
         employed,
+        unhoused,
         unemployed,
         housing_deficit: colony.population.saturating_sub(housing),
         assignments,
@@ -942,7 +945,11 @@ mod tests {
         };
         let y = calculate_yield(&colony, Some(&cramped));
         assert!(y.workforce.housing_deficit > 0);
-        assert!(y.workforce.unemployed > 0);
+        assert!(y.workforce.unhoused > 0);
+        assert_eq!(
+            y.workforce.unemployed, 0,
+            "Unemployment should not include unhoused pops"
+        );
     }
 
     #[test]

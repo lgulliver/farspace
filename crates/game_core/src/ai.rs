@@ -264,15 +264,16 @@ fn pick_build_item(
         .stars
         .get(&colony.star)
         .and_then(|s| s.planets.get(colony.planet_index));
+    let empire_food_negative = state
+        .empires
+        .get(&empire_id)
+        .map(|e| e.food < 0)
+        .unwrap_or(false);
     let colony_yield = calculate_yield_with_context(
         colony,
         planet,
         YieldContext {
-            food_shortage: state
-                .empires
-                .get(&empire_id)
-                .map(|e| e.food < 0)
-                .unwrap_or(false),
+            food_shortage: empire_food_negative,
             stability_pressure: colony.stability < 85,
         },
     );
@@ -297,11 +298,6 @@ fn pick_build_item(
             .is_some_and(|e| e.research.completed.contains(&tech))
     };
 
-    let empire_food_negative = state
-        .empires
-        .get(&empire_id)
-        .map(|e| e.food < 0)
-        .unwrap_or(false);
     if empire_food_negative
         && colony_yield.food < colony_yield.food_consumed
         && !colony.buildings.contains(&BuildingType::AquacultureBay)

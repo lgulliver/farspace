@@ -21,7 +21,7 @@ use crate::{
     renderer::{
         sprite::DetailLevel,
         starfield::{
-            detail_for_map_area, detail_star_glyph, should_render_star, star_magnitude_color,
+            detail_star_glyph, should_render_star, star_magnitude_color, starfield_detail,
         },
     },
     AppState,
@@ -38,6 +38,8 @@ use ratatui::{
 // Distinct salt keeps sector-view starfield noise stable but separate from galaxy-view noise.
 const SECTOR_STARFIELD_SALT: u64 = 0xB22;
 const SECTOR_STARFIELD_TWINKLE_SALT_XOR: u64 = 0x91;
+const SELECTION_PULSE_PERIOD: u64 = 3;
+const TRANSIT_ANIMATION_PERIOD: u64 = 3;
 
 pub fn render_sector_map(
     frame: &mut Frame,
@@ -247,8 +249,8 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
         let stationary_fleets = fleets_at_star.get(&star.id).copied().unwrap_or_default();
 
         let (symbol, style, protect) = if is_selected {
-            let pulse_bright =
-                !app_state.reduced_motion && (app_state.tick_count / 3).is_multiple_of(2);
+            let pulse_bright = !app_state.reduced_motion
+                && (app_state.tick_count / SELECTION_PULSE_PERIOD).is_multiple_of(2);
             let style = if pulse_bright {
                 Style::default().fg(Theme::accent2()).bg(Theme::accent())
             } else {
@@ -378,7 +380,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
     }
 
     if !app_state.reduced_motion {
-        let show_indicator = (app_state.tick_count / 3).is_multiple_of(2);
+        let show_indicator = (app_state.tick_count / TRANSIT_ANIMATION_PERIOD).is_multiple_of(2);
         if show_indicator {
             render_travelling_fleets(&mut cells, game_state, sector_id, &viewport);
         }
@@ -688,7 +690,7 @@ fn background_cells(
     frame_group: u64,
     salt: u64,
 ) -> Vec<CellCommand> {
-    let detail = detail_for_map_area(area);
+    let detail = starfield_detail(area);
     let mut cells = Vec::new();
     for y in 0..area.height {
         for x in 0..area.width {

@@ -22,6 +22,8 @@ use ratatui::{
     Frame,
 };
 
+const ORBIT_SELECTION_PULSE_PERIOD: u64 = 5;
+
 pub fn render_system(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let (header_area, main_area, footer_area) = compose_layout(area);
     let header_data = derive_header_data(game_state);
@@ -212,13 +214,13 @@ fn render_system_visual(
     } else {
         detail
     };
-    let star_sprite = planet_sprite(PlanetVisualKind::GasGiant, star_detail);
+    let star_visual_sprite = planet_sprite(PlanetVisualKind::GasGiant, star_detail);
     let center_x = area.width / 2;
     let center_y = area.height / 2;
-    let star_x = center_x.saturating_sub(star_sprite.width / 2);
-    let star_y = center_y.saturating_sub(star_sprite.height / 2);
+    let star_x = center_x.saturating_sub(star_visual_sprite.width / 2);
+    let star_y = center_y.saturating_sub(star_visual_sprite.height / 2);
     canvas.draw_sprite(
-        &star_sprite,
+        &star_visual_sprite,
         star_x,
         star_y,
         0,
@@ -254,7 +256,7 @@ fn render_system_visual(
             if index == selected_planet {
                 let pulse = if app_state.reduced_motion {
                     '◌'
-                } else if (app_state.tick_count / 5).is_multiple_of(2) {
+                } else if (app_state.tick_count / ORBIT_SELECTION_PULSE_PERIOD).is_multiple_of(2) {
                     '◉'
                 } else {
                     '◌'

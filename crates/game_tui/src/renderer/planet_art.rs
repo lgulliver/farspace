@@ -6,6 +6,12 @@ use crate::renderer::{
     sprite::{AlphaMode, DetailLevel, Sprite, SpriteCell, SpriteFrame},
 };
 
+const MAX_VISUAL_POPULATION: u64 = 32;
+const POPULATION_SCALE_FACTOR: u64 = 8;
+const POPULATION_PER_CITY_LIGHT: u8 = 40;
+const HIGH_POLLUTION_THRESHOLD: u8 = 128;
+const HIGH_INDUSTRY_THRESHOLD: u8 = 96;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlanetVisualKind {
     Terran,
@@ -46,7 +52,7 @@ pub fn portrait_input_from_colony(
     colony: Option<&Colony>,
 ) -> ColonyPortraitInput {
     let population = colony
-        .map(|c| (c.population.min(32) * 8) as u8)
+        .map(|c| (c.population.min(MAX_VISUAL_POPULATION) * POPULATION_SCALE_FACTOR) as u8)
         .unwrap_or_default();
     let industry = colony
         .map(|c| {
@@ -136,14 +142,14 @@ pub fn colony_portrait(input: ColonyPortraitInput, detail: DetailLevel) -> Sprit
 
     let mut frame = base.frames.remove(0);
     if detail != DetailLevel::Tiny {
-        let city_lights = usize::from(input.population_level / 40).max(1);
+        let city_lights = usize::from(input.population_level / POPULATION_PER_CITY_LIGHT).max(1);
         for i in 0..city_lights {
             let x = ((i * 3 + 2) % usize::from(base.width)) as u16;
             let y = ((i * 2 + 1) % usize::from(base.height)) as u16;
             frame.cells.push(SpriteCell {
                 x,
                 y,
-                glyph: if input.pollution_level > 128 {
+                glyph: if input.pollution_level > HIGH_POLLUTION_THRESHOLD {
                     '▒'
                 } else {
                     '▪'
@@ -163,7 +169,7 @@ pub fn colony_portrait(input: ColonyPortraitInput, detail: DetailLevel) -> Sprit
                 alpha: AlphaMode::Opaque,
             });
         }
-        if input.industry_level > 96 {
+        if input.industry_level > HIGH_INDUSTRY_THRESHOLD {
             frame.cells.push(SpriteCell {
                 x: base.width / 2,
                 y: base.height.saturating_sub(2),

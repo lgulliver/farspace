@@ -2,7 +2,7 @@ use ratatui::{layout::Rect, style::Color};
 
 use crate::renderer::{
     glyphs::{BRAILLE_RAMP, DENSITY_RAMP_ASCII, DENSITY_RAMP_UNICODE},
-    sprite::DetailLevel,
+    sprite::{detail_for_area, DetailLevel},
 };
 
 pub fn detail_star_glyph(hash: u64, detail: DetailLevel) -> char {
@@ -58,6 +58,17 @@ pub fn nebula_density_glyph(hash: u64) -> char {
     DENSITY_RAMP_UNICODE[(hash % DENSITY_RAMP_UNICODE.len() as u64) as usize]
 }
 
-pub fn detail_for_map_area(area: Rect) -> DetailLevel {
-    crate::renderer::sprite::detail_for_area(area)
+pub fn starfield_detail(area: Rect) -> DetailLevel {
+    detail_for_area(area)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nebula_density_glyph_is_deterministic() {
+        assert_eq!(nebula_density_glyph(42), nebula_density_glyph(42));
+        assert_ne!(nebula_density_glyph(1), nebula_density_glyph(4));
+    }
 }

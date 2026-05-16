@@ -8,6 +8,7 @@ pub mod faction;
 pub mod keys;
 pub mod layout;
 pub mod map_render;
+pub mod renderer;
 pub mod screens;
 pub mod theme;
 pub mod viewport;

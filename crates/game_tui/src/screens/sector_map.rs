@@ -17,7 +17,13 @@ use crate::map_render::{
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::viewport::{MapViewport, ScreenPoint, WorldPoint};
-use crate::AppState;
+use crate::{
+    renderer::{
+        sprite::DetailLevel,
+        starfield::{detail_for_map_area, detail_star_glyph, should_render_star, star_magnitude_color},
+    },
+    AppState,
+};
 use game_core::{GameState, SectorId, StarId, TechId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -239,7 +245,13 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
         let stationary_fleets = fleets_at_star.get(&star.id).copied().unwrap_or_default();
 
         let (symbol, style, protect) = if is_selected {
-            ('@', Theme::highlight_style(), 10)
+            let pulse_bright = !app_state.reduced_motion && (app_state.tick_count / 5).is_multiple_of(2);
+            let style = if pulse_bright {
+                Style::default().fg(Theme::accent2()).bg(Theme::accent())
+            } else {
+                Theme::highlight_style()
+            };
+            ('@', style, 10)
         } else if let Some(owner) = owner {
             let visual = empire_visual(game_state, owner);
             let mut style = Style::default().fg(visual.color);
@@ -673,45 +685,33 @@ fn background_cells(
     frame_group: u64,
     salt: u64,
 ) -> Vec<CellCommand> {
+    let detail = detail_for_map_area(area);
     let mut cells = Vec::new();
     for y in 0..area.height {
         for x in 0..area.width {
             let static_hash = visual_hash(game_state.seed, x, y, 0, salt);
             let style = Style::default().bg(Theme::space_bg());
-            if static_hash.is_multiple_of(53) {
+            if should_render_star(static_hash, detail) {
+                let twinkle_hash = visual_hash(game_state.seed, x, y, frame_group, salt ^ SECTOR_STARFIELD_TWINKLE_SALT_XOR);
                 cells.push(CellCommand {
                     layer: MapLayer::Background,
                     order: 0,
                     x,
                     y,
-                    symbol: Some(if static_hash.is_multiple_of(3) {
-                        '·'
-                    } else {
-                        '.'
-                    }),
-                    style: style.fg(Color::Rgb(65, 80, 116)),
+                    symbol: Some(detail_star_glyph(static_hash ^ twinkle_hash, detail)),
+                    style: style.fg(star_magnitude_color(static_hash, twinkle_hash)),
                     protect: 0,
                 });
-            } else if static_hash.is_multiple_of(149) {
-                let twinkle_hash = visual_hash(
-                    game_state.seed,
-                    x,
-                    y,
-                    frame_group,
-                    salt ^ SECTOR_STARFIELD_TWINKLE_SALT_XOR,
-                );
-                let twinkle_color = if twinkle_hash.is_multiple_of(5) {
-                    Color::Rgb(176, 194, 238)
-                } else {
-                    Color::Rgb(130, 148, 194)
-                };
+            } else if matches!(detail, DetailLevel::Cinematic | DetailLevel::Standard)
+                && static_hash.is_multiple_of(197)
+            {
                 cells.push(CellCommand {
                     layer: MapLayer::Background,
                     order: 1,
                     x,
                     y,
-                    symbol: Some('✦'),
-                    style: style.fg(twinkle_color),
+                    symbol: Some('✶'),
+                    style: style.fg(Color::Rgb(168, 188, 236)),
                     protect: 0,
                 });
             }

@@ -4,6 +4,12 @@ use std::borrow::Cow;
 
 use crate::components::{derive_header_data, render_footer, render_header, render_log};
 use crate::layout::{compose_layout, split_horizontal};
+use crate::renderer::{
+    palette::ColorToken,
+    planet_art::{planet_kind_from_class, planet_sprite, PlanetVisualKind},
+    sprite::{detail_for_area, DetailLevel},
+    Canvas, RenderLayer,
+};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
@@ -105,6 +111,13 @@ fn render_orbital_panel(
     ])];
     lines.push(Line::from(""));
 
+    let split_height = (inner.height / 2).max(4).min(inner.height.saturating_sub(2));
+    let panel_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(split_height), Constraint::Min(1)])
+        .split(inner);
+    render_system_visual(frame, panel_chunks[0], app_state, star);
+
     let selected_planet = app_state
         .navigation
         .selected_planet_index
@@ -172,7 +185,97 @@ fn render_orbital_panel(
         lines.push(Line::from(spans));
     }
 
-    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
+    frame.render_widget(
+        Paragraph::new(lines).style(Theme::default_style()),
+        panel_chunks[1],
+    );
+}
+
+fn render_system_visual(
+    frame: &mut Frame,
+    area: Rect,
+    app_state: &AppState,
+    star: &game_core::Star,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let detail = detail_for_area(area);
+    let mut canvas = Canvas::new(area.width, area.height);
+    canvas.fill(ColorToken::SpaceBg, RenderLayer::Background.z_base());
+
+    let star_detail = if matches!(detail, DetailLevel::Cinematic) {
+        DetailLevel::Standard
+    } else {
+        detail
+    };
+    let star_sprite = planet_sprite(PlanetVisualKind::GasGiant, star_detail);
+    let center_x = area.width / 2;
+    let center_y = area.height / 2;
+    let star_x = center_x.saturating_sub(star_sprite.width / 2);
+    let star_y = center_y.saturating_sub(star_sprite.height / 2);
+    canvas.draw_sprite(
+        &star_sprite,
+        star_x,
+        star_y,
+        0,
+        RenderLayer::Bodies.z_base(),
+    );
+
+    if !star.planets.is_empty() {
+        let spacing = (area.width / (star.planets.len() as u16 + 1)).max(2);
+        let selected_planet = app_state
+            .navigation
+            .selected_planet_index
+            .min(star.planets.len().saturating_sub(1));
+        for (index, planet) in star.planets.iter().enumerate() {
+            let x = spacing.saturating_mul(index as u16 + 1);
+            let y = if index % 2 == 0 {
+                center_y.saturating_add(1)
+            } else {
+                center_y.saturating_sub(1)
+            };
+            let kind = if planet.surveyed {
+                planet_kind_from_class(Some(planet.class))
+            } else {
+                PlanetVisualKind::Unknown
+            };
+            let sprite = planet_sprite(kind, DetailLevel::Tiny);
+            canvas.draw_sprite(
+                &sprite,
+                x.saturating_sub(sprite.width / 2),
+                y.saturating_sub(sprite.height / 2),
+                0,
+                RenderLayer::Bodies.z_base() + 1,
+            );
+            if index == selected_planet {
+                let pulse = if app_state.reduced_motion {
+                    '◌'
+                } else if (app_state.tick_count / 5).is_multiple_of(2) {
+                    '◉'
+                } else {
+                    '◌'
+                };
+                canvas.set_cell(
+                    x.min(area.width.saturating_sub(1)),
+                    y.saturating_add(1).min(area.height.saturating_sub(1)),
+                    pulse,
+                    ColorToken::Accent.to_style(None),
+                    RenderLayer::Selection.z_base(),
+                );
+            }
+        }
+    }
+
+    canvas.draw_text(
+        1,
+        0,
+        &format!("{} [{}]", star.name, star.spectral_class.as_char()),
+        ColorToken::Accent.to_style(None),
+        RenderLayer::Labels.z_base(),
+    );
+    canvas.render_to_buffer(area, frame.buffer_mut());
 }
 
 fn render_system_details(

@@ -1,0 +1,236 @@
+use game_core::{Colony, PlanetClass};
+
+use crate::renderer::{
+    glyphs::{ramp_pick, DENSITY_RAMP_UNICODE},
+    palette::ColorToken,
+    sprite::{AlphaMode, DetailLevel, Sprite, SpriteCell, SpriteFrame},
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanetVisualKind {
+    Terran,
+    Ocean,
+    Arid,
+    Desert,
+    Ice,
+    Barren,
+    Volcanic,
+    GasGiant,
+    Toxic,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ColonyPortraitInput {
+    pub planet_kind: PlanetVisualKind,
+    pub population_level: u8,
+    pub industry_level: u8,
+    pub pollution_level: u8,
+    pub has_orbital_infrastructure: bool,
+}
+
+pub fn planet_kind_from_class(class: Option<PlanetClass>) -> PlanetVisualKind {
+    match class {
+        Some(PlanetClass::Terran) => PlanetVisualKind::Terran,
+        Some(PlanetClass::Oceanic) => PlanetVisualKind::Ocean,
+        Some(PlanetClass::Desert) => PlanetVisualKind::Desert,
+        Some(PlanetClass::Frozen) => PlanetVisualKind::Ice,
+        Some(PlanetClass::Volcanic) => PlanetVisualKind::Volcanic,
+        Some(PlanetClass::Barren) => PlanetVisualKind::Barren,
+        None => PlanetVisualKind::Unknown,
+    }
+}
+
+pub fn portrait_input_from_colony(
+    planet_class: Option<PlanetClass>,
+    colony: Option<&Colony>,
+) -> ColonyPortraitInput {
+    let population = colony
+        .map(|c| (c.population.min(32) * 8) as u8)
+        .unwrap_or_default();
+    let industry = colony
+        .map(|c| {
+            let capped = c.production.min(255);
+            u8::try_from(capped).unwrap_or(u8::MAX)
+        })
+        .unwrap_or_default();
+
+    ColonyPortraitInput {
+        planet_kind: planet_kind_from_class(planet_class),
+        population_level: population,
+        industry_level: industry,
+        pollution_level: 0,
+        has_orbital_infrastructure: colony
+            .map(|c| !c.orbital_installations.is_empty())
+            .unwrap_or(false),
+    }
+}
+
+pub fn planet_sprite(kind: PlanetVisualKind, detail: DetailLevel) -> Sprite {
+    let (width, height, radius) = match detail {
+        DetailLevel::Tiny => (1, 1, 0i16),
+        DetailLevel::Compact => (5, 3, 2),
+        DetailLevel::Standard => (9, 7, 4),
+        DetailLevel::Cinematic => (17, 11, 5),
+    };
+
+    if matches!(detail, DetailLevel::Tiny) {
+        return Sprite {
+            width,
+            height,
+            frames: vec![SpriteFrame {
+                cells: vec![SpriteCell {
+                    x: 0,
+                    y: 0,
+                    glyph: kind_glyph(kind),
+                    fg: kind_primary_color(kind),
+                    bg: None,
+                    alpha: AlphaMode::Opaque,
+                }],
+            }],
+        };
+    }
+
+    let cx = i16::try_from(width / 2).unwrap_or(0);
+    let cy = i16::try_from(height / 2).unwrap_or(0);
+    let mut cells = Vec::new();
+
+    for y in 0..height {
+        for x in 0..width {
+            let dx = i16::try_from(x).unwrap_or(0) - cx;
+            let dy = i16::try_from(y).unwrap_or(0) - cy;
+            let dist = dx * dx + dy * dy;
+            if dist > radius * radius {
+                continue;
+            }
+            let shade = ((radius * radius - dist) * 255 / (radius * radius).max(1)) as u8;
+            let glyph = ramp_pick(&DENSITY_RAMP_UNICODE, shade);
+            let fg = if dx < 0 {
+                kind_primary_color(kind)
+            } else {
+                kind_secondary_color(kind)
+            };
+            cells.push(SpriteCell {
+                x,
+                y,
+                glyph,
+                fg,
+                bg: None,
+                alpha: AlphaMode::Opaque,
+            });
+        }
+    }
+
+    Sprite {
+        width,
+        height,
+        frames: vec![SpriteFrame { cells }],
+    }
+}
+
+pub fn colony_portrait(input: ColonyPortraitInput, detail: DetailLevel) -> Sprite {
+    let mut base = planet_sprite(input.planet_kind, detail);
+    if base.frames.is_empty() {
+        return base;
+    }
+
+    let mut frame = base.frames.remove(0);
+    if detail != DetailLevel::Tiny {
+        let city_lights = usize::from(input.population_level / 40).max(1);
+        for i in 0..city_lights {
+            let x = ((i * 3 + 2) % usize::from(base.width)) as u16;
+            let y = ((i * 2 + 1) % usize::from(base.height)) as u16;
+            frame.cells.push(SpriteCell {
+                x,
+                y,
+                glyph: if input.pollution_level > 128 { '▒' } else { '▪' },
+                fg: ColorToken::ColonyLight,
+                bg: None,
+                alpha: AlphaMode::BlendGlyph,
+            });
+        }
+        if input.has_orbital_infrastructure {
+            frame.cells.push(SpriteCell {
+                x: base.width.saturating_sub(2),
+                y: 1,
+                glyph: '◌',
+                fg: ColorToken::Accent2,
+                bg: None,
+                alpha: AlphaMode::Opaque,
+            });
+        }
+        if input.industry_level > 96 {
+            frame.cells.push(SpriteCell {
+                x: base.width / 2,
+                y: base.height.saturating_sub(2),
+                glyph: '▦',
+                fg: ColorToken::Warning,
+                bg: None,
+                alpha: AlphaMode::BlendGlyph,
+            });
+        }
+    }
+
+    base.frames = vec![frame];
+    base
+}
+
+fn kind_primary_color(kind: PlanetVisualKind) -> ColorToken {
+    match kind {
+        PlanetVisualKind::Terran => ColorToken::PlanetLand,
+        PlanetVisualKind::Ocean => ColorToken::PlanetWater,
+        PlanetVisualKind::Arid | PlanetVisualKind::Desert => ColorToken::PlanetDesert,
+        PlanetVisualKind::Ice => ColorToken::PlanetIce,
+        PlanetVisualKind::Volcanic => ColorToken::PlanetLava,
+        PlanetVisualKind::Barren => ColorToken::Muted,
+        PlanetVisualKind::GasGiant => ColorToken::Accent2,
+        PlanetVisualKind::Toxic => ColorToken::Warning,
+        PlanetVisualKind::Unknown => ColorToken::Default,
+    }
+}
+
+fn kind_secondary_color(kind: PlanetVisualKind) -> ColorToken {
+    match kind {
+        PlanetVisualKind::Terran => ColorToken::PlanetWater,
+        PlanetVisualKind::Ocean => ColorToken::StarCold,
+        PlanetVisualKind::Arid | PlanetVisualKind::Desert => ColorToken::Accent2,
+        PlanetVisualKind::Ice => ColorToken::Default,
+        PlanetVisualKind::Volcanic => ColorToken::Warning,
+        PlanetVisualKind::Barren => ColorToken::DimOverlay,
+        PlanetVisualKind::GasGiant => ColorToken::StarWarm,
+        PlanetVisualKind::Toxic => ColorToken::Error,
+        PlanetVisualKind::Unknown => ColorToken::Muted,
+    }
+}
+
+fn kind_glyph(kind: PlanetVisualKind) -> char {
+    match kind {
+        PlanetVisualKind::Terran => '●',
+        PlanetVisualKind::Ocean => '◉',
+        PlanetVisualKind::Arid | PlanetVisualKind::Desert => '◍',
+        PlanetVisualKind::Ice => '◌',
+        PlanetVisualKind::Barren => '○',
+        PlanetVisualKind::Volcanic => '◐',
+        PlanetVisualKind::GasGiant => '◎',
+        PlanetVisualKind::Toxic => '◒',
+        PlanetVisualKind::Unknown => '?',
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn planet_kind_mapping_has_safe_fallback() {
+        assert_eq!(planet_kind_from_class(None), PlanetVisualKind::Unknown);
+        assert_eq!(
+            planet_kind_from_class(Some(PlanetClass::Oceanic)),
+            PlanetVisualKind::Ocean
+        );
+        assert_eq!(
+            planet_kind_from_class(Some(PlanetClass::Frozen)),
+            PlanetVisualKind::Ice
+        );
+    }
+}

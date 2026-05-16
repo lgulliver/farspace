@@ -2099,6 +2099,8 @@ impl Engine {
                 }
             }
             empire.research.current_tech = Some(tech_id);
+            // Keep queue and active selection de-duplicated: selecting a queued tech
+            // promotes it to active research and removes it from the queue.
             empire.research.queue.retain(|queued| *queued != tech_id);
         }
 
@@ -2298,6 +2300,9 @@ impl Engine {
         loop {
             let next_started = self.dequeue_next_valid_queued_research(empire_id, events);
 
+            // Emit one transition event per completion step in a potential overflow cascade.
+            // If overflow completes multiple queued techs in one turn, multiple transition
+            // events are expected and preserve per-step ordering.
             events.push(Event::ResearchCompletedWithQueueTransition {
                 completed: transition_source,
                 started: next_started,

@@ -26,6 +26,16 @@ pub enum Command {
     CancelBuild { colony: ColonyId, index: usize },
     /// Select a technology to research
     SelectResearch { tech: TechId },
+    /// Queue a technology for future research
+    QueueResearch { tech: TechId },
+    /// Remove a technology from the research queue
+    RemoveQueuedResearch { tech: TechId },
+    /// Move a queued technology one position earlier
+    MoveQueuedResearchUp { tech: TechId },
+    /// Move a queued technology one position later
+    MoveQueuedResearchDown { tech: TechId },
+    /// Clear all queued technologies
+    ClearResearchQueue,
     /// Dispatch a scout fleet to explore an unexplored star system
     SendScout { fleet: FleetId, destination: StarId },
     /// Start surveying a planet with a science fleet
@@ -101,6 +111,16 @@ mod tests {
     fn select_research_serialization() {
         use crate::state::TechId;
         let cmd = Command::SelectResearch { tech: TechId(3) };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn queue_research_serialization() {
+        use crate::state::TechId;
+        let cmd = Command::QueueResearch { tech: TechId(3) };
         let json = serde_json::to_string(&cmd).unwrap();
         let parsed: Command = serde_json::from_str(&json).unwrap();
         assert_eq!(cmd, parsed);

@@ -102,7 +102,7 @@ Status labels:
 
 **Goal:** robust progression pacing via broad tech tree and queue-driven planning.
 
-**Current status:** **In Progress**
+**Current status:** **In Progress** (Tech Tree v2 and Research Queue complete)
 
 **Key deliverables:**
 

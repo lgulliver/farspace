@@ -53,10 +53,12 @@ Status labels:
 
 ## Research
 
-- **Status:** **Done**
+- **Status:** **In Progress**
 - Large tech record set and unlock metadata present
 - Active research + queue operations implemented (queue/reorder/remove/clear)
 - Research progress/completion events and queued transition events implemented
+- Unlock integration and future-hook signaling are still being expanded
+- AI research weighting remains in progress
 
 ## Fleets / Ships
 

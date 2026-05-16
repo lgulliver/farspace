@@ -242,7 +242,34 @@ impl App {
         }
     }
 
+    fn empire_is_known(&self, empire_id: game_core::EmpireId) -> bool {
+        self.engine
+            .as_ref()
+            .map(|engine| {
+                engine
+                    .state
+                    .diplomacy
+                    .get(&empire_id)
+                    .map(|status| *status != game_core::RelationshipStatus::Unknown)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
+    }
+
     fn push_core_event_to_log(&mut self, event: &CoreEvent) {
+        let ai_empire = match event {
+            CoreEvent::AiResearchSelected { empire, .. }
+            | CoreEvent::AiBuildQueued { empire, .. }
+            | CoreEvent::AiScoutDispatched { empire, .. }
+            | CoreEvent::AiColonized { empire, .. }
+            | CoreEvent::AiColonyRoleAssigned { empire, .. } => Some(*empire),
+            _ => None,
+        };
+        if let Some(empire_id) = ai_empire {
+            if !self.empire_is_known(empire_id) {
+                return;
+            }
+        }
         let message = self.format_core_event_for_log(event);
         let kind = LogEntryKind::from_message(&message);
         self.state.log.push_with_kind(kind, message);
@@ -3698,5 +3725,80 @@ mod tests {
                 );
             })
             .unwrap();
+    }
+
+    #[test]
+    fn ai_events_hidden_for_unknown_empire() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let ai_empire = {
+            let engine = app.engine.as_ref().unwrap();
+            *engine
+                .state
+                .empires
+                .keys()
+                .find(|id| **id != engine.state.player_empire)
+                .expect("AI empire must exist")
+        };
+
+        // Ensure empire is Unknown (no contact)
+        app.engine
+            .as_mut()
+            .unwrap()
+            .state
+            .diplomacy
+            .insert(ai_empire, game_core::RelationshipStatus::Unknown);
+
+        app.state.log.clear();
+
+        let event = game_core::Event::AiResearchSelected {
+            empire: ai_empire,
+            tech: game_core::TechId(1),
+        };
+        app.push_core_event_to_log(&event);
+
+        assert_eq!(
+            app.state.log.len(),
+            0,
+            "AI event for unknown empire must not appear in log"
+        );
+    }
+
+    #[test]
+    fn ai_events_visible_for_contacted_empire() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let ai_empire = {
+            let engine = app.engine.as_ref().unwrap();
+            *engine
+                .state
+                .empires
+                .keys()
+                .find(|id| **id != engine.state.player_empire)
+                .expect("AI empire must exist")
+        };
+
+        app.engine
+            .as_mut()
+            .unwrap()
+            .state
+            .diplomacy
+            .insert(ai_empire, game_core::RelationshipStatus::Contacted);
+
+        app.state.log.clear();
+
+        let event = game_core::Event::AiResearchSelected {
+            empire: ai_empire,
+            tech: game_core::TechId(1),
+        };
+        app.push_core_event_to_log(&event);
+
+        assert_eq!(
+            app.state.log.len(),
+            1,
+            "AI event for contacted empire must appear in log"
+        );
     }
 }

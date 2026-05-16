@@ -106,8 +106,8 @@ Status labels:
 
 **Key deliverables:**
 
-- Large-scale technology tree
-- Research queue management
+- ✅ Large-scale technology tree
+- ✅ Research queue management
 - Unlock integration (ships/buildings/capabilities)
 - Rare/future-hook technologies with clear signaling
 - AI research weighting aligned with faction profiles

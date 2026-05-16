@@ -41,6 +41,11 @@ impl TechId {
     pub const HYPERSPACE_CARTOGRAPHY: TechId = TechId(8);
     pub const SURVEY_DRONES: TechId = TechId(12);
     pub const TROOP_TRANSPORTS: TechId = TechId(11);
+    // Root-tier named constants for use in prerequisites
+    pub const VOID_PROPULSION: TechId = TechId(1);
+    pub const KINETIC_BARRIERS: TechId = TechId(4);
+    pub const COLONIAL_LOGISTICS: TechId = TechId(10);
+    pub const BATTLE_DOCTRINE: TechId = TechId(11);
     // Advanced ship archetype techs
     pub const RAPID_TRANSIT: TechId = TechId(13);
     pub const ADVANCED_SURVEY: TechId = TechId(14);
@@ -876,7 +881,7 @@ pub fn all_techs() -> &'static [TechRecord] {
                 "Compact high-efficiency drives cut reconnaissance mission duration significantly.",
             domain: TechDomain::Exploration,
             tier: TechTier::II,
-            prerequisites: &[TechId(1)],
+            prerequisites: &[TechId::VOID_PROPULSION],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::FAST_SCOUT)],
             cost: 90,
         },
@@ -898,7 +903,7 @@ pub fn all_techs() -> &'static [TechRecord] {
                 "Integrated habitat prefabrication and seed-vault logistics support larger founding expeditions.",
             domain: TechDomain::Biology,
             tier: TechTier::III,
-            prerequisites: &[TechId::HABITAT_SEEDING, TechId(10)],
+            prerequisites: &[TechId::HABITAT_SEEDING, TechId::COLONIAL_LOGISTICS],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::COLONY_ARK)],
             cost: 200,
         },
@@ -909,7 +914,7 @@ pub fn all_techs() -> &'static [TechRecord] {
                 "Modular point-defense batteries and intercept patterns provide local system security.",
             domain: TechDomain::Military,
             tier: TechTier::II,
-            prerequisites: &[TechId(4)],
+            prerequisites: &[TechId::KINETIC_BARRIERS],
             unlocks: &[
                 TechUnlock::ShipDesign(ShipDesignId::ESCORT_FRIGATE),
                 TechUnlock::ShipDesign(ShipDesignId::PATROL_CORVETTE),
@@ -923,7 +928,7 @@ pub fn all_techs() -> &'static [TechRecord] {
                 "Stand-off kinetic projectors optimised for high-tempo engagement protocols.",
             domain: TechDomain::Military,
             tier: TechTier::III,
-            prerequisites: &[TechId(11)],
+            prerequisites: &[TechId::BATTLE_DOCTRINE],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::MISSILE_FRIGATE)],
             cost: 170,
         },
@@ -934,7 +939,7 @@ pub fn all_techs() -> &'static [TechRecord] {
                 "Multi-vessel engagement frameworks enable coordinated heavy combat operations.",
             domain: TechDomain::Military,
             tier: TechTier::III,
-            prerequisites: &[TechId(11)],
+            prerequisites: &[TechId::BATTLE_DOCTRINE],
             unlocks: &[TechUnlock::ShipDesign(ShipDesignId::DESTROYER)],
             cost: 200,
         },
@@ -1040,7 +1045,7 @@ pub fn all_ship_designs() -> &'static [ShipDesignRecord] {
             cost: 150,
             fleet_kind: FleetKind::TroopTransport,
             ships: 1,
-            strength: 2,
+            strength: 1,
             maintenance: 2,
             role: "Invasion",
             required_tech: Some(TechId::TROOP_TRANSPORTS),
@@ -2195,7 +2200,11 @@ impl FleetKind {
         }
     }
 
-    /// Returns true if this fleet kind is a combat-capable archetype.
+    /// Returns true if this fleet kind is a dedicated combat archetype.
+    ///
+    /// Note: `TroopTransport` is intentionally excluded — it is an invasion
+    /// fleet handled separately in the engine, with its own cost modifier and
+    /// AI preference flag (`prefers_troop_transports`).
     pub fn is_combat(self) -> bool {
         matches!(
             self,
@@ -2203,7 +2212,6 @@ impl FleetKind {
                 | FleetKind::MissileFrigate
                 | FleetKind::Destroyer
                 | FleetKind::PatrolCorvette
-                | FleetKind::TroopTransport
         )
     }
 

@@ -8598,11 +8598,15 @@ mod tests {
         engine.apply_turn(vec![Command::EndTurn]);
         let credits_after = engine.state.empires[&empire_id].credits;
 
-        // Expected maintenance: Scout(1) + Destroyer(4) + PatrolCorvette(1) = 6
+        // Expected maintenance: Scout(1) + Destroyer(4) + PatrolCorvette(1) = 6.
+        // Colony has prod_pct=0 so zero credits income from production, and no
+        // buildings installed so no building maintenance. Delta must be exactly 6.
         let expected_fleet_maint: i64 = 1 + 4 + 1;
-        assert!(
-            credits_before - credits_after >= expected_fleet_maint,
-            "Mixed fleet maintenance should include per-kind costs; got delta {}",
+        assert_eq!(
+            credits_after,
+            credits_before - expected_fleet_maint,
+            "Mixed fleet maintenance must be exactly {} credits (per-kind sum); got delta {}",
+            expected_fleet_maint,
             credits_before - credits_after
         );
     }

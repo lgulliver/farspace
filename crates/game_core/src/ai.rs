@@ -335,22 +335,31 @@ fn pick_build_item(
         }
     }
 
-    // Combat ship preferences (Destroyer > Missile Frigate)
+    // Combat ship preferences (Destroyer > Missile Frigate > Escort Frigate).
+    // Only engage this path when the empire already has a colonizer or colonisation
+    // is not yet available — prevents militarist AIs from never building colony ships.
     if ai_profile.prefers_combat_ships {
-        let has_fleet_coordination = has_tech(TechId::FLEET_COORDINATION);
-        let has_strike_doctrine = has_tech(TechId::STRIKE_DOCTRINE);
-        let has_perimeter_defense = has_tech(TechId::PERIMETER_DEFENSE);
-        // Prefer Destroyer if unlocked
-        if has_fleet_coordination {
-            return Some(BuildItem::Ship(ShipDesignId::DESTROYER));
-        }
-        // Otherwise Missile Frigate
-        if has_strike_doctrine {
-            return Some(BuildItem::Ship(ShipDesignId::MISSILE_FRIGATE));
-        }
-        // Fallback to Escort Frigate when only perimeter defense is available
-        if has_perimeter_defense {
-            return Some(BuildItem::Ship(ShipDesignId::ESCORT_FRIGATE));
+        let has_colonizer = state
+            .fleets
+            .values()
+            .any(|f| f.owner == empire_id && f.kind.is_colonizer());
+        let colonization_available = has_tech(TechId::HABITAT_SEEDING);
+        if has_colonizer || !colonization_available {
+            let has_fleet_coordination = has_tech(TechId::FLEET_COORDINATION);
+            let has_strike_doctrine = has_tech(TechId::STRIKE_DOCTRINE);
+            let has_perimeter_defense = has_tech(TechId::PERIMETER_DEFENSE);
+            // Prefer Destroyer if unlocked
+            if has_fleet_coordination {
+                return Some(BuildItem::Ship(ShipDesignId::DESTROYER));
+            }
+            // Otherwise Missile Frigate
+            if has_strike_doctrine {
+                return Some(BuildItem::Ship(ShipDesignId::MISSILE_FRIGATE));
+            }
+            // Fallback to Escort Frigate when only perimeter defense is available
+            if has_perimeter_defense {
+                return Some(BuildItem::Ship(ShipDesignId::ESCORT_FRIGATE));
+            }
         }
     }
 
@@ -2131,8 +2140,8 @@ mod tests {
                 .completed
                 .extend([
                     TechId::ORBITAL_ENGINEERING,
-                    TechId(4),
-                    TechId(11),
+                    TechId::KINETIC_BARRIERS,
+                    TechId::BATTLE_DOCTRINE,
                     TechId::FLEET_COORDINATION,
                 ]);
             let star_id = engine.state.colonies.get(&ai_colony).unwrap().star;
@@ -2216,14 +2225,13 @@ mod tests {
 
         let (engine_a, ai_a, colony_a) = make();
         let (engine_b, ai_b, colony_b) = make();
-        // Should pick Fast Scout (prefers_fast_scouts, has RAPID_TRANSIT, no fast scout yet)
-        let result = pick_build_item(&engine_a.state, ai_a, colony_a);
-        assert!(
-            result == Some(BuildItem::Ship(ShipDesignId::FAST_SCOUT))
-                || result == Some(BuildItem::Ship(ShipDesignId::SURVEY_CUTTER))
-                || result == Some(BuildItem::Ship(ShipDesignId::SCIENCE)),
-            "Scientific faction should prefer fast scouts or science ships, got {:?}",
-            result
+        // Elarith Confluence has prefers_fast_scouts. With RAPID_TRANSIT researched
+        // and no SURVEY_DRONES, the prefers_science_ships sub-path is skipped.
+        // The prefers_fast_scouts path fires and returns FAST_SCOUT.
+        assert_eq!(
+            pick_build_item(&engine_a.state, ai_a, colony_a),
+            Some(BuildItem::Ship(ShipDesignId::FAST_SCOUT)),
+            "Scientific faction with Rapid Transit and no survey tech should pick Fast Scout"
         );
         assert_eq!(
             pick_build_item(&engine_a.state, ai_a, colony_a),

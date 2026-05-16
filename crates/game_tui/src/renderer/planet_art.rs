@@ -86,10 +86,15 @@ pub fn planet_sprite(kind: PlanetVisualKind, detail: DetailLevel) -> Sprite {
 
 pub fn star_sprite(class: SpectralClass, detail: DetailLevel) -> Sprite {
     let (primary, secondary) = spectral_class_color_tokens(class);
+    // All game stars are single-body; '☉' is the standard star glyph for tiny detail.
     sphere_sprite(primary, secondary, '☉', detail)
 }
 
 fn spectral_class_color_tokens(class: SpectralClass) -> (ColorToken, ColorToken) {
+    // Hot blue/white classes use StarCold/Default; yellow/orange/red classes use StarWarm,
+    // Warning (orange), and Error (red) — these semantic tokens happen to match the
+    // physical star colours and are the closest available tokens in the current palette.
+    // If dedicated StarOrange/StarRed tokens are added later, update this mapping.
     match class {
         SpectralClass::O | SpectralClass::B => (ColorToken::StarCold, ColorToken::Default),
         SpectralClass::A => (ColorToken::Default, ColorToken::StarCold),

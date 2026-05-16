@@ -26,6 +26,10 @@ use ratatui::{
 };
 
 const ORBIT_SELECTION_PULSE_PERIOD: u64 = 5;
+/// Rows above the planet sprite top at which the orbit number label is drawn.
+/// Placing it here keeps the label clear of the bottom selection bracket (z=120),
+/// which sits one row below the sprite bottom.
+const ORBIT_LABEL_OFFSET_ABOVE_SPRITE: u16 = 2;
 
 pub fn render_system(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let (header_area, main_area, footer_area) = compose_layout(area);
@@ -285,7 +289,7 @@ fn render_system_visual(
             );
             let label_y = y
                 .saturating_sub(sprite.height / 2)
-                .saturating_sub(2)
+                .saturating_sub(ORBIT_LABEL_OFFSET_ABOVE_SPRITE)
                 .min(area.height.saturating_sub(1));
             canvas.draw_text(
                 x.saturating_sub(1),

@@ -23,6 +23,11 @@ use ratatui::{
     Frame,
 };
 
+/// Minimum portrait canvas height (rows) needed to reach Compact detail level.
+const MIN_PORTRAIT_HEIGHT_FOR_COMPACT: u16 = 10;
+/// Height (rows) reserved for the caption block below the portrait canvas.
+const PORTRAIT_CAPTION_HEIGHT: u16 = 2;
+
 /// Render the colony detail screen
 pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let (header_area, main_area, footer_area) = compose_layout(area);
@@ -84,16 +89,18 @@ fn render_colony_portrait(
         return;
     }
 
-    // Reserve caption only when there is enough height for portrait canvas to reach at least
-    // Compact detail (requires height >= 10). Caption needs 2 rows minimum, so threshold is 12.
-    let caption_height = 2u16;
-    let min_portrait_height = 10u16;
-    let show_caption = inner.height >= min_portrait_height + caption_height;
+    // Reserve caption only when there is enough height for the portrait canvas to reach at least
+    // Compact detail (MIN_PORTRAIT_HEIGHT_FOR_COMPACT = 10 rows). Caption needs
+    // PORTRAIT_CAPTION_HEIGHT rows, so the total threshold is their sum.
+    let show_caption = inner.height >= MIN_PORTRAIT_HEIGHT_FOR_COMPACT + PORTRAIT_CAPTION_HEIGHT;
 
     let (portrait_area, caption_area_opt) = if show_caption {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(6), Constraint::Length(caption_height)])
+            .constraints([
+                Constraint::Min(6),
+                Constraint::Length(PORTRAIT_CAPTION_HEIGHT),
+            ])
             .split(inner);
         (chunks[0], Some(chunks[1]))
     } else {

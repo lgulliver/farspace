@@ -23,6 +23,11 @@ use ratatui::{
     Frame,
 };
 
+/// Minimum portrait canvas height (rows) needed to reach Compact detail level.
+const MIN_PORTRAIT_HEIGHT_FOR_COMPACT: u16 = 10;
+/// Height (rows) reserved for the caption block below the portrait canvas.
+const PORTRAIT_CAPTION_HEIGHT: u16 = 2;
+
 /// Render the colony detail screen
 pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let (header_area, main_area, footer_area) = compose_layout(area);
@@ -84,36 +89,75 @@ fn render_colony_portrait(
         return;
     }
 
-    let mut canvas = Canvas::new(inner.width, inner.height);
+    // Reserve caption only when there is enough height for the portrait canvas to reach at least
+    // Compact detail (MIN_PORTRAIT_HEIGHT_FOR_COMPACT = 10 rows). Caption needs
+    // PORTRAIT_CAPTION_HEIGHT rows, so the total threshold is their sum.
+    let show_caption = inner.height >= MIN_PORTRAIT_HEIGHT_FOR_COMPACT + PORTRAIT_CAPTION_HEIGHT;
+
+    let (portrait_area, caption_area_opt) = if show_caption {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(6),
+                Constraint::Length(PORTRAIT_CAPTION_HEIGHT),
+            ])
+            .split(inner);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (inner, None)
+    };
+
+    let mut canvas = Canvas::new(portrait_area.width, portrait_area.height);
     canvas.fill(ColorToken::SpaceBg, RenderLayer::Background.z_base());
-    let detail = detail_for_area(inner);
+    let detail = detail_for_area(portrait_area);
     let Some(colony_id) = app_state.colony.selected_colony else {
         canvas.draw_text(
             1,
-            inner.height / 2,
+            portrait_area.height / 2,
             "No colony selected",
             ColorToken::Muted.to_style(None),
             RenderLayer::Labels.z_base(),
         );
-        canvas.render_to_buffer(inner, frame.buffer_mut());
+        canvas.render_to_buffer(portrait_area, frame.buffer_mut());
         return;
     };
     let Some(colony) = game_state.colonies.get(&colony_id) else {
         return;
     };
-    let planet_class = game_state
-        .stars
-        .get(&colony.star)
-        .and_then(|star| star.planets.get(colony.planet_index))
-        .map(|planet| planet.class);
+    let star = game_state.stars.get(&colony.star);
+    let planet = star.and_then(|system| system.planets.get(colony.planet_index));
+    let planet_class = planet.map(|planet| planet.class);
     let portrait = colony_portrait(
         portrait_input_from_colony(planet_class, Some(colony)),
         detail,
     );
-    let x = inner.width.saturating_sub(portrait.width) / 2;
-    let y = inner.height.saturating_sub(portrait.height) / 2;
+    let x = portrait_area.width.saturating_sub(portrait.width) / 2;
+    let y = portrait_area.height.saturating_sub(portrait.height) / 2;
     canvas.draw_sprite(&portrait, x, y, 0, RenderLayer::Bodies.z_base());
-    canvas.render_to_buffer(inner, frame.buffer_mut());
+    canvas.draw_text(
+        1,
+        0,
+        "Surface View",
+        ColorToken::Accent.to_style(None),
+        RenderLayer::Labels.z_base(),
+    );
+    canvas.render_to_buffer(portrait_area, frame.buffer_mut());
+
+    if let Some(caption_area) = caption_area_opt {
+        let planet_name = planet.map(|p| p.name.as_str()).unwrap_or("Unknown");
+        let class_name = planet.map(|p| p.class.name()).unwrap_or("Unknown");
+        let star_name = star.map(|s| s.name.as_str()).unwrap_or("Unknown");
+        let status_line = format!(
+            "{}  |  {}  |  pop {}",
+            class_name, star_name, colony.population
+        );
+        let caption = Paragraph::new(vec![
+            Line::from(vec![Span::styled(planet_name, Theme::title_style())]),
+            Line::from(vec![Span::styled(status_line, Theme::muted_style())]),
+        ])
+        .style(Theme::default_style());
+        frame.render_widget(caption, caption_area);
+    }
 }
 
 /// Render colony statistics panel
@@ -788,6 +832,7 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect();
+        assert!(content.contains("Surface View"));
         assert!(content.contains("Supply:"));
         assert!(content.contains("Connected"));
     }

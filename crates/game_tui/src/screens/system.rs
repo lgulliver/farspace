@@ -1,12 +1,15 @@
 //! System inspector screen
 
-use std::borrow::Cow;
+use std::{borrow::Cow, f32::consts::PI};
 
 use crate::components::{derive_header_data, render_footer, render_header, render_log};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::renderer::{
     palette::ColorToken,
-    planet_art::{planet_kind_from_class, planet_sprite, star_sprite, PlanetVisualKind},
+    planet_art::{
+        colony_portrait, planet_kind_from_class, planet_sprite, portrait_input_from_colony,
+        star_sprite, PlanetVisualKind,
+    },
     sprite::{detail_for_area, DetailLevel},
     Canvas, RenderLayer,
 };
@@ -23,6 +26,10 @@ use ratatui::{
 };
 
 const ORBIT_SELECTION_PULSE_PERIOD: u64 = 5;
+/// Rows above the planet sprite top at which the orbit number label is drawn.
+/// Placing it here keeps the label clear of the bottom selection bracket (z=120),
+/// which sits one row below the sprite bottom.
+const ORBIT_LABEL_OFFSET_ABOVE_SPRITE: u16 = 2;
 
 pub fn render_system(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let (header_area, main_area, footer_area) = compose_layout(area);
@@ -209,16 +216,16 @@ fn render_system_visual(
     let mut canvas = Canvas::new(area.width, area.height);
     canvas.fill(ColorToken::SpaceBg, RenderLayer::Background.z_base());
 
+    let orbit_center_x = area.width.saturating_mul(2) / 5;
+    let orbit_center_y = area.height / 2;
     let star_detail = if matches!(detail, DetailLevel::Cinematic) {
         DetailLevel::Standard
     } else {
         detail
     };
     let star_visual_sprite = star_sprite(star.spectral_class, star_detail);
-    let center_x = area.width / 2;
-    let center_y = area.height / 2;
-    let star_x = center_x.saturating_sub(star_visual_sprite.width / 2);
-    let star_y = center_y.saturating_sub(star_visual_sprite.height / 2);
+    let star_x = orbit_center_x.saturating_sub(star_visual_sprite.width / 2);
+    let star_y = orbit_center_y.saturating_sub(star_visual_sprite.height / 2);
     canvas.draw_sprite(
         &star_visual_sprite,
         star_x,
@@ -228,24 +235,51 @@ fn render_system_visual(
     );
 
     if !star.planets.is_empty() {
-        let spacing = (area.width / (star.planets.len() as u16 + 1)).max(2);
         let selected_planet = app_state
             .navigation
             .selected_planet_index
             .min(star.planets.len().saturating_sub(1));
+        let min_rx = star_visual_sprite.width / 2 + 3;
+        let max_rx = orbit_center_x
+            .min(area.width.saturating_sub(orbit_center_x).saturating_sub(6))
+            .max(min_rx.saturating_add(1));
+        let min_ry = star_visual_sprite.height / 2 + 1;
+        let max_ry = orbit_center_y
+            .min(area.height.saturating_sub(orbit_center_y).saturating_sub(3))
+            .max(min_ry.saturating_add(1));
+        let rx_span = max_rx.saturating_sub(min_rx);
+        let ry_span = max_ry.saturating_sub(min_ry);
+
         for (index, planet) in star.planets.iter().enumerate() {
-            let x = spacing.saturating_mul(index as u16 + 1);
-            let y = if index % 2 == 0 {
-                center_y.saturating_add(1)
-            } else {
-                center_y.saturating_sub(1)
-            };
+            let rx = min_rx
+                + ((u32::from(rx_span) * (index as u32 + 1)) / star.planets.len() as u32) as u16;
+            let ry = min_ry
+                + ((u32::from(ry_span) * (index as u32 + 1)) / star.planets.len() as u32) as u16;
+            draw_orbit_ring(
+                &mut canvas,
+                area,
+                orbit_center_x,
+                orbit_center_y,
+                rx,
+                ry,
+                index == selected_planet,
+            );
+
+            let angle = (-0.58 * PI) + ((index % 6) as f32 * 0.37);
+            let x = orbit_center_x as f32 + angle.cos() * rx as f32;
+            let y = orbit_center_y as f32 + angle.sin() * ry as f32;
+            let x = x.round().clamp(0.0, area.width.saturating_sub(1) as f32) as u16;
+            let y = y.round().clamp(0.0, area.height.saturating_sub(1) as f32) as u16;
             let kind = if planet.surveyed {
                 planet_kind_from_class(Some(planet.class))
             } else {
                 PlanetVisualKind::Unknown
             };
-            let sprite = planet_sprite(kind, DetailLevel::Tiny);
+            let sprite = if index == selected_planet && !matches!(detail, DetailLevel::Tiny) {
+                planet_sprite(kind, DetailLevel::Compact)
+            } else {
+                planet_sprite(kind, DetailLevel::Tiny)
+            };
             canvas.draw_sprite(
                 &sprite,
                 x.saturating_sub(sprite.width / 2),
@@ -253,20 +287,28 @@ fn render_system_visual(
                 0,
                 RenderLayer::Bodies.z_base() + 1,
             );
+            let label_y = y
+                .saturating_sub(sprite.height / 2)
+                .saturating_sub(ORBIT_LABEL_OFFSET_ABOVE_SPRITE)
+                .min(area.height.saturating_sub(1));
+            canvas.draw_text(
+                x.saturating_sub(1),
+                label_y,
+                &format!("{:>2}", index + 1),
+                ColorToken::Muted.to_style(None),
+                RenderLayer::Labels.z_base(),
+            );
             if index == selected_planet {
-                let pulse = if app_state.reduced_motion {
-                    '◌'
-                } else if (app_state.tick_count / ORBIT_SELECTION_PULSE_PERIOD).is_multiple_of(2) {
-                    '◉'
-                } else {
-                    '◌'
-                };
-                canvas.set_cell(
-                    x.min(area.width.saturating_sub(1)),
-                    y.saturating_add(1).min(area.height.saturating_sub(1)),
-                    pulse,
-                    ColorToken::Accent.to_style(None),
-                    RenderLayer::Selection.z_base(),
+                let flash = !app_state.reduced_motion
+                    && (app_state.tick_count / ORBIT_SELECTION_PULSE_PERIOD).is_multiple_of(2);
+                draw_selection_brackets(
+                    &mut canvas,
+                    area,
+                    x,
+                    y,
+                    sprite.width,
+                    sprite.height,
+                    flash,
                 );
             }
         }
@@ -280,6 +322,75 @@ fn render_system_visual(
         RenderLayer::Labels.z_base(),
     );
     canvas.render_to_buffer(area, frame.buffer_mut());
+}
+
+fn draw_orbit_ring(
+    canvas: &mut Canvas,
+    area: Rect,
+    cx: u16,
+    cy: u16,
+    rx: u16,
+    ry: u16,
+    selected: bool,
+) {
+    if rx < 2 || ry < 2 {
+        return;
+    }
+
+    let glyph = if selected { '•' } else { '·' };
+    let style = if selected {
+        ColorToken::Accent.to_style(None)
+    } else {
+        ColorToken::DimOverlay.to_style(None)
+    };
+    let tolerance = if selected { 0.22 } else { 0.14 };
+    let x_start = cx.saturating_sub(rx).saturating_sub(1);
+    let x_end = cx.saturating_add(rx).saturating_add(1).min(area.width);
+    let y_start = cy.saturating_sub(ry).saturating_sub(1);
+    let y_end = cy.saturating_add(ry).saturating_add(1).min(area.height);
+
+    for y in y_start..y_end {
+        let dy = y as f32 - cy as f32;
+        for x in x_start..x_end {
+            let dx = x as f32 - cx as f32;
+            let distance =
+                (dx * dx) / (rx as f32 * rx as f32) + (dy * dy) / (ry as f32 * ry as f32);
+            if (distance - 1.0).abs() <= tolerance {
+                canvas.set_cell(x, y, glyph, style, RenderLayer::Lanes.z_base());
+            }
+        }
+    }
+}
+
+fn draw_selection_brackets(
+    canvas: &mut Canvas,
+    area: Rect,
+    x: u16,
+    y: u16,
+    sprite_width: u16,
+    sprite_height: u16,
+    flash: bool,
+) {
+    let style = if flash {
+        ColorToken::Accent2.to_style(None)
+    } else {
+        ColorToken::Accent.to_style(None)
+    };
+    let left_x = x.saturating_sub(sprite_width / 2).saturating_sub(2);
+    let right_x = x
+        .saturating_add(sprite_width / 2)
+        .saturating_add(2)
+        .min(area.width.saturating_sub(1));
+    let top_y = y.saturating_sub(sprite_height / 2).saturating_sub(1);
+    let bottom_y = y
+        .saturating_add(sprite_height / 2)
+        .saturating_add(1)
+        .min(area.height.saturating_sub(1));
+
+    canvas.set_cell(left_x, y, '⟨', style, RenderLayer::Selection.z_base());
+    canvas.set_cell(right_x, y, '⟩', style, RenderLayer::Selection.z_base());
+    canvas.set_cell(x, top_y, '⌃', style, RenderLayer::Selection.z_base());
+    canvas.set_cell(x, bottom_y, '⌄', style, RenderLayer::Selection.z_base());
 }
 
 fn render_system_details(
@@ -331,25 +442,160 @@ fn render_system_details(
         .collect();
 
     let survey_state = planet_survey_state(game_state, star.id, selected_planet, planet.surveyed);
+    let detail_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(40), Constraint::Min(0)])
+        .split(inner);
+
+    render_selected_planet_hero(
+        frame,
+        detail_chunks[0],
+        game_state,
+        star,
+        planet,
+        selected_planet,
+        survey_state,
+    );
+    render_system_detail_facts(
+        frame,
+        detail_chunks[1],
+        game_state,
+        planet,
+        survey_state,
+        &fleets_here,
+    );
+}
+
+fn render_selected_planet_hero(
+    frame: &mut Frame,
+    area: Rect,
+    game_state: &GameState,
+    star: &game_core::Star,
+    planet: &game_core::Planet,
+    selected_planet: usize,
+    survey_state: &str,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(22), Constraint::Min(18)])
+        .split(area);
+
+    let mut canvas = Canvas::new(chunks[0].width, chunks[0].height);
+    canvas.fill(ColorToken::SpaceBg, RenderLayer::Background.z_base());
+    let detail = detail_for_area(chunks[0]);
+    let render_detail = if matches!(detail, DetailLevel::Tiny) {
+        DetailLevel::Compact
+    } else {
+        detail
+    };
+    let sprite = if let Some(colony_id) = planet.colony {
+        colony_portrait(
+            portrait_input_from_colony(
+                if survey_state == "Surveyed" {
+                    Some(planet.class)
+                } else {
+                    None
+                },
+                game_state.colonies.get(&colony_id),
+            ),
+            render_detail,
+        )
+    } else {
+        planet_sprite(
+            if survey_state == "Surveyed" {
+                planet_kind_from_class(Some(planet.class))
+            } else {
+                PlanetVisualKind::Unknown
+            },
+            render_detail,
+        )
+    };
+    let sprite_x = chunks[0].width.saturating_sub(sprite.width) / 2;
+    let sprite_y = chunks[0].height.saturating_sub(sprite.height) / 2;
+    canvas.draw_sprite(&sprite, sprite_x, sprite_y, 0, RenderLayer::Bodies.z_base());
+    draw_selection_brackets(
+        &mut canvas,
+        chunks[0],
+        sprite_x.saturating_add(sprite.width / 2),
+        sprite_y.saturating_add(sprite.height / 2),
+        sprite.width,
+        sprite.height,
+        true,
+    );
+    canvas.render_to_buffer(chunks[0], frame.buffer_mut());
 
     let mut lines = vec![
+        Line::from(vec![Span::styled("Selected World", Theme::title_style())]),
         Line::from(vec![
-            Span::styled(star.name.as_str(), Theme::title_style()),
+            Span::styled(
+                if survey_state == "Surveyed" {
+                    planet.name.as_str()
+                } else {
+                    "Unidentified World"
+                },
+                Theme::accent_style(),
+            ),
+            Span::styled(
+                format!("  Orbit {}", selected_planet + 1),
+                Theme::muted_style(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(star.name.as_str(), Theme::muted_style()),
             Span::styled(
                 format!(" [{}]", star.spectral_class.as_char()),
                 Style::default().fg(Theme::star_color(star.spectral_class)),
             ),
         ]),
-        Line::from(""),
         Line::from(vec![
-            Span::styled("Orbit: ", Theme::muted_style()),
-            Span::raw((selected_planet + 1).to_string()),
-        ]),
-        Line::from(vec![
-            Span::styled("Survey: ", Theme::muted_style()),
-            Span::raw(survey_state),
+            Span::styled("Survey ", Theme::muted_style()),
+            Span::styled(survey_state, survey_style(survey_state)),
+            Span::styled("  Signature ", Theme::muted_style()),
+            Span::styled(
+                planet_signature(planet, survey_state),
+                Theme::accent_style(),
+            ),
         ]),
     ];
+    if let Some(colony_id) = planet.colony {
+        if let Some(colony) = game_state.colonies.get(&colony_id) {
+            lines.push(Line::from(vec![
+                Span::styled("Colony ", Theme::muted_style()),
+                Span::styled(format!("Pop {}", colony.population), Theme::accent_style()),
+                Span::styled("  Order ", Theme::muted_style()),
+                Span::styled(colony.unrest_label(), Theme::default_style()),
+            ]));
+        }
+    } else {
+        lines.push(Line::from(vec![
+            Span::styled("Colony ", Theme::muted_style()),
+            Span::styled("Absent", Theme::muted_style()),
+        ]));
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines).style(Theme::default_style()),
+        chunks[1],
+    );
+}
+
+fn render_system_detail_facts(
+    frame: &mut Frame,
+    area: Rect,
+    game_state: &GameState,
+    planet: &game_core::Planet,
+    survey_state: &str,
+    fleets_here: &[&game_core::Fleet],
+) {
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled("Survey: ", Theme::muted_style()),
+        Span::styled(survey_state, survey_style(survey_state)),
+    ]));
 
     if survey_state == "Surveyed" {
         lines.push(Line::from(vec![
@@ -376,7 +622,6 @@ fn render_system_details(
                 planet.class.science_bonus()
             )),
         ]));
-        // Show planet specials (revealed after survey)
         if planet.specials.is_empty() && planet.resources.is_empty() {
             lines.push(Line::from(vec![
                 Span::styled("Specials: ", Theme::muted_style()),
@@ -462,7 +707,6 @@ fn render_system_details(
         }
     }
 
-    // Show rally point for player-owned colony at this planet
     if let Some(colony_id) = planet.colony {
         if let Some(colony) = game_state.colonies.get(&colony_id) {
             if colony.owner == game_state.player_empire {
@@ -565,7 +809,30 @@ fn render_system_details(
         }
     }
 
-    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
+    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), area);
+}
+
+fn survey_style(survey_state: &str) -> Style {
+    match survey_state {
+        "Surveyed" => Theme::accent_style(),
+        "Surveying" => Theme::warning_style(),
+        _ => Theme::muted_style(),
+    }
+}
+
+fn planet_signature(planet: &game_core::Planet, survey_state: &str) -> &'static str {
+    if survey_state != "Surveyed" {
+        return "Unknown";
+    }
+
+    match planet.class {
+        game_core::PlanetClass::Terran => "Blue-green world",
+        game_core::PlanetClass::Oceanic => "Deep-water world",
+        game_core::PlanetClass::Desert => "Dry dust world",
+        game_core::PlanetClass::Volcanic => "Molten fault world",
+        game_core::PlanetClass::Frozen => "Icebound world",
+        game_core::PlanetClass::Barren => "Airless stone world",
+    }
 }
 
 #[cfg(test)]
@@ -669,6 +936,8 @@ mod tests {
             rendered.contains("Class: Terran"),
             "surveyed details should show class"
         );
+        assert!(rendered.contains("Selected World"));
+        assert!(rendered.contains("Signature"));
     }
 
     #[test]

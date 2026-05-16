@@ -171,7 +171,10 @@ pub enum Event {
         unemployed: u64,
     },
     /// A colony population increase occurred this turn.
-    PopulationGrew { colony: ColonyId, new_population: u64 },
+    PopulationGrew {
+        colony: ColonyId,
+        new_population: u64,
+    },
     /// Empire food supply is negative — population is underfed
     FoodShortage {
         empire: EmpireId,

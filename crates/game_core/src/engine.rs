@@ -1451,14 +1451,12 @@ impl Engine {
         // - suppressed while blockaded
         // - fixed periodic cadence based on (turn + colony_id)
         for colony_id in sorted_colony_ids(&self.state.colonies) {
-            let (star_id, planet_index, stability, owner) = match self.state.colonies.get(&colony_id) {
-                Some(c) => (c.star, c.planet_index, c.stability, c.owner),
-                None => continue,
-            };
+            let (star_id, planet_index, stability, owner) =
+                match self.state.colonies.get(&colony_id) {
+                    Some(c) => (c.star, c.planet_index, c.stability, c.owner),
+                    None => continue,
+                };
             if self.state.colony_blockade.contains_key(&colony_id) || stability < 90 {
-                continue;
-            }
-            if !has_tech(&self.state, owner, TechId::ADAPTIVE_MEDICINE) {
                 continue;
             }
             if self
@@ -1482,7 +1480,7 @@ impl Engine {
             if y.workforce.housing_deficit > 0 || y.food < y.food_consumed {
                 continue;
             }
-            if !(self.state.turn + colony_id.0 as u32).is_multiple_of(6) {
+            if !(self.state.turn + colony_id.0 as u32).is_multiple_of(12) {
                 continue;
             }
             if let Some(colony) = self.state.colonies.get_mut(&colony_id) {

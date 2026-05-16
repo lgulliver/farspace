@@ -15,12 +15,12 @@
 
 use crate::engine::travel_turns_with_lanes;
 use crate::events::Event;
-use crate::yield_model::{calculate_yield_with_context, YieldContext};
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, BuildItem, BuildingType, Colony,
     ColonyId, ColonyRole, EmpireId, FleetId, FleetKind, GameState, OrbitalStructureType,
     PlanetClass, PlaystyleTag, ScoutMission, ShipDesignId, StarId, TechDomain, TechId, TechTag,
 };
+use crate::yield_model::{calculate_yield_with_context, YieldContext};
 
 /// Run one AI decision pass for the given empire.
 ///
@@ -296,6 +296,22 @@ fn pick_build_item(
             .get(&empire_id)
             .is_some_and(|e| e.research.completed.contains(&tech))
     };
+
+    let empire_food_negative = state
+        .empires
+        .get(&empire_id)
+        .map(|e| e.food < 0)
+        .unwrap_or(false);
+    if empire_food_negative
+        && colony_yield.food < colony_yield.food_consumed
+        && !colony.buildings.contains(&BuildingType::AquacultureBay)
+    {
+        let can_place_surface =
+            planet_size.is_some_and(|size| colony.can_place_surface_building(size));
+        if can_place_surface {
+            return Some(BuildItem::SurfaceStructure(BuildingType::AquacultureBay));
+        }
+    }
 
     // Expansionist: dispatch scouts early before building infrastructure,
     // but only while colonisation is not yet available.
@@ -2472,19 +2488,3 @@ mod tests {
         );
     }
 }
-    if colony_yield.food < colony_yield.food_consumed || colony_yield.workforce.housing_deficit > 0 {
-        if !colony.buildings.contains(&BuildingType::AquacultureBay) {
-            let can_place_surface =
-                planet_size.is_some_and(|size| colony.can_place_surface_building(size));
-            if can_place_surface {
-                return Some(BuildItem::SurfaceStructure(BuildingType::AquacultureBay));
-            }
-        }
-    }
-
-    if colony_yield.workforce.unemployed >= 2 && !colony.buildings.contains(&BuildingType::FabricationYard) {
-        let can_place_surface = planet_size.is_some_and(|size| colony.can_place_surface_building(size));
-        if can_place_surface {
-            return Some(BuildItem::SurfaceStructure(BuildingType::FabricationYard));
-        }
-    }

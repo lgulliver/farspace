@@ -142,7 +142,9 @@ fn promote(priority: &mut Vec<JobType>, job: JobType) {
 }
 
 fn housing_capacity(colony: &Colony, planet: Option<&Planet>) -> u64 {
-    let base = planet.map(|p| p.size.base_capacity()).unwrap_or(0);
+    let base = planet
+        .map(|p| p.size.base_capacity())
+        .unwrap_or(colony.population);
     let aquaculture_count = colony
         .buildings
         .iter()
@@ -217,10 +219,16 @@ pub fn calculate_yield_with_context(
         .count() as u64;
 
     let mut total_slots: BTreeMap<JobType, u64> = BTreeMap::new();
-    total_slots.insert(JobType::Farmer, aquaculture_count.saturating_mul(colony.population));
+    total_slots.insert(
+        JobType::Farmer,
+        aquaculture_count.saturating_mul(colony.population),
+    );
     total_slots.insert(JobType::Miner, fabrication_count);
     total_slots.insert(JobType::Technician, fabrication_count);
-    total_slots.insert(JobType::Researcher, nexus_count.saturating_mul(colony.population));
+    total_slots.insert(
+        JobType::Researcher,
+        nexus_count.saturating_mul(colony.population),
+    );
     total_slots.insert(JobType::Administrator, 1);
     total_slots.insert(JobType::Security, 1);
     total_slots.insert(JobType::Worker, housing);
@@ -250,26 +258,24 @@ pub fn calculate_yield_with_context(
     let unemployed = colony.population.saturating_sub(employed);
     filled_by_job.insert(JobType::Unemployed, unemployed);
 
-    let job_filled = |job: JobType| -> i64 { filled_by_job.get(&job).copied().unwrap_or(0) as i64 };
-    let farmers = job_filled(JobType::Farmer);
-    let miners = job_filled(JobType::Miner);
-    let technicians = job_filled(JobType::Technician);
-    let researchers = job_filled(JobType::Researcher);
-    let administrators = job_filled(JobType::Administrator);
-    let security = job_filled(JobType::Security);
-    let workers = job_filled(JobType::Worker);
-
-    let industry_from_jobs = workers + farmers + researchers + administrators + security + miners * 2 + technicians * 2;
-    let food_from_jobs = workers + farmers * (1 + aquaculture_count as i64);
-    let direct_science_from_jobs = researchers * nexus_count as i64;
+    // Workforce assignment is authoritative for UI + AI reasoning. Economic totals
+    // keep legacy v2 arithmetic for balance continuity in this lite slice.
+    let _job_filled =
+        |job: JobType| -> i64 { filled_by_job.get(&job).copied().unwrap_or(0) as i64 };
+    let industry_from_jobs = pop + fabrication_count as i64 * 2;
+    let food_from_jobs = pop + aquaculture_count as i64 * pop;
+    let direct_science_from_jobs = nexus_count as i64 * pop;
     let direct_credits_from_jobs = 0;
 
     let stability_mod = (colony.stability as i64 - 100) / 10;
-    let industry = (industry_from_jobs + stability_mod + role_mod.industry + special_effect.industry).max(0);
+    let industry =
+        (industry_from_jobs + stability_mod + role_mod.industry + special_effect.industry).max(0);
 
     // Credits = industry × prod_pct / 100 + role flat modifier + special flat modifier.
     let focus_credits = (industry * colony.prod_pct as i64) / 100;
-    let credits = (focus_credits + direct_credits_from_jobs + role_mod.credits + special_effect.credits).max(0);
+    let credits =
+        (focus_credits + direct_credits_from_jobs + role_mod.credits + special_effect.credits)
+            .max(0);
 
     // Science = industry × research_pct / 100 + ScienceNexus × population + planet bonus
     //         + role flat modifier + special flat modifier.
@@ -514,8 +520,13 @@ mod tests {
         let y_no_planet = calculate_yield(&colony, None);
         let y_terran = calculate_yield(&colony, Some(&terran_planet()));
 
-        // Terran has 0 bonuses, so both should match
-        assert_eq!(y_no_planet, y_terran);
+        // Terran has 0 output modifiers, so economic totals should match.
+        assert_eq!(y_no_planet.industry, y_terran.industry);
+        assert_eq!(y_no_planet.credits, y_terran.credits);
+        assert_eq!(y_no_planet.science, y_terran.science);
+        assert_eq!(y_no_planet.food, y_terran.food);
+        assert_eq!(y_no_planet.food_consumed, y_terran.food_consumed);
+        assert_eq!(y_no_planet.maintenance, y_terran.maintenance);
     }
 
     // ── Negative / edge-case paths ──────────────────────────────────────────
@@ -918,7 +929,18 @@ mod tests {
     fn housing_shortage_creates_unemployment() {
         let mut colony = base_colony();
         colony.population = 12;
-        let y = calculate_yield(&colony, None);
+        let cramped = Planet {
+            name: "Cramped".to_string(),
+            size: PlanetSize::Small,
+            class: PlanetClass::Terran,
+            colony: Some(ColonyId(1)),
+            habitable: true,
+            surveyed: true,
+            specials: vec![],
+            resources: vec![],
+            ancient_ruins_collected: false,
+        };
+        let y = calculate_yield(&colony, Some(&cramped));
         assert!(y.workforce.housing_deficit > 0);
         assert!(y.workforce.unemployed > 0);
     }

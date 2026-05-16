@@ -260,7 +260,6 @@ fn render_colony_stats(
     let housing_cap = workforce.housing;
     let industry = colony_yield.industry;
     let research_out = colony_yield.science;
-    let food_out = colony_yield.food;
     let food_balance = colony_yield.food - colony_yield.food_consumed;
     let total_maint = colony_yield.maintenance;
     let supply = game_state.colony_supply_state(colony.id);

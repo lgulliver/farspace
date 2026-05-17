@@ -16,11 +16,14 @@
 use crate::engine::travel_turns_with_lanes;
 use crate::events::Event;
 use crate::state::{
-    all_techs, empire_definition_by_id, is_tech_available, BuildItem, BuildingType, Colony,
-    ColonyId, ColonyRole, EmpireId, FleetId, FleetKind, GameState, OrbitalStructureType,
+    all_techs, empire_definition_by_id, is_tech_available, AiDoctrine, BuildItem, BuildingType,
+    Colony, ColonyId, ColonyRole, EmpireId, FleetId, FleetKind, GameState, OrbitalStructureType,
     PlanetClass, PlaystyleTag, ScoutMission, ShipDesignId, StarId, TechDomain, TechId, TechTag,
 };
 use crate::yield_model::{calculate_yield_with_context, YieldContext};
+
+const FUTURE_PENALTY_MULTIPLIER: i32 = 12;
+const FOOD_CRISIS_SCORE_BONUS: i32 = 18;
 
 /// Run one AI decision pass for the given empire.
 ///
@@ -44,8 +47,8 @@ pub fn run_ai_turn(state: &mut GameState, ai_empire_id: EmpireId) -> Vec<Event> 
 // ---------------------------------------------------------------------------
 
 fn ai_select_research(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Event>) {
-    let tech_id = match pick_research(state, empire_id) {
-        Some(t) => t,
+    let (tech_id, queue) = match pick_research_plan(state, empire_id) {
+        Some(plan) => plan,
         None => return,
     };
 
@@ -57,6 +60,7 @@ fn ai_select_research(state: &mut GameState, empire_id: EmpireId, events: &mut V
             }
         }
         empire.research.current_tech = Some(tech_id);
+        empire.research.queue = queue;
     }
 
     events.push(Event::AiResearchSelected {
@@ -65,20 +69,58 @@ fn ai_select_research(state: &mut GameState, empire_id: EmpireId, events: &mut V
     });
 }
 
-/// Pick the cheapest available (prerequisites met) unresearched tech.
-/// Returns `None` if the empire is already researching something.
-///
-/// Ties in cost are broken by playstyle preference first, then ascending TechId,
-/// so an empire with a scientific bent will prefer research/exploration techs
-/// before engineering techs of equal cost.
-fn pick_research(state: &GameState, empire_id: EmpireId) -> Option<TechId> {
+/// Build a deterministic 2–4 item research plan and return the first tech plus queue.
+fn pick_research_plan(state: &GameState, empire_id: EmpireId) -> Option<(TechId, Vec<TechId>)> {
     let empire = state.empires.get(&empire_id)?;
     if empire.research.current_tech.is_some() {
         return None;
     }
-    let completed = &empire.research.completed;
+    let plan_len = research_plan_len(state, empire_id);
+    let mut simulated_completed = empire.research.completed.clone();
+    let mut plan = Vec::new();
+    for _ in 0..plan_len {
+        let Some(next) =
+            pick_research_from_completed(state, empire_id, &simulated_completed, &plan)
+        else {
+            break;
+        };
+        simulated_completed.push(next);
+        plan.push(next);
+    }
+    let current = *plan.first()?;
+    let queue = plan.iter().skip(1).copied().collect::<Vec<_>>();
+    Some((current, queue))
+}
 
-    // Gather preferred tech domains from empire identity.
+fn research_plan_len(state: &GameState, empire_id: EmpireId) -> usize {
+    let Some(def) = state
+        .empires
+        .get(&empire_id)
+        .and_then(|e| e.empire_def)
+        .and_then(empire_definition_by_id)
+    else {
+        return 3;
+    };
+    let expansion = def.doctrine_weight(AiDoctrine::Expansionist);
+    let technologist = def.doctrine_weight(AiDoctrine::Technologist);
+    let isolationist = def.doctrine_weight(AiDoctrine::Isolationist);
+    if expansion >= 7 || technologist >= 8 {
+        4
+    } else if isolationist >= 7 {
+        2
+    } else {
+        3
+    }
+}
+
+fn pick_research_from_completed(
+    state: &GameState,
+    empire_id: EmpireId,
+    completed: &[TechId],
+    already_planned: &[TechId],
+) -> Option<TechId> {
+    let empire = state.empires.get(&empire_id)?;
+
     let preferred_domains: Vec<TechDomain> = empire
         .empire_def
         .and_then(empire_definition_by_id)
@@ -145,43 +187,25 @@ fn pick_research(state: &GameState, empire_id: EmpireId) -> Option<TechId> {
     let mut candidates: Vec<_> = all_techs()
         .iter()
         .filter(|t| is_tech_available(completed, t.id))
+        .filter(|t| !already_planned.contains(&t.id))
         .collect();
 
-    // Deterministic weighted sort:
-    // - playable unlocks over pure future hooks
-    // - preferred domains/tags first
-    // - concrete mechanics before pure speculative tracks
-    // - then era/cost/display-order/id
     candidates.sort_by(|a, b| {
-        let domain_pref_a = if preferred_domains.contains(&a.domain) {
-            0u8
-        } else {
-            1
-        };
-        let domain_pref_b = if preferred_domains.contains(&b.domain) {
-            0u8
-        } else {
-            1
-        };
+        let score_a = research_score(state, empire_id, a);
+        let score_b = research_score(state, empire_id, b);
+        let domain_pref_a = preferred_domains.contains(&a.domain);
+        let domain_pref_b = preferred_domains.contains(&b.domain);
+        let tag_pref_a = a.tags.iter().any(|tag| preferred_tags.contains(tag));
+        let tag_pref_b = b.tags.iter().any(|tag| preferred_tags.contains(tag));
 
-        let tag_pref_a = if a.tags.iter().any(|tag| preferred_tags.contains(tag)) {
-            0u8
-        } else {
-            1
-        };
-        let tag_pref_b = if b.tags.iter().any(|tag| preferred_tags.contains(tag)) {
-            0u8
-        } else {
-            1
-        };
-
-        let future_penalty_a = future_penalty(a.future_hook, a.unlocks.is_empty());
-        let future_penalty_b = future_penalty(b.future_hook, b.unlocks.is_empty());
-
-        future_penalty_a
-            .cmp(&future_penalty_b)
-            .then(domain_pref_a.cmp(&domain_pref_b))
-            .then(tag_pref_a.cmp(&tag_pref_b))
+        score_b
+            .cmp(&score_a)
+            .then(
+                future_penalty(a.future_hook, a.unlocks.is_empty())
+                    .cmp(&future_penalty(b.future_hook, b.unlocks.is_empty())),
+            )
+            .then(domain_pref_b.cmp(&domain_pref_a))
+            .then(tag_pref_b.cmp(&tag_pref_a))
             .then(a.rarity.ai_penalty().cmp(&b.rarity.ai_penalty()))
             .then(a.tier.cmp(&b.tier))
             .then(a.cost.cmp(&b.cost))
@@ -190,6 +214,77 @@ fn pick_research(state: &GameState, empire_id: EmpireId) -> Option<TechId> {
             .then(a.id.cmp(&b.id))
     });
     candidates.first().map(|t| t.id)
+}
+
+fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::TechRecord) -> i32 {
+    let Some(def) = state
+        .empires
+        .get(&empire_id)
+        .and_then(|e| e.empire_def)
+        .and_then(empire_definition_by_id)
+    else {
+        return (tech.ai_weight as i32 * 8)
+            - future_penalty(tech.future_hook, tech.unlocks.is_empty()) as i32 * 8;
+    };
+    let doctrine = |axis| def.doctrine_weight(axis) as i32;
+
+    let mut score = tech.ai_weight as i32 * 8;
+    score -= future_penalty(tech.future_hook, tech.unlocks.is_empty()) as i32
+        * FUTURE_PENALTY_MULTIPLIER;
+
+    score += match tech.domain {
+        TechDomain::Exploration => {
+            doctrine(AiDoctrine::Explorer) * 3 + doctrine(AiDoctrine::Expansionist) * 2
+        }
+        TechDomain::Engineering => doctrine(AiDoctrine::Industrialist) * 3,
+        TechDomain::Military => {
+            doctrine(AiDoctrine::Militarist) * 3 + doctrine(AiDoctrine::Imperial) * 2
+        }
+        TechDomain::Society => {
+            doctrine(AiDoctrine::Technologist) * 2 + doctrine(AiDoctrine::Imperial)
+        }
+        TechDomain::Economy => doctrine(AiDoctrine::Merchant) * 3,
+        TechDomain::Biology => {
+            doctrine(AiDoctrine::Biologist) * 3 + doctrine(AiDoctrine::Expansionist)
+        }
+    };
+
+    for tag in tech.tags {
+        score += match tag {
+            TechTag::Survey | TechTag::Sensors | TechTag::Hyperspace | TechTag::SectorMapping => {
+                doctrine(AiDoctrine::Explorer) * 2
+            }
+            TechTag::Trade | TechTag::Supply | TechTag::Logistics => {
+                doctrine(AiDoctrine::Merchant) * 2
+            }
+            TechTag::Weapon | TechTag::Defense | TechTag::Invasion | TechTag::Command => {
+                doctrine(AiDoctrine::Militarist) + doctrine(AiDoctrine::Imperial)
+            }
+            TechTag::Production | TechTag::Shipyard | TechTag::Orbital => {
+                doctrine(AiDoctrine::Industrialist) * 2
+            }
+            TechTag::Growth | TechTag::Food | TechTag::Housing | TechTag::Terraforming => {
+                doctrine(AiDoctrine::Biologist) * 2
+            }
+            TechTag::Colonization => doctrine(AiDoctrine::Expansionist) * 2,
+            TechTag::Stability => {
+                doctrine(AiDoctrine::Isolationist) + doctrine(AiDoctrine::Technologist)
+            }
+            TechTag::EspionageFuture | TechTag::PopulationJobsFuture => -8,
+            _ => 0,
+        };
+    }
+
+    if state.empires.get(&empire_id).is_some_and(|e| e.food < 0)
+        && tech
+            .tags
+            .iter()
+            .any(|tag| matches!(tag, TechTag::Food | TechTag::Growth | TechTag::Housing))
+    {
+        score += FOOD_CRISIS_SCORE_BONUS;
+    }
+
+    score
 }
 
 fn future_penalty(is_future_hook: bool, has_no_unlocks: bool) -> u8 {
@@ -286,6 +381,15 @@ fn pick_build_item(
         .and_then(empire_definition_by_id);
     let playstyle: &[PlaystyleTag] = empire_def.map(|d| d.playstyle).unwrap_or(&[]);
     let ai_profile = empire_def.map(|d| d.ai_profile).unwrap_or_default();
+    let doctrine = |axis| empire_def.map(|def| def.doctrine_weight(axis)).unwrap_or(0);
+    let likes_science = ai_profile.prefers_science_ships;
+    let likes_troops = ai_profile.prefers_troop_transports || doctrine(AiDoctrine::Imperial) >= 8;
+    let likes_military = ai_profile.prefers_combat_ships || doctrine(AiDoctrine::Militarist) >= 8;
+    let likes_defense =
+        ai_profile.prefers_defensive_ships || doctrine(AiDoctrine::Isolationist) >= 8;
+    let likes_fast_scouts = ai_profile.prefers_fast_scouts || doctrine(AiDoctrine::Explorer) >= 9;
+    let likes_colony_arks =
+        ai_profile.prefers_colony_arks || doctrine(AiDoctrine::Expansionist) >= 9;
 
     let is_expansionist = playstyle.contains(&PlaystyleTag::Expansionist);
     let is_agrarian = playstyle.contains(&PlaystyleTag::Agrarian);
@@ -297,15 +401,51 @@ fn pick_build_item(
             .get(&empire_id)
             .is_some_and(|e| e.research.completed.contains(&tech))
     };
+    let colony_blockaded = state.colony_blockade_state(colony_id).is_some();
+    let hostile_at_colony = state.fleets.values().any(|fleet| {
+        fleet.location == colony.star
+            && fleet.owner != empire_id
+            && state
+                .relationship_status(empire_id, fleet.owner)
+                .is_hostile_or_war()
+    });
+    let defense_crisis = colony_blockaded || hostile_at_colony;
+    let housing_crisis = colony_yield.workforce.housing_deficit >= 2
+        || (colony_yield.workforce.housing_deficit > 0 && colony.stability < 70);
 
-    if empire_food_negative
-        && colony_yield.food < colony_yield.food_consumed
+    if (empire_food_negative && colony_yield.food < colony_yield.food_consumed
+        || housing_crisis && doctrine(AiDoctrine::Biologist) >= 8)
         && !colony.buildings.contains(&BuildingType::AquacultureBay)
     {
         let can_place_surface =
             planet_size.is_some_and(|size| colony.can_place_surface_building(size));
         if can_place_surface {
             return Some(BuildItem::SurfaceStructure(BuildingType::AquacultureBay));
+        }
+    }
+
+    if defense_crisis {
+        let has_orbital_engineering = has_tech(TechId::ORBITAL_ENGINEERING);
+        if has_orbital_engineering && !colony.has_shipyard() {
+            let can_place_orbital =
+                planet_size.is_some_and(|size| colony.can_place_orbital_installation(size));
+            if can_place_orbital {
+                return Some(BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard));
+            }
+        }
+        if colony.has_shipyard() && has_tech(TechId::PERIMETER_DEFENSE) {
+            if likes_military {
+                if has_tech(TechId::FLEET_COORDINATION) {
+                    return Some(BuildItem::Ship(ShipDesignId::DESTROYER));
+                }
+                if has_tech(TechId::STRIKE_DOCTRINE) {
+                    return Some(BuildItem::Ship(ShipDesignId::MISSILE_FRIGATE));
+                }
+                return Some(BuildItem::Ship(ShipDesignId::ESCORT_FRIGATE));
+            }
+            if likes_defense {
+                return Some(BuildItem::Ship(ShipDesignId::PATROL_CORVETTE));
+            }
         }
     }
 
@@ -330,14 +470,14 @@ fn pick_build_item(
             .any(|sid| !state.ai_explored_stars.contains(sid));
         // Only skip FabricationYard for scouting when no colonizer tech yet
         if has_unexplored && !has_habitat_seeding {
-            if ai_profile.prefers_science_ships && has_survey_drones && !has_science_ship {
+            if likes_science && has_survey_drones && !has_science_ship {
                 return Some(BuildItem::Ship(ShipDesignId::SCIENCE));
             }
-            if ai_profile.prefers_troop_transports && has_troop_transports && !has_transport {
+            if likes_troops && has_troop_transports && !has_transport {
                 return Some(BuildItem::Ship(ShipDesignId::TROOP_TRANSPORT));
             }
             // Prefer Fast Scout if researched and faction prefers it
-            if ai_profile.prefers_fast_scouts && has_rapid_transit {
+            if likes_fast_scouts && has_rapid_transit {
                 return Some(BuildItem::Ship(ShipDesignId::FAST_SCOUT));
             }
             return Some(BuildItem::Ship(ShipDesignId::SCOUT));
@@ -353,7 +493,7 @@ fn pick_build_item(
         }
     }
 
-    if ai_profile.prefers_science_ships && !colony.buildings.contains(&BuildingType::ScienceNexus) {
+    if likes_science && !colony.buildings.contains(&BuildingType::ScienceNexus) {
         let can_place_surface =
             planet_size.is_some_and(|size| colony.can_place_surface_building(size));
         if can_place_surface {
@@ -361,7 +501,7 @@ fn pick_build_item(
         }
     }
 
-    if ai_profile.prefers_troop_transports || ai_profile.prefers_combat_ships {
+    if likes_troops || likes_military || defense_crisis {
         let has_orbital_engineering = has_tech(TechId::ORBITAL_ENGINEERING);
         if has_orbital_engineering && !colony.has_shipyard() {
             let can_place_orbital =
@@ -398,7 +538,7 @@ fn pick_build_item(
     }
 
     // Science/survey preferences
-    if ai_profile.prefers_science_ships {
+    if likes_science {
         let has_survey_drones = has_tech(TechId::SURVEY_DRONES);
         let has_advanced_survey = has_tech(TechId::ADVANCED_SURVEY);
         let has_science_ship = state
@@ -415,7 +555,7 @@ fn pick_build_item(
     }
 
     // Fast Scout preference
-    if ai_profile.prefers_fast_scouts {
+    if likes_fast_scouts {
         let has_rapid_transit = has_tech(TechId::RAPID_TRANSIT);
         let has_fast_scout = state
             .fleets
@@ -427,7 +567,7 @@ fn pick_build_item(
     }
 
     // Troop transport preference
-    if ai_profile.prefers_troop_transports {
+    if likes_troops {
         let has_troop_transports = has_tech(TechId::TROOP_TRANSPORTS);
         let has_transport = state
             .fleets
@@ -441,7 +581,7 @@ fn pick_build_item(
     // Combat ship preferences (Destroyer > Missile Frigate > Escort Frigate).
     // Only engage this path when the empire already has a colonizer or colonisation
     // is not yet available — prevents militarist AIs from never building colony ships.
-    if ai_profile.prefers_combat_ships {
+    if likes_military {
         let has_colonizer = state
             .fleets
             .values()
@@ -467,7 +607,7 @@ fn pick_build_item(
     }
 
     // Defensive ship preference
-    if ai_profile.prefers_defensive_ships {
+    if likes_defense {
         let has_perimeter_defense = has_tech(TechId::PERIMETER_DEFENSE);
         let has_patrol_corvette = state
             .fleets
@@ -485,14 +625,14 @@ fn pick_build_item(
         .any(|f| f.owner == empire_id && f.kind.is_colonizer());
     let has_habitat_seeding = has_tech(TechId::HABITAT_SEEDING);
     if !has_colonizer && has_habitat_seeding {
-        if ai_profile.prefers_colony_arks && has_tech(TechId::COLONIAL_VANGUARD) {
+        if likes_colony_arks && has_tech(TechId::COLONIAL_VANGUARD) {
             return Some(BuildItem::Ship(ShipDesignId::COLONY_ARK));
         }
         return Some(BuildItem::Ship(ShipDesignId::COLONY));
     }
 
     // Priority 4: Scout for continued exploration
-    if ai_profile.prefers_fast_scouts && has_tech(TechId::RAPID_TRANSIT) {
+    if likes_fast_scouts && has_tech(TechId::RAPID_TRANSIT) {
         return Some(BuildItem::Ship(ShipDesignId::FAST_SCOUT));
     }
     Some(BuildItem::Ship(ShipDesignId::SCOUT))
@@ -858,9 +998,52 @@ mod tests {
         assert!(
             events
                 .iter()
-                .any(|e| matches!(e, Event::AiResearchSelected { empire, tech } if *empire == ai && *tech == tech_id)),
+                .any(|e| matches!(e, Event::AiResearchSelected { empire, tech, .. } if *empire == ai && *tech == tech_id)),
             "AiResearchSelected event must be emitted"
         );
+    }
+
+    #[test]
+    fn ai_research_plan_sets_small_queue() {
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+        let events = engine.apply_turn(vec![crate::commands::Command::EndTurn]);
+
+        let empire = engine.state.empires.get(&ai).expect("AI empire must exist");
+        assert!(
+            (1..=3).contains(&empire.research.queue.len()),
+            "AI should queue 1-3 follow-up techs (2-4 plan total)"
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Event::AiResearchSelected { empire, .. } if *empire == ai
+        )));
+    }
+
+    #[test]
+    fn ai_research_plan_only_contains_currently_available_techs() {
+        let engine = Engine::new(52);
+        let ai = ai_id(&engine);
+        let empire = engine
+            .state
+            .empires
+            .get(&ai)
+            .expect("AI empire must exist for plan test");
+        let (first, queue) =
+            pick_research_plan(&engine.state, ai).expect("AI should produce a research plan");
+        let mut simulated_completed = empire.research.completed.clone();
+        assert!(
+            is_tech_available(&simulated_completed, first),
+            "First planned tech must be researchable"
+        );
+        simulated_completed.push(first);
+        for tech in queue {
+            assert!(
+                is_tech_available(&simulated_completed, tech),
+                "Queued tech must be available from prior queued prerequisites"
+            );
+            simulated_completed.push(tech);
+        }
     }
 
     #[test]
@@ -971,7 +1154,7 @@ mod tests {
         assert!(
             events.iter().any(|e| matches!(
                 e,
-                Event::AiBuildQueued { empire, colony, item }
+                Event::AiBuildQueued { empire, colony, item, .. }
                 if *empire == ai && *colony == ai_colony_id
                     && *item == BuildItem::SurfaceStructure(BuildingType::FabricationYard)
             )),

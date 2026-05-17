@@ -2010,6 +2010,79 @@ fn ai_events_visible_for_contacted_empire() {
 }
 
 #[test]
+fn ai_strategic_events_include_doctrine_marker() {
+    let mut app = App::new();
+    app.new_game(42);
+
+    let ai_empire = {
+        let engine = app.engine.as_ref().expect("engine");
+        *engine
+            .state
+            .empires
+            .keys()
+            .find(|id| **id != engine.state.player_empire)
+            .expect("AI empire must exist")
+    };
+    app.engine
+        .as_mut()
+        .expect("engine")
+        .state
+        .diplomacy
+        .insert(ai_empire, game_core::RelationshipStatus::Contacted);
+
+    let doctrine = app
+        .engine
+        .as_ref()
+        .expect("engine")
+        .state
+        .empires
+        .get(&ai_empire)
+        .and_then(|empire| empire.empire_def)
+        .and_then(empire_definition_by_id)
+        .map(|def| def.doctrine_short_summary())
+        .expect("AI doctrine must exist");
+    let doctrine_marker = format!("[DOC {doctrine}]");
+
+    app.state.log.clear();
+    let events = [
+        CoreEvent::AiResearchSelected {
+            empire: ai_empire,
+            tech: TechId::VOID_PROPULSION,
+        },
+        CoreEvent::AiBuildQueued {
+            empire: ai_empire,
+            colony: ColonyId(1),
+            item: game_core::BuildItem::Structure(BuildingType::AquacultureBay),
+        },
+        CoreEvent::AiScoutDispatched {
+            empire: ai_empire,
+            fleet: FleetId(1),
+            destination: StarId(1),
+        },
+        CoreEvent::AiColonized {
+            empire: ai_empire,
+            star: StarId(1),
+            planet_index: 0,
+            colony: ColonyId(2),
+        },
+        CoreEvent::AiColonyRoleAssigned {
+            empire: ai_empire,
+            colony: ColonyId(2),
+            role: ColonyRole::Balanced,
+        },
+    ];
+    for event in events {
+        app.push_core_event_to_log(&event);
+    }
+
+    let entries = app.state.log.last_n(5);
+    assert_eq!(entries.len(), 5);
+    for entry in entries {
+        assert!(entry.contains(&doctrine_marker));
+    }
+}
+
+#[test]
 fn non_player_economy_events_hidden_from_log() {
     let mut app = App::new();
     app.new_game(42);

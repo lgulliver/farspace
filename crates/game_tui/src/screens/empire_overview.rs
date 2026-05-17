@@ -48,6 +48,7 @@ impl OverviewSort {
 pub struct EmpireOverviewSummary {
     pub faction_name: String,
     pub faction_tone: String,
+    pub doctrine_summary: String,
     pub credits: i64,
     pub food: i64,
     pub science_per_turn: i64,
@@ -265,6 +266,11 @@ pub fn derive_empire_overview(
                 .and_then(game_core::empire_definition_by_id)
                 .map(|def| def.tone.to_string())
                 .unwrap_or_else(|| "No faction identity".to_string()),
+            doctrine_summary: empire
+                .and_then(|e| e.empire_def)
+                .and_then(game_core::empire_definition_by_id)
+                .map(|def| def.doctrine_short_summary())
+                .unwrap_or_else(|| "N/A".to_string()),
             credits: empire.map(|e| e.credits).unwrap_or(0),
             food: empire.map(|e| e.food).unwrap_or(0),
             science_per_turn,
@@ -360,6 +366,9 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
         Span::styled(summary.faction_name.as_str(), Theme::accent_style()),
         Span::raw("  "),
         Span::styled(summary.faction_tone.as_str(), Theme::success_style()),
+        Span::raw("  "),
+        Span::styled("Doctrine ", Theme::muted_style()),
+        Span::styled(summary.doctrine_summary.as_str(), Theme::accent_style()),
         Span::raw("  "),
         Span::styled("Credits ", Theme::muted_style()),
         Span::styled(format!("{}", summary.credits), Theme::default_style()),
@@ -760,8 +769,30 @@ mod tests {
         let player = engine.state.player_empire;
         engine.state.empires.get_mut(&player).unwrap().empire_def = Some(EmpireDefinitionId(6));
         engine.state.empires.get_mut(&player).unwrap().name = "Terran Concord".to_string();
+        let doctrine = engine
+            .state
+            .empires
+            .get(&player)
+            .and_then(|empire| empire.empire_def)
+            .and_then(game_core::empire_definition_by_id)
+            .map(|def| def.doctrine_short_summary())
+            .expect("player doctrine should exist");
         let rendered = render_to_string(&engine);
         assert!(rendered.contains("Terran Concord"));
         assert!(rendered.contains("science-forward federation"));
+        assert!(rendered.contains(&doctrine));
+    }
+
+    #[test]
+    fn overview_derives_doctrine_summary() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        engine.state.empires.get_mut(&player).unwrap().empire_def = Some(EmpireDefinitionId(7));
+        let expected = game_core::empire_definition_by_id(EmpireDefinitionId(7))
+            .map(|def| def.doctrine_short_summary())
+            .expect("definition must exist");
+
+        let data = derive_empire_overview(&engine.state, player, OverviewSort::Name, "");
+        assert_eq!(data.summary.doctrine_summary, expected);
     }
 }

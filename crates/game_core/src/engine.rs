@@ -9,10 +9,10 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hyperspace_lanes};
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
-    BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireId, Fleet, FleetId,
-    FleetKind, FleetMission, FleetOrder, GameState, HyperspaceLane, OrbitalStructureType,
-    RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission, ShipDesignId, StarId,
-    SurveyMission, TechId, YieldType,
+    AiDoctrine, BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireId,
+    Fleet, FleetId, FleetKind, FleetMission, FleetOrder, GameState, HyperspaceLane,
+    OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
+    ShipDesignId, StarId, SurveyMission, TechId, YieldType,
 };
 use crate::yield_model::YieldContext;
 #[cfg(test)]
@@ -145,23 +145,25 @@ fn relationship_from_level(level: u8) -> RelationshipStatus {
     }
 }
 
-/// Move one diplomatic step from `current` toward `desired`.
+/// Move one or more diplomatic steps from `current` toward `desired`.
 ///
 /// This keeps diplomacy drift deterministic and bounded: each turn can only
-/// improve or worsen a relationship by a single status level.
+/// improve or worsen a relationship by up to `steps` status levels.
 fn step_toward_relationship(
     current: RelationshipStatus,
     desired: RelationshipStatus,
+    steps: u8,
 ) -> RelationshipStatus {
     let current_level = relationship_level(current);
     let desired_level = relationship_level(desired);
     if current_level == desired_level {
         return current;
     }
+    let delta = steps.max(1);
     if current_level < desired_level {
-        return relationship_from_level(current_level + 1);
+        return relationship_from_level(current_level.saturating_add(delta));
     }
-    relationship_from_level(current_level.saturating_sub(1))
+    relationship_from_level(current_level.saturating_sub(delta))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -378,15 +380,37 @@ impl Engine {
                 continue;
             }
 
+            let pressure = self.ai_border_pressure(ai_empire_id);
             let desired = self
                 .empire_definition(ai_empire_id)
-                .map(|def| match self.ai_border_pressure(ai_empire_id) {
+                .map(|def| match pressure {
                     BorderPressure::Calm => def.diplomacy_profile.resting_status,
                     BorderPressure::Tense => def.diplomacy_profile.border_tension_status,
                     BorderPressure::Severe => def.diplomacy_profile.severe_border_tension_status,
                 })
                 .unwrap_or(RelationshipStatus::Neutral);
-            let next = step_toward_relationship(current, desired);
+            let step_size = self
+                .empire_definition(ai_empire_id)
+                .map(|def| {
+                    let escalating = relationship_level(desired) > relationship_level(current);
+                    let aggression = def.doctrine_weight(AiDoctrine::Militarist)
+                        + def.doctrine_weight(AiDoctrine::Imperial);
+                    let caution = def.doctrine_weight(AiDoctrine::Isolationist)
+                        + def.doctrine_weight(AiDoctrine::Merchant);
+                    let aggressive_jump = escalating
+                        && matches!(pressure, BorderPressure::Severe)
+                        && aggression >= caution.saturating_add(6);
+                    let calming_jump = !escalating
+                        && (def.doctrine_weight(AiDoctrine::Isolationist) >= 8
+                            || def.doctrine_weight(AiDoctrine::Merchant) >= 8);
+                    if aggressive_jump || calming_jump {
+                        2
+                    } else {
+                        1
+                    }
+                })
+                .unwrap_or(1);
+            let next = step_toward_relationship(current, desired, step_size);
             if next != current {
                 self.state.diplomacy.insert(ai_empire_id, next);
             }

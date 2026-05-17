@@ -25,10 +25,11 @@ impl App {
             }
             CoreEvent::AiResearchSelected { empire, tech } => {
                 let name = self.empire_display_name(*empire);
+                let doctrine = self.empire_doctrine_marker(*empire);
                 let tech_name = tech_by_id(*tech)
                     .map(|record| record.name)
                     .unwrap_or("Unknown Tech");
-                format!("{name} redirected its labs to {tech_name}")
+                format!("{name} {doctrine} redirected its labs to {tech_name}")
             }
             CoreEvent::AiBuildQueued {
                 empire,
@@ -36,7 +37,12 @@ impl App {
                 item,
             } => {
                 let name = self.empire_display_name(*empire);
-                format!("{name} queued {} at colony {}", item.name(), colony.0)
+                let doctrine = self.empire_doctrine_marker(*empire);
+                format!(
+                    "{name} {doctrine} queued {} at colony {}",
+                    item.name(),
+                    colony.0
+                )
             }
             CoreEvent::AiScoutDispatched {
                 empire,
@@ -44,8 +50,9 @@ impl App {
                 destination,
             } => {
                 let name = self.empire_display_name(*empire);
+                let doctrine = self.empire_doctrine_marker(*empire);
                 format!(
-                    "{name} dispatched scout {} to system {}",
+                    "{name} {doctrine} dispatched scout {} to system {}",
                     fleet.0, destination.0
                 )
             }
@@ -56,8 +63,9 @@ impl App {
                 colony,
             } => {
                 let name = self.empire_display_name(*empire);
+                let doctrine = self.empire_doctrine_marker(*empire);
                 format!(
-                    "{name} founded colony {} at system {} orbit {}",
+                    "{name} {doctrine} founded colony {} at system {} orbit {}",
                     colony.0,
                     star.0,
                     planet_index + 1
@@ -69,10 +77,27 @@ impl App {
                 role,
             } => {
                 let name = self.empire_display_name(*empire);
-                format!("{name} reorganized colony {} as {}", colony.0, role.name())
+                let doctrine = self.empire_doctrine_marker(*empire);
+                format!(
+                    "{name} {doctrine} reorganized colony {} as {}",
+                    colony.0,
+                    role.name()
+                )
             }
             _ => event.to_log_message(),
         }
+    }
+
+    pub(super) fn empire_doctrine_marker(&self, empire_id: game_core::EmpireId) -> String {
+        let doctrine = self
+            .engine
+            .as_ref()
+            .and_then(|engine| engine.state.empires.get(&empire_id))
+            .and_then(|empire| empire.empire_def)
+            .and_then(empire_definition_by_id)
+            .map(|def| def.doctrine_short_summary())
+            .unwrap_or_else(|| "N/A".to_string());
+        format!("[DOC {doctrine}]")
     }
 
     fn empire_is_known(&self, empire_id: game_core::EmpireId) -> bool {

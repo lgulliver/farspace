@@ -4,7 +4,7 @@ use game_core::state::GameState;
 use serde::{Deserialize, Serialize};
 
 /// Current save file version
-pub const CURRENT_VERSION: u32 = 29;
+pub const CURRENT_VERSION: u32 = 30;
 
 /// Metadata embedded in every save file.
 ///

@@ -343,6 +343,19 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // v28 → v29: GameState gained galactic_dispatches (VecDeque<GalacticDispatch>).
             // All new fields have serde defaults; this is a passthrough version bump.
             let mut metadata = save.metadata;
+            metadata.schema_version = 29;
+            migrate(SaveFile {
+                version: 29,
+                metadata,
+                state: save.state,
+            })
+        }
+        29 => {
+            // v29 → v30: GameState gained custom_designs (BTreeMap<CustomDesignId,
+            // CustomShipDesign>) and next_custom_design_id (u32) for Ship Designer Lite v1.
+            // Both fields carry #[serde(default)] so old saves deserialise them as empty
+            // map / 0 respectively.  This is a passthrough version bump.
+            let mut metadata = save.metadata;
             metadata.schema_version = CURRENT_VERSION;
             Ok(SaveFile {
                 version: CURRENT_VERSION,
@@ -1156,5 +1169,60 @@ mod tests {
         let result = migrate(save).expect("v28 → v29 migration should succeed");
         assert_eq!(result.version, CURRENT_VERSION);
         assert_eq!(result.metadata.schema_version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn migrate_v29_to_v30() {
+        use crate::schema::SaveMetadata;
+        let save = SaveFile {
+            version: 29,
+            metadata: SaveMetadata {
+                schema_version: 29,
+                ..Default::default()
+            },
+            state: GameState::default(),
+        };
+        let result = migrate(save).expect("v29 → v30 migration should succeed");
+        assert_eq!(result.version, CURRENT_VERSION);
+        assert_eq!(result.metadata.schema_version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn custom_designs_survive_save_load_roundtrip() {
+        use crate::schema::SaveFile;
+        use game_core::{ComponentId, CustomDesignId, CustomShipDesign, EmpireId, HullId};
+
+        let mut state = GameState::default();
+
+        let design = CustomShipDesign {
+            design_id: CustomDesignId(1),
+            hull_id: HullId::SCOUT,
+            components: vec![ComponentId::CHEMICAL_THRUSTERS, ComponentId::LONG_RANGE_SENSORS],
+            owner: EmpireId(1),
+            name: "Test Scout".to_string(),
+            obsolete: false,
+        };
+        state.custom_designs.insert(CustomDesignId(1), design);
+        state.next_custom_design_id = 1;
+
+        let save = SaveFile::new(state);
+        let serialized = serde_json::to_string(&save).expect("serialization must succeed");
+        let deserialized: SaveFile =
+            serde_json::from_str(&serialized).expect("deserialization must succeed");
+        let loaded = migrate(deserialized).expect("migration must succeed");
+
+        assert_eq!(loaded.state.next_custom_design_id, 1);
+        let loaded_design = loaded
+            .state
+            .custom_designs
+            .get(&CustomDesignId(1))
+            .expect("custom design must survive round-trip");
+        assert_eq!(loaded_design.name, "Test Scout");
+        assert_eq!(loaded_design.hull_id, HullId::SCOUT);
+        assert!(!loaded_design.obsolete);
+        assert_eq!(
+            loaded_design.components,
+            vec![ComponentId::CHEMICAL_THRUSTERS, ComponentId::LONG_RANGE_SENSORS]
+        );
     }
 }

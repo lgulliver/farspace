@@ -8,7 +8,7 @@ Included in this slice:
 - Discrete population as Pops (existing `colony.population`)
 - Deterministic job slot generation from buildings and colony baseline
 - Deterministic automatic assignment based on colony role + shortage pressure
-- Housing and unemployment pressure surfaced in economy and UI
+- Housing pressure (unhoused Pops) and unemployment pressure surfaced in economy and UI
 - Colony-level workforce and yield breakdowns for explainability
 
 Deferred (explicitly out of scope):
@@ -40,7 +40,8 @@ Assignment is automatic and deterministic:
    - food shortage pressure
    - stability pressure
 3. Fill slots in priority order with available Pops.
-4. Remaining Pops become unemployed.
+4. Pops beyond housing capacity are marked unhoused (housing deficit).
+5. Remaining housed Pops without a filled slot become unemployed.
 
 Tie-break behavior is stable and deterministic by fixed enum order.
 
@@ -57,6 +58,7 @@ Buildings no longer need to be understood as only flat yield bonuses; they prima
 
 - Pops consume food each turn.
 - Pops require housing capacity.
+- Unhoused Pops count toward housing deficit pressure, not unemployment.
 - Housing deficit and unemployment create stability pressure.
 - Isolated/blockaded colonies are more vulnerable to food pressure.
 - Stability still modifies effective economic output.

@@ -71,6 +71,10 @@ pub struct DispatchItem {
 }
 
 /// A full Galactic Dispatch bulletin.
+///
+/// `turn` is the 0-indexed *completed* turn that triggered this dispatch
+/// (i.e. the value of `GameState::turn` *before* it was incremented).
+/// The display turn shown to the player is `turn + 1`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct GalacticDispatch {
@@ -207,7 +211,7 @@ pub fn generate_dispatch(
                 empire,
                 star,
                 planet_index,
-                colony,
+                colony: _,
                 ..
             } => {
                 let star_name = star_name_for_id(state, *star);
@@ -220,16 +224,14 @@ pub fn generate_dispatch(
                     Some(*star),
                     Some(*planet_index),
                 ));
-                let _ = colony; // suppress unused warning
             }
 
             Event::AiColonized {
                 empire,
                 star,
                 planet_index,
-                colony,
+                colony: _,
             } => {
-                let _ = colony; // suppress unused warning
                 if player_knows_empire(state, *empire) {
                     let star_name = star_name_for_id(state, *star);
                     items.push(item(
@@ -270,7 +272,7 @@ pub fn generate_dispatch(
                 ));
             }
 
-            Event::AiResearchSelected { empire, tech } => {
+            Event::AiResearchSelected { empire, tech: _ } => {
                 if player_knows_empire(state, *empire) {
                     let empire_name = empire_name_for_id(state, *empire);
                     items.push(item(
@@ -283,7 +285,6 @@ pub fn generate_dispatch(
                         None,
                     ));
                 }
-                let _ = tech; // suppress unused warning
             }
 
             // --- Combat ---
@@ -365,7 +366,7 @@ pub fn generate_dispatch(
                 defender,
                 star,
                 planet_index,
-                colony,
+                colony: _,
                 ..
             } => {
                 let player = state.player_empire;
@@ -399,7 +400,6 @@ pub fn generate_dispatch(
                     Some(*star),
                     Some(*planet_index),
                 ));
-                let _ = (colony, defender); // suppress unused warnings
             }
 
             Event::InvasionFailed { attacker, star, .. } => {
@@ -527,11 +527,8 @@ pub fn generate_dispatch(
 
     // Deduplicate: keep only one item per (category, headline) pair so that
     // e.g. multiple PlanetSurveyCompleted in the same turn don't spam.
-    let mut seen: std::collections::BTreeSet<(String, String)> = Default::default();
-    items.retain(|it| {
-        let key = (format!("{:?}", it.category), it.headline.clone());
-        seen.insert(key)
-    });
+    let mut seen: std::collections::BTreeSet<(DispatchCategory, String)> = Default::default();
+    items.retain(|it| seen.insert((it.category, it.headline.clone())));
 
     // Sort: severity descending, then category, then headline.
     items.sort_by_key(|it| {

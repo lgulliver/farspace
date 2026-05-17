@@ -6,10 +6,10 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hyperspace_lanes};
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
-    BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireId, Fleet, FleetId,
-    FleetKind, FleetMission, FleetOrder, GameState, HyperspaceLane, OrbitalStructureType,
-    RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission, ShipDesignId, StarId,
-    SurveyMission, TechId, YieldType,
+    AiDoctrine, BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireId,
+    Fleet, FleetId, FleetKind, FleetMission, FleetOrder, GameState, HyperspaceLane,
+    OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
+    ShipDesignId, StarId, SurveyMission, TechId, YieldType,
 };
 use crate::yield_model::YieldContext;
 use rand::seq::SliceRandom;
@@ -150,16 +150,22 @@ fn relationship_from_level(level: u8) -> RelationshipStatus {
 fn step_toward_relationship(
     current: RelationshipStatus,
     desired: RelationshipStatus,
+    steps: u8,
 ) -> RelationshipStatus {
+    if steps == 0 {
+        return current;
+    }
     let current_level = relationship_level(current);
     let desired_level = relationship_level(desired);
     if current_level == desired_level {
         return current;
     }
     if current_level < desired_level {
-        return relationship_from_level(current_level + 1);
+        let delta = desired_level - current_level;
+        return relationship_from_level(current_level + steps.min(delta));
     }
-    relationship_from_level(current_level.saturating_sub(1))
+    let delta = current_level - desired_level;
+    relationship_from_level(current_level.saturating_sub(steps.min(delta)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -376,15 +382,37 @@ impl Engine {
                 continue;
             }
 
+            let pressure = self.ai_border_pressure(ai_empire_id);
             let desired = self
                 .empire_definition(ai_empire_id)
-                .map(|def| match self.ai_border_pressure(ai_empire_id) {
+                .map(|def| match pressure {
                     BorderPressure::Calm => def.diplomacy_profile.resting_status,
                     BorderPressure::Tense => def.diplomacy_profile.border_tension_status,
                     BorderPressure::Severe => def.diplomacy_profile.severe_border_tension_status,
                 })
                 .unwrap_or(RelationshipStatus::Neutral);
-            let next = step_toward_relationship(current, desired);
+            let step_size = self
+                .empire_definition(ai_empire_id)
+                .map(|def| {
+                    let escalating = relationship_level(desired) > relationship_level(current);
+                    let aggression = def.doctrine_weight(AiDoctrine::Militarist)
+                        + def.doctrine_weight(AiDoctrine::Imperial);
+                    let caution = def.doctrine_weight(AiDoctrine::Isolationist)
+                        + def.doctrine_weight(AiDoctrine::Merchant);
+                    let aggressive_jump = escalating
+                        && matches!(pressure, BorderPressure::Severe)
+                        && aggression >= caution.saturating_add(6);
+                    let calming_jump = !escalating
+                        && (def.doctrine_weight(AiDoctrine::Isolationist) >= 8
+                            || def.doctrine_weight(AiDoctrine::Merchant) >= 8);
+                    if aggressive_jump || calming_jump {
+                        2
+                    } else {
+                        1
+                    }
+                })
+                .unwrap_or(1);
+            let next = step_toward_relationship(current, desired, step_size);
             if next != current {
                 self.state.diplomacy.insert(ai_empire_id, next);
             }
@@ -7724,6 +7752,66 @@ mod tests {
         assert_eq!(
             engine.state.diplomacy.get(&ai_id).copied(),
             Some(RelationshipStatus::War)
+        );
+    }
+
+    #[test]
+    fn terran_concord_escalates_slower_than_dominion_under_same_pressure() {
+        let (mut concord_engine, _player_star, ai_star, concord_ai) = make_two_empire_state();
+        set_empire_definition(
+            &mut concord_engine,
+            concord_ai,
+            crate::state::EmpireDefinitionId(6),
+        );
+        concord_engine
+            .state
+            .diplomacy
+            .insert(concord_ai, RelationshipStatus::Neutral);
+        concord_engine.state.fleets.insert(
+            FleetId(100),
+            Fleet {
+                id: FleetId(100),
+                owner: concord_engine.state.player_empire,
+                location: ai_star,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        concord_engine.process_ai_diplomacy();
+
+        let (mut dominion_engine, _player_star, ai_star, dominion_ai) = make_two_empire_state();
+        set_empire_definition(
+            &mut dominion_engine,
+            dominion_ai,
+            crate::state::EmpireDefinitionId(7),
+        );
+        dominion_engine
+            .state
+            .diplomacy
+            .insert(dominion_ai, RelationshipStatus::Neutral);
+        dominion_engine.state.fleets.insert(
+            FleetId(100),
+            Fleet {
+                id: FleetId(100),
+                owner: dominion_engine.state.player_empire,
+                location: ai_star,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        dominion_engine.process_ai_diplomacy();
+
+        assert_eq!(
+            concord_engine.state.diplomacy.get(&concord_ai).copied(),
+            Some(RelationshipStatus::Tense)
+        );
+        assert_eq!(
+            dominion_engine.state.diplomacy.get(&dominion_ai).copied(),
+            Some(RelationshipStatus::Hostile)
         );
     }
 

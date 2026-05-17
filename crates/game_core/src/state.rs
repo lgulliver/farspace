@@ -102,6 +102,71 @@ impl PlaystyleTag {
     }
 }
 
+/// High-level AI doctrine axis used for deterministic weighting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AiDoctrine {
+    Explorer,
+    Technologist,
+    Merchant,
+    Imperial,
+    Militarist,
+    Industrialist,
+    Expansionist,
+    Isolationist,
+    Biologist,
+}
+
+impl AiDoctrine {
+    pub fn label(&self) -> &'static str {
+        match self {
+            AiDoctrine::Explorer => "Explorer",
+            AiDoctrine::Technologist => "Technologist",
+            AiDoctrine::Merchant => "Merchant",
+            AiDoctrine::Imperial => "Imperial",
+            AiDoctrine::Militarist => "Militarist",
+            AiDoctrine::Industrialist => "Industrialist",
+            AiDoctrine::Expansionist => "Expansionist",
+            AiDoctrine::Isolationist => "Isolationist",
+            AiDoctrine::Biologist => "Biologist",
+        }
+    }
+
+    pub fn short_code(&self) -> &'static str {
+        match self {
+            AiDoctrine::Explorer => "EXP",
+            AiDoctrine::Technologist => "TEC",
+            AiDoctrine::Merchant => "MCH",
+            AiDoctrine::Imperial => "IMP",
+            AiDoctrine::Militarist => "MIL",
+            AiDoctrine::Industrialist => "IND",
+            AiDoctrine::Expansionist => "XPN",
+            AiDoctrine::Isolationist => "ISO",
+            AiDoctrine::Biologist => "BIO",
+        }
+    }
+
+    pub fn short_summary(&self) -> &'static str {
+        match self {
+            AiDoctrine::Explorer => "Scouting, intel, and map reach first.",
+            AiDoctrine::Technologist => "Science velocity and advanced capability timing.",
+            AiDoctrine::Merchant => "Economic throughput and logistics efficiency.",
+            AiDoctrine::Imperial => "Command posture, coercive leverage, and control.",
+            AiDoctrine::Militarist => "Fleet strength, pressure, and battle-readiness.",
+            AiDoctrine::Industrialist => "Production capacity and infrastructure depth.",
+            AiDoctrine::Expansionist => "Rapid footprint growth and colony tempo.",
+            AiDoctrine::Isolationist => "Secure borders and low-risk internal stability.",
+            AiDoctrine::Biologist => "Population growth, food, housing, and adaptation.",
+        }
+    }
+}
+
+/// Doctrine weight row for an empire definition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmpireDoctrineWeight {
+    pub doctrine: AiDoctrine,
+    pub weight: u8,
+}
+
 /// Per-colony flat yield modifiers granted by an empire's identity.
 ///
 /// Applied every turn to each colony owned by the empire, on top of the
@@ -279,6 +344,8 @@ pub struct EmpireDefinition {
     pub military_modifiers: EmpireMilitaryModifiers,
     /// Deterministic AI preference profile.
     pub ai_profile: EmpireAiProfile,
+    /// Deterministic AI doctrine weights for scoring priorities.
+    pub doctrine_weights: &'static [EmpireDoctrineWeight],
 }
 
 impl EmpireDefinition {
@@ -352,6 +419,56 @@ impl EmpireDefinition {
 
         effects
     }
+
+    pub fn doctrine_weight(&self, doctrine: AiDoctrine) -> u8 {
+        self.doctrine_weights
+            .iter()
+            .find(|entry| entry.doctrine == doctrine)
+            .map(|entry| entry.weight)
+            .unwrap_or(0)
+    }
+
+    pub fn doctrine_short_summary(&self) -> String {
+        let mut top: [Option<EmpireDoctrineWeight>; 3] = [None, None, None];
+        for entry in self
+            .doctrine_weights
+            .iter()
+            .copied()
+            .filter(|e| e.weight > 0)
+        {
+            let mut insert_at = None;
+            for (idx, slot) in top.iter().enumerate() {
+                let outranks = match slot {
+                    Some(existing) => {
+                        entry.weight > existing.weight
+                            || (entry.weight == existing.weight
+                                && entry.doctrine.label() < existing.doctrine.label())
+                    }
+                    None => true,
+                };
+                if outranks {
+                    insert_at = Some(idx);
+                    break;
+                }
+            }
+            if let Some(idx) = insert_at {
+                for shift in (idx + 1..top.len()).rev() {
+                    top[shift] = top[shift - 1];
+                }
+                top[idx] = Some(entry);
+            }
+        }
+
+        let mut summary = String::new();
+        for (idx, entry) in top.iter().flatten().enumerate() {
+            if idx > 0 {
+                summary.push('/');
+            }
+            summary.push_str(entry.doctrine.short_code());
+            summary.push_str(&entry.weight.to_string());
+        }
+        summary
+    }
 }
 
 /// All available empire definitions in stable ID order.
@@ -390,6 +507,16 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             false, false, false, false,
             false, false, false, true, // prefers_defensive_ships: patrol corvettes for security
         ),
+        doctrine_weights: &[
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Industrialist,
+                weight: 9,
+            },
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Isolationist,
+                weight: 7,
+            },
+        ],
     },
     EmpireDefinition {
         id: EmpireDefinitionId(1),
@@ -415,6 +542,20 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             false, false, false, false,
             true, false, false, false, // prefers_fast_scouts: pathfinder identity
         ),
+        doctrine_weights: &[
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Explorer,
+                weight: 9,
+            },
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Merchant,
+                weight: 7,
+            },
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Expansionist,
+                weight: 6,
+            },
+        ],
     },
     EmpireDefinition {
         id: EmpireDefinitionId(2),
@@ -443,6 +584,16 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             false, false, true, false,
             false, true, false, false, // prefers_colony_arks: population-first doctrine
         ),
+        doctrine_weights: &[
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Expansionist,
+                weight: 8,
+            },
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Biologist,
+                weight: 9,
+            },
+        ],
     },
     EmpireDefinition {
         id: EmpireDefinitionId(3),
@@ -471,6 +622,16 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             false, false, true, false,
             false, false, false, true, // prefers_defensive_ships: trade-lane security corvettes
         ),
+        doctrine_weights: &[
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Merchant,
+                weight: 9,
+            },
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Expansionist,
+                weight: 7,
+            },
+        ],
     },
     EmpireDefinition {
         id: EmpireDefinitionId(4),
@@ -503,6 +664,16 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             false, true, false, true,
             false, false, true, false, // prefers_combat_ships: militarist warfleet doctrine
         ),
+        doctrine_weights: &[
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Militarist,
+                weight: 9,
+            },
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Imperial,
+                weight: 8,
+            },
+        ],
     },
     EmpireDefinition {
         id: EmpireDefinitionId(5),
@@ -529,6 +700,20 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             true, false, true, false,
             true, false, false, false, // prefers_fast_scouts + prefers_science_ships
         ),
+        doctrine_weights: &[
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Industrialist,
+                weight: 8,
+            },
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Technologist,
+                weight: 9,
+            },
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Isolationist,
+                weight: 7,
+            },
+        ],
     },
     EmpireDefinition {
         id: EmpireDefinitionId(6),
@@ -566,6 +751,20 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             true, false, true, false,
             true, false, false, false, // prefers_fast_scouts: exploration mandate
         ),
+        doctrine_weights: &[
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Explorer,
+                weight: 9,
+            },
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Technologist,
+                weight: 8,
+            },
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Merchant,
+                weight: 7,
+            },
+        ],
     },
     EmpireDefinition {
         id: EmpireDefinitionId(7),
@@ -610,6 +809,20 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             false, true, false, true,
             false, true, true, false, // prefers_colony_arks + prefers_combat_ships
         ),
+        doctrine_weights: &[
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Imperial,
+                weight: 9,
+            },
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Militarist,
+                weight: 9,
+            },
+            EmpireDoctrineWeight {
+                doctrine: AiDoctrine::Industrialist,
+                weight: 8,
+            },
+        ],
     },
 ];
 
@@ -4932,6 +5145,51 @@ mod tests {
         for tag in &tags {
             assert!(!tag.label().is_empty());
         }
+    }
+
+    #[test]
+    fn ai_doctrine_helpers_are_stable_and_non_empty() {
+        let doctrines = [
+            AiDoctrine::Explorer,
+            AiDoctrine::Technologist,
+            AiDoctrine::Merchant,
+            AiDoctrine::Imperial,
+            AiDoctrine::Militarist,
+            AiDoctrine::Industrialist,
+            AiDoctrine::Expansionist,
+            AiDoctrine::Isolationist,
+            AiDoctrine::Biologist,
+        ];
+        for doctrine in doctrines {
+            assert!(!doctrine.label().is_empty());
+            assert!(!doctrine.short_code().is_empty());
+            assert!(!doctrine.short_summary().is_empty());
+        }
+    }
+
+    #[test]
+    fn empire_doctrine_weights_match_faction_intent() {
+        let concord = empire_definition_by_id(EmpireDefinitionId(6)).expect("Concord must exist");
+        let dominion = empire_definition_by_id(EmpireDefinitionId(7)).expect("Dominion must exist");
+        let elarith = empire_definition_by_id(EmpireDefinitionId(5)).expect("Elarith must exist");
+        let thalori = empire_definition_by_id(EmpireDefinitionId(3)).expect("Thalori must exist");
+
+        assert!(concord.doctrine_weight(AiDoctrine::Explorer) >= 8);
+        assert!(concord.doctrine_weight(AiDoctrine::Technologist) >= 7);
+        assert!(concord.doctrine_weight(AiDoctrine::Merchant) >= 6);
+        assert!(dominion.doctrine_weight(AiDoctrine::Imperial) >= 8);
+        assert!(dominion.doctrine_weight(AiDoctrine::Militarist) >= 8);
+        assert!(dominion.doctrine_weight(AiDoctrine::Industrialist) >= 7);
+        assert!(
+            concord.doctrine_weight(AiDoctrine::Militarist)
+                < dominion.doctrine_weight(AiDoctrine::Militarist)
+        );
+        assert!(
+            concord.doctrine_weight(AiDoctrine::Imperial)
+                < dominion.doctrine_weight(AiDoctrine::Imperial)
+        );
+        assert!(elarith.doctrine_weight(AiDoctrine::Isolationist) >= 7);
+        assert!(thalori.doctrine_weight(AiDoctrine::Merchant) >= 8);
     }
 
     #[test]

@@ -2,6 +2,9 @@ use super::*;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static TEST_FILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
@@ -25,21 +28,34 @@ fn menu_v_key_cycles_visual_mode_without_active_game() {
 
 #[test]
 fn visual_mode_config_roundtrip_from_file() {
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let unique = TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!(
         "farspace_ui_mode_{}_{}.conf",
         std::process::id(),
         unique
     ));
 
-    App::persist_visual_mode_to_path(&path, crate::visual_mode::VisualMode::NerdFont);
+    App::persist_visual_mode_to_path(&path, crate::visual_mode::VisualMode::NerdFont).unwrap();
     let loaded = App::load_visual_mode_from_path(&path);
     let _ = std::fs::remove_file(&path);
 
     assert_eq!(loaded, crate::visual_mode::VisualMode::NerdFont);
+}
+
+#[test]
+fn visual_mode_invalid_config_falls_back_to_default() {
+    let unique = TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "farspace_ui_mode_invalid_{}_{}.conf",
+        std::process::id(),
+        unique
+    ));
+    std::fs::write(&path, "visual_mode=invalid\n").unwrap();
+
+    let loaded = App::load_visual_mode_from_path(&path);
+    let _ = std::fs::remove_file(&path);
+
+    assert_eq!(loaded, crate::visual_mode::VisualMode::default());
 }
 
 #[test]

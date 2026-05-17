@@ -208,11 +208,14 @@ impl App {
             .unwrap_or_default()
     }
 
-    fn persist_visual_mode_to_path(path: &std::path::Path, mode: VisualMode) {
+    fn persist_visual_mode_to_path(
+        path: &std::path::Path,
+        mode: VisualMode,
+    ) -> std::io::Result<()> {
         if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            std::fs::create_dir_all(parent)?;
         }
-        let _ = std::fs::write(path, format!("visual_mode={}\n", mode.config_value()));
+        std::fs::write(path, format!("visual_mode={}\n", mode.config_value()))
     }
 
     fn load_visual_mode() -> VisualMode {
@@ -222,34 +225,37 @@ impl App {
         Self::load_visual_mode_from_path(&path)
     }
 
-    fn persist_visual_mode(&mut self) {
+    fn persist_visual_mode(&mut self) -> std::io::Result<()> {
         let Some(path) = user_config_path() else {
-            return;
+            return Ok(());
         };
-        Self::persist_visual_mode_to_path(&path, self.state.visual_mode);
+        Self::persist_visual_mode_to_path(&path, self.state.visual_mode)
     }
 
     fn cycle_visual_mode(&mut self) {
         self.state.visual_mode = self.state.visual_mode.next();
-        self.persist_visual_mode();
-        self.push_status(
-            LogEntryKind::Other,
-            format!(
-                "Visual mode: {} ({})",
-                self.state.visual_mode.label(),
-                self.state.visual_mode.preview_sample()
-            ),
+        let message = format!(
+            "Visual mode: {} ({})",
+            self.state.visual_mode.label(),
+            self.state.visual_mode.preview_sample()
         );
+        match self.persist_visual_mode() {
+            Ok(()) => self.push_status(LogEntryKind::Other, message),
+            Err(err) => self.push_error_status(format!("{message} — config save failed: {err}")),
+        }
     }
 
     fn apply_visual_mode_fallback(&self, frame: &mut Frame) {
+        if self.state.visual_mode == VisualMode::NerdFont {
+            return;
+        }
         let area = frame.area();
         let buffer = frame.buffer_mut();
         for y in area.top()..area.bottom() {
             for x in area.left()..area.right() {
                 if let Some(cell) = buffer.cell_mut((x, y)) {
                     let mapped = map_symbol_for_mode(self.state.visual_mode, cell.symbol());
-                    if mapped != cell.symbol() {
+                    if let std::borrow::Cow::Owned(mapped) = mapped {
                         cell.set_symbol(&mapped);
                     }
                 }

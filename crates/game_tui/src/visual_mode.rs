@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -68,11 +69,21 @@ pub fn map_char_for_mode(mode: VisualMode, ch: char) -> char {
     }
 }
 
-pub fn map_symbol_for_mode(mode: VisualMode, symbol: &str) -> String {
-    symbol
+pub fn map_symbol_for_mode<'a>(mode: VisualMode, symbol: &'a str) -> Cow<'a, str> {
+    let mut changed = false;
+    let mapped: String = symbol
         .chars()
-        .map(|ch| map_char_for_mode(mode, ch))
-        .collect()
+        .map(|ch| {
+            let mapped = map_char_for_mode(mode, ch);
+            changed |= mapped != ch;
+            mapped
+        })
+        .collect();
+    if changed {
+        Cow::Owned(mapped)
+    } else {
+        Cow::Borrowed(symbol)
+    }
 }
 
 fn unicode_fallback(ch: char) -> char {

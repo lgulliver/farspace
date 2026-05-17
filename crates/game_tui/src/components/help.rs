@@ -38,6 +38,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::EmpireOverview => " Empire Overview Help ",
         Screen::Research => " Research Help ",
         Screen::Diplomacy => " Diplomacy Help ",
+        Screen::ShipDesigner => " Ship Designer Help ",
     };
 
     let entries: Vec<HelpEntry> = match screen {
@@ -228,6 +229,25 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("?", "Toggle this help"),
             HelpEntry::Binding("Esc", "Return to Sector Map"),
         ],
+        Screen::ShipDesigner => vec![
+            HelpEntry::Section("Navigation"),
+            HelpEntry::Binding("j / ↓", "Move cursor down (designs / hulls / slots)"),
+            HelpEntry::Binding("k / ↑", "Move cursor up"),
+            HelpEntry::Binding("h / ←", "Previous component in slot"),
+            HelpEntry::Binding("l / →", "Next component in slot"),
+            HelpEntry::Binding("Tab", "Cycle panel focus (List → Slots → Stats)"),
+            HelpEntry::Section("Actions"),
+            HelpEntry::Binding("n", "Start a new design (hull selection mode)"),
+            HelpEntry::Binding("Enter", "Confirm selection / enter slot editing"),
+            HelpEntry::Binding("s", "Save current design (emits CreateShipDesign)"),
+            HelpEntry::Binding("d", "Delete selected design (emits DeleteShipDesign)"),
+            HelpEntry::Binding("Esc", "Cancel / return to previous screen"),
+            HelpEntry::Note("Locked hulls shown greyed out with (locked) suffix"),
+            HelpEntry::Note("Locked components shown muted — unlock via research"),
+            HelpEntry::Section("Global"),
+            HelpEntry::Binding("W", "Open ship designer from any game screen"),
+            HelpEntry::Binding("?", "Toggle this help"),
+        ],
     };
 
     let key_width = usize::from(popup_area.width.saturating_sub(8)).clamp(6, 14);
@@ -382,6 +402,17 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_help(frame, area, &Screen::Diplomacy);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_help_ship_designer() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_help(frame, frame.area(), &Screen::ShipDesigner);
             })
             .unwrap();
     }

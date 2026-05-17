@@ -9,6 +9,7 @@ pub mod new_game_setup;
 pub mod research;
 pub mod sector_map;
 pub mod sector_overview;
+pub mod ship_designer;
 pub mod system;
 
 use ratatui::{
@@ -36,6 +37,7 @@ pub enum Screen {
     EmpireOverview,
     Research,
     Diplomacy,
+    ShipDesigner,
 }
 
 impl Screen {
@@ -98,6 +100,13 @@ impl Screen {
                     diplomacy::render_diplomacy(frame, area, app_state, state);
                 } else {
                     render_unavailable_screen(frame, area, "Diplomacy");
+                }
+            }
+            Screen::ShipDesigner => {
+                if let Some(state) = game_state {
+                    ship_designer::render_ship_designer(frame, area, app_state, state);
+                } else {
+                    render_unavailable_screen(frame, area, "Ship Designer");
                 }
             }
         }

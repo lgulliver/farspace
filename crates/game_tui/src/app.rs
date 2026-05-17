@@ -11,12 +11,13 @@ use crate::screens::research::{
     filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_ERA_FILTER_COUNT,
     RESEARCH_STATUS_FILTER_COUNT,
 };
+use crate::screens::ship_designer::{DesignerMode, DesignerPanel, ShipDesignerState};
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
-    empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, Engine,
-    Event as CoreEvent, FleetId, FleetKind, GalaxySize, OrbitalStructureType, ScenarioSetup,
-    SectorId, StarId, TechId,
+    empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, ComponentId,
+    Engine, Event as CoreEvent, FleetId, FleetKind, GalaxySize,
+    OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -51,6 +52,7 @@ pub struct AppState {
     pub(crate) reduced_motion: bool,
     /// Status line shown in contextual footer hints.
     pub(crate) status_message: Option<String>,
+    pub(crate) ship_designer: ShipDesignerState,
 }
 
 /// UI overlay state shared by all screens.
@@ -458,6 +460,13 @@ impl App {
             return;
         }
 
+        // 'W' opens Ship Designer from any game screen
+        if key.code == KeyCode::Char('W') && self.engine.is_some() {
+            self.state.active = Screen::ShipDesigner;
+            self.state.ship_designer.reset_to_browse();
+            return;
+        }
+
         // Screen-specific handling
         match self.state.active {
             Screen::Menu => self.handle_menu_key(key),
@@ -470,6 +479,7 @@ impl App {
             Screen::EmpireOverview => self.handle_empire_overview_key(key),
             Screen::Research => self.handle_research_key(key),
             Screen::Diplomacy => self.handle_diplomacy_key(key),
+            Screen::ShipDesigner => self.handle_ship_designer_key(key),
         }
     }
 
@@ -1181,6 +1191,222 @@ impl App {
                     self.end_turn();
                 }
             }
+        }
+    }
+
+    fn handle_ship_designer_key(&mut self, key: KeyEvent) {
+        use DesignerMode::*;
+        use DesignerPanel::*;
+        match key.code {
+            KeyCode::Esc => match self.state.ship_designer.mode {
+                Browse => {
+                    self.state.active = Screen::SectorMap;
+                }
+                _ => {
+                    self.state.ship_designer.reset_to_browse();
+                }
+            },
+            KeyCode::Char('n') => {
+                self.state.ship_designer.begin_new_design();
+            }
+            KeyCode::Tab => {
+                self.state.ship_designer.panel = match self.state.ship_designer.panel {
+                    DesignList => SlotConfig,
+                    SlotConfig => Stats,
+                    Stats => DesignList,
+                };
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.ship_designer_nav(1);
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.ship_designer_nav(-1);
+            }
+            KeyCode::Char('h') | KeyCode::Left => {
+                self.ship_designer_cycle_component(-1);
+            }
+            KeyCode::Char('l') | KeyCode::Right => {
+                self.ship_designer_cycle_component(1);
+            }
+            KeyCode::Enter => {
+                self.ship_designer_confirm();
+            }
+            KeyCode::Char('s') => {
+                self.save_ship_design();
+            }
+            KeyCode::Char('d') => {
+                self.delete_ship_design();
+            }
+            _ => {}
+        }
+    }
+
+    fn ship_designer_nav(&mut self, delta: i32) {
+        use DesignerMode::*;
+        let mode = self.state.ship_designer.mode;
+        let panel = self.state.ship_designer.panel;
+        match (mode, panel) {
+            (Browse, DesignerPanel::DesignList) => {
+                let count = self.ship_designer_design_count() + 1;
+                if count > 0 {
+                    let cur = self.state.ship_designer.selected_design_idx;
+                    self.state.ship_designer.selected_design_idx =
+                        ((cur as i32 + delta).rem_euclid(count as i32)) as usize;
+                }
+            }
+            (NewDesign, _) => {
+                let hull_count = game_core::all_hull_templates().len();
+                if hull_count > 0 {
+                    let cur = self.state.ship_designer.selected_hull_idx;
+                    self.state.ship_designer.selected_hull_idx =
+                        ((cur as i32 + delta).rem_euclid(hull_count as i32)) as usize;
+                }
+            }
+            (EditSlots, DesignerPanel::SlotConfig) | (ConfirmSave, DesignerPanel::SlotConfig) => {
+                let slot_count = self.ship_designer_slot_count();
+                if slot_count > 0 {
+                    let cur = self.state.ship_designer.active_slot_idx;
+                    self.state.ship_designer.active_slot_idx =
+                        ((cur as i32 + delta).rem_euclid(slot_count as i32)) as usize;
+                    self.state.ship_designer.component_cursor = 0;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn ship_designer_cycle_component(&mut self, delta: i32) {
+        if !matches!(self.state.ship_designer.mode, DesignerMode::EditSlots) {
+            return;
+        }
+        let hull_idx = self.state.ship_designer.selected_hull_idx;
+        let slot_idx = self.state.ship_designer.active_slot_idx;
+        let category = game_core::all_hull_templates()
+            .get(hull_idx)
+            .and_then(|h| h.slots.get(slot_idx))
+            .copied();
+        if let Some(cat) = category {
+            let comps = game_core::components_for_slot(cat);
+            let count = comps.len();
+            if count == 0 {
+                return;
+            }
+            let cur = self.state.ship_designer.component_cursor;
+            let new_cursor = ((cur as i32 + delta).rem_euclid(count as i32)) as usize;
+            self.state.ship_designer.component_cursor = new_cursor;
+            if let Some(comp) = comps.get(new_cursor) {
+                if let Some(slot) = self.state.ship_designer.current_components.get_mut(slot_idx) {
+                    *slot = comp.component_id;
+                }
+            }
+        }
+    }
+
+    fn ship_designer_confirm(&mut self) {
+        use DesignerMode::*;
+        match self.state.ship_designer.mode {
+            Browse => {
+                if self.state.ship_designer.selected_design_idx == 0 {
+                    self.state.ship_designer.begin_new_design();
+                }
+            }
+            NewDesign => {
+                if let Some(h) =
+                    game_core::all_hull_templates().get(self.state.ship_designer.selected_hull_idx)
+                {
+                    self.state.ship_designer.begin_edit_slots(h);
+                }
+            }
+            EditSlots => {
+                self.ship_designer_cycle_component(1);
+            }
+            ConfirmSave => {
+                self.save_ship_design();
+            }
+        }
+    }
+
+    fn ship_designer_design_count(&self) -> usize {
+        self.engine
+            .as_ref()
+            .map(|e| {
+                let player = e.state.player_empire;
+                e.state
+                    .custom_designs
+                    .values()
+                    .filter(|d| d.owner == player && !d.obsolete)
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    fn ship_designer_slot_count(&self) -> usize {
+        game_core::all_hull_templates()
+            .get(self.state.ship_designer.selected_hull_idx)
+            .map(|h| h.slots.len())
+            .unwrap_or(0)
+    }
+
+    fn save_ship_design(&mut self) {
+        use DesignerMode::*;
+        if !matches!(self.state.ship_designer.mode, EditSlots | ConfirmSave) {
+            return;
+        }
+        let hull = game_core::all_hull_templates()
+            .get(self.state.ship_designer.selected_hull_idx)
+            .copied();
+        let hull = match hull {
+            Some(h) => h,
+            None => {
+                self.push_error_status("Error: No hull selected for design.".to_string());
+                return;
+            }
+        };
+        let components: Vec<ComponentId> = self
+            .state
+            .ship_designer
+            .current_components
+            .iter()
+            .filter(|c| c.0 != 0)
+            .copied()
+            .collect();
+        let name = self
+            .state
+            .ship_designer
+            .name_input
+            .clone()
+            .unwrap_or_else(|| format!("{} Design", hull.name));
+        let hull_id = hull.hull_id;
+        self.state.ship_designer.reset_to_browse();
+        self.dispatch_command(Command::CreateShipDesign {
+            hull_id,
+            components,
+            name: Some(name),
+        });
+        self.state.status_message = Some("Design saved.".to_string());
+    }
+
+    fn delete_ship_design(&mut self) {
+        if self.state.ship_designer.selected_design_idx == 0 {
+            return;
+        }
+        let engine = match &self.engine {
+            Some(e) => e,
+            None => return,
+        };
+        let player = engine.state.player_empire;
+        let designs: Vec<_> = engine
+            .state
+            .custom_designs
+            .values()
+            .filter(|d| d.owner == player && !d.obsolete)
+            .collect();
+        let design_idx = (self.state.ship_designer.selected_design_idx - 1)
+            .min(designs.len().saturating_sub(1));
+        if let Some(design) = designs.get(design_idx) {
+            let design_id = design.design_id;
+            self.state.ship_designer.selected_design_idx = 0;
+            self.dispatch_command(Command::DeleteShipDesign { design_id });
         }
     }
 

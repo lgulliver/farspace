@@ -154,6 +154,17 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Op
             ("[?]", "Help"),
             ("[Esc]", "Back"),
         ],
+        Screen::ShipDesigner => vec![
+            ("[n]", "New Design"),
+            ("[j/k]", "Navigate"),
+            ("[h/l]", "Component"),
+            ("[Enter]", "Confirm"),
+            ("[Tab]", "Panel"),
+            ("[s]", "Save"),
+            ("[d]", "Delete"),
+            ("[Esc]", "Back"),
+            ("[?]", "Help"),
+        ],
     };
 
     let inner_width = usize::from(area.width.saturating_sub(2)).max(1);
@@ -293,6 +304,17 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_footer(frame, area, &Screen::Diplomacy, None);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_footer_ship_designer() {
+        let backend = TestBackend::new(80, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_footer(frame, frame.area(), &Screen::ShipDesigner, None);
             })
             .unwrap();
     }

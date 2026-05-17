@@ -790,7 +790,7 @@ fn ai_dispatch_combat_fleets(
         return;
     }
 
-    // Collect all player colony stars as attack targets
+    // Collect all player colony stars as attack targets (deduplicated, deterministic order)
     let target_stars: Vec<StarId> = state
         .colonies
         .values()

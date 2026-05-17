@@ -10122,11 +10122,12 @@ mod balance_tests {
             .unwrap()
             .food = 100;
 
-        // Use the same cadence setup as the existing growth test:
-        // cadence = turn + colony_id.0 must be a multiple of POP_GROWTH_PERIOD_TURNS.
-        // With colony_id.0 = 1 and POP_GROWTH_PERIOD_TURNS = 10:
-        //   turn = POP_GROWTH_PERIOD_TURNS - 1 = 9 → cadence = 10 ✓
-        engine.state.turn = POP_GROWTH_PERIOD_TURNS - 1;
+        // Derive the required turn so that cadence = turn + colony_id.0 is a multiple
+        // of POP_GROWTH_PERIOD_TURNS.  The formula generalises for any colony_id.0 value:
+        //   turn ≡ -colony_id.0 (mod POP_GROWTH_PERIOD_TURNS)
+        let period = u64::from(POP_GROWTH_PERIOD_TURNS);
+        let growth_turn = ((period - colony_id.0 % period) % period) as u32;
+        engine.state.turn = growth_turn;
 
         let events = engine.apply_turn(vec![Command::EndTurn]);
         let grew = events
@@ -10241,6 +10242,8 @@ mod balance_tests {
 
         // Add many combat fleets (Patrol Corvettes have maintenance cost 1)
         let player_star = engine.state.colonies[&ColonyId(1)].star;
+        // Start IDs high enough to avoid collisions with the engine-generated fleets
+        // that Engine::new() pre-inserts (which begin at low IDs like 1, 2, …).
         let start_fleet_id = 9_200u64;
         for i in 0..20 {
             let fid = FleetId(start_fleet_id + i);

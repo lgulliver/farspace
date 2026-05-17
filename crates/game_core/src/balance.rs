@@ -31,11 +31,19 @@
 
 /// Multiplier applied to T1 tech costs.  Set to 1 (no scaling) so the raw
 /// `TechRecord::cost` values drive pacing directly.
+///
+/// **Currently unused in engine code** — serves as a reference/documentation
+/// value capturing the design decision that cost scaling is achieved by editing
+/// `TechRecord::cost` entries directly rather than via a runtime multiplier.
 pub const EARLY_TECH_COST_MULTIPLIER: i64 = 1;
 
 /// Base science output per population unit contributed by the yield model.
 ///
 /// Increasing this shortens the research ladder; decreasing it stretches it.
+///
+/// **Currently unused in engine code** — documents the implicit 1:1 ratio
+/// between a colony's population count and its base science contribution before
+/// building/role modifiers are applied (see `yield_model::calculate_yield`).
 pub const BASE_SCIENCE_PER_POP: i64 = 1;
 
 // ---------------------------------------------------------------------------
@@ -153,4 +161,9 @@ pub const HYPERSPACE_TRAVEL_DIVISOR: u32 = 2;
 /// rewarding quality over quantity.
 ///
 /// Set to 50 credits/turn, which is roughly 8–10 mid-tier combat ships.
+///
+/// **Reserved for future use** — this constant is not yet wired into the
+/// engine's maintenance loop. It is defined here so the tuning decision is
+/// recorded alongside other balance constants and can be referenced when the
+/// fleet-spam mechanic is implemented.
 pub const FLEET_MAINTENANCE_CREDIT_CAP_PER_EMPIRE: i64 = 50;

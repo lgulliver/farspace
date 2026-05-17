@@ -6,6 +6,7 @@
 pub mod ai;
 pub mod commands;
 pub mod deterministic;
+pub mod dispatch;
 pub mod engine;
 pub mod events;
 pub mod galaxy;
@@ -14,6 +15,10 @@ pub mod victory;
 pub mod yield_model;
 
 pub use commands::Command;
+pub use dispatch::{
+    generate_dispatch, DispatchCategory, DispatchItem, DispatchSeverity, GalacticDispatch,
+    DISPATCH_CADENCE, DISPATCH_MAX_HISTORY,
+};
 pub use engine::Engine;
 pub use events::Event;
 pub use state::{

@@ -3880,6 +3880,7 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         colony_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
+        galactic_dispatches: std::collections::VecDeque::new(),
     };
 
     // Player star
@@ -4084,6 +4085,7 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         colony_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
+        galactic_dispatches: std::collections::VecDeque::new(),
     };
 
     // Populate stars, empires, colonies, fleet
@@ -4447,6 +4449,7 @@ fn contact_detection_is_deterministic() {
         colony_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
+        galactic_dispatches: std::collections::VecDeque::new(),
     };
 
     // Two AI empires each have a colony at target_star
@@ -8981,6 +8984,7 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         colony_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
+        galactic_dispatches: std::collections::VecDeque::new(),
     };
 
     state.stars.insert(

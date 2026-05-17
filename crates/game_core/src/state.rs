@@ -1573,6 +1573,11 @@ pub struct GameState {
     /// Deterministic victory-condition progress and winner state.
     #[cfg_attr(feature = "serde", serde(default))]
     pub victory_status: VictoryStatus,
+    /// Recent Galactic Dispatch bulletins.  Bounded to
+    /// `crate::dispatch::DISPATCH_MAX_HISTORY` entries.  Newest dispatch is at
+    /// the back.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub galactic_dispatches: VecDeque<crate::dispatch::GalacticDispatch>,
 }
 
 impl GameState {
@@ -1913,6 +1918,7 @@ impl Default for GameState {
             colony_supply: BTreeMap::new(),
             colony_blockade: BTreeMap::new(),
             victory_status: VictoryStatus::default(),
+            galactic_dispatches: VecDeque::new(),
         }
     }
 }

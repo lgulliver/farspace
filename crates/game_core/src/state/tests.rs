@@ -949,6 +949,7 @@ fn scenario_setup_validate_accepts_valid_configs() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     assert!(setup.validate().is_ok());
 
@@ -968,6 +969,7 @@ fn scenario_setup_validate_rejects_zero_ai_count() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     assert!(setup.validate().is_err());
 }
@@ -981,6 +983,7 @@ fn scenario_setup_validate_rejects_too_many_ai() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     assert!(setup.validate().is_err());
 }
@@ -994,6 +997,7 @@ fn scenario_setup_validate_rejects_bad_sector_count() {
         sector_count_override: Some(1),
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     assert!(setup_low.validate().is_err());
 
@@ -1031,6 +1035,7 @@ fn scenario_setup_effective_counts_respect_override() {
         sector_count_override: Some(5),
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     // Star count comes from galaxy_size
     assert_eq!(setup.effective_star_count(), 10);
@@ -1047,6 +1052,7 @@ fn scenario_setup_effective_sector_count_clamped() {
         sector_count_override: Some(1), // below min
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     assert_eq!(setup_low.effective_sector_count(), 2); // clamped to 2
 
@@ -1175,6 +1181,7 @@ fn scenario_setup_validates_valid_empire_def() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(0)),
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     assert!(setup.validate().is_ok());
 }
@@ -1188,6 +1195,7 @@ fn scenario_setup_rejects_unknown_empire_def() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(99)),
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     let err = setup.validate();
     assert!(err.is_err(), "Unknown empire def should fail validation");
@@ -1206,6 +1214,7 @@ fn scenario_setup_none_empire_def_is_valid() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     assert!(setup.validate().is_ok());
 }

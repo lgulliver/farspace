@@ -1878,6 +1878,7 @@ mod tests {
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: None,
+            victory_settings: game_core::VictorySettings::default_v1(),
         };
         let engine = Engine::new_from_setup(setup.clone());
 
@@ -1899,6 +1900,43 @@ mod tests {
         assert_eq!(stored.galaxy_size, GalaxySize::Large);
         assert_eq!(stored.ai_empire_count, 2);
         assert_eq!(loaded.ai_empires.len(), 2);
+        assert_eq!(
+            stored
+                .victory_settings
+                .enabled_paths
+                .contains(&game_core::VictoryPath::Unity),
+            false
+        );
+    }
+
+    #[test]
+    fn save_load_roundtrip_preserves_victory_status_and_settings() {
+        let mut engine = Engine::new(42);
+        engine.state.victory_status.winner = Some(engine.state.player_empire);
+        engine.state.victory_status.winning_path = Some(game_core::VictoryPath::Discovery);
+        engine.state.victory_status.turn_achieved = Some(9);
+        if let Some(scenario) = engine.state.scenario.as_mut() {
+            scenario
+                .victory_settings
+                .enabled_paths
+                .insert(game_core::VictoryPath::Unity);
+        }
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+        assert_eq!(loaded.victory_status.winner, Some(loaded.player_empire));
+        assert_eq!(
+            loaded.victory_status.winning_path,
+            Some(game_core::VictoryPath::Discovery)
+        );
+        assert_eq!(loaded.victory_status.turn_achieved, Some(9));
+        assert!(loaded
+            .scenario
+            .as_ref()
+            .expect("scenario should be present")
+            .victory_settings
+            .enabled_paths
+            .contains(&game_core::VictoryPath::Unity));
     }
 
     #[test]
@@ -1910,6 +1948,7 @@ mod tests {
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(EmpireDefinitionId(6)),
+            victory_settings: game_core::VictorySettings::default_v1(),
         });
         let saved = save(&engine.state).expect("save should succeed");
         let loaded = load(&saved).expect("load should succeed");

@@ -14,6 +14,7 @@ Use this index as entrypoint for design and direction docs.
 
 - [Technology Tree](tech-tree.md)
 - [AI Doctrines](ai-doctrines.md)
+- [Victory Conditions](victory-conditions.md)
 
 ## Additional Design Docs
 
@@ -24,4 +25,3 @@ Use this index as entrypoint for design and direction docs.
 ## Future/Conditional Docs
 
 - `pop-and-jobs.md` — not present yet
-- `victory-conditions.md` — not present yet

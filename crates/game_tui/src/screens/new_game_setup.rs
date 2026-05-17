@@ -6,7 +6,7 @@ use crate::components::render_footer;
 use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
-use game_core::{all_empire_definitions, GalaxySize};
+use game_core::{all_empire_definitions, GalaxySize, VictoryPath, VictorySettings};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     text::{Line, Span},
@@ -295,6 +295,27 @@ pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState
     lines.push(Line::from(vec![
         Span::styled("  Difficulty    ", Theme::muted_style()),
         Span::styled("Standard", Theme::muted_style()),
+    ]));
+    let defaults = VictorySettings::default_v1();
+    let enabled = VictoryPath::tie_break_order()
+        .iter()
+        .filter(|path| defaults.is_enabled(**path))
+        .map(|path| path.label())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let disabled = VictoryPath::tie_break_order()
+        .iter()
+        .filter(|path| !defaults.is_enabled(**path))
+        .map(|path| path.label())
+        .collect::<Vec<_>>()
+        .join(", ");
+    lines.push(Line::from(vec![
+        Span::styled("  Victory On    ", Theme::muted_style()),
+        Span::styled(enabled, Theme::default_style()),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  Victory Off   ", Theme::muted_style()),
+        Span::styled(disabled, Theme::muted_style()),
     ]));
 
     lines.push(Line::from(""));

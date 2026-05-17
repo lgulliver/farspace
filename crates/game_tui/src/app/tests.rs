@@ -87,6 +87,38 @@ fn o_key_opens_empire_overview() {
 }
 
 #[test]
+fn v_key_opens_empire_overview_victory_panel() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorMap;
+
+    app.handle_key(key(KeyCode::Char('V')));
+
+    assert_eq!(app.state.active, Screen::EmpireOverview);
+}
+
+#[test]
+fn end_turn_report_includes_victory_milestones() {
+    let report = App::build_end_turn_report(
+        8,
+        &[
+            game_core::Event::VictoryProgressMilestone {
+                path: game_core::VictoryPath::Discovery,
+                empire: game_core::EmpireId(1),
+                progress_percent: 50,
+            },
+            game_core::Event::VictoryAchieved {
+                winner: game_core::EmpireId(1),
+                path: game_core::VictoryPath::Dominion,
+                turn: 8,
+            },
+        ],
+    );
+    assert!(report.contains("victory milestones 1"));
+    assert!(report.contains("victories 1"));
+}
+
+#[test]
 fn overview_enter_opens_selected_colony() {
     let mut app = App::new();
     app.new_game(42);

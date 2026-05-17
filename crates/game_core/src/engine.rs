@@ -14,6 +14,7 @@ use crate::state::{
     OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
     ShipDesignId, StarId, SurveyMission, TechId, YieldType,
 };
+use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
 #[cfg(test)]
 use rand_chacha::ChaCha8Rng;
@@ -1206,6 +1207,9 @@ impl Engine {
                 });
             }
         }
+
+        let completed_turn = self.state.turn;
+        events.extend(evaluate_victory_end_turn(&mut self.state, completed_turn));
 
         // Advance turn
         self.state.turn += 1;

@@ -1,7 +1,7 @@
 //! Events emitted by the game engine
 
 use crate::state::{
-    BuildItem, ColonyId, ColonyRole, EmpireId, FleetId, FleetOrder, StarId, TechId,
+    BuildItem, ColonyId, ColonyRole, EmpireId, FleetId, FleetOrder, StarId, TechId, VictoryPath,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -281,6 +281,18 @@ pub enum Event {
         colony: ColonyId,
         /// The star system where the blockade ended
         star: StarId,
+    },
+    /// A major victory-path progress milestone was reached.
+    VictoryProgressMilestone {
+        path: VictoryPath,
+        empire: EmpireId,
+        progress_percent: u8,
+    },
+    /// A winner has been determined by configured victory conditions.
+    VictoryAchieved {
+        winner: EmpireId,
+        path: VictoryPath,
+        turn: u32,
     },
 }
 
@@ -713,6 +725,26 @@ impl Event {
             }
             Event::BlockadeEnded { colony, star } => {
                 format!("Colony {} at system {} blockade lifted", colony.0, star.0)
+            }
+            Event::VictoryProgressMilestone {
+                path,
+                empire,
+                progress_percent,
+            } => {
+                format!(
+                    "VICTORY MILESTONE: Empire {} reached {}% toward {} victory",
+                    empire.0,
+                    progress_percent,
+                    path.label()
+                )
+            }
+            Event::VictoryAchieved { winner, path, turn } => {
+                format!(
+                    "VICTORY ACHIEVED: Empire {} won via {} on turn {}",
+                    winner.0,
+                    path.label(),
+                    turn
+                )
             }
         }
     }

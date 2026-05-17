@@ -1,4 +1,5 @@
 use super::*;
+use crate::victory::evaluate_victory_end_turn;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -274,6 +275,7 @@ impl Engine {
             ai_empires: ai_empire_ids,
             colony_supply: BTreeMap::new(),
             colony_blockade: BTreeMap::new(),
+            victory_status: crate::state::VictoryStatus::default(),
         };
 
         let mut engine = Engine {
@@ -283,6 +285,8 @@ impl Engine {
         };
         engine.refresh_colony_supply_statuses();
         engine.last_turn_colony_supply = engine.state.colony_supply.clone();
+        let completed_turn = engine.state.turn;
+        let _ = evaluate_victory_end_turn(&mut engine.state, completed_turn);
         engine
     }
 
@@ -296,6 +300,8 @@ impl Engine {
         engine.refresh_colony_supply_statuses();
         engine.last_turn_colony_supply = engine.state.colony_supply.clone();
         engine.last_turn_colony_blockade = engine.state.colony_blockade.clone();
+        let completed_turn = engine.state.turn;
+        let _ = evaluate_victory_end_turn(&mut engine.state, completed_turn);
         engine
     }
 }

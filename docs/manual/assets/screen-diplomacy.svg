@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560">
+  <rect width="960" height="560" fill="#050a14"/>
+  <rect x="20" y="20" width="920" height="520" rx="10" fill="#0d1628" stroke="#2a3d5c"/>
+  <text x="50" y="55" fill="#7cd6ff" font-family="monospace" font-size="20">DIPLOMACY // Known Empires</text>
+  <rect x="45" y="85" width="320" height="360" fill="#0a1222" stroke="#2d4060"/>
+  <text x="65" y="120" fill="#ffd27c" font-family="monospace" font-size="14">&gt; Terran Concord</text>
+  <text x="65" y="145" fill="#b8ccee" font-family="monospace" font-size="14">  Lysara Compact</text>
+  <text x="65" y="170" fill="#b8ccee" font-family="monospace" font-size="14">  Nox Collective</text>
+  <text x="65" y="195" fill="#b8ccee" font-family="monospace" font-size="14">  Orin Tribunal</text>
+  <rect x="390" y="85" width="520" height="360" fill="#0a1222" stroke="#2d4060"/>
+  <text x="415" y="120" fill="#d7e6ff" font-family="monospace" font-size="16">Relationship: Neutral</text>
+  <text x="415" y="150" fill="#b8ccee" font-family="monospace" font-size="14">Trust: 47  Tension: 21</text>
+  <text x="415" y="185" fill="#d7e6ff" font-family="monospace" font-size="16">Recent Events</text>
+  <text x="415" y="212" fill="#b8ccee" font-family="monospace" font-size="14">- Border scout passage accepted</text>
+  <text x="415" y="237" fill="#b8ccee" font-family="monospace" font-size="14">- Trade lane conflict resolved</text>
+  <text x="415" y="262" fill="#b8ccee" font-family="monospace" font-size="14">- Embassy contact established</text>
+  <text x="50" y="510" fill="#ffd27c" font-family="monospace" font-size="15">D: Declare war  Esc: Back  ?: Help</text>
+</svg>

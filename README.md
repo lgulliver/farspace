@@ -16,6 +16,7 @@ FARSPACE is playable alpha with multi-screen TUI and deterministic core loop.
 - Architecture source of truth: [`docs/architecture.md`](docs/architecture.md)
 - Full delivery plan: [`docs/roadmap.md`](docs/roadmap.md)
 - Next delivery queue: [`docs/next-slices.md`](docs/next-slices.md)
+- 90s-style game manual (GitHub Pages source): [`docs/manual/index.html`](docs/manual/index.html)
 - Recently completed:
   - ✅ Large-Scale Tech Tree v2
   - ✅ Research Queue v1

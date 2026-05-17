@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FARSPACE Field Manual</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <p class="eyebrow">FARSPACE // OPERATOR HANDBOOK</p>
+      <h1>FARSPACE Field Manual</h1>
+      <p class="subtitle">
+        Keyboard-first 4X strategy in terminal. This manual covers install, contribution,
+        tech progression, and screen references.
+      </p>
+      <nav class="toc">
+        <a href="#install">Install</a>
+        <a href="#contribute">Contribute</a>
+        <a href="#tech-tree">Tech Tree</a>
+        <a href="#screens">Screens</a>
+      </nav>
+    </header>
+
+    <main>
+      <section id="install" class="panel">
+        <h2>Install</h2>
+        <p>Recommended: download pre-built binaries from releases.</p>
+        <ul>
+          <li>
+            Releases:
+            <a href="https://github.com/lgulliver/farspace/releases">github.com/lgulliver/farspace/releases</a>
+          </li>
+          <li>Linux/macOS: download binary, <code>chmod +x</code>, run in terminal.</li>
+          <li>macOS first run: clear quarantine with <code>xattr -d com.apple.quarantine farspace</code>.</li>
+          <li>Windows: run <code>farspace.exe</code> from PowerShell or Command Prompt.</li>
+        </ul>
+        <h3>Build from source</h3>
+        <pre><code>git clone https://github.com/lgulliver/farspace.git
+cd farspace
+cargo run --release -p farspace</code></pre>
+      </section>
+
+      <section id="contribute" class="panel">
+        <h2>Contribute</h2>
+        <p>Read project guidance first, then validate before PR.</p>
+        <ul>
+          <li><a href="../../AGENTS.md">Agent + workflow guide</a></li>
+          <li><a href="../architecture.md">Architecture boundaries</a></li>
+          <li><a href="../testing.md">Testing standards</a></li>
+        </ul>
+        <h3>Required local checks</h3>
+        <pre><code>cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --all-targets</code></pre>
+      </section>
+
+      <section id="tech-tree" class="panel">
+        <h2>Technology Tree Overview</h2>
+        <p>
+          High-level progression map based on domains and eras. Full tech listing:
+          <a href="../design/tech-tree.md">docs/design/tech-tree.md</a>.
+        </p>
+        <img
+          src="./assets/tech-tree-overview.svg"
+          alt="FARSPACE technology tree overview across six domains and six eras"
+          class="full-image"
+        />
+      </section>
+
+      <section id="screens" class="panel">
+        <h2>Screen Gallery</h2>
+        <p>Representative visuals for key in-game screens.</p>
+        <div class="gallery">
+          <figure>
+            <img src="./assets/screen-menu.svg" alt="Main menu screen visual" />
+            <figcaption>Main Menu</figcaption>
+          </figure>
+          <figure>
+            <img src="./assets/screen-sector-overview.svg" alt="Sector overview screen visual" />
+            <figcaption>Sector Overview</figcaption>
+          </figure>
+          <figure>
+            <img src="./assets/screen-system.svg" alt="System screen visual" />
+            <figcaption>System</figcaption>
+          </figure>
+          <figure>
+            <img src="./assets/screen-colony.svg" alt="Colony management screen visual" />
+            <figcaption>Colony</figcaption>
+          </figure>
+          <figure>
+            <img src="./assets/screen-research.svg" alt="Research screen visual" />
+            <figcaption>Research</figcaption>
+          </figure>
+          <figure>
+            <img src="./assets/screen-diplomacy.svg" alt="Diplomacy screen visual" />
+            <figcaption>Diplomacy</figcaption>
+          </figure>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

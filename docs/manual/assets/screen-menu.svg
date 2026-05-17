@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560">
+  <rect width="960" height="560" fill="#050a14"/>
+  <rect x="30" y="30" width="900" height="500" rx="10" fill="#0d1628" stroke="#2a3d5c"/>
+  <text x="60" y="70" fill="#7cd6ff" font-family="monospace" font-size="22">FARSPACE // MAIN MENU</text>
+  <text x="80" y="130" fill="#d7e6ff" font-family="monospace" font-size="20">&gt; New Game</text>
+  <text x="80" y="170" fill="#9eb5d9" font-family="monospace" font-size="20">  Load Game</text>
+  <text x="80" y="210" fill="#9eb5d9" font-family="monospace" font-size="20">  Options</text>
+  <text x="80" y="250" fill="#9eb5d9" font-family="monospace" font-size="20">  Quit</text>
+  <text x="60" y="500" fill="#ffd27c" font-family="monospace" font-size="16">N: New  L: Load  ?: Help  Q: Quit</text>
+</svg>

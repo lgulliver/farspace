@@ -2546,12 +2546,11 @@ fn command_palette_core_commands_save_load_and_dispatch_work() {
     app.end_turn();
     let turn_before_save = app.engine.as_ref().unwrap().state.turn;
     app.execute_palette_input("save");
-    assert!(
-        app.state
-            .status_message
-            .as_deref()
-            .is_some_and(|msg| msg.contains("Save: wrote farspace.sav"))
-    );
+    assert!(app
+        .state
+        .status_message
+        .as_deref()
+        .is_some_and(|msg| msg.contains("Save: wrote farspace.sav")));
 
     app.end_turn();
     assert!(app.engine.as_ref().unwrap().state.turn > turn_before_save);

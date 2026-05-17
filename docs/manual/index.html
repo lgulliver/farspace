@@ -17,6 +17,7 @@
       <nav class="toc">
         <a href="#install">Install</a>
         <a href="#contribute">Contribute</a>
+        <a href="#empires">Empires</a>
         <a href="#tech-tree">Tech Tree</a>
       </nav>
     </header>
@@ -52,6 +53,152 @@ cargo run --release -p farspace</code></pre>
         <pre><code>cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets</code></pre>
+      </section>
+
+      <section id="empires" class="panel">
+        <h2>Empire Profiles</h2>
+        <p>All playable powers in current roster, with signature strengths and strategic posture.</p>
+        <div class="empire-grid">
+          <article class="empire-card">
+            <div class="empire-heading">
+              <span class="empire-symbol" aria-hidden="true">⚙</span>
+              <div>
+                <h3>Ashveran Compact</h3>
+                <p class="empire-tone">Pragmatic industrial coalition</p>
+              </div>
+            </div>
+            <p>A federation of heavy-industry worlds united by supply-chain treaties.</p>
+            <p class="empire-summary">Reliable infrastructure empire with steady production and logistics.</p>
+            <ul class="empire-details">
+              <li><strong>Edge:</strong> +1 industry per colony</li>
+              <li><strong>Focus:</strong> Industrial build-up, defensive security</li>
+              <li><strong>Doctrine:</strong> Industrialist, Isolationist</li>
+            </ul>
+          </article>
+
+          <article class="empire-card">
+            <div class="empire-heading">
+              <span class="empire-symbol" aria-hidden="true">◎</span>
+              <div>
+                <h3>Luminal Traverse</h3>
+                <p class="empire-tone">Restless pathfinders</p>
+              </div>
+            </div>
+            <p>Explorers driven by an obsession with mapping the unknown.</p>
+            <p class="empire-summary">Fast early exploration with a research-led expansion curve.</p>
+            <ul class="empire-details">
+              <li><strong>Edge:</strong> +1 science per colony, -10% scout cost</li>
+              <li><strong>Focus:</strong> Recon reach, frontier scouting, opportunistic growth</li>
+              <li><strong>Doctrine:</strong> Explorer, Merchant, Expansionist</li>
+            </ul>
+          </article>
+
+          <article class="empire-card">
+            <div class="empire-heading">
+              <span class="empire-symbol" aria-hidden="true">✿</span>
+              <div>
+                <h3>Sylvaran Accord</h3>
+                <p class="empire-tone">Patient ecological stewards</p>
+              </div>
+            </div>
+            <p>A biosphere-first collective that values growth and ecological balance.</p>
+            <p class="empire-summary">Food-rich colonies that favour long-term population growth.</p>
+            <ul class="empire-details">
+              <li><strong>Edge:</strong> +2 food per colony</li>
+              <li><strong>Focus:</strong> Population growth, stable colonies, colony arks</li>
+              <li><strong>Doctrine:</strong> Expansionist, Biologist</li>
+            </ul>
+          </article>
+
+          <article class="empire-card">
+            <div class="empire-heading">
+              <span class="empire-symbol" aria-hidden="true">◈</span>
+              <div>
+                <h3>Thalori Exchange</h3>
+                <p class="empire-tone">Opportunistic commercial brokers</p>
+              </div>
+            </div>
+            <p>A merchant alliance that turned commerce into a form of galactic power.</p>
+            <p class="empire-summary">Credit-rich empire that prefers secure trade and measured growth.</p>
+            <ul class="empire-details">
+              <li><strong>Edge:</strong> +2 credits per colony</li>
+              <li><strong>Focus:</strong> Economic throughput, trade-lane security, controlled expansion</li>
+              <li><strong>Doctrine:</strong> Merchant, Expansionist</li>
+            </ul>
+          </article>
+
+          <article class="empire-card">
+            <div class="empire-heading">
+              <span class="empire-symbol" aria-hidden="true">⚔</span>
+              <div>
+                <h3>Vorath Dominion</h3>
+                <p class="empire-tone">Martial frontier hegemony</p>
+              </div>
+            </div>
+            <p>A martial confederation bound by oaths of mutual defense and conquest.</p>
+            <p class="empire-summary">Pressure-oriented power that turns frontier tension into war readiness.</p>
+            <ul class="empire-details">
+              <li><strong>Edge:</strong> +1 credits per colony, cheaper troops and combat ships</li>
+              <li><strong>Focus:</strong> Border pressure, invasion strength, fast escalation</li>
+              <li><strong>Doctrine:</strong> Militarist, Imperial</li>
+            </ul>
+          </article>
+
+          <article class="empire-card">
+            <div class="empire-heading">
+              <span class="empire-symbol" aria-hidden="true">⟁</span>
+              <div>
+                <h3>Elarith Confluence</h3>
+                <p class="empire-tone">Measured technocracy</p>
+              </div>
+            </div>
+            <p>A technocratic council that views scientific advancement as the highest law.</p>
+            <p class="empire-summary">Pure research specialists that convert safe worlds into laboratories.</p>
+            <ul class="empire-details">
+              <li><strong>Edge:</strong> +2 science per colony, -10% science ship cost</li>
+              <li><strong>Focus:</strong> Science ships, safe-world research, fast tech velocity</li>
+              <li><strong>Doctrine:</strong> Technologist, Industrialist, Isolationist</li>
+            </ul>
+          </article>
+
+          <article class="empire-card">
+            <div class="empire-heading">
+              <span class="empire-symbol" aria-hidden="true">☼</span>
+              <div>
+                <h3>Terran Concord</h3>
+                <p class="empire-tone">Optimistic, pluralist, science-forward federation</p>
+              </div>
+            </div>
+            <p>An open Terran union that treats science, dialogue, and exploration as shared civic duties.</p>
+            <p class="empire-summary">
+              Cooperative explorers that open with better relations, lean into research, and keep colonies stable before committing to war.
+            </p>
+            <ul class="empire-details">
+              <li><strong>Edge:</strong> +1 science per colony, -1 industry per colony, cheaper scouts and science ships</li>
+              <li><strong>Focus:</strong> Diplomacy, scouting, science-led expansion</li>
+              <li><strong>Doctrine:</strong> Explorer, Technologist, Merchant</li>
+            </ul>
+          </article>
+
+          <article class="empire-card">
+            <div class="empire-heading">
+              <span class="empire-symbol" aria-hidden="true">▲</span>
+              <div>
+                <h3>Terran Dominion</h3>
+                <p class="empire-tone">Authoritarian, expansionist, order-through-force empire</p>
+              </div>
+            </div>
+            <p>A hardline Terran hierarchy that secures frontier order through rapid militarisation and coercive expansion.</p>
+            <p class="empire-summary">
+              Militarised colonisers that accept worse first contact, cheaper war logistics, and faster escalation when borders tighten.
+            </p>
+            <ul class="empire-details">
+              <li><strong>Edge:</strong> +1 industry per colony, cheaper troop logistics, shipyards, and combat ships</li>
+              <li><strong>Focus:</strong> Aggressive expansion, military buildup, coercive control</li>
+              <li><strong>Doctrine:</strong> Imperial, Militarist, Industrialist</li>
+            </ul>
+          </article>
+        </div>
       </section>
 
       <section id="tech-tree" class="panel">

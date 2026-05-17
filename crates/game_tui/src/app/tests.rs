@@ -2540,8 +2540,17 @@ fn v_key_opens_victory_overview_with_progress_lines() {
 fn command_palette_core_commands_save_load_and_dispatch_work() {
     let mut app = App::new();
     app.new_game(42);
-    let save_path = std::path::Path::new("farspace.sav");
-    let _ = std::fs::remove_file(save_path);
+    let temp_root = std::env::temp_dir().join(format!(
+        "farspace_palette_test_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&temp_root).expect("temp dir should be created");
+    let original_dir = std::env::current_dir().expect("current dir should be readable");
+    std::env::set_current_dir(&temp_root).expect("current dir should switch to temp dir");
+    let save_path = temp_root.join("farspace.sav");
 
     app.end_turn();
     let turn_before_save = app.engine.as_ref().unwrap().state.turn;
@@ -2562,7 +2571,9 @@ fn command_palette_core_commands_save_load_and_dispatch_work() {
     app.execute_palette_input("dispatch");
     assert!(app.state.overlay.show_dispatch);
 
-    let _ = std::fs::remove_file(save_path);
+    std::env::set_current_dir(&original_dir).expect("current dir should restore");
+    let _ = std::fs::remove_file(&save_path);
+    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[test]

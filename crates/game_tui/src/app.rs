@@ -8,7 +8,8 @@ use crate::components::{
 use crate::keys::KeyMap;
 use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData, OverviewSort};
 use crate::screens::research::{
-    filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_STATUS_FILTER_COUNT,
+    filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_ERA_FILTER_COUNT,
+    RESEARCH_STATUS_FILTER_COUNT,
 };
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
@@ -1113,7 +1114,8 @@ impl App {
                 self.state.research.cursor = 0;
             }
             KeyCode::Char('[') => {
-                self.state.research.era_filter = (self.state.research.era_filter + 1) % 7;
+                self.state.research.era_filter =
+                    (self.state.research.era_filter + 1) % RESEARCH_ERA_FILTER_COUNT;
                 self.state.research.cursor = 0;
             }
             KeyCode::Char(']') => {

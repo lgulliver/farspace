@@ -48,7 +48,10 @@ const TECH_DOMAIN_ORDER: [TechDomain; 6] = [
     TechDomain::Biology,
 ];
 pub(crate) const RESEARCH_DOMAIN_FILTER_COUNT: usize = TECH_DOMAIN_ORDER.len() + 1;
+pub(crate) const RESEARCH_ERA_FILTER_COUNT: usize = 7; // all + tiers I..VI
 pub(crate) const RESEARCH_STATUS_FILTER_COUNT: usize = 6; // all + 5 statuses
+const ERA_FILTER_LABELS: [&str; RESEARCH_ERA_FILTER_COUNT] =
+    ["All", "I", "II", "III", "IV", "V", "VI"];
 
 fn tech_domain_sort_index(domain: TechDomain) -> usize {
     TECH_DOMAIN_ORDER
@@ -288,15 +291,11 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
             .name()
             .to_string()
     };
-    let era_filter_label = match app_state.research.era_filter {
-        0 => "All".to_string(),
-        1 => "I".to_string(),
-        2 => "II".to_string(),
-        3 => "III".to_string(),
-        4 => "IV".to_string(),
-        5 => "V".to_string(),
-        _ => "VI".to_string(),
-    };
+    let era_filter_label = ERA_FILTER_LABELS
+        .get(app_state.research.era_filter)
+        .copied()
+        .unwrap_or(ERA_FILTER_LABELS[RESEARCH_ERA_FILTER_COUNT - 1])
+        .to_string();
     let status_filter_label = match app_state.research.status_filter {
         0 => "All".to_string(),
         1 => "Available".to_string(),

@@ -83,12 +83,24 @@ pre {
   background: #090f1d;
 }
 
-.full-image {
-  width: 100%;
-  height: auto;
+.scroll-hint {
+  margin-bottom: 0.8rem;
+  color: #b9caea;
+}
+
+.tech-tree-scroll {
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #060a14;
+  max-height: min(80vh, 980px);
+}
+
+.tech-tree-map {
+  display: block;
+  width: 2330px;
+  max-width: none;
+  height: auto;
 }
 
 .gallery {

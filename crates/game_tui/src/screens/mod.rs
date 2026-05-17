@@ -3,6 +3,7 @@
 pub mod colony;
 pub mod diplomacy;
 pub mod empire_overview;
+pub mod empire_select;
 pub mod menu;
 pub mod new_game_setup;
 pub mod research;
@@ -26,6 +27,7 @@ use game_core::GameState;
 pub enum Screen {
     #[default]
     Menu,
+    EmpireSelect,
     NewGameSetup,
     SectorOverview,
     SectorMap,
@@ -47,6 +49,7 @@ impl Screen {
     ) {
         match self {
             Screen::Menu => menu::render_menu(frame, area, app_state),
+            Screen::EmpireSelect => empire_select::render_empire_select(frame, area, app_state),
             Screen::NewGameSetup => new_game_setup::render_new_game_setup(frame, area, app_state),
             Screen::SectorOverview => {
                 if let Some(state) = game_state {

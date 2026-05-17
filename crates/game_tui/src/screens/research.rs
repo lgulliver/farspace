@@ -22,6 +22,7 @@ use ratatui::{
 enum TechStatus {
     Available,
     Locked,
+    Queued,
     Active,
     Completed,
 }
@@ -31,6 +32,7 @@ impl TechStatus {
         match self {
             TechStatus::Available => "Available",
             TechStatus::Locked => "Locked",
+            TechStatus::Queued => "Queued",
             TechStatus::Active => "Active",
             TechStatus::Completed => "Completed",
         }
@@ -46,7 +48,7 @@ const TECH_DOMAIN_ORDER: [TechDomain; 6] = [
     TechDomain::Biology,
 ];
 pub(crate) const RESEARCH_DOMAIN_FILTER_COUNT: usize = TECH_DOMAIN_ORDER.len() + 1;
-pub(crate) const RESEARCH_STATUS_FILTER_COUNT: usize = 5; // all + 4 statuses
+pub(crate) const RESEARCH_STATUS_FILTER_COUNT: usize = 6; // all + 5 statuses
 
 fn tech_domain_sort_index(domain: TechDomain) -> usize {
     TECH_DOMAIN_ORDER
@@ -181,8 +183,9 @@ pub(crate) fn filtered_research_techs<'a>(
                     (status_filter, status),
                     (1, TechStatus::Available)
                         | (2, TechStatus::Locked)
-                        | (3, TechStatus::Active)
-                        | (4, TechStatus::Completed)
+                        | (3, TechStatus::Queued)
+                        | (4, TechStatus::Active)
+                        | (5, TechStatus::Completed)
                 )
             }
         })
@@ -245,6 +248,9 @@ fn tech_status(game_state: &GameState, tech: &TechRecord) -> TechStatus {
     if empire.research.current_tech == Some(tech.id) {
         return TechStatus::Active;
     }
+    if empire.research.queue.contains(&tech.id) {
+        return TechStatus::Queued;
+    }
     if is_tech_available(&empire.research.completed, tech.id) {
         TechStatus::Available
     } else {
@@ -286,7 +292,8 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
         0 => "All".to_string(),
         1 => "Available".to_string(),
         2 => "Locked".to_string(),
-        3 => "Active".to_string(),
+        3 => "Queued".to_string(),
+        4 => "Active".to_string(),
         _ => "Completed".to_string(),
     };
     let query_label = if app_state.research.query.is_empty() {
@@ -323,6 +330,7 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
             let status_tag = match status {
                 TechStatus::Available => "[Available]",
                 TechStatus::Locked => "[Locked]",
+                TechStatus::Queued => "[Queued]",
                 TechStatus::Active => "[Active]",
                 TechStatus::Completed => "[Completed]",
             };
@@ -337,6 +345,8 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
                 Theme::highlight_style()
             } else if matches!(status, TechStatus::Active | TechStatus::Completed) {
                 Theme::accent_style()
+            } else if status == TechStatus::Queued {
+                Style::default().fg(Theme::accent2())
             } else if status == TechStatus::Locked {
                 Theme::muted_style()
             } else {
@@ -872,5 +882,58 @@ mod tests {
 
         assert_eq!(rarity_style.fg, Some(Theme::accent2()));
         assert_eq!(tag_style.fg, Some(Theme::accent()));
+    }
+
+    #[test]
+    fn queued_tech_detail_shows_queued_status() {
+        use game_core::Command;
+
+        let mut engine = Engine::new(42);
+        let queued_tech = TechId(3);
+        engine.apply_turn(vec![Command::QueueResearch { tech: queued_tech }]);
+
+        let cursor = ordered_research_techs()
+            .iter()
+            .position(|tech| tech.id == queued_tech)
+            .expect("queued tech should be in ordered research list");
+        let app_state = AppState {
+            research: crate::app::ResearchScreenState {
+                cursor,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let buffer = render_detail_buffer(60, 18, &app_state, &engine.state);
+        let rows = buffer_rows(&buffer).join("\n");
+
+        assert!(rows.contains("Status: Queued"));
+    }
+
+    #[test]
+    fn queued_status_filter_includes_only_queued_techs() {
+        use game_core::Command;
+
+        let mut engine = Engine::new(42);
+        let active_tech = TechId(1);
+        let queued_tech = TechId(3);
+        engine.apply_turn(vec![
+            Command::SelectResearch { tech: active_tech },
+            Command::QueueResearch { tech: queued_tech },
+        ]);
+
+        let app_state = AppState {
+            research: crate::app::ResearchScreenState {
+                status_filter: 3,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let filtered = filtered_research_techs(&app_state, &engine.state);
+        assert_eq!(
+            filtered.iter().map(|tech| tech.id).collect::<Vec<_>>(),
+            vec![queued_tech]
+        );
     }
 }

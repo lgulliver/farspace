@@ -1,5 +1,6 @@
 //! New Game Setup screen — configure empire choice, galaxy seed, size, AI count, and other
-//! scenario options before starting a new game.
+//! scenario options before starting a new game. Empire selection happens on the EmpireSelect
+//! screen; this screen shows the chosen empire as a read-only header.
 
 use crate::app::AppState;
 use crate::components::render_footer;
@@ -24,17 +25,15 @@ const FIELD_LABEL_WIDTH: usize = 14;
 const FIELD_VALUE_WIDTH: usize = 20;
 
 /// Index of each editable setup field in `AppState::setup_cursor`.
-pub const FIELD_EMPIRE: usize = 0;
-pub const FIELD_GALAXY_SIZE: usize = 1;
-pub const FIELD_AI_COUNT: usize = 2;
-pub const FIELD_SEED: usize = 3;
+pub const FIELD_GALAXY_SIZE: usize = 0;
+pub const FIELD_AI_COUNT: usize = 1;
+pub const FIELD_SEED: usize = 2;
 
 fn enter_hint(app_state: &AppState) -> &'static str {
     if app_state.new_game_setup.seed_editing {
         "Confirm Seed"
     } else {
         match app_state.new_game_setup.cursor {
-            FIELD_EMPIRE => "Next Empire",
             FIELD_SEED => "Edit Seed",
             _ => "Start",
         }
@@ -93,44 +92,6 @@ fn selector_value(label: impl std::fmt::Display, has_prev: bool, has_next: bool)
     )
 }
 
-fn wrapped_info_lines(text: &str, content_width: u16) -> Vec<Line<'static>> {
-    let indent = "  ";
-    let available = usize::from(content_width)
-        .saturating_sub(indent.len())
-        .max(1);
-    let mut lines = Vec::new();
-    let mut current = String::new();
-
-    for word in text.split_whitespace() {
-        let separator = usize::from(!current.is_empty());
-        if !current.is_empty()
-            && current.chars().count() + separator + word.chars().count() > available
-        {
-            lines.push(Line::from(vec![
-                Span::raw(indent.to_string()),
-                Span::styled(current, Theme::muted_style()),
-            ]));
-            current = String::new();
-        }
-        if !current.is_empty() {
-            current.push(' ');
-        }
-        current.push_str(word);
-    }
-
-    if !current.is_empty() {
-        lines.push(Line::from(vec![
-            Span::raw(indent.to_string()),
-            Span::styled(current, Theme::muted_style()),
-        ]));
-    }
-
-    if lines.is_empty() {
-        lines.push(Line::from(""));
-    }
-    lines
-}
-
 /// Render the new game setup screen.
 pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState) {
     let (_header_area, main_area, footer_area) = compose_layout(area);
@@ -175,62 +136,23 @@ pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState
     let mut lines: Vec<Line> = vec![Line::from("")];
 
     lines.push(Line::from(vec![Span::styled(
-        "  NEW GAME SETUP",
+        "  GALAXY CONFIGURATION",
         Theme::title_style(),
     )]));
     lines.push(Line::from(""));
 
-    // Empire Selection field
-    {
-        let is_active = app_state.new_game_setup.cursor == FIELD_EMPIRE;
-        let has_prev = empire_idx > 0;
-        let has_next = empire_idx + 1 < all_defs.len();
-        let value = selector_value(
+    // Empire header (read-only — chosen on the empire select screen)
+    lines.push(Line::from(vec![
+        Span::styled("  Playing as  ", Theme::muted_style()),
+        Span::styled(
             format!("{} {}", selected_def.symbol, selected_def.name),
-            has_prev,
-            has_next,
-        );
-        lines.push(field_line("Empire", &value, is_active, content_width));
-        // Show short description and traits below when this field is active
-        if is_active {
-            lines.extend(wrapped_info_lines(
-                selected_def.short_description,
-                content_width,
-            ));
-            lines.extend(wrapped_info_lines(selected_def.tone, content_width));
-            let tag_labels: Vec<&str> = selected_def.playstyle.iter().map(|t| t.label()).collect();
-            lines.push(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(tag_labels.join(" · "), Theme::accent_style()),
-            ]));
-            lines.extend(wrapped_info_lines(
-                selected_def.playstyle_summary,
-                content_width,
-            ));
-            let mods = selected_def.effect_summaries();
-            if !mods.is_empty() {
-                lines.push(Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(mods.join("  "), Theme::success_style()),
-                ]));
-            } else {
-                lines.push(Line::from(""));
-            }
-        } else {
-            // Compact: one-line description
-            let summary = pad_to_width(
-                selected_def.short_description,
-                usize::from(content_width).saturating_sub(2),
-            );
-            lines.push(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(summary, Theme::muted_style()),
-            ]));
-            lines.push(Line::from(""));
-            lines.push(Line::from(""));
-        }
-    }
-
+            Theme::title_style(),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(selected_def.short_description, Theme::muted_style()),
+    ]));
     lines.push(Line::from(""));
 
     // Galaxy Size field
@@ -523,14 +445,13 @@ mod tests {
         let state = AppState {
             new_game_setup: crate::app::NewGameSetupState {
                 empire_cursor: 6,
-                cursor: FIELD_EMPIRE,
                 ..Default::default()
             },
             ..AppState::default()
         };
         let rendered = render_to_string(&state);
         assert!(rendered.contains("Terran Concord"));
-        assert!(rendered.contains("science-forward federation"));
+        assert!(rendered.contains("science, dialogue, and exploration"));
     }
 
     #[test]
@@ -538,21 +459,20 @@ mod tests {
         let state = AppState {
             new_game_setup: crate::app::NewGameSetupState {
                 empire_cursor: 7,
-                cursor: FIELD_EMPIRE,
                 ..Default::default()
             },
             ..AppState::default()
         };
         let rendered = render_to_string(&state);
         assert!(rendered.contains("Terran Dominion"));
-        assert!(rendered.contains("Militarised colonisers"));
+        assert!(rendered.contains("A hardline Terran hierarchy"));
     }
 
     #[test]
-    fn setup_screen_shows_field_specific_enter_hint_for_empire() {
+    fn setup_screen_shows_default_enter_hint_for_start() {
         let state = AppState::default();
         let rendered = render_to_string(&state);
-        assert!(rendered.contains("[Enter] Next Empire"));
+        assert!(rendered.contains("[Enter] Start"));
         assert!(rendered.contains("[S] Start"));
     }
 

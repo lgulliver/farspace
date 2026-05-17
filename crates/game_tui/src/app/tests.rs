@@ -2005,6 +2005,64 @@ fn ai_events_hidden_for_unknown_empire() {
 }
 
 #[test]
+fn ai_only_system_exploration_hidden_from_log() {
+    let mut app = App::new();
+    app.new_game(42);
+
+    let ai_only_star = {
+        let engine = app.engine.as_ref().expect("engine");
+        engine
+            .state
+            .stars
+            .keys()
+            .copied()
+            .find(|star| !engine.state.explored_stars.contains(star))
+            .expect("an unexplored star must exist")
+    };
+
+    app.engine
+        .as_mut()
+        .expect("engine")
+        .state
+        .ai_explored_stars
+        .insert(ai_only_star);
+    app.state.log.clear();
+
+    app.push_core_event_to_log(&CoreEvent::SystemExplored { star: ai_only_star });
+
+    assert_eq!(
+        app.state.log.len(),
+        0,
+        "AI-only exploration must not appear in log"
+    );
+}
+
+#[test]
+fn player_system_exploration_remains_visible_in_log() {
+    let mut app = App::new();
+    app.new_game(42);
+
+    let player_star = {
+        let engine = app.engine.as_ref().expect("engine");
+        *engine
+            .state
+            .explored_stars
+            .iter()
+            .next()
+            .expect("player must start with explored star")
+    };
+
+    app.state.log.clear();
+    app.push_core_event_to_log(&CoreEvent::SystemExplored { star: player_star });
+
+    assert_eq!(app.state.log.len(), 1);
+    assert_eq!(
+        app.state.log.last_n(1),
+        &[format!("System {} explored", player_star.0)]
+    );
+}
+
+#[test]
 fn ai_events_visible_for_contacted_empire() {
     let mut app = App::new();
     app.new_game(42);

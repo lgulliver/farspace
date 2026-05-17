@@ -409,6 +409,7 @@ impl App {
         // Screen-specific handling
         match self.state.active {
             Screen::Menu => self.handle_menu_key(key),
+            Screen::EmpireSelect => self.handle_empire_select_key(key),
             Screen::NewGameSetup => self.handle_new_game_setup_key(key),
             Screen::SectorOverview => self.handle_sector_overview_key(key),
             Screen::SectorMap => self.handle_sector_map_key(key),
@@ -422,8 +423,8 @@ impl App {
 
     fn handle_menu_key(&mut self, key: KeyEvent) {
         if KeyMap::is_new_game(key) {
-            // Navigate to the setup screen instead of directly starting a game.
-            self.state.active = Screen::NewGameSetup;
+            // Navigate to empire selection first.
+            self.state.active = Screen::EmpireSelect;
         } else if KeyMap::is_load_game(key) {
             let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);
             match self.load_game(&path) {
@@ -440,10 +441,31 @@ impl App {
         }
     }
 
+    fn handle_empire_select_key(&mut self, key: KeyEvent) {
+        let all_defs = game_core::all_empire_definitions();
+        match key.code {
+            KeyCode::Esc => {
+                self.state.active = Screen::Menu;
+            }
+            KeyCode::Enter => {
+                self.state.active = Screen::NewGameSetup;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.state.new_game_setup.empire_cursor = (self.state.new_game_setup.empire_cursor
+                    + 1)
+                .min(all_defs.len().saturating_sub(1));
+            }
+            KeyCode::Char('k') | KeyCode::Up if self.state.new_game_setup.empire_cursor > 0 => {
+                self.state.new_game_setup.empire_cursor -= 1;
+            }
+            _ => {}
+        }
+    }
+
     /// Handle keyboard input on the New Game Setup screen.
     fn handle_new_game_setup_key(&mut self, key: KeyEvent) {
-        use crate::screens::new_game_setup::{FIELD_EMPIRE, FIELD_SEED};
-        const NUM_FIELDS: usize = 4;
+        use crate::screens::new_game_setup::FIELD_SEED;
+        const NUM_FIELDS: usize = 3;
 
         // Seed editing mode intercepts most keys.
         if self.state.new_game_setup.seed_editing {
@@ -478,7 +500,7 @@ impl App {
 
         match key.code {
             KeyCode::Esc => {
-                self.state.active = Screen::Menu;
+                self.state.active = Screen::EmpireSelect;
             }
             KeyCode::Enter => {
                 let cursor = self.state.new_game_setup.cursor;
@@ -487,9 +509,6 @@ impl App {
                     self.state.new_game_setup.seed_pre_edit =
                         self.state.new_game_setup.seed_str.clone();
                     self.state.new_game_setup.seed_editing = true;
-                } else if cursor == FIELD_EMPIRE {
-                    // Enter on empire field cycles to next empire (same as →).
-                    self.setup_cycle_field(true);
                 } else {
                     // Start the game from the setup screen.
                     self.start_game_from_setup();
@@ -521,21 +540,10 @@ impl App {
 
     /// Cycle the currently selected setup field forward (true) or backward (false).
     fn setup_cycle_field(&mut self, forward: bool) {
-        use crate::screens::new_game_setup::{FIELD_AI_COUNT, FIELD_EMPIRE, FIELD_GALAXY_SIZE};
+        use crate::screens::new_game_setup::{FIELD_AI_COUNT, FIELD_GALAXY_SIZE};
         use game_core::GalaxySize;
         let all_sizes = GalaxySize::all();
-        let all_defs = game_core::all_empire_definitions();
         match self.state.new_game_setup.cursor {
-            FIELD_EMPIRE => {
-                let n = all_defs.len();
-                if forward {
-                    self.state.new_game_setup.empire_cursor =
-                        (self.state.new_game_setup.empire_cursor + 1) % n;
-                } else {
-                    self.state.new_game_setup.empire_cursor =
-                        (self.state.new_game_setup.empire_cursor + n - 1) % n;
-                }
-            }
             FIELD_GALAXY_SIZE => {
                 let idx = all_sizes
                     .iter()

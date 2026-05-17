@@ -65,13 +65,15 @@ impl Theme {
         def_id: Option<game_core::EmpireDefinitionId>,
         empire_id: EmpireId,
     ) -> Color {
-        match def_id.map(|id| id.0).unwrap_or((empire_id.0 % 6) as u8) {
+        match def_id.map(|id| id.0).unwrap_or((empire_id.0 % 8) as u8) {
             0 => Color::Rgb(214, 133, 63),
             1 => Color::Rgb(96, 193, 255),
             2 => Color::Rgb(121, 212, 136),
             3 => Color::Rgb(225, 176, 73),
             4 => Color::Rgb(217, 92, 92),
-            _ => Color::Rgb(184, 122, 255),
+            5 => Color::Rgb(184, 122, 255),
+            6 => Color::Rgb(100, 181, 246),
+            _ => Color::Rgb(255, 140, 100),
         }
     }
 
@@ -79,13 +81,15 @@ impl Theme {
         def_id: Option<game_core::EmpireDefinitionId>,
         empire_id: EmpireId,
     ) -> Color {
-        match def_id.map(|id| id.0).unwrap_or((empire_id.0 % 6) as u8) {
+        match def_id.map(|id| id.0).unwrap_or((empire_id.0 % 8) as u8) {
             0 => Color::Rgb(44, 27, 15),
             1 => Color::Rgb(18, 34, 50),
             2 => Color::Rgb(17, 33, 22),
             3 => Color::Rgb(42, 31, 12),
             4 => Color::Rgb(45, 18, 20),
-            _ => Color::Rgb(32, 18, 46),
+            5 => Color::Rgb(32, 18, 46),
+            6 => Color::Rgb(15, 30, 48),
+            _ => Color::Rgb(48, 25, 15),
         }
     }
 

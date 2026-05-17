@@ -9,10 +9,10 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hyperspace_lanes};
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
-    BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireId, Fleet, FleetId,
-    FleetKind, FleetMission, FleetOrder, GameState, HyperspaceLane, OrbitalStructureType,
-    RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission, ShipDesignId, StarId,
-    SurveyMission, TechId, YieldType,
+    AiDoctrine, BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireId,
+    Fleet, FleetId, FleetKind, FleetMission, FleetOrder, GameState, HyperspaceLane,
+    OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
+    ShipDesignId, StarId, SurveyMission, TechId, YieldType,
 };
 use crate::yield_model::YieldContext;
 #[cfg(test)]

@@ -287,7 +287,16 @@ fn render_colony_stats(
             Span::styled("Class: ", Theme::muted_style()),
             Span::raw(planet_class),
             Span::styled("  Stability: ", Theme::muted_style()),
-            Span::raw(format!("{}", colony.stability)),
+            Span::styled(
+                format!("{}", colony.stability),
+                if colony.stability < 60 {
+                    Theme::error_style()
+                } else if colony.stability < 80 {
+                    Theme::warning_style()
+                } else {
+                    Theme::default_style()
+                },
+            ),
         ]),
         Line::from(vec![
             Span::styled("Order: ", Theme::muted_style()),
@@ -346,7 +355,14 @@ fn render_colony_stats(
         ]),
         Line::from(vec![
             Span::styled("Housing    : ", Theme::muted_style()),
-            Span::raw(format!("{}", housing_cap)),
+            if housing_cap < colony.population {
+                Span::styled(
+                    format!("SHORTAGE ({}/{})", colony.population, housing_cap),
+                    Theme::warning_style(),
+                )
+            } else {
+                Span::raw(format!("{}", housing_cap))
+            },
         ]),
         Line::from(vec![
             Span::styled("Employed   : ", Theme::muted_style()),
@@ -373,7 +389,7 @@ fn render_colony_stats(
                 if food_balance < 0 {
                     Theme::warning_style()
                 } else {
-                    Theme::accent_style()
+                    Theme::success_style()
                 },
             ),
         ]),

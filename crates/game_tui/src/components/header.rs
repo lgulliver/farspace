@@ -24,6 +24,8 @@ pub struct HeaderData {
     pub active_research: String,
     pub colonies: usize,
     pub fleets: usize,
+    /// Total fleet maintenance cost per turn for the player empire.
+    pub fleet_maintenance: i64,
 }
 
 /// Build `HeaderData` from the current game state.
@@ -49,6 +51,12 @@ pub fn derive_header_data(game_state: &GameState) -> HeaderData {
         .values()
         .filter(|f| f.owner == game_state.player_empire)
         .count();
+    let fleet_maintenance: i64 = game_state
+        .fleets
+        .values()
+        .filter(|f| f.owner == game_state.player_empire)
+        .map(|f| f.kind.maintenance_cost() as i64)
+        .sum();
 
     HeaderData {
         turn: game_state.turn,
@@ -59,6 +67,7 @@ pub fn derive_header_data(game_state: &GameState) -> HeaderData {
         active_research,
         colonies,
         fleets,
+        fleet_maintenance,
     }
 }
 
@@ -74,6 +83,12 @@ pub fn render_header(frame: &mut Frame, area: Rect, data: &HeaderData) {
     } else {
         Theme::default_style()
     };
+    // Warn if fleet maintenance exceeds 25% of current credits balance.
+    let maintenance_style = if data.fleet_maintenance > data.credits / 4 {
+        Theme::warning_style()
+    } else {
+        Theme::default_style()
+    };
 
     let wide_segments = vec![
         format!("Turn {}", data.turn),
@@ -84,6 +99,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, data: &HeaderData) {
         format!("Research: {}", data.active_research),
         format!("Colonies: {}", data.colonies),
         format!("Fleets: {}", data.fleets),
+        format!("Maint: {}", data.fleet_maintenance),
     ];
     let medium_segments = vec![
         format!("T{}", data.turn),
@@ -94,6 +110,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, data: &HeaderData) {
         format!("Res {}", data.active_research),
         format!("Col {}", data.colonies),
         format!("Fl {}", data.fleets),
+        format!("Ma {}", data.fleet_maintenance),
     ];
     let narrow_segments = vec![
         format!("T{}", data.turn),
@@ -163,6 +180,12 @@ pub fn render_header(frame: &mut Frame, area: Rect, data: &HeaderData) {
         } else if let Some(value) = segment.strip_prefix("Fl ") {
             spans.push(Span::styled("Fl ", Theme::muted_style()));
             Span::raw(value.to_string())
+        } else if let Some(value) = segment.strip_prefix("Maint: ") {
+            spans.push(Span::styled("Maint: ", Theme::muted_style()));
+            Span::styled(value.to_string(), maintenance_style)
+        } else if let Some(value) = segment.strip_prefix("Ma ") {
+            spans.push(Span::styled("Ma ", Theme::muted_style()));
+            Span::styled(value.to_string(), maintenance_style)
         } else {
             Span::raw(segment.clone())
         };
@@ -197,6 +220,7 @@ mod tests {
                     active_research: "Survey Drones".to_string(),
                     colonies: 1,
                     fleets: 2,
+                    fleet_maintenance: 2,
                 };
                 render_header(frame, area, &data);
             })
@@ -220,6 +244,7 @@ mod tests {
                     active_research: "None".to_string(),
                     colonies: 1,
                     fleets: 1,
+                    fleet_maintenance: 1,
                 };
                 render_header(frame, area, &data);
             })
@@ -243,6 +268,7 @@ mod tests {
                     active_research: "Hyperlane Theory".to_string(),
                     colonies: 2,
                     fleets: 3,
+                    fleet_maintenance: 6,
                 };
                 render_header(frame, area, &data);
             })
@@ -266,6 +292,7 @@ mod tests {
                     active_research: "None".to_string(),
                     colonies: 1,
                     fleets: 0,
+                    fleet_maintenance: 0,
                 };
                 render_header(frame, area, &data);
             })
@@ -299,6 +326,43 @@ mod tests {
                 .filter(|f| f.owner == state.player_empire)
                 .count()
         );
+    }
+
+    #[test]
+    fn derive_header_data_fleet_maintenance_is_sum_of_player_fleets() {
+        let state = game_core::Engine::new(42).state;
+        let data = derive_header_data(&state);
+        let expected: i64 = state
+            .fleets
+            .values()
+            .filter(|f| f.owner == state.player_empire)
+            .map(|f| f.kind.maintenance_cost() as i64)
+            .sum();
+        assert_eq!(data.fleet_maintenance, expected);
+    }
+
+    #[test]
+    fn render_header_high_maintenance_warns() {
+        let backend = TestBackend::new(200, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        // fleet_maintenance (100) > credits / 4 (25) — should use warning style
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                let data = HeaderData {
+                    turn: 1,
+                    empire_name: "Overextended Empire".to_string(),
+                    credits: 100,
+                    food: 0,
+                    science: 0,
+                    active_research: "None".to_string(),
+                    colonies: 1,
+                    fleets: 50,
+                    fleet_maintenance: 100,
+                };
+                render_header(frame, area, &data);
+            })
+            .unwrap();
     }
 
     #[test]
@@ -340,6 +404,7 @@ mod tests {
                     active_research: "Interstellar Infrastructure Optimization".to_string(),
                     colonies: 6,
                     fleets: 9,
+                    fleet_maintenance: 18,
                 };
                 render_header(frame, area, &data);
             })

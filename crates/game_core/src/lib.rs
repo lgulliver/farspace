@@ -20,7 +20,7 @@ pub use dispatch::{
     generate_dispatch, DispatchCategory, DispatchItem, DispatchSeverity, GalacticDispatch,
     DISPATCH_CADENCE, DISPATCH_MAX_HISTORY,
 };
-pub use engine::Engine;
+pub use engine::{fleet_maintenance_for_empire, Engine};
 pub use events::Event;
 pub use state::{
     all_empire_definitions, all_ship_designs, all_techs, available_tech_ids,

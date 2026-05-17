@@ -10277,4 +10277,3 @@ fn dispatch_history_trimmed_to_max() {
         "oldest dispatch should have been evicted; front turn is {front_turn}"
     );
 }
-}

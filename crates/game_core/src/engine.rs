@@ -208,6 +208,27 @@ pub struct Engine {
     last_turn_colony_blockade: BTreeMap<ColonyId, EmpireId>,
 }
 
+/// Compute total fleet maintenance for an empire from game state.
+///
+/// Each fleet contributes its kind's base maintenance cost, adjusted by
+/// the empire's `fleet_maintenance_modifier_per_fleet` (flat per-fleet delta).
+pub fn fleet_maintenance_for_empire(state: &GameState, empire_id: EmpireId) -> i64 {
+    let modifier = state
+        .empires
+        .get(&empire_id)
+        .and_then(|empire| empire.empire_def)
+        .and_then(empire_definition_by_id)
+        .map(|def| def.military_modifiers.fleet_maintenance_modifier_per_fleet)
+        .unwrap_or(0);
+
+    state
+        .fleets
+        .values()
+        .filter(|f| f.owner == empire_id)
+        .map(|f| (f.kind.maintenance_cost() as i64 + modifier).max(0))
+        .sum()
+}
+
 impl Engine {
     fn empire_definition(
         &self,
@@ -270,16 +291,7 @@ impl Engine {
     /// Each fleet contributes its kind's base maintenance cost, adjusted by
     /// the empire's `fleet_maintenance_modifier_per_fleet` (flat per-fleet delta).
     fn fleet_maintenance_for_empire(&self, empire_id: EmpireId) -> i64 {
-        let modifier = self
-            .empire_definition(empire_id)
-            .map(|def| def.military_modifiers.fleet_maintenance_modifier_per_fleet)
-            .unwrap_or(0);
-        self.state
-            .fleets
-            .values()
-            .filter(|f| f.owner == empire_id)
-            .map(|f| (f.kind.maintenance_cost() as i64 + modifier).max(0))
-            .sum()
+        fleet_maintenance_for_empire(&self.state, empire_id)
     }
 
     fn invasion_strength_for_empire(&self, empire_id: EmpireId, ships: u32) -> u32 {

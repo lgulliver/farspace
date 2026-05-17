@@ -1,7 +1,7 @@
 //! Header component
 
 use crate::theme::Theme;
-use game_core::{tech_by_id, GameState};
+use game_core::{fleet_maintenance_for_empire, tech_by_id, GameState};
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
@@ -51,12 +51,7 @@ pub fn derive_header_data(game_state: &GameState) -> HeaderData {
         .values()
         .filter(|f| f.owner == game_state.player_empire)
         .count();
-    let fleet_maintenance: i64 = game_state
-        .fleets
-        .values()
-        .filter(|f| f.owner == game_state.player_empire)
-        .map(|f| f.kind.maintenance_cost() as i64)
-        .sum();
+    let fleet_maintenance = fleet_maintenance_for_empire(game_state, game_state.player_empire);
 
     HeaderData {
         turn: game_state.turn,
@@ -332,12 +327,24 @@ mod tests {
     fn derive_header_data_fleet_maintenance_is_sum_of_player_fleets() {
         let state = game_core::Engine::new(42).state;
         let data = derive_header_data(&state);
+        let expected = game_core::fleet_maintenance_for_empire(&state, state.player_empire);
+        assert_eq!(data.fleet_maintenance, expected);
+    }
+
+    #[test]
+    fn derive_header_data_fleet_maintenance_applies_empire_modifier() {
+        let mut state = game_core::Engine::new(42).state;
+        state.empires.get_mut(&state.player_empire).unwrap().empire_def =
+            Some(game_core::EmpireDefinitionId(7));
+
+        let data = derive_header_data(&state);
         let expected: i64 = state
             .fleets
             .values()
-            .filter(|f| f.owner == state.player_empire)
-            .map(|f| f.kind.maintenance_cost() as i64)
+            .filter(|fleet| fleet.owner == state.player_empire)
+            .map(|fleet| (fleet.kind.maintenance_cost() as i64 - 1).max(0))
             .sum();
+
         assert_eq!(data.fleet_maintenance, expected);
     }
 

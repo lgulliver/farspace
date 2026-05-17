@@ -70,6 +70,7 @@ pub enum Command {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "serde")]
     use super::*;
 
     #[cfg(feature = "serde")]

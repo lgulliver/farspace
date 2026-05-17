@@ -2308,19 +2308,18 @@ fn player_operational_events_still_visible_in_log() {
 // Galactic Dispatch tests
 // ---------------------------------------------------------------------------
 
-/// Helper: advance the game by `n` turns to generate dispatches.
-fn advance_turns(app: &mut App, n: u32) {
-    for _ in 0..n {
-        app.dispatch_command(Command::EndTurn);
-    }
-}
-
 #[test]
 fn test_n_key_opens_dispatch_when_dispatch_available() {
     let mut app = App::new();
     app.new_game(42);
     // Advance enough turns to generate at least one dispatch (cadence = 5)
-    advance_turns(&mut app, 5);
+    // Close any auto-opened overlay before each end-turn key
+    for _ in 0..5 {
+        if app.state.overlay.show_dispatch {
+            app.state.overlay.show_dispatch = false;
+        }
+        app.dispatch_command(Command::EndTurn);
+    }
 
     let has_dispatch = app
         .engine
@@ -2328,80 +2327,98 @@ fn test_n_key_opens_dispatch_when_dispatch_available() {
         .map(|e| !e.state.galactic_dispatches.is_empty())
         .unwrap_or(false);
 
-    if has_dispatch {
-        // Close any auto-shown overlay first
-        app.state.overlay.show_dispatch = false;
+    assert!(
+        has_dispatch,
+        "advancing 5 turns must produce at least one cadence dispatch"
+    );
 
-        app.handle_key(key(KeyCode::Char('N')));
-        assert!(
-            app.state.overlay.show_dispatch,
-            "N key should open dispatch modal when dispatches exist"
-        );
-    }
-    // If no dispatch was generated (unlikely with 5 turns), the status message should be set
+    // Close any auto-shown overlay
+    app.state.overlay.show_dispatch = false;
+
+    app.handle_key(key(KeyCode::Char('N')));
+    assert!(
+        app.state.overlay.show_dispatch,
+        "N key should open dispatch modal when dispatches exist"
+    );
 }
 
 #[test]
 fn test_dispatch_overlay_closes_on_esc() {
     let mut app = App::new();
     app.new_game(42);
-    advance_turns(&mut app, 5);
-
-    // Manually set up the overlay
-    if app
-        .engine
-        .as_ref()
-        .map(|e| !e.state.galactic_dispatches.is_empty())
-        .unwrap_or(false)
-    {
-        app.state.overlay.show_dispatch = true;
-        app.state.overlay.dispatch_history_index = 0;
-
-        app.handle_key(key(KeyCode::Esc));
-        assert!(
-            !app.state.overlay.show_dispatch,
-            "Esc should close the dispatch modal"
-        );
+    for _ in 0..5 {
+        if app.state.overlay.show_dispatch {
+            app.state.overlay.show_dispatch = false;
+        }
+        app.dispatch_command(Command::EndTurn);
     }
+
+    assert!(
+        app.engine
+            .as_ref()
+            .map(|e| !e.state.galactic_dispatches.is_empty())
+            .unwrap_or(false),
+        "advancing 5 turns must produce at least one cadence dispatch"
+    );
+
+    app.state.overlay.show_dispatch = true;
+    app.state.overlay.dispatch_history_index = 0;
+
+    app.handle_key(key(KeyCode::Esc));
+    assert!(
+        !app.state.overlay.show_dispatch,
+        "Esc should close the dispatch modal"
+    );
 }
 
 #[test]
 fn test_dispatch_palette_command_opens_dispatch() {
     let mut app = App::new();
     app.new_game(42);
-    advance_turns(&mut app, 5);
-
-    if app
-        .engine
-        .as_ref()
-        .map(|e| !e.state.galactic_dispatches.is_empty())
-        .unwrap_or(false)
-    {
-        // Close any auto-shown overlay first
-        app.state.overlay.show_dispatch = false;
-
-        app.execute_palette_command(PaletteCommand::Dispatch);
-        assert!(
-            app.state.overlay.show_dispatch,
-            "PaletteCommand::Dispatch should open the dispatch modal"
-        );
-
-        // Reset and test alias
-        app.state.overlay.show_dispatch = false;
-        app.execute_palette_command(PaletteCommand::News);
-        assert!(
-            app.state.overlay.show_dispatch,
-            "PaletteCommand::News should also open the dispatch modal"
-        );
+    for _ in 0..5 {
+        if app.state.overlay.show_dispatch {
+            app.state.overlay.show_dispatch = false;
+        }
+        app.dispatch_command(Command::EndTurn);
     }
+
+    assert!(
+        app.engine
+            .as_ref()
+            .map(|e| !e.state.galactic_dispatches.is_empty())
+            .unwrap_or(false),
+        "advancing 5 turns must produce at least one cadence dispatch"
+    );
+
+    // Close any auto-shown overlay first
+    app.state.overlay.show_dispatch = false;
+
+    app.execute_palette_command(PaletteCommand::Dispatch);
+    assert!(
+        app.state.overlay.show_dispatch,
+        "PaletteCommand::Dispatch should open the dispatch modal"
+    );
+
+    // Reset and test alias
+    app.state.overlay.show_dispatch = false;
+    app.execute_palette_command(PaletteCommand::News);
+    assert!(
+        app.state.overlay.show_dispatch,
+        "PaletteCommand::News should also open the dispatch modal"
+    );
 }
 
 #[test]
 fn test_dispatch_navigation_cycles_history() {
     let mut app = App::new();
     app.new_game(42);
-    // Advance 10 turns to try to get multiple dispatches
-    advance_turns(&mut app, 10);
+    // Advance 10 turns to get multiple dispatches (cadence=5 → 2 dispatches)
+    for _ in 0..10 {
+        if app.state.overlay.show_dispatch {
+            app.state.overlay.show_dispatch = false;
+        }
+        app.dispatch_command(Command::EndTurn);
+    }
 
     let dispatch_count = app
         .engine
@@ -2409,10 +2426,10 @@ fn test_dispatch_navigation_cycles_history() {
         .map(|e| e.state.galactic_dispatches.len())
         .unwrap_or(0);
 
-    if dispatch_count < 2 {
-        // Not enough dispatches to test navigation — skip
-        return;
-    }
+    assert!(
+        dispatch_count >= 2,
+        "advancing 10 turns must produce at least 2 cadence dispatches, got {dispatch_count}"
+    );
 
     // Open dispatch at newest
     app.state.overlay.show_dispatch = true;

@@ -105,13 +105,16 @@ fn player_knows_empire(state: &crate::state::GameState, empire_id: EmpireId) -> 
     )
 }
 
-/// Returns the star's display name, or `"Unknown System"` if not found.
-fn star_name_for_id(state: &crate::state::GameState, star_id: StarId) -> &str {
-    state
-        .stars
-        .get(&star_id)
-        .map(|s| s.name.as_str())
-        .unwrap_or("Unknown System")
+/// Returns the star's display name if the player has explored it, otherwise `None`.
+///
+/// Use this instead of a direct lookup to avoid revealing the location of
+/// systems the player has not yet visited.
+fn star_name_if_known(state: &crate::state::GameState, star_id: StarId) -> Option<&str> {
+    if state.explored_stars.contains(&star_id) {
+        state.stars.get(&star_id).map(|s| s.name.as_str())
+    } else {
+        None
+    }
 }
 
 /// Returns the empire's display name, or `"Unknown Empire"` if not found.
@@ -214,7 +217,11 @@ pub fn generate_dispatch(
                 colony: _,
                 ..
             } => {
-                let star_name = star_name_for_id(state, *star);
+                let star_name = state
+                    .stars
+                    .get(star)
+                    .map(|s| s.name.as_str())
+                    .unwrap_or("Unknown System");
                 items.push(item(
                     DispatchCategory::Colonization,
                     DispatchSeverity::Notable,
@@ -233,14 +240,25 @@ pub fn generate_dispatch(
                 colony: _,
             } => {
                 if player_knows_empire(state, *empire) {
-                    let star_name = star_name_for_id(state, *star);
+                    let (headline, related_star) =
+                        if let Some(star_name) = star_name_if_known(state, *star) {
+                            (
+                                format!("Colonists Establish Foothold in {star_name} System"),
+                                Some(*star),
+                            )
+                        } else {
+                            (
+                                "Rival Empire Establishes Colony in Distant Territory".to_string(),
+                                None,
+                            )
+                        };
                     items.push(item(
                         DispatchCategory::Colonization,
                         DispatchSeverity::Notable,
-                        format!("Colonists Establish Foothold in {star_name} System"),
+                        headline,
                         "A rival empire has established a new colonial presence.",
                         Some(*empire),
-                        Some(*star),
+                        related_star,
                         Some(*planet_index),
                     ));
                 } else {
@@ -302,22 +320,34 @@ pub fn generate_dispatch(
                 if !a_known && !b_known && !player_involved {
                     // Both completely unknown — skip
                 } else {
-                    let star_name = star_name_for_id(state, *star);
+                    let known_star = star_name_if_known(state, *star);
                     let (headline, severity) = if player_involved {
-                        (
-                            format!("Combat Reported in {star_name} Sector"),
-                            DispatchSeverity::Urgent,
-                        )
+                        let h = if let Some(star_name) = known_star {
+                            format!("Combat Reported in {star_name} Sector")
+                        } else {
+                            "Combat Reported in Contested Space".to_string()
+                        };
+                        (h, DispatchSeverity::Urgent)
                     } else if a_known && b_known {
-                        (
-                            format!("Combat Reported in {star_name} Sector"),
-                            DispatchSeverity::Notable,
-                        )
+                        let h = if let Some(star_name) = known_star {
+                            format!("Combat Reported in {star_name} Sector")
+                        } else {
+                            "Combat Reported in Distant Space".to_string()
+                        };
+                        (h, DispatchSeverity::Notable)
                     } else {
-                        (
-                            format!("Unidentified Fleet Engages Forces Near {star_name}"),
-                            DispatchSeverity::Notable,
-                        )
+                        let h = if let Some(star_name) = known_star {
+                            format!("Unidentified Fleet Engages Forces Near {star_name}")
+                        } else {
+                            "Unidentified Fleet Engages Forces in Unknown Space".to_string()
+                        };
+                        (h, DispatchSeverity::Notable)
+                    };
+                    // Only expose the star if it is known to the player
+                    let related_star = if known_star.is_some() {
+                        Some(*star)
+                    } else {
+                        None
                     };
                     items.push(item(
                         DispatchCategory::War,
@@ -325,7 +355,7 @@ pub fn generate_dispatch(
                         headline,
                         "Fleet engagement has been detected by long-range sensors.",
                         None,
-                        Some(*star),
+                        related_star,
                         None,
                     ));
                 }
@@ -342,20 +372,35 @@ pub fn generate_dispatch(
                     .get(colony)
                     .map(|c| c.owner == state.player_empire)
                     .unwrap_or(false);
+                let empire_known = player_knows_empire(state, *by_empire);
+                // The player knows the star only if they have explored it OR it's their own colony
+                let star_known = is_player_colony || star_name_if_known(state, *star).is_some();
+                let known_star_name = if star_known {
+                    star_name_if_known(state, *star)
+                        .or_else(|| state.stars.get(star).map(|s| s.name.as_str()))
+                } else {
+                    None
+                };
 
-                let star_name = star_name_for_id(state, *star);
-                let headline = if is_player_colony || player_knows_empire(state, *by_empire) {
-                    format!("Hostile Vessels Impose Blockade at {star_name}")
+                let headline = if is_player_colony || empire_known {
+                    if let Some(star_name) = known_star_name {
+                        format!("Hostile Vessels Impose Blockade at {star_name}")
+                    } else {
+                        "Hostile Vessels Impose Blockade on Colonial Outpost".to_string()
+                    }
                 } else {
                     "Unidentified Fleet Blockades Contested Colony".to_string()
                 };
+                // Only expose related IDs when the player can legitimately see them
+                let related_empire = if empire_known { Some(*by_empire) } else { None };
+                let related_star = if star_known { Some(*star) } else { None };
                 items.push(item(
                     DispatchCategory::Blockades,
                     DispatchSeverity::Urgent,
                     headline,
                     "Warships have established a blocking cordon around a colonial settlement.",
-                    Some(*by_empire),
-                    Some(*star),
+                    related_empire,
+                    related_star,
                     None,
                 ));
             }
@@ -372,45 +417,75 @@ pub fn generate_dispatch(
                 let player = state.player_empire;
                 let player_involved = *attacker == player || *defender == player;
                 let attacker_known = player_knows_empire(state, *attacker);
-                let star_name = star_name_for_id(state, *star);
+                let known_star = star_name_if_known(state, *star);
 
                 let (headline, severity) = if player_involved {
-                    (
-                        format!("Colony Falls to Invading Forces at {star_name}"),
-                        DispatchSeverity::Urgent,
-                    )
+                    let h = if let Some(star_name) = known_star {
+                        format!("Colony Falls to Invading Forces at {star_name}")
+                    } else {
+                        "Colony Falls to Invading Forces".to_string()
+                    };
+                    (h, DispatchSeverity::Historic)
                 } else if attacker_known {
                     let attacker_name = empire_name_for_id(state, *attacker);
-                    (
-                        format!("{attacker_name} Forces Capture Colony"),
-                        DispatchSeverity::Urgent,
-                    )
+                    let h = if let Some(star_name) = known_star {
+                        format!("{attacker_name} Forces Capture Colony at {star_name}")
+                    } else {
+                        format!("{attacker_name} Forces Capture Distant Colony")
+                    };
+                    (h, DispatchSeverity::Urgent)
                 } else {
                     (
                         "Invaders Seize Colonial Outpost".to_string(),
                         DispatchSeverity::Urgent,
                     )
                 };
+                let related_star = if known_star.is_some() {
+                    Some(*star)
+                } else {
+                    None
+                };
+                let related_attacker = if attacker_known || player_involved {
+                    Some(*attacker)
+                } else {
+                    None
+                };
                 items.push(item(
                     DispatchCategory::Invasions,
                     severity,
                     headline,
                     "Ground assault operations have concluded with a change of colonial ownership.",
-                    Some(*attacker),
-                    Some(*star),
+                    related_attacker,
+                    related_star,
                     Some(*planet_index),
                 ));
             }
 
             Event::InvasionFailed { attacker, star, .. } => {
-                let star_name = star_name_for_id(state, *star);
+                let known_star = star_name_if_known(state, *star);
+                let headline = if let Some(star_name) = known_star {
+                    format!("Defenders Repel Invasion Attempt at {star_name}")
+                } else {
+                    "Defenders Repel Invasion Attempt".to_string()
+                };
+                let attacker_known = player_knows_empire(state, *attacker);
+                let related_star = if known_star.is_some() {
+                    Some(*star)
+                } else {
+                    None
+                };
+                let related_attacker = if attacker_known {
+                    Some(*attacker)
+                } else {
+                    None
+                };
                 items.push(item(
                     DispatchCategory::Invasions,
                     DispatchSeverity::Notable,
-                    format!("Defenders Repel Invasion Attempt at {star_name}"),
+                    headline,
                     "Colonial defenders successfully repulsed a ground assault.",
-                    Some(*attacker),
-                    Some(*star),
+                    related_attacker,
+                    related_star,
                     None,
                 ));
             }
@@ -442,6 +517,20 @@ pub fn generate_dispatch(
                         DispatchSeverity::Urgent,
                         "Food Reserves Depleted — Population Facing Shortfall",
                         "Supply chain analysis confirms food stockpiles have fallen to critical levels.",
+                        Some(*empire),
+                        None,
+                        None,
+                    ));
+                }
+            }
+
+            Event::CreditDeficit { empire, .. } => {
+                if *empire == state.player_empire {
+                    items.push(item(
+                        DispatchCategory::Economy,
+                        DispatchSeverity::Urgent,
+                        "Imperial Treasury Reports Credit Shortfall",
+                        "Credit reserves have fallen below zero — maintenance is outpacing income.",
                         Some(*empire),
                         None,
                         None,
@@ -749,11 +838,13 @@ mod tests {
         let research_pos = a
             .items
             .iter()
-            .position(|i| i.category == DispatchCategory::Research);
+            .position(|i| i.category == DispatchCategory::Research)
+            .expect("Research item should be present");
         let exploration_pos = a
             .items
             .iter()
-            .position(|i| i.category == DispatchCategory::Exploration);
+            .position(|i| i.category == DispatchCategory::Exploration)
+            .expect("Exploration item should be present");
         assert!(
             research_pos < exploration_pos,
             "Notable should sort before Notice"
@@ -933,8 +1024,10 @@ mod tests {
     }
 
     #[test]
-    fn invasion_produces_urgent_item() {
-        let state = minimal_state();
+    fn invasion_produces_historic_item_when_player_involved() {
+        let mut state = minimal_state();
+        // Add the star to explored so the star name can be used
+        state.explored_stars.insert(StarId(10));
         let events = vec![Event::InvasionSucceeded {
             attacker: EmpireId(2),
             defender: state.player_empire,
@@ -950,8 +1043,91 @@ mod tests {
             .iter()
             .filter(|i| i.category == DispatchCategory::Invasions)
             .collect();
-        assert!(!items.is_empty());
-        assert_eq!(items[0].severity, DispatchSeverity::Urgent);
+        assert!(!items.is_empty(), "expected an Invasions dispatch item");
+        assert_eq!(
+            items[0].severity,
+            DispatchSeverity::Historic,
+            "player-involved invasion should be Historic"
+        );
+    }
+
+    #[test]
+    fn credit_deficit_produces_urgent_economy_item() {
+        let state = minimal_state();
+        let events = vec![Event::CreditDeficit {
+            empire: state.player_empire,
+            deficit: 10,
+        }];
+        let d = generate_dispatch(0, &events, &state).unwrap();
+        let economy_items: Vec<_> = d
+            .items
+            .iter()
+            .filter(|i| i.category == DispatchCategory::Economy)
+            .collect();
+        assert!(
+            !economy_items.is_empty(),
+            "expected an Economy dispatch item for CreditDeficit"
+        );
+        assert_eq!(
+            economy_items[0].severity,
+            DispatchSeverity::Urgent,
+            "credit deficit should be Urgent"
+        );
+    }
+
+    #[test]
+    fn unknown_empire_blockade_does_not_leak_star_or_empire_id() {
+        let mut state = minimal_state();
+        let colony_id = ColonyId(1);
+        let star_id = StarId(10);
+        // Colony owned by known enemy empire (not player)
+        state.colonies.insert(
+            colony_id,
+            Colony {
+                id: colony_id,
+                star: star_id,
+                planet_index: 0,
+                owner: EmpireId(99),
+                population: 1,
+                production: 0,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+                buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
+                stability: 100,
+                role: Default::default(),
+                rally_point: None,
+            },
+        );
+        // Empire 88 is completely unknown to the player
+        let events = vec![Event::BlockadeStarted {
+            colony: colony_id,
+            star: star_id,
+            by_empire: EmpireId(88),
+        }];
+        let d = generate_dispatch(0, &events, &state).unwrap();
+        let blockade_items: Vec<_> = d
+            .items
+            .iter()
+            .filter(|i| i.category == DispatchCategory::Blockades)
+            .collect();
+        assert!(
+            !blockade_items.is_empty(),
+            "expected a Blockades dispatch item"
+        );
+        // Unknown empire → no empire ID leaked
+        assert_eq!(
+            blockade_items[0].related_empire_id, None,
+            "unknown blockading empire ID must not be leaked"
+        );
+        // Star not explored → no star ID leaked
+        assert_eq!(
+            blockade_items[0].related_star_id, None,
+            "unknown star ID must not be leaked for unvisited system"
+        );
     }
 
     #[test]

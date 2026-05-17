@@ -1,7 +1,8 @@
 //! Commands that can be issued to the game engine
 
 use crate::state::{
-    BuildItem, ColonyId, ColonyRole, EmpireId, FleetId, FleetOrder, StarId, TechId,
+    BuildItem, ColonyId, ColonyRole, ComponentId, CustomDesignId, EmpireId, FleetId, FleetOrder,
+    HullId, StarId, TechId,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -66,6 +67,14 @@ pub enum Command {
     SetFleetOrder { fleet: FleetId, order: FleetOrder },
     /// Declare war on a known empire, setting the relationship to `War`
     DeclareWar { target: EmpireId },
+    /// Create a new custom ship design for the player empire
+    CreateShipDesign {
+        hull_id: HullId,
+        components: Vec<ComponentId>,
+        name: Option<String>,
+    },
+    /// Delete an existing custom ship design
+    DeleteShipDesign { design_id: CustomDesignId },
 }
 
 #[cfg(test)]

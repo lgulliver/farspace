@@ -17,9 +17,9 @@ use crate::engine::travel_turns_with_lanes;
 use crate::events::Event;
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, AiDoctrine, BuildItem, BuildingType,
-    Colony, ColonyId, ColonyRole, EmpireId, FleetId, FleetKind, GameState, OrbitalStructureType,
-    PlanetClass, PlaystyleTag, ScoutMission, ShipDesignId, StarId, TechDomain, TechId, TechTag,
-    VictoryPath,
+    Colony, ColonyId, ColonyRole, ComponentId, CustomDesignId, CustomShipDesign, EmpireId,
+    FleetId, FleetKind, GameState, OrbitalStructureType, PlanetClass, PlaystyleTag, ScoutMission,
+    ShipDesignId, SlotCategory, StarId, TechDomain, TechId, TechTag, VictoryPath,
 };
 use crate::yield_model::{calculate_yield_with_context, YieldContext};
 
@@ -987,6 +987,169 @@ fn ai_assign_colony_roles(state: &mut GameState, empire_id: EmpireId, events: &m
             role,
         });
     }
+}
+
+// ---------------------------------------------------------------------------
+// Ship Designer AI — auto-generate designs for AI empires
+// ---------------------------------------------------------------------------
+
+/// Generate custom ship designs for an AI empire.
+///
+/// For each hull that is unlocked and has no existing non-obsolete design
+/// owned by this empire, the best available component per slot is chosen
+/// based on the empire's doctrine, and a new `CustomShipDesign` is created.
+pub fn ai_generate_designs(state: &mut GameState, empire_id: EmpireId) {
+    use crate::state::{all_components, all_hull_templates};
+
+    let completed_techs: Vec<TechId> = state
+        .empires
+        .get(&empire_id)
+        .map(|e| e.research.completed.to_vec())
+        .unwrap_or_default();
+
+    let doctrine = state
+        .empires
+        .get(&empire_id)
+        .and_then(|e| e.empire_def)
+        .and_then(empire_definition_by_id)
+        .map(|def| {
+            // Pick the doctrine with the highest weight as the primary doctrine
+            use crate::state::AiDoctrine;
+            let doctrines = [
+                AiDoctrine::Explorer,
+                AiDoctrine::Technologist,
+                AiDoctrine::Merchant,
+                AiDoctrine::Imperial,
+                AiDoctrine::Militarist,
+                AiDoctrine::Industrialist,
+                AiDoctrine::Expansionist,
+                AiDoctrine::Isolationist,
+                AiDoctrine::Biologist,
+            ];
+            doctrines
+                .iter()
+                .copied()
+                .max_by_key(|&d| def.doctrine_weight(d))
+                .unwrap_or(AiDoctrine::Explorer)
+        })
+        .unwrap_or(AiDoctrine::Explorer);
+
+    let all_hulls = all_hull_templates();
+    let all_comps = all_components();
+
+    // Collect hull IDs that already have a live design for this empire (deterministic order).
+    let existing_hulls: std::collections::BTreeSet<crate::state::HullId> = state
+        .custom_designs
+        .values()
+        .filter(|d| d.owner == empire_id && !d.obsolete)
+        .map(|d| d.hull_id)
+        .collect();
+
+    // Sort hulls for determinism
+    let mut hulls: Vec<_> = all_hulls.iter().collect();
+    hulls.sort_by_key(|h| h.hull_id.0);
+
+    for hull in hulls {
+        // Skip if hull requires tech not yet unlocked
+        if let Some(req) = hull.required_tech {
+            if !completed_techs.contains(&req) {
+                continue;
+            }
+        }
+        // Skip if already have a design for this hull
+        if existing_hulls.contains(&hull.hull_id) {
+            continue;
+        }
+
+        // For each slot pick best available component
+        let mut components: Vec<ComponentId> = Vec::new();
+        let mut slots: Vec<SlotCategory> = hull.slots.to_vec();
+        // Sort slots for determinism
+        slots.sort_by_key(|s| *s as u8);
+
+        for slot in &slots {
+            if let Some(best) = pick_best_component(
+                all_comps,
+                *slot,
+                &completed_techs,
+                doctrine,
+                &components,
+            ) {
+                components.push(best);
+            }
+        }
+
+        let design_id = CustomDesignId(state.next_custom_design_id);
+        let hull_id = hull.hull_id;
+        let design = CustomShipDesign {
+            design_id,
+            hull_id,
+            components,
+            owner: empire_id,
+            name: format!("AI Design {}", state.next_custom_design_id),
+            obsolete: false,
+        };
+
+        // Only insert if valid
+        if design.validate(&completed_techs).is_ok() {
+            state.custom_designs.insert(design_id, design);
+            state.next_custom_design_id += 1;
+        }
+    }
+}
+
+/// Pick the best component for a given slot that is tech-unlocked.
+///
+/// Returns `None` if no suitable component is found.
+fn pick_best_component(
+    all_comps: &[crate::state::ComponentDef],
+    slot: SlotCategory,
+    completed_techs: &[TechId],
+    doctrine: AiDoctrine,
+    _already_chosen: &[ComponentId],
+) -> Option<ComponentId> {
+    let mut candidates: Vec<_> = all_comps
+        .iter()
+        .filter(|c| c.category == slot)
+        .filter(|c| {
+            c.required_tech
+                .is_none_or(|t| completed_techs.contains(&t))
+        })
+        .collect();
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    // Sort for determinism then score
+    candidates.sort_by_key(|c| c.component_id.0);
+    candidates.sort_by_key(|c| std::cmp::Reverse(score_component_for_doctrine(c, doctrine)));
+
+    candidates.first().map(|c| c.component_id)
+}
+
+/// Heuristic score for how well a component fits a doctrine.
+fn score_component_for_doctrine(comp: &crate::state::ComponentDef, doctrine: AiDoctrine) -> i32 {
+    use crate::state::ComponentTag;
+
+    let mut score = comp.attack_modifier + comp.defense_modifier + comp.hp_modifier;
+
+    for &tag in comp.special_tags {
+        let bonus: i32 = match (doctrine, tag) {
+            (AiDoctrine::Militarist, ComponentTag::Sensors)
+            | (AiDoctrine::Imperial, ComponentTag::Sensors) => 4,
+            (AiDoctrine::Explorer, ComponentTag::Survey)
+            | (AiDoctrine::Technologist, ComponentTag::Survey) => 4,
+            (AiDoctrine::Expansionist, ComponentTag::Colony)
+            | (AiDoctrine::Biologist, ComponentTag::Colony) => 4,
+            (AiDoctrine::Imperial, ComponentTag::Invasion)
+            | (AiDoctrine::Militarist, ComponentTag::Invasion) => 3,
+            _ => 1,
+        };
+        score += bonus;
+    }
+
+    score
 }
 
 // ---------------------------------------------------------------------------

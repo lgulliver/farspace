@@ -1,6 +1,7 @@
 use super::*;
 use crate::state::{
-    BuildingType, Planet, PlanetClass, PlanetSize, PlanetSpecial, SectorId, StrategicResource,
+    BuildingType, CustomDesignId, HullId, Planet, PlanetClass, PlanetSize, PlanetSpecial,
+    SectorId, StrategicResource,
 };
 
 /// Inject a Shipyard directly into a colony's orbital installations.
@@ -3881,6 +3882,8 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         colony_blockade: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
         galactic_dispatches: std::collections::VecDeque::new(),
+        custom_designs: BTreeMap::new(),
+        next_custom_design_id: 0,
     };
 
     // Player star
@@ -4086,6 +4089,8 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         colony_blockade: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
         galactic_dispatches: std::collections::VecDeque::new(),
+        custom_designs: BTreeMap::new(),
+        next_custom_design_id: 0,
     };
 
     // Populate stars, empires, colonies, fleet
@@ -4450,6 +4455,8 @@ fn contact_detection_is_deterministic() {
         colony_blockade: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
         galactic_dispatches: std::collections::VecDeque::new(),
+        custom_designs: BTreeMap::new(),
+        next_custom_design_id: 0,
     };
 
     // Two AI empires each have a colony at target_star
@@ -8985,6 +8992,8 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         colony_blockade: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
         galactic_dispatches: std::collections::VecDeque::new(),
+        custom_designs: BTreeMap::new(),
+        next_custom_design_id: 0,
     };
 
     state.stars.insert(
@@ -10007,4 +10016,167 @@ fn captured_colony_contributes_to_new_owner_economy_next_turn() {
     assert_eq!(engine.state.colonies[&colony_id].owner, player_id);
     assert!(player_summary.is_some());
     assert_eq!(enemy_summary.unwrap_or(0), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Ship Designer Lite v1 — engine-level tests
+// ---------------------------------------------------------------------------
+
+fn player_colony(engine: &Engine) -> ColonyId {
+    let player = engine.state.player_empire;
+    engine
+        .state
+        .colonies
+        .iter()
+        .find(|(_, c)| c.owner == player)
+        .map(|(id, _)| *id)
+        .expect("player must have a colony")
+}
+
+/// Helper: return the first HullId that requires no tech (Scout hull)
+fn scout_hull_id() -> HullId {
+    HullId::SCOUT
+}
+
+/// Test: CreateShipDesign creates a design and emits ShipDesignCreated event
+#[test]
+fn create_ship_design_creates_design_and_event() {
+    let mut engine = Engine::new(42);
+    let player = engine.state.player_empire;
+    let initial_count = engine.state.custom_designs.len();
+
+    let events = engine.apply_turn(vec![Command::CreateShipDesign {
+        hull_id: scout_hull_id(),
+        components: vec![],
+        name: Some("My Scout".to_string()),
+    }]);
+
+    let created = events.iter().any(|e| {
+        matches!(e, Event::ShipDesignCreated { empire, .. } if *empire == player)
+    });
+    assert!(created, "ShipDesignCreated event must be emitted");
+    assert_eq!(
+        engine.state.custom_designs.len(),
+        initial_count + 1,
+        "custom_designs must grow by 1"
+    );
+
+    let design = engine
+        .state
+        .custom_designs
+        .values()
+        .find(|d| d.owner == player)
+        .unwrap();
+    assert_eq!(design.name, "My Scout");
+    assert_eq!(design.owner, player);
+    assert!(!design.obsolete);
+}
+
+/// Test: DeleteShipDesign marks design obsolete and emits ShipDesignDeleted event
+#[test]
+fn delete_ship_design_marks_obsolete_and_emits_event() {
+    let mut engine = Engine::new(42);
+    let player = engine.state.player_empire;
+
+    // Create a design first
+    engine.apply_turn(vec![Command::CreateShipDesign {
+        hull_id: scout_hull_id(),
+        components: vec![],
+        name: None,
+    }]);
+
+    let design_id = engine
+        .state
+        .custom_designs
+        .iter()
+        .find(|(_, d)| d.owner == player && !d.obsolete)
+        .map(|(id, _)| *id)
+        .expect("player must have a design after CreateShipDesign");
+    assert!(!engine.state.custom_designs[&design_id].obsolete);
+
+    let events = engine.apply_turn(vec![Command::DeleteShipDesign { design_id }]);
+
+    let deleted = events.iter().any(|e| {
+        matches!(e, Event::ShipDesignDeleted { empire, .. } if *empire == player)
+    });
+    assert!(deleted, "ShipDesignDeleted event must be emitted");
+    assert!(
+        engine.state.custom_designs[&design_id].obsolete,
+        "Design must be marked obsolete"
+    );
+}
+
+/// Test: CreateShipDesign with missing hull tech emits ShipDesignInvalid
+#[test]
+fn create_ship_design_invalid_hull_tech_emits_invalid_event() {
+    let mut engine = Engine::new(42);
+    let player = engine.state.player_empire;
+    let initial_count = engine.state.custom_designs.len();
+
+    // Colony Ark requires COLONIAL_VANGUARD (TechId 15) — not unlocked by default
+    let events = engine.apply_turn(vec![Command::CreateShipDesign {
+        hull_id: HullId::COLONY_ARK,
+        components: vec![],
+        name: None,
+    }]);
+
+    let invalid = events.iter().any(|e| {
+        matches!(e, Event::ShipDesignInvalid { empire, .. } if *empire == player)
+    });
+    assert!(invalid, "ShipDesignInvalid event must be emitted for missing hull tech");
+    assert_eq!(
+        engine.state.custom_designs.len(),
+        initial_count,
+        "No design should be created when validation fails"
+    );
+}
+
+/// Test: DeleteShipDesign on unknown design ID emits Error event
+#[test]
+fn delete_ship_design_unknown_id_emits_error() {
+    let mut engine = Engine::new(42);
+    let bogus_id = CustomDesignId(9999);
+
+    let events = engine.apply_turn(vec![Command::DeleteShipDesign { design_id: bogus_id }]);
+
+    let has_error = events.iter().any(|e| matches!(e, Event::Error { .. }));
+    assert!(has_error, "Error event must be emitted for unknown design id");
+}
+
+/// Test: AI empires have designs generated on setup
+#[test]
+fn ai_empires_have_designs_after_setup() {
+    let engine = Engine::new(42);
+    let ai_empires = engine.state.ai_empires.clone();
+    assert!(!ai_empires.is_empty(), "Must have at least one AI empire");
+
+    for ai_id in &ai_empires {
+        let has_design = engine
+            .state
+            .custom_designs
+            .values()
+            .any(|d| d.owner == *ai_id && !d.obsolete);
+        assert!(has_design, "AI empire {} must have at least one design", ai_id.0);
+    }
+}
+
+/// Test: CreateShipDesign is deterministic — same seed, same commands → same design ID
+#[test]
+fn create_ship_design_is_deterministic() {
+    let mut engine_a = Engine::new(99);
+    let mut engine_b = Engine::new(99);
+
+    let cmds = vec![Command::CreateShipDesign {
+        hull_id: scout_hull_id(),
+        components: vec![],
+        name: Some("Det".to_string()),
+    }];
+
+    engine_a.apply_turn(cmds.clone());
+    engine_b.apply_turn(cmds);
+
+    let id_a = engine_a.state.next_custom_design_id;
+    let id_b = engine_b.state.next_custom_design_id;
+    assert_eq!(id_a, id_b, "next_custom_design_id must be identical after identical commands");
+    assert_eq!(engine_a.state.custom_designs, engine_b.state.custom_designs);
 }

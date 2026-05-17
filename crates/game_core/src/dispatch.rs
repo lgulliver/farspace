@@ -646,6 +646,8 @@ mod tests {
             colony_blockade: Default::default(),
             victory_status: Default::default(),
             galactic_dispatches: VecDeque::new(),
+            custom_designs: Default::default(),
+            next_custom_design_id: 0,
         }
     }
 

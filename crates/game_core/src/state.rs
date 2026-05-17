@@ -68,10 +68,12 @@ pub struct ShipDesignId(pub u32);
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct EmpireDefinitionId(pub u8);
 
+mod components;
 mod factions;
 mod ships;
 mod technology;
 mod victory;
+pub use components::*;
 pub use factions::*;
 pub use ships::*;
 pub use technology::*;
@@ -722,6 +724,8 @@ pub enum ProductionItem {
     OrbitalStructure(OrbitalStructureType),
     /// A ship built from a specific design template.
     Ship(ShipDesignId),
+    /// A ship built from a player or AI custom design.
+    CustomShip(CustomDesignId),
     /// Legacy save compatibility variant for old ship queue entries.
     ///
     /// Kept to deserialize pre-v2 saves that encoded ships directly as `Scout`.
@@ -751,7 +755,10 @@ impl ProductionItem {
         match self {
             ProductionItem::SurfaceStructure(_) | ProductionItem::Structure(_) => "Surface",
             ProductionItem::OrbitalStructure(_) => "Orbital",
-            ProductionItem::Ship(_) | ProductionItem::Scout | ProductionItem::Colony => "Ship",
+            ProductionItem::Ship(_)
+            | ProductionItem::CustomShip(_)
+            | ProductionItem::Scout
+            | ProductionItem::Colony => "Ship",
             ProductionItem::Outpost => "Surface",
         }
     }
@@ -760,7 +767,10 @@ impl ProductionItem {
     pub fn is_ship(&self) -> bool {
         matches!(
             self,
-            ProductionItem::Ship(_) | ProductionItem::Scout | ProductionItem::Colony
+            ProductionItem::Ship(_)
+                | ProductionItem::CustomShip(_)
+                | ProductionItem::Scout
+                | ProductionItem::Colony
         )
     }
 
@@ -778,11 +788,14 @@ impl ProductionItem {
     ///
     /// Returns `u64::MAX` for `Ship(_)` with an invalid (unknown) design ID so the item
     /// can never be silently completed due to a zero-cost guard in queue processing.
+    /// Returns `u64::MAX` for `CustomShip(_)` — callers that need the real cost should
+    /// use `Engine::effective_build_cost` which can look up the design in state.
     pub fn cost(&self) -> u64 {
         match self {
             ProductionItem::Ship(design_id) => {
                 design_id.record().map(|d| d.cost).unwrap_or(u64::MAX)
             }
+            ProductionItem::CustomShip(_) => u64::MAX,
             ProductionItem::Scout => ShipDesignId::SCOUT.record().map(|d| d.cost).unwrap_or(0),
             ProductionItem::Colony => ShipDesignId::COLONY.record().map(|d| d.cost).unwrap_or(0),
             ProductionItem::Outpost => 100,
@@ -798,6 +811,7 @@ impl ProductionItem {
                 .record()
                 .map(|d| d.name)
                 .unwrap_or("Unknown Ship Design"),
+            ProductionItem::CustomShip(_) => "Custom Ship",
             ProductionItem::Scout => "Scout",
             ProductionItem::Colony => "Colony Ship",
             ProductionItem::Outpost => "Outpost",
@@ -810,6 +824,7 @@ impl ProductionItem {
     pub fn required_tech(&self) -> Option<TechId> {
         match self {
             ProductionItem::Ship(design_id) => design_id.record().and_then(|d| d.required_tech),
+            ProductionItem::CustomShip(_) => None, // tech checks handled by engine
             ProductionItem::Scout => ShipDesignId::SCOUT.record().and_then(|d| d.required_tech),
             ProductionItem::Colony => ShipDesignId::COLONY.record().and_then(|d| d.required_tech),
             ProductionItem::Outpost
@@ -1578,6 +1593,12 @@ pub struct GameState {
     /// the back.
     #[cfg_attr(feature = "serde", serde(default))]
     pub galactic_dispatches: VecDeque<crate::dispatch::GalacticDispatch>,
+    /// Custom ship designs created by players or generated for AI empires.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub custom_designs: BTreeMap<CustomDesignId, CustomShipDesign>,
+    /// Counter for the next custom design ID to allocate.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub next_custom_design_id: u32,
 }
 
 impl GameState {
@@ -1862,6 +1883,8 @@ impl PartialEq for GameState {
             && self.colony_supply == other.colony_supply
             && self.colony_blockade == other.colony_blockade
             && self.victory_status == other.victory_status
+            && self.custom_designs == other.custom_designs
+            && self.next_custom_design_id == other.next_custom_design_id
     }
 }
 
@@ -1919,6 +1942,8 @@ impl Default for GameState {
             colony_blockade: BTreeMap::new(),
             victory_status: VictoryStatus::default(),
             galactic_dispatches: VecDeque::new(),
+            custom_designs: BTreeMap::new(),
+            next_custom_design_id: 0,
         }
     }
 }

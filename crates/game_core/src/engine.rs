@@ -9,10 +9,11 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hyperspace_lanes};
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
-    AiDoctrine, BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireId,
-    Fleet, FleetId, FleetKind, FleetMission, FleetOrder, GameState, HyperspaceLane,
-    OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
-    ShipDesignId, StarId, SurveyMission, TechId, YieldType,
+    AiDoctrine, BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, ComponentId,
+    CustomDesignId, CustomShipDesign, Empire, EmpireId, Fleet, FleetId, FleetKind, FleetMission,
+    FleetOrder, GameState, HullId, HyperspaceLane, OrbitalStructureType, RelationshipStatus,
+    ResearchState, ScenarioSetup, ScoutMission, ShipDesignId, StarId, SurveyMission, TechId,
+    YieldType,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
@@ -280,6 +281,13 @@ impl Engine {
                 item.cost(),
                 def.military_modifiers.shipyard_cost_modifier_pct,
             ),
+            BuildItem::CustomShip(design_id) => {
+                if let Some(design) = self.state.custom_designs.get(&design_id) {
+                    design.derived_stats().production_cost
+                } else {
+                    u64::MAX
+                }
+            }
             _ => item.cost(),
         }
     }
@@ -515,6 +523,16 @@ impl Engine {
                 }
                 Command::DeclareWar { target } => {
                     self.process_declare_war(target, &mut events);
+                }
+                Command::CreateShipDesign {
+                    hull_id,
+                    components,
+                    name,
+                } => {
+                    self.create_ship_design(hull_id, components, name, &mut events);
+                }
+                Command::DeleteShipDesign { design_id } => {
+                    self.delete_ship_design(design_id, &mut events);
                 }
             }
         }
@@ -841,6 +859,44 @@ impl Engine {
                                     fleet_id, colony_id, star_id, events,
                                 );
                             }
+                        }
+                        BuildItem::CustomShip(design_id) => {
+                            // Clone the stats we need before mutating state
+                            let (fleet_kind, strength) =
+                                if let Some(design) = self.state.custom_designs.get(&design_id) {
+                                    let stats = design.derived_stats();
+                                    (stats.fleet_kind, stats.attack.max(1))
+                                } else {
+                                    events.push(Event::error(format!(
+                                        "Custom design {} not found at completion",
+                                        design_id.0
+                                    )));
+                                    (FleetKind::Scout, 1)
+                                };
+                            let fleet_id = self.state.next_fleet_id();
+                            self.state.fleets.insert(
+                                fleet_id,
+                                Fleet {
+                                    id: fleet_id,
+                                    owner,
+                                    location: star_id,
+                                    ships: 1,
+                                    kind: fleet_kind,
+                                    strength,
+                                    integrity: 100,
+                                },
+                            );
+                            events.push(Event::FleetCreated {
+                                fleet: fleet_id,
+                                location: star_id,
+                            });
+                            events.push(Event::CustomShipConstructed {
+                                empire: owner,
+                                colony: colony_id,
+                                design_id,
+                                fleet: fleet_id,
+                            });
+                            self.maybe_route_to_rally_point(fleet_id, colony_id, star_id, events);
                         }
                         BuildItem::SurfaceStructure(bt) | BuildItem::Structure(bt) => {
                             if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
@@ -1496,7 +1552,74 @@ impl Engine {
             .insert(target, crate::state::RelationshipStatus::War);
     }
 
-    /// If `colony_id` has a rally point set, auto-route the newly created `fleet_id`
+    fn create_ship_design(
+        &mut self,
+        hull_id: HullId,
+        components: Vec<ComponentId>,
+        name: Option<String>,
+        events: &mut Vec<Event>,
+    ) {
+        let player = self.state.player_empire;
+        let completed_techs: Vec<_> = self
+            .state
+            .empires
+            .get(&player)
+            .map(|e| e.research.completed.to_vec())
+            .unwrap_or_default();
+
+        let design = CustomShipDesign {
+            design_id: CustomDesignId(self.state.next_custom_design_id),
+            hull_id,
+            components,
+            owner: player,
+            name: name.unwrap_or_else(|| format!("Design {}", self.state.next_custom_design_id)),
+            obsolete: false,
+        };
+
+        if let Err(reason) = design.validate(&completed_techs) {
+            events.push(Event::ShipDesignInvalid {
+                empire: player,
+                hull_id,
+                reason,
+            });
+            return;
+        }
+
+        let design_id = design.design_id;
+        self.state
+            .custom_designs
+            .insert(design_id, design);
+        self.state.next_custom_design_id += 1;
+
+        events.push(Event::ShipDesignCreated {
+            empire: player,
+            design_id,
+            hull_id,
+        });
+    }
+
+    fn delete_ship_design(&mut self, design_id: CustomDesignId, events: &mut Vec<Event>) {
+        let player = self.state.player_empire;
+
+        match self.state.custom_designs.get_mut(&design_id) {
+            None => {
+                events.push(Event::error(format!(
+                    "Custom design {} not found",
+                    design_id.0
+                )));
+            }
+            Some(design) if design.owner != player => {
+                events.push(Event::error("Cannot delete a design you do not own"));
+            }
+            Some(design) => {
+                design.obsolete = true;
+                events.push(Event::ShipDesignDeleted {
+                    empire: player,
+                    design_id,
+                });
+            }
+        }
+    }
     /// (produced at `from_star`) toward that rally point.
     ///
     /// Silently skips routing when:
@@ -1718,6 +1841,46 @@ impl Engine {
                     design_id.0
                 )));
                 return;
+            }
+        }
+
+        if let BuildItem::CustomShip(design_id) = item {
+            let empire = match self.state.empires.get(&self.state.player_empire) {
+                Some(e) => e,
+                None => {
+                    events.push(Event::error("Player empire not found"));
+                    return;
+                }
+            };
+            let completed_techs: Vec<_> = empire.research.completed.to_vec();
+            match self.state.custom_designs.get(&design_id) {
+                None => {
+                    events.push(Event::error(format!(
+                        "Custom design {} not found",
+                        design_id.0
+                    )));
+                    return;
+                }
+                Some(design) => {
+                    if design.obsolete {
+                        events.push(Event::error(format!(
+                            "Custom design {} is obsolete",
+                            design_id.0
+                        )));
+                        return;
+                    }
+                    if design.owner != self.state.player_empire {
+                        events.push(Event::error("Custom design not owned by player"));
+                        return;
+                    }
+                    if let Err(reason) = design.validate(&completed_techs) {
+                        events.push(Event::error(format!(
+                            "Custom design {} invalid: {}",
+                            design_id.0, reason
+                        )));
+                        return;
+                    }
+                }
             }
         }
 

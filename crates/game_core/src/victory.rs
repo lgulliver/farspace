@@ -26,6 +26,16 @@ fn ratio_percent(min_num: i64, min_den: i64) -> u8 {
     ((min_num.max(0) as u64).saturating_mul(100) / min_den as u64).min(100) as u8
 }
 
+fn threshold_percent(current: i64, required: i64) -> u8 {
+    if current >= required {
+        100
+    } else if required <= 0 {
+        0
+    } else {
+        ratio_percent(current.max(0), required)
+    }
+}
+
 fn empire_candidates(state: &GameState) -> Vec<EmpireId> {
     state.empires.keys().copied().collect()
 }
@@ -269,19 +279,11 @@ fn evaluate_prosperity(
 
                 let progress_floor = [
                     ratio_percent(population as i64, population_required.max(1) as i64),
-                    ratio_percent(
-                        (credits - credits_required + 1).max(0),
-                        (credits_required.max(1) + 1).max(1),
-                    ),
+                    threshold_percent(credits, credits_required),
                     ratio_percent(connected as i64, connected_required.max(1) as i64),
                     ratio_percent(avg_stability as i64, stability_required.max(1) as i64),
                     food_required
-                        .map(|required| {
-                            ratio_percent(
-                                (food - required + 1).max(0),
-                                (required.max(0) + 1).max(1),
-                            )
-                        })
+                        .map(|required| threshold_percent(food, required))
                         .unwrap_or(100),
                 ]
                 .into_iter()

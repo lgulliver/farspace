@@ -1862,6 +1862,7 @@ impl PartialEq for GameState {
             && self.colony_supply == other.colony_supply
             && self.colony_blockade == other.colony_blockade
             && self.victory_status == other.victory_status
+            && self.galactic_dispatches == other.galactic_dispatches
     }
 }
 

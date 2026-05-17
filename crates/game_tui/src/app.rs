@@ -20,6 +20,7 @@ use game_core::{
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
+use std::path::Path;
 use std::time::Duration;
 
 /// Default save file path
@@ -290,8 +291,12 @@ impl App {
 
     fn execute_palette_command(&mut self, cmd: PaletteCommand) {
         let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);
+        self.execute_palette_command_with_path(cmd, &path);
+    }
+
+    fn execute_palette_command_with_path(&mut self, cmd: PaletteCommand, path: &Path) {
         match cmd {
-            PaletteCommand::Save => match self.save_game(&path) {
+            PaletteCommand::Save => match self.save_game(path) {
                 Ok(()) => {
                     let msg = format!("Save: wrote {}", path.display());
                     self.push_status(LogEntryKind::SaveLoad, msg);
@@ -300,7 +305,7 @@ impl App {
                     self.push_error_status(e);
                 }
             },
-            PaletteCommand::Load => match self.load_game(&path) {
+            PaletteCommand::Load => match self.load_game(path) {
                 Ok(()) => {
                     let msg = format!("Load: loaded {}", path.display());
                     self.push_status(LogEntryKind::SaveLoad, msg);
@@ -379,10 +384,10 @@ impl App {
                 KeyCode::Esc | KeyCode::Char('N') | KeyCode::Char('n') => {
                     self.state.overlay.show_dispatch = false;
                 }
-                KeyCode::Left | KeyCode::Char('h') => {
-                    if self.state.overlay.dispatch_history_index > 0 {
-                        self.state.overlay.dispatch_history_index -= 1;
-                    }
+                KeyCode::Left | KeyCode::Char('h')
+                    if self.state.overlay.dispatch_history_index > 0 =>
+                {
+                    self.state.overlay.dispatch_history_index -= 1;
                 }
                 KeyCode::Right | KeyCode::Char('l') => {
                     if let Some(engine) = &self.engine {

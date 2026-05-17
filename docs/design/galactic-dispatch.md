@@ -14,8 +14,10 @@ Galactic Dispatch is a recurring in-universe news bulletin that surfaces importa
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `DISPATCH_CADENCE` | 5 | A dispatch is always generated every 5 turns (turns 0, 5, 10, …) |
+| `DISPATCH_CADENCE` | 5 | A dispatch is always generated every 5 turns |
 | `DISPATCH_MAX_HISTORY` | 10 | At most 10 recent dispatches are retained in `GameState.galactic_dispatches` |
+
+A dispatch is generated when `completed_turn % DISPATCH_CADENCE == 0`, where `completed_turn` is the value of `GameState::turn` **before** it is incremented. Because normal games start at `turn = 1`, the first in-game cadence dispatch is emitted when `state.turn` advances to a multiple of `DISPATCH_CADENCE + 1` (i.e. turns 5, 10, 15, …). The `completed_turn = 0` cadence used in unit tests reflects an initial state that starts before the first real game turn.
 
 Off-cadence dispatches are only generated when at least one **Urgent** or **Historic** item is present (e.g. a blockade, invasion, or victory achievement).
 
@@ -188,7 +190,7 @@ Save schema version: **29** (introduced with Galactic Dispatch v1).
 
 - `generate_dispatch` takes only `completed_turn`, the event slice, and a shared reference to `GameState`. It uses no RNG and no wall-clock logic.
 - Same seed + same command log → same events → same dispatches.
-- The dispatch VecDeque is part of the fingerprinted game state and participates in replay consistency.
+- `galactic_dispatches` is included in `GameState`'s manual `PartialEq` implementation, so equality checks (e.g. in save-load round-trip tests) compare dispatch history along with all other game state.
 
 ---
 

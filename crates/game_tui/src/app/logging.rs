@@ -128,6 +128,13 @@ impl App {
             .unwrap_or(false)
     }
 
+    fn star_is_player_explored(&self, star_id: game_core::StarId) -> bool {
+        self.engine
+            .as_ref()
+            .map(|engine| engine.state.explored_stars.contains(&star_id))
+            .unwrap_or(true)
+    }
+
     fn event_visible_to_player(&self, event: &CoreEvent) -> bool {
         let Some(engine) = self.engine.as_ref() else {
             return true;
@@ -141,6 +148,9 @@ impl App {
             | CoreEvent::PopulationGrew { colony, .. }
             | CoreEvent::ColonyIsolated { colony }
             | CoreEvent::ColonyReconnected { colony } => self.colony_is_player_owned(*colony),
+            CoreEvent::SystemExplored { star }
+            | CoreEvent::PlanetSurveyCompleted { star, .. }
+            | CoreEvent::AncientRuinsDiscovered { star, .. } => self.star_is_player_explored(*star),
             CoreEvent::AiResearchSelected { empire, .. }
             | CoreEvent::AiBuildQueued { empire, .. }
             | CoreEvent::AiScoutDispatched { empire, .. }

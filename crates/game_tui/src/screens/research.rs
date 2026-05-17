@@ -931,6 +931,9 @@ mod tests {
         };
 
         let filtered = filtered_research_techs(&app_state, &engine.state);
-        assert_eq!(filtered.iter().map(|tech| tech.id).collect::<Vec<_>>(), vec![queued_tech]);
+        assert_eq!(
+            filtered.iter().map(|tech| tech.id).collect::<Vec<_>>(),
+            vec![queued_tech]
+        );
     }
 }

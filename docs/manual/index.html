@@ -205,17 +205,35 @@ cargo test --workspace --all-targets</code></pre>
         <h2>Technology Tree Overview</h2>
         <p>
           Full implemented tree map grouped by domain and era. Scroll both axes to inspect the
-          entire layout. Source-of-truth listing:
+          full layout. Detailed per-domain reference pages live alongside this overview. Source-of-truth listing:
           <a href="https://github.com/lgulliver/farspace/blob/main/docs/design/tech-tree.md">docs/design/tech-tree.md</a>.
         </p>
+        <div class="directory-grid">
+          <article class="directory-card">
+            <h3><a href="./tech-tree/index.html">Tech Tree Library</a></h3>
+            <p>Open full tech reference with costs, prerequisites, unlocks, and future-hook markers.</p>
+            <a class="button-link" href="./tech-tree/index.html">Browse tech library</a>
+          </article>
+          <article class="directory-card">
+            <h3>Domain Pages</h3>
+            <div class="chip-row">
+              <a class="chip chip-link" href="./tech-tree/exploration.html">Exploration</a>
+              <a class="chip chip-link" href="./tech-tree/engineering.html">Engineering</a>
+              <a class="chip chip-link" href="./tech-tree/military.html">Military</a>
+              <a class="chip chip-link" href="./tech-tree/society.html">Society</a>
+              <a class="chip chip-link" href="./tech-tree/biology.html">Biology</a>
+              <a class="chip chip-link" href="./tech-tree/economy.html">Economy</a>
+            </div>
+          </article>
+        </div>
         <p class="scroll-hint">Tip: shift + mouse wheel or trackpad horizontal scroll moves across eras faster.</p>
         <div class="tech-tree-scroll" aria-label="Scrollable FARSPACE technology tree map">
           <img
             src="./assets/tech-tree-overview.svg"
             alt="Scrollable FARSPACE technology tree map showing all implemented technologies across six domains and six eras"
             class="tech-tree-map"
-            width="2330"
-            height="1710"
+            width="2590"
+            height="2200"
           />
         </div>
       </section>

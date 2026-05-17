@@ -26,6 +26,10 @@ body {
   margin: 0 auto;
 }
 
+.hero-subpage {
+  padding-bottom: 1.4rem;
+}
+
 .eyebrow {
   color: var(--accent);
   letter-spacing: 0.08em;
@@ -51,6 +55,28 @@ h3 {
 .toc a {
   color: var(--warn);
   text-decoration: none;
+}
+
+.subnav {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.subnav a {
+  color: var(--ink);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  background: #0c1526;
+}
+
+.subnav a.is-active {
+  color: #06101d;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 main {
@@ -93,6 +119,79 @@ pre {
   gap: 1rem;
 }
 
+.directory-grid,
+.tech-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.directory-card,
+.tech-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1rem;
+  background: #0b1322;
+}
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.5rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.panel-heading,
+.tech-card-head {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.section-subtitle,
+.panel-kicker,
+.tech-meta {
+  color: #b9caea;
+}
+
+.section-subtitle,
+.panel-kicker,
+.tech-meta,
+.tech-stat-list.compact {
+  margin: 0;
+}
+
+.tech-meta {
+  margin-bottom: 0.25rem;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.status-pill.live {
+  color: #b7f1d9;
+  border: 1px solid #2c7c60;
+  background: rgba(44, 124, 96, 0.16);
+}
+
+.status-pill.planned {
+  color: var(--warn);
+  border: 1px solid #8f6a26;
+  background: rgba(143, 106, 38, 0.18);
+}
+
 .empire-card {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -133,13 +232,38 @@ pre {
   color: #c7d8f4;
 }
 
-.empire-details {
+.empire-details,
+.tech-stat-list {
   margin: 0;
   padding-left: 1.2rem;
 }
 
-.empire-details li + li {
+.empire-details li + li,
+.tech-stat-list li + li {
   margin-top: 0.35rem;
+}
+
+.chip-row {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin-top: 0.8rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #0d1729;
+  color: #c7d8f4;
+  font-size: 0.88rem;
+}
+
+.chip-link {
+  color: var(--accent);
+  text-decoration: none;
 }
 
 .scroll-hint {
@@ -157,7 +281,7 @@ pre {
 
 .tech-tree-map {
   display: block;
-  width: 2330px;
+  width: 2590px;
   max-width: none;
   height: auto;
 }

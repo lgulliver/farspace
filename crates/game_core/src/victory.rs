@@ -528,6 +528,7 @@ fn evaluate_unity(
     .into_iter()
     .min()
     .unwrap_or(0);
+    let leading_empire = if progress > 0 { Some(player) } else { None };
 
     PathEvaluation {
         progress: VictoryProgress {
@@ -544,7 +545,7 @@ fn evaluate_unity(
             },
             progress_percent: progress,
             achieved: meets,
-            leading_empire: Some(player),
+            leading_empire,
         },
         achievers: if meets { vec![player] } else { Vec::new() },
     }
@@ -908,6 +909,20 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn unity_has_no_leader_when_progress_is_zero() {
+        let engine = Engine::new(42);
+        let unity = engine
+            .state
+            .victory_status
+            .progress
+            .iter()
+            .find(|progress| progress.path == VictoryPath::Unity)
+            .expect("unity progress should exist");
+        assert_eq!(unity.progress_percent, 0);
+        assert_eq!(unity.leading_empire, None);
     }
 
     #[test]

@@ -87,6 +87,17 @@ fn o_key_opens_empire_overview() {
 }
 
 #[test]
+fn lowercase_o_key_opens_empire_overview() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorMap;
+
+    app.handle_key(key(KeyCode::Char('o')));
+
+    assert_eq!(app.state.active, Screen::EmpireOverview);
+}
+
+#[test]
 fn v_key_opens_empire_overview_victory_panel() {
     let mut app = App::new();
     app.new_game(42);

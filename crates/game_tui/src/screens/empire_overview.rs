@@ -389,8 +389,6 @@ fn build_victory_lines(game_state: &GameState, empire_id: EmpireId) -> Vec<Strin
             "OFF"
         } else if progress.achieved {
             "DONE"
-        } else if matches!(*path, game_core::VictoryPath::Unity) {
-            "FUTURE"
         } else {
             "ON"
         };
@@ -713,7 +711,7 @@ fn render_colony_table(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_core::{Command, EmpireDefinitionId, Engine};
+    use game_core::{Command, EmpireDefinitionId, Engine, VictoryPath};
     use ratatui::{backend::TestBackend, Terminal};
 
     fn render_to_string(engine: &Engine) -> String {
@@ -948,5 +946,24 @@ mod tests {
 
         let data = derive_empire_overview(&engine.state, player, OverviewSort::Name, "");
         assert_eq!(data.summary.doctrine_summary, expected);
+    }
+
+    #[test]
+    fn overview_shows_enabled_unity_as_on_not_future() {
+        let mut engine = Engine::new(42);
+        let scenario = engine
+            .state
+            .scenario
+            .as_mut()
+            .expect("scenario should exist");
+        scenario.victory_settings.enabled_paths.insert(VictoryPath::Unity);
+        let _ = engine.apply_turn(vec![Command::EndTurn]);
+        let lines = build_victory_lines(&engine.state, engine.state.player_empire);
+        let unity_line = lines
+            .iter()
+            .find(|line| line.starts_with("Unity "))
+            .expect("unity line should be present");
+        assert!(unity_line.contains("[ON]"));
+        assert!(!unity_line.contains("[FUTURE]"));
     }
 }

@@ -398,7 +398,7 @@ impl App {
 
         if matches!(
             key.code,
-            KeyCode::Char('O') | KeyCode::Char('V') | KeyCode::Char('v')
+            KeyCode::Char('O') | KeyCode::Char('o') | KeyCode::Char('V') | KeyCode::Char('v')
         ) && self.engine.is_some()
         {
             self.state.active = Screen::EmpireOverview;

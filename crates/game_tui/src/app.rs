@@ -396,7 +396,11 @@ impl App {
             return;
         }
 
-        if key.code == KeyCode::Char('O') && self.engine.is_some() {
+        if matches!(
+            key.code,
+            KeyCode::Char('O') | KeyCode::Char('o') | KeyCode::Char('V') | KeyCode::Char('v')
+        ) && self.engine.is_some()
+        {
             self.state.active = Screen::EmpireOverview;
             self.state.overview.filter_input = false;
             return;
@@ -589,6 +593,7 @@ impl App {
             sector_count_override: None,
             difficulty: game_core::DifficultyLevel::Standard,
             player_empire_def,
+            victory_settings: game_core::VictorySettings::default_v1(),
         };
         self.new_game_from_setup(setup);
     }

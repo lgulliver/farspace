@@ -192,6 +192,8 @@ impl App {
         let mut reconnected = 0usize;
         let mut invasions_won = 0usize;
         let mut invasions_failed = 0usize;
+        let mut victory_milestones = 0usize;
+        let mut victories = 0usize;
 
         for event in events {
             match event {
@@ -208,13 +210,15 @@ impl App {
                 CoreEvent::ColonyReconnected { .. } => reconnected += 1,
                 CoreEvent::InvasionSucceeded { .. } => invasions_won += 1,
                 CoreEvent::InvasionFailed { .. } => invasions_failed += 1,
+                CoreEvent::VictoryProgressMilestone { .. } => victory_milestones += 1,
+                CoreEvent::VictoryAchieved { .. } => victories += 1,
                 CoreEvent::Error { .. } => errors += 1,
                 _ => {}
             }
         }
 
         format!(
-            "Turn {} global summary (all empires): explored {}, surveyed {}, colonized {}, research {}, queued starts {}, arrivals {}, invasions won {}, invasions failed {}, warnings {}, isolated {}, reconnected {}, errors {}.",
+            "Turn {} global summary (all empires): explored {}, surveyed {}, colonized {}, research {}, queued starts {}, arrivals {}, invasions won {}, invasions failed {}, victory milestones {}, victories {}, warnings {}, isolated {}, reconnected {}, errors {}.",
             turn,
             explored,
             surveyed,
@@ -224,6 +228,8 @@ impl App {
             fleets_arrived,
             invasions_won,
             invasions_failed,
+            victory_milestones,
+            victories,
             warnings,
             newly_isolated,
             reconnected,

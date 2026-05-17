@@ -319,7 +319,18 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
         }
         26 => {
             // v26 → v27: ResearchState gained `queue: Vec<TechId>` with serde default.
-            // v26 saves deserialize safely with an empty queue, so no state rewrite needed.
+            let mut metadata = save.metadata;
+            metadata.schema_version = 27;
+            migrate(SaveFile {
+                version: 27,
+                metadata,
+                state: save.state,
+            })
+        }
+        27 => {
+            // v27 → v28: ScenarioSetup/GameState gained victory settings and status fields.
+            // All new fields have serde defaults; this is a passthrough version bump.
+            // v27 saves deserialize safely with defaults for victory fields.
             let mut metadata = save.metadata;
             metadata.schema_version = CURRENT_VERSION;
             Ok(SaveFile {
@@ -875,6 +886,7 @@ mod tests {
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(EmpireDefinitionId(5)), // Elarith Confluence
+            victory_settings: game_core::VictorySettings::default_v1(),
         };
         let engine = game_core::Engine::new_from_setup(setup);
         let save = SaveFile::new(engine.state.clone());
@@ -1029,6 +1041,23 @@ mod tests {
             metadata,
         };
         let migrated = migrate(v26_save).expect("v26→v27 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        assert_eq!(migrated.metadata.schema_version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn migrate_v27_to_v28_passthrough() {
+        let state = GameState::default();
+        let metadata = crate::schema::SaveMetadata {
+            schema_version: 27,
+            ..Default::default()
+        };
+        let v27_save = SaveFile {
+            version: 27,
+            state,
+            metadata,
+        };
+        let migrated = migrate(v27_save).expect("v27→v28 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
         assert_eq!(migrated.metadata.schema_version, CURRENT_VERSION);
     }

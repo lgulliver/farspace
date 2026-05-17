@@ -19,6 +19,7 @@ use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, AiDoctrine, BuildItem, BuildingType,
     Colony, ColonyId, ColonyRole, EmpireId, FleetId, FleetKind, GameState, OrbitalStructureType,
     PlanetClass, PlaystyleTag, ScoutMission, ShipDesignId, StarId, TechDomain, TechId, TechTag,
+    VictoryPath,
 };
 use crate::yield_model::{calculate_yield_with_context, YieldContext};
 
@@ -227,6 +228,7 @@ fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::T
             - future_penalty(tech.future_hook, tech.unlocks.is_empty()) as i32 * 8;
     };
     let doctrine = |axis| def.doctrine_weight(axis) as i32;
+    let victory_pref = |path| doctrine_victory_preference(state, empire_id, path) as i32;
 
     let mut score = tech.ai_weight as i32 * 8;
     score -= future_penalty(tech.future_hook, tech.unlocks.is_empty()) as i32
@@ -234,41 +236,56 @@ fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::T
 
     score += match tech.domain {
         TechDomain::Exploration => {
-            doctrine(AiDoctrine::Explorer) * 3 + doctrine(AiDoctrine::Expansionist) * 2
+            doctrine(AiDoctrine::Explorer) * 3
+                + doctrine(AiDoctrine::Expansionist) * 2
+                + victory_pref(VictoryPath::Discovery)
         }
         TechDomain::Engineering => doctrine(AiDoctrine::Industrialist) * 3,
         TechDomain::Military => {
-            doctrine(AiDoctrine::Militarist) * 3 + doctrine(AiDoctrine::Imperial) * 2
+            doctrine(AiDoctrine::Militarist) * 3
+                + doctrine(AiDoctrine::Imperial) * 2
+                + victory_pref(VictoryPath::Dominion)
         }
         TechDomain::Society => {
-            doctrine(AiDoctrine::Technologist) * 2 + doctrine(AiDoctrine::Imperial)
+            doctrine(AiDoctrine::Technologist) * 2
+                + doctrine(AiDoctrine::Imperial)
+                + victory_pref(VictoryPath::Unity)
         }
-        TechDomain::Economy => doctrine(AiDoctrine::Merchant) * 3,
+        TechDomain::Economy => {
+            doctrine(AiDoctrine::Merchant) * 3 + victory_pref(VictoryPath::Prosperity)
+        }
         TechDomain::Biology => {
-            doctrine(AiDoctrine::Biologist) * 3 + doctrine(AiDoctrine::Expansionist)
+            doctrine(AiDoctrine::Biologist) * 3
+                + doctrine(AiDoctrine::Expansionist)
+                + victory_pref(VictoryPath::Prosperity)
         }
     };
 
     for tag in tech.tags {
         score += match tag {
             TechTag::Survey | TechTag::Sensors | TechTag::Hyperspace | TechTag::SectorMapping => {
-                doctrine(AiDoctrine::Explorer) * 2
+                doctrine(AiDoctrine::Explorer) * 2 + victory_pref(VictoryPath::Discovery)
             }
             TechTag::Trade | TechTag::Supply | TechTag::Logistics => {
-                doctrine(AiDoctrine::Merchant) * 2
+                doctrine(AiDoctrine::Merchant) * 2 + victory_pref(VictoryPath::Prosperity)
             }
             TechTag::Weapon | TechTag::Defense | TechTag::Invasion | TechTag::Command => {
-                doctrine(AiDoctrine::Militarist) + doctrine(AiDoctrine::Imperial)
+                doctrine(AiDoctrine::Militarist)
+                    + doctrine(AiDoctrine::Imperial)
+                    + victory_pref(VictoryPath::Dominion)
             }
             TechTag::Production | TechTag::Shipyard | TechTag::Orbital => {
                 doctrine(AiDoctrine::Industrialist) * 2
             }
             TechTag::Growth | TechTag::Food | TechTag::Housing | TechTag::Terraforming => {
-                doctrine(AiDoctrine::Biologist) * 2
+                doctrine(AiDoctrine::Biologist) * 2 + victory_pref(VictoryPath::Prosperity)
             }
             TechTag::Colonization => doctrine(AiDoctrine::Expansionist) * 2,
             TechTag::Stability => {
-                doctrine(AiDoctrine::Isolationist) + doctrine(AiDoctrine::Technologist)
+                doctrine(AiDoctrine::Isolationist)
+                    + doctrine(AiDoctrine::Technologist)
+                    + victory_pref(VictoryPath::Prosperity)
+                    + victory_pref(VictoryPath::Unity)
             }
             TechTag::EspionageFuture | TechTag::PopulationJobsFuture => -8,
             _ => 0,
@@ -284,7 +301,58 @@ fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::T
         score += FOOD_CRISIS_SCORE_BONUS;
     }
 
+    if let Some(crate::state::VictoryCondition::Ascendancy {
+        victory_tech_ids, ..
+    }) = state.scenario.as_ref().and_then(|scenario| {
+        scenario
+            .victory_settings
+            .condition_for(VictoryPath::Ascendancy)
+    }) {
+        if victory_tech_ids.contains(&tech.id) {
+            score += victory_pref(VictoryPath::Ascendancy) * 2;
+        }
+    }
+
     score
+}
+
+fn doctrine_victory_preference(state: &GameState, empire_id: EmpireId, path: VictoryPath) -> u8 {
+    let Some(def) = state
+        .empires
+        .get(&empire_id)
+        .and_then(|e| e.empire_def)
+        .and_then(empire_definition_by_id)
+    else {
+        return 0;
+    };
+    let base = match path {
+        VictoryPath::Dominion => {
+            def.doctrine_weight(AiDoctrine::Militarist) + def.doctrine_weight(AiDoctrine::Imperial)
+        }
+        VictoryPath::Ascendancy => def.doctrine_weight(AiDoctrine::Technologist),
+        VictoryPath::Prosperity => {
+            def.doctrine_weight(AiDoctrine::Merchant)
+                + def.doctrine_weight(AiDoctrine::Industrialist)
+                + def.doctrine_weight(AiDoctrine::Biologist)
+        }
+        VictoryPath::Discovery => {
+            def.doctrine_weight(AiDoctrine::Explorer)
+                + def.doctrine_weight(AiDoctrine::Expansionist)
+        }
+        VictoryPath::Unity => {
+            def.doctrine_weight(AiDoctrine::Isolationist)
+                + def.doctrine_weight(AiDoctrine::Merchant)
+                + def.doctrine_weight(AiDoctrine::Explorer)
+        }
+    };
+    let leading_bonus = state
+        .victory_status
+        .progress
+        .iter()
+        .find(|progress| progress.path == path && progress.leading_empire == Some(empire_id))
+        .map(|progress| progress.progress_percent / 25)
+        .unwrap_or(0);
+    base.saturating_add(leading_bonus).min(20)
 }
 
 fn future_penalty(is_future_hook: bool, has_no_unlocks: bool) -> u8 {
@@ -929,7 +997,9 @@ fn ai_assign_colony_roles(state: &mut GameState, empire_id: EmpireId, events: &m
 mod tests {
     use super::*;
     use crate::engine::Engine;
-    use crate::state::{all_empire_definitions, BuildingType, EmpireId, FleetKind, TechId};
+    use crate::state::{
+        all_empire_definitions, BuildingType, EmpireDefinitionId, EmpireId, FleetKind, TechId,
+    };
 
     /// Helper: get the AI empire ID from an engine, panicking if absent.
     fn ai_id(engine: &Engine) -> EmpireId {
@@ -2187,6 +2257,7 @@ mod tests {
                 sector_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
+                victory_settings: crate::state::VictorySettings::default_v1(),
             })
         };
         let mut e1 = make();
@@ -2231,6 +2302,7 @@ mod tests {
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(EmpireDefinitionId(0)),
+            victory_settings: crate::state::VictorySettings::default_v1(),
         });
         for ai_id in &engine.state.ai_empires {
             let empire = engine.state.empires.get(ai_id).unwrap();
@@ -2252,6 +2324,7 @@ mod tests {
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(player_def),
+            victory_settings: crate::state::VictorySettings::default_v1(),
         });
         for ai_id in &engine.state.ai_empires {
             let empire = engine.state.empires.get(ai_id).unwrap();
@@ -2274,6 +2347,7 @@ mod tests {
                 sector_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
+                victory_settings: crate::state::VictorySettings::default_v1(),
             });
             let ai = ai_id(&engine);
             let ai_colony = engine
@@ -2325,6 +2399,7 @@ mod tests {
                 sector_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
+                victory_settings: crate::state::VictorySettings::default_v1(),
             });
             let ai = ai_id(&engine);
             let ai_colony = engine
@@ -2406,6 +2481,7 @@ mod tests {
                 sector_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
+                victory_settings: crate::state::VictorySettings::default_v1(),
             });
             let ai = ai_id(&engine);
             let ai_colony = engine
@@ -2480,6 +2556,7 @@ mod tests {
                 sector_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
+                victory_settings: crate::state::VictorySettings::default_v1(),
             });
             let ai = ai_id(&engine);
             let ai_colony = engine
@@ -2539,6 +2616,7 @@ mod tests {
                 sector_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
+                victory_settings: crate::state::VictorySettings::default_v1(),
             });
             let ai = ai_id(&engine);
             let ai_colony = engine
@@ -2619,6 +2697,7 @@ mod tests {
                 sector_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
+                victory_settings: crate::state::VictorySettings::default_v1(),
             });
             let ai = ai_id(&engine);
             let ai_colony = engine
@@ -2664,6 +2743,46 @@ mod tests {
             pick_build_item(&engine_a.state, ai_a, colony_a),
             pick_build_item(&engine_b.state, ai_b, colony_b),
             "Colony Ark preference must be deterministic"
+        );
+    }
+
+    #[test]
+    fn doctrine_victory_preference_is_deterministic_and_distinct() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        let ai = ai_id(&engine);
+        engine.state.empires.get_mut(&player).unwrap().empire_def = Some(EmpireDefinitionId(4));
+        engine.state.empires.get_mut(&ai).unwrap().empire_def = Some(EmpireDefinitionId(5));
+
+        let player_dominion =
+            doctrine_victory_preference(&engine.state, player, VictoryPath::Dominion);
+        let player_ascendancy =
+            doctrine_victory_preference(&engine.state, player, VictoryPath::Ascendancy);
+        let ai_dominion = doctrine_victory_preference(&engine.state, ai, VictoryPath::Dominion);
+        let ai_ascendancy = doctrine_victory_preference(&engine.state, ai, VictoryPath::Ascendancy);
+
+        assert!(
+            player_dominion > player_ascendancy,
+            "Militarist/imperial faction should lean Dominion"
+        );
+        assert!(
+            ai_ascendancy > ai_dominion,
+            "Technologist faction should lean Ascendancy"
+        );
+
+        let mut replay = Engine::new(42);
+        let replay_player = replay.state.player_empire;
+        let replay_ai = ai_id(&replay);
+        replay
+            .state
+            .empires
+            .get_mut(&replay_player)
+            .unwrap()
+            .empire_def = Some(EmpireDefinitionId(4));
+        replay.state.empires.get_mut(&replay_ai).unwrap().empire_def = Some(EmpireDefinitionId(5));
+        assert_eq!(
+            doctrine_victory_preference(&engine.state, player, VictoryPath::Dominion),
+            doctrine_victory_preference(&replay.state, replay_player, VictoryPath::Dominion)
         );
     }
 }

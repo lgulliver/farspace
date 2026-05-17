@@ -71,9 +71,11 @@ pub struct EmpireDefinitionId(pub u8);
 mod factions;
 mod ships;
 mod technology;
+mod victory;
 pub use factions::*;
 pub use ships::*;
 pub use technology::*;
+pub use victory::*;
 
 /// Per-empire research progress tracking
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -1383,6 +1385,9 @@ pub struct ScenarioSetup {
     /// assigns the first available definition deterministically.
     #[cfg_attr(feature = "serde", serde(default))]
     pub player_empire_def: Option<EmpireDefinitionId>,
+    /// Configurable victory-path enablement and thresholds.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub victory_settings: VictorySettings,
 }
 
 impl ScenarioSetup {
@@ -1395,6 +1400,7 @@ impl ScenarioSetup {
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: None,
+            victory_settings: VictorySettings::default_v1(),
         }
     }
 
@@ -1427,6 +1433,48 @@ impl ScenarioSetup {
         if let Some(def_id) = self.player_empire_def {
             if empire_definition_by_id(def_id).is_none() {
                 return Err(format!("Unknown player empire definition id {}", def_id.0));
+            }
+        }
+        let mut seen_paths = BTreeSet::new();
+        for condition in &self.victory_settings.conditions {
+            if !seen_paths.insert(condition.path()) {
+                return Err(format!(
+                    "Duplicate victory condition configured for {}",
+                    condition.path().label()
+                ));
+            }
+            match condition {
+                VictoryCondition::Dominion {
+                    control_percent_required,
+                    ..
+                } if *control_percent_required == 0 || *control_percent_required > 100 => {
+                    return Err(format!(
+                        "Dominion control threshold must be 1–100, got {}",
+                        control_percent_required
+                    ));
+                }
+                VictoryCondition::Prosperity {
+                    avg_stability_required,
+                    ..
+                } if *avg_stability_required > 200 => {
+                    return Err(format!(
+                        "Prosperity stability threshold must be 0–200, got {}",
+                        avg_stability_required
+                    ));
+                }
+                VictoryCondition::Discovery {
+                    systems_explored_percent_required,
+                    planets_surveyed_percent_required,
+                    ..
+                } if *systems_explored_percent_required > 100
+                    || *planets_surveyed_percent_required > 100 =>
+                {
+                    return Err(format!(
+                        "Discovery thresholds must be <=100, got systems={} planets={}",
+                        systems_explored_percent_required, planets_surveyed_percent_required
+                    ));
+                }
+                _ => {}
             }
         }
         Ok(())
@@ -1522,6 +1570,9 @@ pub struct GameState {
     /// Persisted to detect start/end transitions for event emission on the next turn.
     #[cfg_attr(feature = "serde", serde(default))]
     pub colony_blockade: BTreeMap<ColonyId, EmpireId>,
+    /// Deterministic victory-condition progress and winner state.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub victory_status: VictoryStatus,
 }
 
 impl GameState {
@@ -1805,6 +1856,7 @@ impl PartialEq for GameState {
             && self.ai_empires == other.ai_empires
             && self.colony_supply == other.colony_supply
             && self.colony_blockade == other.colony_blockade
+            && self.victory_status == other.victory_status
     }
 }
 
@@ -1860,6 +1912,7 @@ impl Default for GameState {
             ai_empires: Vec::new(),
             colony_supply: BTreeMap::new(),
             colony_blockade: BTreeMap::new(),
+            victory_status: VictoryStatus::default(),
         }
     }
 }

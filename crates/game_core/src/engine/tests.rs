@@ -3879,6 +3879,7 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         ai_empires: vec![ai_id],
         colony_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
+        victory_status: crate::state::VictoryStatus::default(),
     };
 
     // Player star
@@ -4082,6 +4083,7 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         ai_empires: vec![ai_id],
         colony_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
+        victory_status: crate::state::VictoryStatus::default(),
     };
 
     // Populate stars, empires, colonies, fleet
@@ -4444,6 +4446,7 @@ fn contact_detection_is_deterministic() {
         ai_empires: vec![ai1, ai2],
         colony_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
+        victory_status: crate::state::VictoryStatus::default(),
     };
 
     // Two AI empires each have a colony at target_star
@@ -8326,6 +8329,7 @@ fn new_from_setup_same_options_produce_same_galaxy() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     let setup2 = setup1.clone();
 
@@ -8351,6 +8355,7 @@ fn new_from_setup_different_seeds_produce_different_galaxies() {
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: None,
+            victory_settings: crate::state::VictorySettings::default_v1(),
         })
     };
 
@@ -8377,6 +8382,7 @@ fn new_from_setup_small_produces_expected_star_and_sector_counts() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     });
     assert_eq!(engine.state.stars.len(), 10, "Small: 10 stars");
     assert_eq!(engine.state.sectors.len(), 2, "Small: 2 sectors");
@@ -8392,6 +8398,7 @@ fn new_from_setup_medium_produces_expected_star_and_sector_counts() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     });
     assert_eq!(engine.state.stars.len(), 20, "Medium: 20 stars");
     assert_eq!(engine.state.sectors.len(), 4, "Medium: 4 sectors");
@@ -8407,6 +8414,7 @@ fn new_from_setup_large_produces_expected_star_and_sector_counts() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     });
     assert_eq!(engine.state.stars.len(), 40, "Large: 40 stars");
     assert_eq!(engine.state.sectors.len(), 6, "Large: 6 sectors");
@@ -8422,6 +8430,7 @@ fn new_from_setup_four_ai_empires_created() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     });
     // Player + 4 AI = 5 empires total
     assert_eq!(engine.state.empires.len(), 5);
@@ -8451,6 +8460,7 @@ fn new_from_setup_ai_empire_placement_is_deterministic() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     let e1 = Engine::new_from_setup(setup.clone());
     let e2 = Engine::new_from_setup(setup);
@@ -8485,6 +8495,7 @@ fn new_from_setup_scenario_metadata_stored_in_state() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     let engine = Engine::new_from_setup(setup.clone());
     let stored = engine
@@ -8507,6 +8518,7 @@ fn validate_rejects_zero_ai_count() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     // validate() must catch invalid AI count
     assert!(bad_setup.validate().is_err());
@@ -8523,6 +8535,7 @@ fn new_from_setup_invalid_ai_count_panics() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     let _ = Engine::new_from_setup(bad_setup);
 }
@@ -8542,6 +8555,7 @@ fn player_can_select_valid_empire() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(def_id),
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     assert!(setup.validate().is_ok());
     let engine = Engine::new_from_setup(setup);
@@ -8568,6 +8582,7 @@ fn player_can_select_terran_concord() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(6)),
+        victory_settings: crate::state::VictorySettings::default_v1(),
     });
     let player = engine
         .state
@@ -8588,6 +8603,7 @@ fn player_can_select_terran_dominion() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(7)),
+        victory_settings: crate::state::VictorySettings::default_v1(),
     });
     let player = engine
         .state
@@ -8608,6 +8624,7 @@ fn invalid_empire_selection_fails_validation() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(255)), // does not exist
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     assert!(setup.validate().is_err());
 }
@@ -8622,6 +8639,7 @@ fn ai_empires_receive_distinct_definitions() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(0)),
+        victory_settings: crate::state::VictorySettings::default_v1(),
     });
     let ai_defs: Vec<Option<EmpireDefinitionId>> = engine
         .state
@@ -8664,6 +8682,7 @@ fn same_seed_produces_same_ai_empire_definitions() {
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(EmpireDefinitionId(1)),
+            victory_settings: crate::state::VictorySettings::default_v1(),
         })
     };
     let e1 = make();
@@ -8703,6 +8722,7 @@ fn different_seeds_can_produce_different_ai_empire_definitions() {
             sector_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(EmpireDefinitionId(0)),
+            victory_settings: crate::state::VictorySettings::default_v1(),
         });
         e.state
             .ai_empires
@@ -8744,6 +8764,7 @@ fn empire_trait_modifiers_applied_per_colony() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(2)), // Sylvaran Accord: +2 food
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     let mut engine = Engine::new_from_setup(setup);
     let events = engine.apply_turn(vec![Command::EndTurn]);
@@ -8791,6 +8812,7 @@ fn terran_concord_science_bonus_applied_per_colony() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(6)),
+        victory_settings: crate::state::VictorySettings::default_v1(),
     });
     let events = engine.apply_turn(vec![Command::EndTurn]);
     let player_colony = engine
@@ -8851,6 +8873,7 @@ fn empire_identity_persists_through_save_load() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(3)), // Thalori Exchange
+        victory_settings: crate::state::VictorySettings::default_v1(),
     };
     let engine = Engine::new_from_setup(setup);
 
@@ -8896,6 +8919,7 @@ fn default_empire_assigned_when_no_player_def_specified() {
         sector_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
     });
     let player = engine
         .state
@@ -8956,6 +8980,7 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         ai_empires: vec![],
         colony_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
+        victory_status: crate::state::VictoryStatus::default(),
     };
 
     state.stars.insert(

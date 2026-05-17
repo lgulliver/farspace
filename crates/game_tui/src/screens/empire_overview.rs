@@ -7,6 +7,7 @@ use crate::theme::Theme;
 use crate::AppState;
 use game_core::{
     all_techs, yield_model, Colony, ColonyId, ColonySupplyState, EmpireId, GameState, StarId,
+    VictoryProgressValue,
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -58,6 +59,7 @@ pub struct EmpireOverviewSummary {
     pub colony_count: usize,
     pub connected_colonies: usize,
     pub isolated_colonies: usize,
+    pub victory_lines: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -253,6 +255,7 @@ pub fn derive_empire_overview(
     let fleet_maintenance =
         ((fleet_count as i64) + (fleet_count as i64 * fleet_maintenance_modifier)).max(0);
     let maintenance_per_turn = colony_maintenance + fleet_maintenance;
+    let victory_lines = build_victory_lines(game_state, empire_id);
 
     EmpireOverviewData {
         summary: EmpireOverviewSummary {
@@ -280,9 +283,151 @@ pub fn derive_empire_overview(
             colony_count,
             connected_colonies,
             isolated_colonies,
+            victory_lines,
         },
         rows,
     }
+}
+
+fn build_victory_lines(game_state: &GameState, empire_id: EmpireId) -> Vec<String> {
+    let mut lines = Vec::new();
+    let settings = game_state
+        .scenario
+        .as_ref()
+        .map(|scenario| scenario.victory_settings.clone())
+        .unwrap_or_default();
+    for path in game_core::VictoryPath::tie_break_order() {
+        let enabled = settings.is_enabled(*path);
+        let progress = game_state
+            .victory_status
+            .progress
+            .iter()
+            .find(|progress| progress.path == *path);
+        let Some(progress) = progress else {
+            lines.push(format!(
+                "{} [{}] unavailable",
+                path.label(),
+                if enabled { "ON" } else { "OFF" }
+            ));
+            continue;
+        };
+        let mut detail = match &progress.value {
+            VictoryProgressValue::Dominion {
+                controlled_systems,
+                total_colonized_systems,
+                control_percent,
+                active_major_empires,
+            } => format!(
+                "{}% systems ({}/{}) · majors {}",
+                control_percent, controlled_systems, total_colonized_systems, active_major_empires
+            ),
+            VictoryProgressValue::Ascendancy {
+                completed_victory_techs,
+                required_victory_techs,
+            } => format!(
+                "techs {}/{}",
+                completed_victory_techs, required_victory_techs
+            ),
+            VictoryProgressValue::Prosperity {
+                population,
+                population_required,
+                credits,
+                credits_required,
+                connected_colonies,
+                connected_colonies_required,
+                avg_stability,
+                avg_stability_required,
+                ..
+            } => format!(
+                "pop {}/{} · cr {}/{} · conn {}/{} · stab {}/{}",
+                population,
+                population_required,
+                credits,
+                credits_required,
+                connected_colonies,
+                connected_colonies_required,
+                avg_stability,
+                avg_stability_required
+            ),
+            VictoryProgressValue::Discovery {
+                explored_systems_percent,
+                required_explored_systems_percent,
+                surveyed_planets_percent,
+                required_surveyed_planets_percent,
+                required_techs_completed,
+                required_techs_total,
+            } => format!(
+                "sys {}/{}% · planets {}/{}% · tech {}/{}",
+                explored_systems_percent,
+                required_explored_systems_percent,
+                surveyed_planets_percent,
+                required_surveyed_planets_percent,
+                required_techs_completed,
+                required_techs_total
+            ),
+            VictoryProgressValue::Unity {
+                contacted_empires,
+                contacted_empires_required,
+                non_war_relations,
+                non_war_relations_required,
+                connected_colonies,
+                connected_colonies_required,
+            } => format!(
+                "contact {}/{} · peace {}/{} · connected {}/{}",
+                contacted_empires,
+                contacted_empires_required,
+                non_war_relations,
+                non_war_relations_required,
+                connected_colonies,
+                connected_colonies_required
+            ),
+        };
+        if let Some(leader) = progress.leading_empire {
+            detail.push_str(&format!(" · lead E{}", leader.0));
+        }
+        let status = if !enabled {
+            "OFF"
+        } else if progress.achieved {
+            "DONE"
+        } else {
+            "ON"
+        };
+        lines.push(format!(
+            "{} [{}] {}% {}",
+            path.label(),
+            status,
+            progress.progress_percent,
+            detail
+        ));
+    }
+    if let (Some(winner), Some(path), Some(turn)) = (
+        game_state.victory_status.winner,
+        game_state.victory_status.winning_path,
+        game_state.victory_status.turn_achieved,
+    ) {
+        let winner_name = game_state
+            .empires
+            .get(&winner)
+            .map(|empire| empire.name.as_str())
+            .unwrap_or("Unknown");
+        lines.push(format!(
+            "Winner: {} (E{}) via {} on turn {}",
+            winner_name,
+            winner.0,
+            path.label(),
+            turn
+        ));
+    } else {
+        let player_marker = game_state
+            .victory_status
+            .progress
+            .iter()
+            .find(|progress| progress.leading_empire == Some(empire_id))
+            .map(|progress| progress.path.label())
+            .unwrap_or("none");
+        lines.push(format!("Player leading path: {}", player_marker));
+    }
+    lines
 }
 
 fn sort_rows(rows: &mut [ColonyOverviewRow], sort: OverviewSort) {
@@ -341,7 +486,7 @@ pub fn render_empire_overview(
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(5), Constraint::Min(8)])
+        .constraints([Constraint::Length(12), Constraint::Min(6)])
         .split(main_area);
 
     render_summary(frame, chunks[0], &data.summary);
@@ -410,7 +555,14 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
             },
         ),
     ]);
-    frame.render_widget(Paragraph::new(line).style(Theme::default_style()), inner);
+    let mut lines = vec![line];
+    for victory_line in &summary.victory_lines {
+        lines.push(Line::from(vec![
+            Span::styled("Victory ", Theme::muted_style()),
+            Span::styled(victory_line, Theme::default_style()),
+        ]));
+    }
+    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
 }
 
 fn render_colony_table(
@@ -559,7 +711,7 @@ fn render_colony_table(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_core::{Command, EmpireDefinitionId, Engine};
+    use game_core::{Command, EmpireDefinitionId, Engine, VictoryPath};
     use ratatui::{backend::TestBackend, Terminal};
 
     fn render_to_string(engine: &Engine) -> String {
@@ -794,5 +946,27 @@ mod tests {
 
         let data = derive_empire_overview(&engine.state, player, OverviewSort::Name, "");
         assert_eq!(data.summary.doctrine_summary, expected);
+    }
+
+    #[test]
+    fn overview_shows_enabled_unity_as_on_not_future() {
+        let mut engine = Engine::new(42);
+        let scenario = engine
+            .state
+            .scenario
+            .as_mut()
+            .expect("scenario should exist");
+        scenario
+            .victory_settings
+            .enabled_paths
+            .insert(VictoryPath::Unity);
+        let _ = engine.apply_turn(vec![Command::EndTurn]);
+        let lines = build_victory_lines(&engine.state, engine.state.player_empire);
+        let unity_line = lines
+            .iter()
+            .find(|line| line.starts_with("Unity "))
+            .expect("unity line should be present");
+        assert!(unity_line.contains("[ON]"));
+        assert!(!unity_line.contains("[FUTURE]"));
     }
 }

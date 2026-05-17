@@ -10,6 +10,7 @@ pub mod engine;
 pub mod events;
 pub mod galaxy;
 pub mod state;
+pub mod victory;
 pub mod yield_model;
 
 pub use commands::Command;
@@ -25,7 +26,8 @@ pub use state::{
     PlanetSpecial, PlaystyleTag, ProductionItem, RelationshipStatus, ResearchState, RoleModifiers,
     ScenarioSetup, ScoutMission, Sector, SectorId, ShipDesignId, ShipDesignRecord, SpectralClass,
     Star, StarId, StrategicResource, SurveyMission, TechCapability, TechDomain, TechId, TechRecord,
-    TechTier, TechUnlock, YieldEffect, YieldType,
+    TechTier, TechUnlock, VictoryCondition, VictoryPath, VictoryProgress, VictoryProgressValue,
+    VictorySettings, VictoryStatus, YieldEffect, YieldType,
 };
 pub use yield_model::{
     ColonyWorkforceSummary, ColonyYield, JobAssignment, JobType, YieldBreakdown, YieldContext,

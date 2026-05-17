@@ -12,13 +12,12 @@
       <h1>FARSPACE Field Manual</h1>
       <p class="subtitle">
         Keyboard-first 4X strategy in terminal. This manual covers install, contribution,
-        tech progression, and screen references.
+        and tech progression.
       </p>
       <nav class="toc">
         <a href="#install">Install</a>
         <a href="#contribute">Contribute</a>
         <a href="#tech-tree">Tech Tree</a>
-        <a href="#screens">Screens</a>
       </nav>
     </header>
 
@@ -45,9 +44,9 @@ cargo run --release -p farspace</code></pre>
         <h2>Contribute</h2>
         <p>Read project guidance first, then validate before PR.</p>
         <ul>
-          <li><a href="../../AGENTS.md">Agent + workflow guide</a></li>
-          <li><a href="../architecture.md">Architecture boundaries</a></li>
-          <li><a href="../testing.md">Testing standards</a></li>
+          <li><a href="https://github.com/lgulliver/farspace/blob/main/AGENTS.md">Agent + workflow guide</a></li>
+          <li><a href="https://github.com/lgulliver/farspace/blob/main/docs/architecture.md">Architecture boundaries</a></li>
+          <li><a href="https://github.com/lgulliver/farspace/blob/main/docs/testing.md">Testing standards</a></li>
         </ul>
         <h3>Required local checks</h3>
         <pre><code>cargo fmt --check
@@ -58,46 +57,22 @@ cargo test --workspace --all-targets</code></pre>
       <section id="tech-tree" class="panel">
         <h2>Technology Tree Overview</h2>
         <p>
-          High-level progression map based on domains and eras. Full tech listing:
-          <a href="../design/tech-tree.md">docs/design/tech-tree.md</a>.
+          Full implemented tree map grouped by domain and era. Scroll both axes to inspect the
+          entire layout. Source-of-truth listing:
+          <a href="https://github.com/lgulliver/farspace/blob/main/docs/design/tech-tree.md">docs/design/tech-tree.md</a>.
         </p>
-        <img
-          src="./assets/tech-tree-overview.svg"
-          alt="FARSPACE technology tree overview across six domains and six eras"
-          class="full-image"
-        />
-      </section>
-
-      <section id="screens" class="panel">
-        <h2>Screen Gallery</h2>
-        <p>Representative visuals for key in-game screens.</p>
-        <div class="gallery">
-          <figure>
-            <img src="./assets/screen-menu.svg" alt="Main menu screen visual" />
-            <figcaption>Main Menu</figcaption>
-          </figure>
-          <figure>
-            <img src="./assets/screen-sector-overview.svg" alt="Sector overview screen visual" />
-            <figcaption>Sector Overview</figcaption>
-          </figure>
-          <figure>
-            <img src="./assets/screen-system.svg" alt="System screen visual" />
-            <figcaption>System</figcaption>
-          </figure>
-          <figure>
-            <img src="./assets/screen-colony.svg" alt="Colony management screen visual" />
-            <figcaption>Colony</figcaption>
-          </figure>
-          <figure>
-            <img src="./assets/screen-research.svg" alt="Research screen visual" />
-            <figcaption>Research</figcaption>
-          </figure>
-          <figure>
-            <img src="./assets/screen-diplomacy.svg" alt="Diplomacy screen visual" />
-            <figcaption>Diplomacy</figcaption>
-          </figure>
+        <p class="scroll-hint">Tip: shift + mouse wheel or trackpad horizontal scroll moves across eras faster.</p>
+        <div class="tech-tree-scroll" aria-label="Scrollable FARSPACE technology tree map">
+          <img
+            src="./assets/tech-tree-overview.svg"
+            alt="Scrollable FARSPACE technology tree map showing all implemented technologies across six domains and six eras"
+            class="tech-tree-map"
+            width="2330"
+            height="1710"
+          />
         </div>
       </section>
+
     </main>
   </body>
 </html>

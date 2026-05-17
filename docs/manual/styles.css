@@ -83,36 +83,22 @@ pre {
   background: #090f1d;
 }
 
-.full-image {
-  width: 100%;
-  height: auto;
+.scroll-hint {
+  margin-bottom: 0.8rem;
+  color: #b9caea;
+}
+
+.tech-tree-scroll {
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #060a14;
+  max-height: min(80vh, 980px);
 }
 
-.gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 0.8rem;
-}
-
-figure {
-  margin: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #080f1c;
-  padding: 0.7rem;
-}
-
-figure img {
-  width: 100%;
+.tech-tree-map {
+  display: block;
+  width: 2330px;
+  max-width: none;
   height: auto;
-  border: 1px solid #22334c;
-  border-radius: 6px;
-}
-
-figcaption {
-  margin-top: 0.5rem;
-  color: #bbd0f7;
 }

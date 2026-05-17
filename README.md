@@ -156,10 +156,7 @@ More detail: [`docs/gameplay-loop.md`](docs/gameplay-loop.md)
 
 ## License
 
-Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
-
-- Contributions are welcome under this license.
-- Commercial use requires a separate commercial license from the project owner.
+Licensed under the [GNU General Public License v3.0](LICENSE) (GPL-3.0-only).
 
 ## Contribution and Agent Workflow (Summary)
 

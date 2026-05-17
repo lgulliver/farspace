@@ -153,6 +153,14 @@ More detail: [`docs/gameplay-loop.md`](docs/gameplay-loop.md)
 - Pop/jobs simulation layer is not implemented yet
 - Advanced late-game systems are roadmap items
 
+
+## License
+
+Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
+
+- Contributions are welcome under this license.
+- Commercial use requires a separate commercial license from the project owner.
+
 ## Contribution and Agent Workflow (Summary)
 
 - Read first: [`AGENTS.md`](AGENTS.md)

@@ -271,7 +271,13 @@ impl App {
     fn colony_is_player_owned(&self, colony_id: game_core::ColonyId) -> bool {
         self.engine
             .as_ref()
-            .and_then(|engine| engine.state.colonies.get(&colony_id).map(|colony| (engine, colony)))
+            .and_then(|engine| {
+                engine
+                    .state
+                    .colonies
+                    .get(&colony_id)
+                    .map(|colony| (engine, colony))
+            })
             .map(|(engine, colony)| colony.owner == engine.state.player_empire)
             .unwrap_or(false)
     }
@@ -1389,8 +1395,7 @@ impl App {
             })
             .collect();
 
-        let total =
-            surface_buildings.len() + visible_orbitals.len() + visible_ships.len();
+        let total = surface_buildings.len() + visible_orbitals.len() + visible_ships.len();
         if total == 0 {
             let msg = "Unavailable: queue build — no build items available.";
             self.state.log.push(msg.to_string());

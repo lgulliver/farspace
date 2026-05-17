@@ -345,10 +345,7 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
             lines.push(Line::from(Span::styled(
                 format!(
                     " {} [{:>3}rp] {} {}",
-                    prefix,
-                    tech.cost,
-                    tech.name,
-                    status_tag
+                    prefix, tech.cost, tech.name, status_tag
                 ),
                 style,
             )));
@@ -622,10 +619,10 @@ fn player_research_per_turn(game_state: &GameState, empire: &Empire) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_core::{all_techs, TechId};
     use game_core::Engine;
-    use ratatui::buffer::Buffer;
+    use game_core::{all_techs, TechId};
     use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
     use ratatui::Terminal;
 
     fn render_detail_buffer(
@@ -671,9 +668,7 @@ mod tests {
                 })
                 .collect();
             if let Some(x) = row.find(needle) {
-                return buffer
-                    .cell((x as u16, y))
-                    .map(|cell| cell.style());
+                return buffer.cell((x as u16, y)).map(|cell| cell.style());
             }
         }
         None
@@ -686,7 +681,11 @@ mod tests {
         for pair in ordered.windows(2) {
             let left = pair[0];
             let right = pair[1];
-            let left_key = (tech_domain_sort_index(left.domain), left.display_order, left.id);
+            let left_key = (
+                tech_domain_sort_index(left.domain),
+                left.display_order,
+                left.id,
+            );
             let right_key = (
                 tech_domain_sort_index(right.domain),
                 right.display_order,

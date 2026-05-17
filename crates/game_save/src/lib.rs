@@ -1900,13 +1900,10 @@ mod tests {
         assert_eq!(stored.galaxy_size, GalaxySize::Large);
         assert_eq!(stored.ai_empire_count, 2);
         assert_eq!(loaded.ai_empires.len(), 2);
-        assert_eq!(
-            stored
-                .victory_settings
-                .enabled_paths
-                .contains(&game_core::VictoryPath::Unity),
-            false
-        );
+        assert!(!stored
+            .victory_settings
+            .enabled_paths
+            .contains(&game_core::VictoryPath::Unity));
     }
 
     #[test]

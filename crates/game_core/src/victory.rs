@@ -726,14 +726,11 @@ mod tests {
             .map(|colony| colony.id)
             .unwrap();
         engine.state.colonies.get_mut(&ai_colony).unwrap().owner = engine.state.player_empire;
-        let events = engine.apply_turn(vec![Command::EndTurn]);
-        assert!(events.iter().any(|event| matches!(
-            event,
-            Event::VictoryAchieved {
-                path: VictoryPath::Dominion,
-                ..
-            }
-        )));
+        let _ = engine.apply_turn(vec![Command::EndTurn]);
+        assert_eq!(
+            engine.state.victory_status.winning_path,
+            Some(VictoryPath::Dominion)
+        );
     }
 
     #[test]
@@ -771,14 +768,11 @@ mod tests {
         for colony_id in ai_colony_ids {
             engine.state.colonies.remove(&colony_id);
         }
-        let events = engine.apply_turn(vec![Command::EndTurn]);
-        assert!(events.iter().any(|event| matches!(
-            event,
-            Event::VictoryAchieved {
-                path: VictoryPath::Dominion,
-                ..
-            }
-        )));
+        let _ = engine.apply_turn(vec![Command::EndTurn]);
+        assert_eq!(
+            engine.state.victory_status.winning_path,
+            Some(VictoryPath::Dominion)
+        );
     }
 
     #[test]
@@ -815,14 +809,11 @@ mod tests {
             .research
             .completed
             .push(TechId(34));
-        let events = engine.apply_turn(vec![Command::EndTurn]);
-        assert!(events.iter().any(|event| matches!(
-            event,
-            Event::VictoryAchieved {
-                path: VictoryPath::Ascendancy,
-                ..
-            }
-        )));
+        let _ = engine.apply_turn(vec![Command::EndTurn]);
+        assert_eq!(
+            engine.state.victory_status.winning_path,
+            Some(VictoryPath::Ascendancy)
+        );
     }
 
     #[test]
@@ -857,14 +848,11 @@ mod tests {
             ],
         };
         set_victory_settings(&mut engine, settings);
-        let events = engine.apply_turn(vec![Command::EndTurn]);
-        assert!(events.iter().any(|event| matches!(
-            event,
-            Event::VictoryAchieved {
-                path: VictoryPath::Prosperity,
-                ..
-            }
-        )));
+        let _ = engine.apply_turn(vec![Command::EndTurn]);
+        assert_eq!(
+            engine.state.victory_status.winning_path,
+            Some(VictoryPath::Prosperity)
+        );
     }
 
     #[test]
@@ -897,14 +885,11 @@ mod tests {
             ],
         };
         set_victory_settings(&mut engine, settings);
-        let events = engine.apply_turn(vec![Command::EndTurn]);
-        assert!(events.iter().any(|event| matches!(
-            event,
-            Event::VictoryAchieved {
-                path: VictoryPath::Discovery,
-                ..
-            }
-        )));
+        let _ = engine.apply_turn(vec![Command::EndTurn]);
+        assert_eq!(
+            engine.state.victory_status.winning_path,
+            Some(VictoryPath::Discovery)
+        );
     }
 
     #[test]
@@ -1007,13 +992,10 @@ mod tests {
             .map(|colony| colony.id)
             .unwrap();
         engine.state.colonies.get_mut(&ai_colony).unwrap().owner = player;
-        let events = engine.apply_turn(vec![Command::EndTurn]);
-        assert!(events.iter().any(|event| matches!(
-            event,
-            Event::VictoryAchieved {
-                path: VictoryPath::Dominion,
-                ..
-            }
-        )));
+        let _ = engine.apply_turn(vec![Command::EndTurn]);
+        assert_eq!(
+            engine.state.victory_status.winning_path,
+            Some(VictoryPath::Dominion)
+        );
     }
 }

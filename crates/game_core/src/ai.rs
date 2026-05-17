@@ -2770,14 +2770,19 @@ mod tests {
             "Technologist faction should lean Ascendancy"
         );
 
-        let replay = Engine::new(42);
+        let mut replay = Engine::new(42);
+        let replay_player = replay.state.player_empire;
+        let replay_ai = ai_id(&replay);
+        replay
+            .state
+            .empires
+            .get_mut(&replay_player)
+            .unwrap()
+            .empire_def = Some(EmpireDefinitionId(4));
+        replay.state.empires.get_mut(&replay_ai).unwrap().empire_def = Some(EmpireDefinitionId(5));
         assert_eq!(
             doctrine_victory_preference(&engine.state, player, VictoryPath::Dominion),
-            doctrine_victory_preference(
-                &replay.state,
-                replay.state.player_empire,
-                VictoryPath::Dominion
-            )
+            doctrine_victory_preference(&replay.state, replay_player, VictoryPath::Dominion)
         );
     }
 }

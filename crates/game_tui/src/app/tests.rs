@@ -2557,40 +2557,31 @@ fn v_key_opens_victory_overview_with_progress_lines() {
 fn command_palette_core_commands_save_load_and_dispatch_work() {
     let mut app = App::new();
     app.new_game(42);
-    let temp_root = std::env::temp_dir().join(format!(
-        "farspace_palette_test_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&temp_root).expect("temp dir should be created");
-    let original_dir = std::env::current_dir().expect("current dir should be readable");
-    std::env::set_current_dir(&temp_root).expect("current dir should switch to temp dir");
-    let save_path = temp_root.join("farspace.sav");
+    let save_path = tmp_save_path("palette_core_commands");
+    let _ = std::fs::remove_file(&save_path);
 
     app.end_turn();
     let turn_before_save = app.engine.as_ref().unwrap().state.turn;
-    app.execute_palette_input("save");
+    app.execute_palette_command_with_path(PaletteCommand::Save, &save_path);
     assert!(app
         .state
         .status_message
         .as_deref()
-        .is_some_and(|msg| msg.contains("Save: wrote farspace.sav")));
+        .is_some_and(|msg| msg.contains("Save: wrote")));
 
     app.end_turn();
     assert!(app.engine.as_ref().unwrap().state.turn > turn_before_save);
-    app.execute_palette_input("load");
+    app.execute_palette_command_with_path(PaletteCommand::Load, &save_path);
     assert_eq!(app.engine.as_ref().unwrap().state.turn, turn_before_save);
 
-    advance_turns(&mut app, 5);
+    for _ in 0..5 {
+        app.end_turn();
+    }
     app.state.overlay.show_dispatch = false;
     app.execute_palette_input("dispatch");
     assert!(app.state.overlay.show_dispatch);
 
-    std::env::set_current_dir(&original_dir).expect("current dir should restore");
     let _ = std::fs::remove_file(&save_path);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[test]

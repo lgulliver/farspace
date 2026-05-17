@@ -13,6 +13,7 @@ Use this index as entrypoint for design and direction docs.
 ## System Design
 
 - [Technology Tree](tech-tree.md)
+- [AI Doctrines](ai-doctrines.md)
 
 ## Additional Design Docs
 

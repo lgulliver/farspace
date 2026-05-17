@@ -288,6 +288,15 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
             .name()
             .to_string()
     };
+    let era_filter_label = match app_state.research.era_filter {
+        0 => "All".to_string(),
+        1 => "I".to_string(),
+        2 => "II".to_string(),
+        3 => "III".to_string(),
+        4 => "IV".to_string(),
+        5 => "V".to_string(),
+        _ => "VI".to_string(),
+    };
     let status_filter_label = match app_state.research.status_filter {
         0 => "All".to_string(),
         1 => "Available".to_string(),
@@ -303,8 +312,8 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
     };
     lines.push(Line::from(Span::styled(
         format!(
-            "Filters: Domain={} · Status={} · Search={}",
-            domain_filter_label, status_filter_label, query_label
+            "Filters: Domain={} · Era={} · Status={} · Search={}",
+            domain_filter_label, era_filter_label, status_filter_label, query_label
         ),
         Theme::muted_style(),
     )));

@@ -1112,6 +1112,10 @@ impl App {
                     (self.state.research.domain_filter + 1) % RESEARCH_DOMAIN_FILTER_COUNT;
                 self.state.research.cursor = 0;
             }
+            KeyCode::Char('[') => {
+                self.state.research.era_filter = (self.state.research.era_filter + 1) % 7;
+                self.state.research.cursor = 0;
+            }
             KeyCode::Char(']') => {
                 self.state.research.status_filter =
                     (self.state.research.status_filter + 1) % RESEARCH_STATUS_FILTER_COUNT;

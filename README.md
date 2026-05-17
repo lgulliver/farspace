@@ -121,6 +121,41 @@ cargo run --release -p farspace
 - `:`: command palette (`save`, `load`)
 - `Q` / `Ctrl+C`: quit
 
+## Alpha Player Guide
+
+### How to start a game
+
+1. From menu press `N`.
+2. Pick faction with `j/k`, confirm with `Enter`.
+3. In setup choose galaxy size / AI count / seed, then press `S` to start.
+
+### First 20 turns (recommended flow)
+
+1. Press `Enter` to open sector map.
+2. Use `S` on unexplored stars to dispatch scout fleets.
+3. Open systems with `Enter`; survey planets with `S`.
+4. Colonize surveyed habitable worlds with `C`.
+5. Open research with `r`; set active tech with `Enter`; queue follow-ups with `a`.
+6. Open colony with `c`; queue production with `Enter`.
+7. End turns with `E` or `T`; review turn summaries and dispatch bulletins (`N`).
+8. Check empire progress with `O`/`V`; monitor diplomacy with `D`.
+
+### Major systems overview
+
+- **Exploration:** sector/system navigation, scout missions, survey actions.
+- **Colonization & economy:** colony creation, role assignment, production queue, supply/food/credits.
+- **Research:** active tech, queue management, unlock-driven progression.
+- **Diplomacy & war:** first contact, relationship drift, war state, invasion and strategic auto-resolve combat.
+- **Victory:** progress tracked in empire overview (`O`/`V`) across enabled victory paths.
+- **Save/load:** menu (`L`) or command palette (`:` then `save` / `load`).
+
+### Known alpha limitations
+
+- Diplomacy supports stance/state progression and war, but no treaty negotiation UI.
+- Combat is strategic auto-resolve only (no tactical battle layer).
+- Economy balance and late-game pacing are still being tuned.
+- Some advanced roadmap systems remain future work (jobs depth, advanced diplomacy, late-game expansion).
+
 ## Testing and Coverage
 
 ```bash

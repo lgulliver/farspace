@@ -167,6 +167,11 @@ fn push_identity_lines(lines: &mut Vec<Line>, empire: &game_core::Empire) {
             Span::raw("  "),
             Span::styled(def.playstyle_summary, Theme::muted_style()),
         ]));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("Doctrine ", Theme::muted_style()),
+            Span::styled(def.doctrine_short_summary(), Theme::accent_style()),
+        ]));
     }
 }
 
@@ -244,6 +249,15 @@ mod tests {
         use game_core::RelationshipStatus;
 
         let engine = Engine::new(42);
+        let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+        let doctrine = engine
+            .state
+            .empires
+            .get(&ai_id)
+            .and_then(|empire| empire.empire_def)
+            .and_then(empire_definition_by_id)
+            .map(|def| def.doctrine_short_summary())
+            .expect("AI doctrine should exist");
         // No contacts established — all empires should show as unknown
         for empire_id in engine.state.empires.keys() {
             if *empire_id == engine.state.player_empire {
@@ -257,6 +271,9 @@ mod tests {
                 .unwrap_or(RelationshipStatus::Unknown);
             assert_eq!(status, RelationshipStatus::Unknown);
         }
+        let rendered = render_to_string(&engine);
+        assert!(rendered.contains("[ Unknown Empire ]"));
+        assert!(!rendered.contains(&doctrine));
     }
 
     #[test]
@@ -273,8 +290,17 @@ mod tests {
             .diplomacy
             .insert(ai_id, RelationshipStatus::Neutral);
 
+        let doctrine = engine
+            .state
+            .empires
+            .get(&ai_id)
+            .and_then(|empire| empire.empire_def)
+            .and_then(empire_definition_by_id)
+            .map(|def| def.doctrine_short_summary())
+            .expect("AI doctrine should exist");
         let rendered = render_to_string(&engine);
         assert!(rendered.contains("Terran Concord"));
         assert!(rendered.contains("science-forward federation"));
+        assert!(rendered.contains(&doctrine));
     }
 }

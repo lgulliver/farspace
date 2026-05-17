@@ -188,6 +188,18 @@ impl App {
             .unwrap_or_else(|| format!("Empire {}", empire_id.0))
     }
 
+    fn empire_doctrine_marker(&self, empire_id: game_core::EmpireId) -> String {
+        let doctrine = self
+            .engine
+            .as_ref()
+            .and_then(|engine| engine.state.empires.get(&empire_id))
+            .and_then(|empire| empire.empire_def)
+            .and_then(empire_definition_by_id)
+            .map(|def| def.doctrine_short_summary())
+            .unwrap_or_else(|| "N/A".to_string());
+        format!("[DOC {doctrine}]")
+    }
+
     fn format_core_event_for_log(&self, event: &CoreEvent) -> String {
         match event {
             CoreEvent::FirstContact { with_empire } => {
@@ -204,10 +216,11 @@ impl App {
             }
             CoreEvent::AiResearchSelected { empire, tech } => {
                 let name = self.empire_display_name(*empire);
+                let doctrine = self.empire_doctrine_marker(*empire);
                 let tech_name = tech_by_id(*tech)
                     .map(|record| record.name)
                     .unwrap_or("Unknown Tech");
-                format!("{name} redirected its labs to {tech_name}")
+                format!("{name} {doctrine} redirected its labs to {tech_name}")
             }
             CoreEvent::AiBuildQueued {
                 empire,
@@ -215,7 +228,12 @@ impl App {
                 item,
             } => {
                 let name = self.empire_display_name(*empire);
-                format!("{name} queued {} at colony {}", item.name(), colony.0)
+                let doctrine = self.empire_doctrine_marker(*empire);
+                format!(
+                    "{name} {doctrine} queued {} at colony {}",
+                    item.name(),
+                    colony.0
+                )
             }
             CoreEvent::AiScoutDispatched {
                 empire,
@@ -223,8 +241,9 @@ impl App {
                 destination,
             } => {
                 let name = self.empire_display_name(*empire);
+                let doctrine = self.empire_doctrine_marker(*empire);
                 format!(
-                    "{name} dispatched scout {} to system {}",
+                    "{name} {doctrine} dispatched scout {} to system {}",
                     fleet.0, destination.0
                 )
             }
@@ -235,8 +254,9 @@ impl App {
                 colony,
             } => {
                 let name = self.empire_display_name(*empire);
+                let doctrine = self.empire_doctrine_marker(*empire);
                 format!(
-                    "{name} founded colony {} at system {} orbit {}",
+                    "{name} {doctrine} founded colony {} at system {} orbit {}",
                     colony.0,
                     star.0,
                     planet_index + 1
@@ -248,7 +268,12 @@ impl App {
                 role,
             } => {
                 let name = self.empire_display_name(*empire);
-                format!("{name} reorganized colony {} as {}", colony.0, role.name())
+                let doctrine = self.empire_doctrine_marker(*empire);
+                format!(
+                    "{name} {doctrine} reorganized colony {} as {}",
+                    colony.0,
+                    role.name()
+                )
             }
             _ => event.to_log_message(),
         }
@@ -4031,6 +4056,78 @@ mod tests {
             1,
             "AI event for contacted empire must appear in log"
         );
+    }
+
+    #[test]
+    fn ai_strategic_events_include_doctrine_marker() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let ai_empire = {
+            let engine = app.engine.as_ref().unwrap();
+            *engine
+                .state
+                .empires
+                .keys()
+                .find(|id| **id != engine.state.player_empire)
+                .expect("AI empire must exist")
+        };
+        app.engine
+            .as_mut()
+            .unwrap()
+            .state
+            .diplomacy
+            .insert(ai_empire, game_core::RelationshipStatus::Contacted);
+        let doctrine = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .empires
+            .get(&ai_empire)
+            .and_then(|empire| empire.empire_def)
+            .and_then(empire_definition_by_id)
+            .map(|def| def.doctrine_short_summary())
+            .expect("AI doctrine must exist");
+        let doctrine_marker = format!("[DOC {doctrine}]");
+
+        app.state.log.clear();
+        let events = [
+            CoreEvent::AiResearchSelected {
+                empire: ai_empire,
+                tech: TechId::VOID_PROPULSION,
+            },
+            CoreEvent::AiBuildQueued {
+                empire: ai_empire,
+                colony: ColonyId(1),
+                item: game_core::BuildItem::Structure(BuildingType::AquacultureBay),
+            },
+            CoreEvent::AiScoutDispatched {
+                empire: ai_empire,
+                fleet: FleetId(1),
+                destination: StarId(1),
+            },
+            CoreEvent::AiColonized {
+                empire: ai_empire,
+                star: StarId(1),
+                planet_index: 0,
+                colony: ColonyId(2),
+            },
+            CoreEvent::AiColonyRoleAssigned {
+                empire: ai_empire,
+                colony: ColonyId(2),
+                role: ColonyRole::Balanced,
+            },
+        ];
+        for event in events {
+            app.push_core_event_to_log(&event);
+        }
+
+        let entries = app.state.log.last_n(5);
+        assert_eq!(entries.len(), 5);
+        for entry in entries {
+            assert!(entry.contains(&doctrine_marker));
+        }
     }
 
     #[test]

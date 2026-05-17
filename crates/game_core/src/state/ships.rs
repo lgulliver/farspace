@@ -325,16 +325,17 @@ mod tests {
         assert!(stats.production_cost >= 1, "cost must be at least 1");
     }
 
-    /// Test 2: derived_stats with components — adding a component modifies stats.
+    /// Test 2: derived_stats with components — adding an Engine component to scout increases stats.
     #[test]
     fn derived_stats_with_component_modifies_attack() {
-        let _base = make_design(HullId::SCOUT, vec![]).derived_stats();
-        // ComponentId(1) is Mass Driver — adds attack
-        let design = make_design(HullId::ESCORT_FRIGATE, vec![ComponentId(1)]);
+        let base = make_design(HullId::SCOUT, vec![]).derived_stats();
+        // ComponentId(20) is Fusion Drive — Engine slot, gives movement_modifier
+        let design = make_design(HullId::SCOUT, vec![ComponentId(20)]);
         let stats = design.derived_stats();
-        // Frigate has more slots and a component — total attack should be >= base scout attack
-        assert!(stats.attack >= 1);
+        // Both should have valid stats; with component cost should be >= base cost
+        assert!(stats.production_cost >= base.production_cost);
         assert!(stats.hp >= 1);
+        assert!(stats.attack >= 1);
     }
 
     /// Test 3: validate positive path — no-component scout hull with no tech requirement.
@@ -354,30 +355,29 @@ mod tests {
         assert!(result.is_err(), "Colony Ark without Colonial Vanguard tech should fail validation");
     }
 
-    /// Test 5: validate negative path — wrong slot category.
+    /// Test 5: validate negative path — wrong slot category (Mass Driver is Weapon, Scout has no Weapon slot).
     #[test]
     fn validate_fails_wrong_slot_category() {
-        // Scout hull has no weapon slots; ComponentId(1) Mass Driver is a Weapon slot component
-        // Verify this fails
+        // Scout hull has Engine + Utility slots only; ComponentId(1) Mass Driver is Weapon
         let design = make_design(HullId::SCOUT, vec![ComponentId(1)]);
-        // Scout hull has PropulsionSlot only (or sensors), check whether mass driver fits
-        // If it doesn't fit, the result should be Err
-        let result = design.validate(&[]);
-        // Either fits (in which case this is a valid combo) or doesn't (error)
-        // This test just ensures no panic occurs
-        let _ = result;
+        let result = design.validate(&[TechId(4)]); // provide tech so tech check passes
+        assert!(
+            result.is_err(),
+            "Mass Driver (Weapon) should not fit Scout hull (Engine+Utility slots)"
+        );
+        assert_eq!(result.unwrap_err(), "Component category does not match hull slots");
     }
 
     /// Test 6: validate negative path — component tech not unlocked.
     #[test]
     fn validate_fails_when_component_tech_missing() {
-        // Missile Battery (ComponentId 5) requires STRIKE_DOCTRINE (TechId 17)
-        // Use escort frigate which has weapon slots
-        let design = make_design(HullId::ESCORT_FRIGATE, vec![ComponentId(5)]);
-        let result = design.validate(&[]);
-        // Should fail because STRIKE_DOCTRINE not in completed techs
-        // (if ComponentId(5) truly requires a tech — otherwise test is informational)
-        let _ = result; // May or may not fail depending on data, just no panic
+        // ComponentId(2) is Missile Rack — Weapon slot, requires TechId(17) STRIKE_DOCTRINE
+        // Escort Frigate has a Weapon slot; hull requires TechId(16) PERIMETER_DEFENSE
+        // Unlock hull tech (16) but NOT component tech (17)
+        let design = make_design(HullId::ESCORT_FRIGATE, vec![ComponentId(2)]);
+        let result = design.validate(&[TechId(16)]); // hull unlocked, component not
+        assert!(result.is_err(), "Component with locked tech should fail validation");
+        assert_eq!(result.unwrap_err(), "Component tech not unlocked");
     }
 
     /// Test 7: validate positive path with unlocked tech.

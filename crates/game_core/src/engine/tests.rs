@@ -10107,20 +10107,10 @@ mod balance_tests {
         let initial_pop = engine.state.colonies[&colony_id].population;
 
         // Set stability well above the threshold
-        engine
-            .state
-            .colonies
-            .get_mut(&colony_id)
-            .unwrap()
-            .stability = 100;
+        engine.state.colonies.get_mut(&colony_id).unwrap().stability = 100;
 
         // Ensure empire has food surplus (required for pop growth)
-        engine
-            .state
-            .empires
-            .get_mut(&player)
-            .unwrap()
-            .food = 100;
+        engine.state.empires.get_mut(&player).unwrap().food = 100;
 
         // Derive the required turn so that cadence = turn + colony_id.0 is a multiple
         // of POP_GROWTH_PERIOD_TURNS.  The formula generalises for any colony_id.0 value:
@@ -10152,10 +10142,7 @@ mod balance_tests {
         let mut engine = Engine::new(42);
         let colony_id = ColonyId(1);
 
-        let enemy_id = engine
-            .state
-            .ai_empire
-            .expect("Engine must have AI empire");
+        let enemy_id = engine.state.ai_empire.expect("Engine must have AI empire");
 
         // Directly inject the blockade state to bypass the "defender present"
         // guard (the starting engine has a player scout at the home star).
@@ -10190,32 +10177,17 @@ mod balance_tests {
         let colony_id = ColonyId(1);
 
         // Put empire in food deficit
-        engine
-            .state
-            .empires
-            .get_mut(&player)
-            .unwrap()
-            .food = -10;
+        engine.state.empires.get_mut(&player).unwrap().food = -10;
 
         // Set stability high (not the limiting factor)
-        engine
-            .state
-            .colonies
-            .get_mut(&colony_id)
-            .unwrap()
-            .stability = 100;
+        engine.state.colonies.get_mut(&colony_id).unwrap().stability = 100;
 
         let initial_pop = engine.state.colonies[&colony_id].population;
 
         // Advance many turns to confirm no growth occurs
         for _ in 0..50 {
             // Keep food negative
-            engine
-                .state
-                .empires
-                .get_mut(&player)
-                .unwrap()
-                .food = -10;
+            engine.state.empires.get_mut(&player).unwrap().food = -10;
             engine.apply_turn(vec![Command::EndTurn]);
         }
 
@@ -10233,12 +10205,7 @@ mod balance_tests {
         let player = engine.state.player_empire;
 
         // Give the player empire a lot of credits to start
-        engine
-            .state
-            .empires
-            .get_mut(&player)
-            .unwrap()
-            .credits = 1_000;
+        engine.state.empires.get_mut(&player).unwrap().credits = 1_000;
 
         // Add many combat fleets (Patrol Corvettes have maintenance cost 1)
         let player_star = engine.state.colonies[&ColonyId(1)].star;

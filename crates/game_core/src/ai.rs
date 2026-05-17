@@ -751,11 +751,7 @@ fn ai_dispatch_scouts(state: &mut GameState, empire_id: EmpireId, events: &mut V
 /// Fleets are sorted by `FleetId` for determinism; targets are sorted by
 /// ascending squared distance from the fleet's current position, with
 /// `StarId` as a tie-breaker.
-fn ai_dispatch_combat_fleets(
-    state: &mut GameState,
-    empire_id: EmpireId,
-    events: &mut Vec<Event>,
-) {
+fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Event>) {
     // Only active after turn 20 to prevent immediate combat
     if state.turn < 20 {
         return;
@@ -840,8 +836,7 @@ fn ai_dispatch_combat_fleets(
             continue;
         }
 
-        let (turns, used_lane) =
-            travel_turns_with_lanes(state, empire_id, fleet_loc, destination);
+        let (turns, used_lane) = travel_turns_with_lanes(state, empire_id, fleet_loc, destination);
 
         use crate::state::FleetMission;
         state.fleet_missions.insert(

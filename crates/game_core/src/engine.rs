@@ -668,9 +668,10 @@ impl Engine {
                 );
             }
             if unemployed > 0 {
-                pressure_penalty = pressure_penalty.saturating_add(
-                    unemployed.min(MAX_UNEMPLOYMENT_STABILITY_PENALTY as u64) as u8,
-                );
+                pressure_penalty =
+                    pressure_penalty.saturating_add(
+                        unemployed.min(MAX_UNEMPLOYMENT_STABILITY_PENALTY as u64) as u8,
+                    );
             }
             if !is_connected && food_deficit > 0 {
                 pressure_penalty = pressure_penalty.saturating_add(
@@ -722,8 +723,7 @@ impl Engine {
                 // We take the max with the raw `colony.production` field so that
                 // tests which set `production = 999` for instant builds remain
                 // unaffected.
-                let effective_production =
-                    (colony_yield.industry.max(1) as u64).max(production);
+                let effective_production = (colony_yield.industry.max(1) as u64).max(production);
                 let mut production_pool = accumulated + effective_production + ship_bonus;
 
                 // Determine how many items complete this turn and collect them.

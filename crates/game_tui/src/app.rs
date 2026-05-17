@@ -379,10 +379,10 @@ impl App {
                 KeyCode::Esc | KeyCode::Char('N') | KeyCode::Char('n') => {
                     self.state.overlay.show_dispatch = false;
                 }
-                KeyCode::Left | KeyCode::Char('h') => {
-                    if self.state.overlay.dispatch_history_index > 0 {
-                        self.state.overlay.dispatch_history_index -= 1;
-                    }
+                KeyCode::Left | KeyCode::Char('h')
+                    if self.state.overlay.dispatch_history_index > 0 =>
+                {
+                    self.state.overlay.dispatch_history_index -= 1;
                 }
                 KeyCode::Right | KeyCode::Char('l') => {
                     if let Some(engine) = &self.engine {

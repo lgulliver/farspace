@@ -60,12 +60,54 @@ Detailed architecture and boundaries: [`docs/architecture.md`](docs/architecture
 | `game_save` | Versioned save/load and migrations for `GameState` |
 | `farspace` | Binary entrypoint and terminal lifecycle |
 
-## Quickstart
+## Installation
+
+### Pre-built binaries (recommended)
+
+Download the latest release from [GitHub Releases](https://github.com/lgulliver/farspace/releases).
+
+**Linux (x86_64 / aarch64)**
+
+```bash
+# Download the binary for your architecture, e.g.:
+curl -Lo farspace https://github.com/lgulliver/farspace/releases/latest/download/farspace-linux-x86_64
+chmod +x farspace
+./farspace
+```
+
+**macOS (Apple Silicon / Intel)**
+
+```bash
+# Apple Silicon (M-series):
+curl -Lo farspace https://github.com/lgulliver/farspace/releases/latest/download/farspace-macos-aarch64
+# Intel Mac:
+# curl -Lo farspace https://github.com/lgulliver/farspace/releases/latest/download/farspace-macos-x86_64
+
+chmod +x farspace
+# Remove macOS quarantine flag (required on first run):
+xattr -d com.apple.quarantine farspace 2>/dev/null || true
+./farspace
+```
+
+**Windows (x86_64)**
+
+1. Download `farspace-windows-x86_64.exe` from [GitHub Releases](https://github.com/lgulliver/farspace/releases).
+2. Rename or keep the file as `farspace.exe`.
+3. Open a terminal (PowerShell or Command Prompt) in the download folder and run:
+   ```powershell
+   .\farspace.exe
+   ```
+
+> FARSPACE is a terminal application. Run it inside a terminal emulator (Windows Terminal, iTerm2, Alacritty, kitty, etc.) for the best experience.
+
+### Build from source
+
+Requires [Rust](https://rustup.rs/) stable (2021 edition).
 
 ```bash
 git clone https://github.com/lgulliver/farspace.git
 cd farspace
-cargo run -p farspace
+cargo run --release -p farspace
 ```
 
 ### Common Controls

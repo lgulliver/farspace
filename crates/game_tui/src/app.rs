@@ -259,10 +259,11 @@ impl App {
 
     /// Create a new application
     pub fn new() -> Self {
-        let mut state = AppState::default();
-        state.visual_mode = Self::load_visual_mode();
         App {
-            state,
+            state: AppState {
+                visual_mode: Self::load_visual_mode(),
+                ..AppState::default()
+            },
             engine: None,
         }
     }
@@ -549,10 +550,7 @@ impl App {
         if KeyMap::is_new_game(key) {
             // Navigate to empire selection first.
             self.state.active = Screen::EmpireSelect;
-        } else if matches!(
-            key.code,
-            KeyCode::Char('v') | KeyCode::Char('V')
-        ) {
+        } else if matches!(key.code, KeyCode::Char('v') | KeyCode::Char('V')) {
             self.cycle_visual_mode();
         } else if KeyMap::is_load_game(key) {
             let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);

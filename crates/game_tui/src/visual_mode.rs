@@ -69,7 +69,10 @@ pub fn map_char_for_mode(mode: VisualMode, ch: char) -> char {
 }
 
 pub fn map_symbol_for_mode(mode: VisualMode, symbol: &str) -> String {
-    symbol.chars().map(|ch| map_char_for_mode(mode, ch)).collect()
+    symbol
+        .chars()
+        .map(|ch| map_char_for_mode(mode, ch))
+        .collect()
 }
 
 fn unicode_fallback(ch: char) -> char {
@@ -84,9 +87,11 @@ fn ascii_fallback(ch: char) -> char {
     match ch {
         '│' | '┃' | '║' | '┆' | '┊' | '╎' => '|',
         '─' | '━' | '═' | '┄' | '┈' | '╌' => '-',
-        '┌' | '┐' | '└' | '┘' | '╔' | '╗' | '╚' | '╝' | '├' | '┤' | '┬' | '┴' | '┼' | '╠'
-        | '╣' | '╦' | '╩' | '╬' | '╱' | '╲' => '+',
-        '◌' | '○' | '◉' | '◍' | '◐' | '◒' | '◎' | '●' | '◈' | '▪' | '▦' => 'o',
+        '┌' | '┐' | '└' | '┘' | '╔' | '╗' | '╚' | '╝' | '├' | '┤' | '┬' | '┴' | '┼' | '╠' | '╣'
+        | '╦' | '╩' | '╬' | '╱' | '╲' => '+',
+        '◌' | '○' | '◉' | '◍' | '◐' | '◒' | '◎' | '●' | '◈' | '▪' | '▦' => {
+            'o'
+        }
         '·' | '•' | '∙' => '.',
         '►' | '▶' | '▸' | '›' | '➤' | '⏵' => '>',
         '◄' | '◀' | '‹' | '◂' => '<',
@@ -114,10 +119,7 @@ mod tests {
 
     #[test]
     fn mode_cycle_roundtrip() {
-        assert_eq!(
-            VisualMode::Ascii.next().next().next(),
-            VisualMode::Ascii
-        );
+        assert_eq!(VisualMode::Ascii.next().next().next(), VisualMode::Ascii);
     }
 
     #[test]

@@ -8,7 +8,8 @@ use crate::components::{
 use crate::keys::KeyMap;
 use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData, OverviewSort};
 use crate::screens::research::{
-    filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_STATUS_FILTER_COUNT,
+    filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_ERA_FILTER_COUNT,
+    RESEARCH_STATUS_FILTER_COUNT,
 };
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
@@ -19,6 +20,7 @@ use game_core::{
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
+use std::path::Path;
 use std::time::Duration;
 
 /// Default save file path
@@ -289,8 +291,12 @@ impl App {
 
     fn execute_palette_command(&mut self, cmd: PaletteCommand) {
         let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);
+        self.execute_palette_command_with_path(cmd, &path);
+    }
+
+    fn execute_palette_command_with_path(&mut self, cmd: PaletteCommand, path: &Path) {
         match cmd {
-            PaletteCommand::Save => match self.save_game(&path) {
+            PaletteCommand::Save => match self.save_game(path) {
                 Ok(()) => {
                     let msg = format!("Save: wrote {}", path.display());
                     self.push_status(LogEntryKind::SaveLoad, msg);
@@ -299,7 +305,7 @@ impl App {
                     self.push_error_status(e);
                 }
             },
-            PaletteCommand::Load => match self.load_game(&path) {
+            PaletteCommand::Load => match self.load_game(path) {
                 Ok(()) => {
                     let msg = format!("Load: loaded {}", path.display());
                     self.push_status(LogEntryKind::SaveLoad, msg);
@@ -1110,6 +1116,11 @@ impl App {
             KeyCode::Tab => {
                 self.state.research.domain_filter =
                     (self.state.research.domain_filter + 1) % RESEARCH_DOMAIN_FILTER_COUNT;
+                self.state.research.cursor = 0;
+            }
+            KeyCode::Char('[') => {
+                self.state.research.era_filter =
+                    (self.state.research.era_filter + 1) % RESEARCH_ERA_FILTER_COUNT;
                 self.state.research.cursor = 0;
             }
             KeyCode::Char(']') => {

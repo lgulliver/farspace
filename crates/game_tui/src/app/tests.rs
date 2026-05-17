@@ -2489,3 +2489,137 @@ fn test_dispatch_overlay_closes_with_lowercase_n() {
         "n key should close the dispatch modal"
     );
 }
+
+#[test]
+fn setup_flow_starts_game_from_new_game_setup_screen() {
+    let mut app = App::new();
+    app.handle_key(key(KeyCode::Char('n')));
+    assert_eq!(app.state.active, Screen::EmpireSelect);
+
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.state.active, Screen::NewGameSetup);
+
+    app.handle_key(key(KeyCode::Char('S')));
+    assert!(app.engine.is_some());
+    assert_eq!(app.state.active, Screen::SectorOverview);
+}
+
+#[test]
+fn research_era_filter_cycles_with_left_bracket() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::Research;
+    assert_eq!(app.state.research.era_filter, 0);
+
+    app.handle_key(key(KeyCode::Char('[')));
+    assert_eq!(app.state.research.era_filter, 1);
+}
+
+#[test]
+fn diplomacy_screen_opens_after_contact() {
+    let mut app = App::new();
+    app.new_game(42);
+    let ai_empire = app.engine.as_ref().unwrap().state.ai_empire.unwrap();
+    app.engine
+        .as_mut()
+        .unwrap()
+        .state
+        .diplomacy
+        .insert(ai_empire, game_core::RelationshipStatus::Contacted);
+
+    app.state.active = Screen::SectorMap;
+    app.handle_key(key(KeyCode::Char('D')));
+    assert_eq!(app.state.active, Screen::Diplomacy);
+}
+
+#[test]
+fn v_key_opens_victory_overview_with_progress_lines() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorMap;
+    app.handle_key(key(KeyCode::Char('V')));
+    assert_eq!(app.state.active, Screen::EmpireOverview);
+
+    let backend = TestBackend::new(140, 40);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal.draw(|frame| app.render(frame)).unwrap();
+    let rendered: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(rendered.contains("Victory"));
+}
+
+#[test]
+fn command_palette_core_commands_save_load_and_dispatch_work() {
+    let mut app = App::new();
+    app.new_game(42);
+    let save_path = tmp_save_path("palette_core_commands");
+    let _ = std::fs::remove_file(&save_path);
+
+    app.end_turn();
+    let turn_before_save = app.engine.as_ref().unwrap().state.turn;
+    app.execute_palette_command_with_path(PaletteCommand::Save, &save_path);
+    assert!(app
+        .state
+        .status_message
+        .as_deref()
+        .is_some_and(|msg| msg.contains("Save: wrote")));
+
+    app.end_turn();
+    assert!(app.engine.as_ref().unwrap().state.turn > turn_before_save);
+    app.execute_palette_command_with_path(PaletteCommand::Load, &save_path);
+    assert_eq!(app.engine.as_ref().unwrap().state.turn, turn_before_save);
+
+    for _ in 0..5 {
+        app.end_turn();
+    }
+    app.state.overlay.show_dispatch = false;
+    app.execute_palette_input("dispatch");
+    assert!(app.state.overlay.show_dispatch);
+
+    let _ = std::fs::remove_file(&save_path);
+}
+
+#[test]
+fn command_palette_clear_rally_clears_active_colony_rally_point() {
+    let mut app = App::new();
+    app.new_game(42);
+    assert!(goto_colony_screen(&mut app));
+
+    let colony_id = app.state.colony.selected_colony.unwrap();
+    let player_home = app
+        .engine
+        .as_ref()
+        .unwrap()
+        .state
+        .empires
+        .get(&app.engine.as_ref().unwrap().state.player_empire)
+        .unwrap()
+        .home_star;
+    app.engine
+        .as_mut()
+        .unwrap()
+        .state
+        .colonies
+        .get_mut(&colony_id)
+        .unwrap()
+        .rally_point = Some(player_home);
+
+    app.execute_palette_input("clear-rally");
+
+    assert_eq!(
+        app.engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colonies
+            .get(&colony_id)
+            .unwrap()
+            .rally_point,
+        None
+    );
+}

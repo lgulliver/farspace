@@ -742,11 +742,28 @@ fn render_build_picker(
         })
         .unwrap_or((false, true));
 
-    // Build the combined list: surface buildings, orbital structures, then ships
+    // Filter to only unlocked orbital structures and ships
+    let visible_orbitals: Vec<_> = OrbitalStructureType::all()
+        .iter()
+        .filter(|ot| {
+            ot.required_tech()
+                .map(|t| completed_techs.contains(&t))
+                .unwrap_or(true)
+        })
+        .collect();
+    let visible_ships: Vec<_> = game_core::all_ship_designs()
+        .iter()
+        .filter(|d| {
+            d.required_tech
+                .map(|t| completed_techs.contains(&t))
+                .unwrap_or(true)
+        })
+        .collect();
+
+    // Build the combined list: surface buildings, unlocked orbitals, unlocked ships
     let surface_count = BuildingType::all().len();
-    let orbital_count = OrbitalStructureType::all().len();
-    let ship_count = game_core::all_ship_designs().len();
-    let total_count = surface_count + orbital_count + ship_count;
+    let orbital_count = visible_orbitals.len();
+    let total_count = surface_count + orbital_count + visible_ships.len();
     let cursor = if total_count > 0 {
         app_state.colony.build_cursor % total_count
     } else {
@@ -788,85 +805,70 @@ fn render_build_picker(
         )]));
     }
 
-    // Orbital structures section
-    lines.push(Line::from(vec![Span::styled(
-        " Orbital Structures",
-        Theme::muted_style(),
-    )]));
-    for (i, ot) in OrbitalStructureType::all().iter().enumerate() {
-        let idx = surface_count + i;
-        let is_selected = idx == cursor;
-        let prefix = if is_selected { ">" } else { " " };
-        let tech_unlocked = ot
-            .required_tech()
-            .map(|t| completed_techs.contains(&t))
-            .unwrap_or(true);
-        let lock_tag = if tech_unlocked { "" } else { " [LOCKED]" };
-        let style = if is_selected {
-            Theme::highlight_style()
-        } else if tech_unlocked {
-            Theme::default_style()
-        } else {
-            Theme::muted_style()
-        };
+    // Orbital structures section — only unlocked items shown
+    if !visible_orbitals.is_empty() {
         lines.push(Line::from(vec![Span::styled(
-            format!(" {} [{:>3}pp] {}{}", prefix, ot.cost(), ot.name(), lock_tag),
-            style,
-        )]));
-        lines.push(Line::from(vec![Span::styled(
-            format!("        {}", ot.description()),
+            " Orbital Structures",
             Theme::muted_style(),
         )]));
+        for (i, ot) in visible_orbitals.iter().enumerate() {
+            let idx = surface_count + i;
+            let is_selected = idx == cursor;
+            let prefix = if is_selected { ">" } else { " " };
+            let style = if is_selected {
+                Theme::highlight_style()
+            } else {
+                Theme::default_style()
+            };
+            lines.push(Line::from(vec![Span::styled(
+                format!(" {} [{:>3}pp] {}", prefix, ot.cost(), ot.name()),
+                style,
+            )]));
+            lines.push(Line::from(vec![Span::styled(
+                format!("        {}", ot.description()),
+                Theme::muted_style(),
+            )]));
+        }
     }
 
-    // Ships section — iterate over all_ship_designs() directly to avoid per-frame allocation.
-    // Group by role category: Exploration, Survey, Colonization, Combat, Invasion, Security.
-    lines.push(Line::from(vec![Span::styled(
-        " Ships",
-        Theme::muted_style(),
-    )]));
-    for (i, design) in game_core::all_ship_designs().iter().enumerate() {
-        let ship_item = BuildItem::Ship(design.id);
-        let idx = surface_count + orbital_count + i;
-        let is_selected = idx == cursor;
-        let prefix = if is_selected { ">" } else { " " };
-        let tech_unlocked = design
-            .required_tech
-            .map(|t| completed_techs.contains(&t))
-            .unwrap_or(true);
-        let lock_tag = match (has_shipyard, tech_unlocked) {
-            (true, true) => "",
-            (false, true) => " [NO SHIPYARD]",
-            (true, false) => " [LOCKED]",
-            (false, false) => " [NO SHIPYARD][LOCKED]",
-        };
-        let style = if is_selected {
-            Theme::highlight_style()
-        } else if has_shipyard && tech_unlocked {
-            Theme::default_style()
-        } else {
-            Theme::muted_style()
-        };
-        // Line 1: cost, name, lock tag
+    // Ships section — only tech-unlocked ships shown
+    if !visible_ships.is_empty() {
         lines.push(Line::from(vec![Span::styled(
-            format!(
-                " {} [{:>3}pp] {} [{}]{}",
-                prefix,
-                ship_item.cost(),
-                design.name,
-                design.role,
-                lock_tag
-            ),
-            style,
-        )]));
-        // Line 2: stats (strength, maintenance)
-        lines.push(Line::from(vec![Span::styled(
-            format!(
-                "        str:{} maint:{}/turn",
-                design.strength, design.maintenance
-            ),
+            " Ships",
             Theme::muted_style(),
         )]));
+        for (i, design) in visible_ships.iter().enumerate() {
+            let ship_item = BuildItem::Ship(design.id);
+            let idx = surface_count + orbital_count + i;
+            let is_selected = idx == cursor;
+            let prefix = if is_selected { ">" } else { " " };
+            let no_shipyard_tag = if has_shipyard { "" } else { " [NO SHIPYARD]" };
+            let style = if is_selected {
+                Theme::highlight_style()
+            } else if has_shipyard {
+                Theme::default_style()
+            } else {
+                Theme::muted_style()
+            };
+            lines.push(Line::from(vec![Span::styled(
+                format!(
+                    " {} [{:>3}pp] {} [{}]{}",
+                    prefix,
+                    ship_item.cost(),
+                    design.name,
+                    design.role,
+                    no_shipyard_tag
+                ),
+                style,
+            )]));
+            lines.push(Line::from(vec![Span::styled(
+                format!(
+                    "        str:{} maint:{}/turn",
+                    design.strength, design.maintenance
+                ),
+                Theme::muted_style(),
+            )]));
+        }
     }
 
     let paragraph = Paragraph::new(lines).style(Theme::default_style());
@@ -1059,32 +1061,31 @@ mod tests {
     }
 
     #[test]
-    fn build_picker_shows_shipyard_in_orbital_section() {
-        // The build picker renders without panic and includes Shipyard in the output
+    fn build_picker_shows_shipyard_when_tech_researched() {
+        use game_core::TechId;
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
-        let engine = Engine::new(42);
-        let app_state = make_app_state_with_colony(&engine);
+        let mut engine = Engine::new(42);
+        // Grant Orbital Engineering so Shipyard is visible
+        let empire_id = engine.state.player_empire;
+        engine
+            .state
+            .empires
+            .get_mut(&empire_id)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId::ORBITAL_ENGINEERING);
 
-        // Set cursor to the Shipyard position (after surface buildings)
-        let shipyard_cursor = BuildingType::all().len(); // first orbital = after all surface
-        let app_state_at_shipyard = AppState {
-            colony: crate::app::ColonyScreenState {
-                selected_colony: app_state.colony.selected_colony,
-                build_cursor: shipyard_cursor,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        let app_state = make_app_state_with_colony(&engine);
 
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_colony(frame, area, &app_state_at_shipyard, &engine.state);
+                render_colony(frame, area, &app_state, &engine.state);
             })
             .unwrap();
 
-        // Verify "Shipyard" appears in the rendered output
         let content: String = terminal
             .backend()
             .buffer()
@@ -1094,13 +1095,12 @@ mod tests {
             .collect();
         assert!(
             content.contains("Shipyard"),
-            "Build picker must render Shipyard; got: <content truncated>"
+            "Build picker must render Shipyard when Orbital Engineering is researched"
         );
     }
 
     #[test]
-    fn build_picker_shows_science_ship_in_ship_section() {
-        // Use a taller terminal so all ship entries (each now 2 lines) remain visible.
+    fn build_picker_shows_scout_ship_without_research() {
         let backend = TestBackend::new(120, 80);
         let mut terminal = Terminal::new(backend).unwrap();
         let engine = Engine::new(42);
@@ -1121,17 +1121,17 @@ mod tests {
             .map(|c| c.symbol())
             .collect();
         assert!(
-            content.contains("Science Ship"),
-            "Build picker must render Science Ship; got: <content truncated>"
+            content.contains("Scout"),
+            "Build picker must render Scout (no tech required); got: <content truncated>"
         );
     }
 
     #[test]
-    fn build_picker_shows_locked_when_tech_missing() {
+    fn build_picker_hides_locked_items_when_tech_missing() {
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
 
-        // New game — no techs researched, so Shipyard should show [LOCKED]
+        // New game — no techs researched, so Shipyard must not appear
         let engine = Engine::new(42);
         let app_state = make_app_state_with_colony(&engine);
 
@@ -1150,8 +1150,8 @@ mod tests {
             .map(|c| c.symbol())
             .collect();
         assert!(
-            content.contains("LOCKED"),
-            "Shipyard must show [LOCKED] when Orbital Engineering is not researched"
+            !content.contains("Shipyard"),
+            "Shipyard must be hidden when Orbital Engineering is not researched"
         );
     }
 

@@ -4,8 +4,7 @@ use crate::components::{render_help, render_palette, EventLog, LogEntryKind, Pal
 use crate::keys::KeyMap;
 use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData, OverviewSort};
 use crate::screens::research::{
-    filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_ERA_FILTER_COUNT,
-    RESEARCH_STATUS_FILTER_COUNT,
+    filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_STATUS_FILTER_COUNT,
 };
 use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
@@ -269,19 +268,39 @@ impl App {
             .unwrap_or(false)
     }
 
-    fn push_core_event_to_log(&mut self, event: &CoreEvent) {
-        let ai_empire = match event {
+    fn colony_is_player_owned(&self, colony_id: game_core::ColonyId) -> bool {
+        self.engine
+            .as_ref()
+            .and_then(|engine| engine.state.colonies.get(&colony_id).map(|colony| (engine, colony)))
+            .map(|(engine, colony)| colony.owner == engine.state.player_empire)
+            .unwrap_or(false)
+    }
+
+    fn event_visible_to_player(&self, event: &CoreEvent) -> bool {
+        let Some(engine) = self.engine.as_ref() else {
+            return true;
+        };
+
+        match event {
+            CoreEvent::EconomySummary { empire, .. }
+            | CoreEvent::FoodShortage { empire, .. }
+            | CoreEvent::CreditDeficit { empire, .. } => *empire == engine.state.player_empire,
+            CoreEvent::ColonyStatusWarning { colony, .. }
+            | CoreEvent::PopulationGrew { colony, .. }
+            | CoreEvent::ColonyIsolated { colony }
+            | CoreEvent::ColonyReconnected { colony } => self.colony_is_player_owned(*colony),
             CoreEvent::AiResearchSelected { empire, .. }
             | CoreEvent::AiBuildQueued { empire, .. }
             | CoreEvent::AiScoutDispatched { empire, .. }
             | CoreEvent::AiColonized { empire, .. }
-            | CoreEvent::AiColonyRoleAssigned { empire, .. } => Some(*empire),
-            _ => None,
-        };
-        if let Some(empire_id) = ai_empire {
-            if !self.empire_is_known(empire_id) {
-                return;
-            }
+            | CoreEvent::AiColonyRoleAssigned { empire, .. } => self.empire_is_known(*empire),
+            _ => true,
+        }
+    }
+
+    fn push_core_event_to_log(&mut self, event: &CoreEvent) {
+        if !self.event_visible_to_player(event) {
+            return;
         }
         let message = self.format_core_event_for_log(event);
         let kind = LogEntryKind::from_message(&message);
@@ -889,7 +908,7 @@ impl App {
                     let count = ColonyRole::all().len();
                     self.state.colony.role_cursor = (self.state.colony.role_cursor + 1) % count;
                 } else {
-                    let count = Self::all_build_item_count();
+                    let count = self.visible_build_count();
                     self.state.colony.build_cursor = (self.state.colony.build_cursor + 1) % count;
                 }
             }
@@ -899,7 +918,7 @@ impl App {
                     self.state.colony.role_cursor =
                         (self.state.colony.role_cursor + count.saturating_sub(1)) % count;
                 } else {
-                    let count = Self::all_build_item_count();
+                    let count = self.visible_build_count();
                     self.state.colony.build_cursor =
                         (self.state.colony.build_cursor + count.saturating_sub(1)) % count;
                 }
@@ -1054,11 +1073,31 @@ impl App {
         self.state.active = Screen::System;
     }
 
-    /// Total number of items in the build picker (surface buildings + orbital structures + ships)
-    fn all_build_item_count() -> usize {
-        BuildingType::all().len()
-            + OrbitalStructureType::all().len()
-            + game_core::all_ship_designs().len()
+    /// Number of build picker items visible to the player (excludes tech-locked items).
+    fn visible_build_count(&self) -> usize {
+        let completed = self
+            .engine
+            .as_ref()
+            .and_then(|e| e.state.empires.get(&e.state.player_empire))
+            .map(|emp| emp.research.completed.as_slice())
+            .unwrap_or(&[]);
+        let orbital_count = OrbitalStructureType::all()
+            .iter()
+            .filter(|ot| {
+                ot.required_tech()
+                    .map(|t| completed.contains(&t))
+                    .unwrap_or(true)
+            })
+            .count();
+        let ship_count = game_core::all_ship_designs()
+            .iter()
+            .filter(|d| {
+                d.required_tech
+                    .map(|t| completed.contains(&t))
+                    .unwrap_or(true)
+            })
+            .count();
+        BuildingType::all().len() + orbital_count + ship_count
     }
 
     /// Try to enter the colony screen for the selected star.
@@ -1142,11 +1181,6 @@ impl App {
             KeyCode::Tab => {
                 self.state.research.domain_filter =
                     (self.state.research.domain_filter + 1) % RESEARCH_DOMAIN_FILTER_COUNT;
-                self.state.research.cursor = 0;
-            }
-            KeyCode::Char('[') => {
-                self.state.research.era_filter =
-                    (self.state.research.era_filter + 1) % RESEARCH_ERA_FILTER_COUNT;
                 self.state.research.cursor = 0;
             }
             KeyCode::Char(']') => {
@@ -1331,11 +1365,32 @@ impl App {
             }
         };
 
+        let completed = self
+            .engine
+            .as_ref()
+            .and_then(|e| e.state.empires.get(&e.state.player_empire))
+            .map(|emp| emp.research.completed.clone())
+            .unwrap_or_default();
         let surface_buildings = BuildingType::all();
-        let orbital_structures = OrbitalStructureType::all();
-        let ship_designs = game_core::all_ship_designs();
+        let visible_orbitals: Vec<_> = OrbitalStructureType::all()
+            .iter()
+            .filter(|ot| {
+                ot.required_tech()
+                    .map(|t| completed.contains(&t))
+                    .unwrap_or(true)
+            })
+            .collect();
+        let visible_ships: Vec<_> = game_core::all_ship_designs()
+            .iter()
+            .filter(|d| {
+                d.required_tech
+                    .map(|t| completed.contains(&t))
+                    .unwrap_or(true)
+            })
+            .collect();
 
-        let total = surface_buildings.len() + orbital_structures.len() + ship_designs.len();
+        let total =
+            surface_buildings.len() + visible_orbitals.len() + visible_ships.len();
         if total == 0 {
             let msg = "Unavailable: queue build — no build items available.";
             self.state.log.push(msg.to_string());
@@ -1346,13 +1401,13 @@ impl App {
 
         let item = if cursor < surface_buildings.len() {
             game_core::BuildItem::SurfaceStructure(surface_buildings[cursor])
-        } else if cursor < surface_buildings.len() + orbital_structures.len() {
+        } else if cursor < surface_buildings.len() + visible_orbitals.len() {
             game_core::BuildItem::OrbitalStructure(
-                orbital_structures[cursor - surface_buildings.len()],
+                *visible_orbitals[cursor - surface_buildings.len()],
             )
         } else {
             game_core::BuildItem::Ship(
-                ship_designs[cursor - surface_buildings.len() - orbital_structures.len()].id,
+                visible_ships[cursor - surface_buildings.len() - visible_orbitals.len()].id,
             )
         };
 
@@ -2994,7 +3049,7 @@ mod tests {
         app.new_game(42);
         goto_colony_screen(&mut app);
 
-        let count = App::all_build_item_count();
+        let count = app.visible_build_count();
         // Move down past the last item
         for _ in 0..count {
             app.handle_key(key(KeyCode::Char('j')));
@@ -3011,7 +3066,7 @@ mod tests {
 
         // Move up from 0 should wrap to last
         app.handle_key(key(KeyCode::Char('k')));
-        let count = App::all_build_item_count();
+        let count = app.visible_build_count();
         assert_eq!(app.state.colony.build_cursor, count - 1);
     }
 
@@ -3970,6 +4025,123 @@ mod tests {
             app.state.log.len(),
             1,
             "AI event for contacted empire must appear in log"
+        );
+    }
+
+    #[test]
+    fn non_player_economy_events_hidden_from_log() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let ai_empire = {
+            let engine = app.engine.as_ref().unwrap();
+            *engine
+                .state
+                .empires
+                .keys()
+                .find(|id| **id != engine.state.player_empire)
+                .expect("AI empire must exist")
+        };
+
+        app.state.log.clear();
+
+        app.push_core_event_to_log(&CoreEvent::EconomySummary {
+            empire: ai_empire,
+            credits_income: 9,
+            maintenance: 2,
+            food_produced: 6,
+            food_consumed: 4,
+        });
+        app.push_core_event_to_log(&CoreEvent::FoodShortage {
+            empire: ai_empire,
+            deficit: 3,
+        });
+        app.push_core_event_to_log(&CoreEvent::CreditDeficit {
+            empire: ai_empire,
+            deficit: 2,
+        });
+
+        assert_eq!(
+            app.state.log.len(),
+            0,
+            "Non-player economy events must not appear in log"
+        );
+    }
+
+    #[test]
+    fn non_player_colony_status_events_hidden_from_log() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let ai_colony = {
+            let engine = app.engine.as_ref().unwrap();
+            *engine
+                .state
+                .colonies
+                .iter()
+                .find(|(_, colony)| colony.owner != engine.state.player_empire)
+                .map(|(id, _)| id)
+                .expect("AI colony must exist")
+        };
+
+        app.state.log.clear();
+
+        app.push_core_event_to_log(&CoreEvent::ColonyStatusWarning {
+            colony: ai_colony,
+            food_deficit: 1,
+            housing_deficit: 2,
+            unemployed: 3,
+        });
+        app.push_core_event_to_log(&CoreEvent::PopulationGrew {
+            colony: ai_colony,
+            new_population: 9,
+        });
+
+        assert_eq!(
+            app.state.log.len(),
+            0,
+            "Non-player colony status events must not appear in log"
+        );
+    }
+
+    #[test]
+    fn player_operational_events_still_visible_in_log() {
+        let mut app = App::new();
+        app.new_game(42);
+
+        let (player_empire, player_colony) = {
+            let engine = app.engine.as_ref().unwrap();
+            let player_empire = engine.state.player_empire;
+            let player_colony = *engine
+                .state
+                .colonies
+                .iter()
+                .find(|(_, colony)| colony.owner == player_empire)
+                .map(|(id, _)| id)
+                .expect("Player colony must exist");
+            (player_empire, player_colony)
+        };
+
+        app.state.log.clear();
+
+        app.push_core_event_to_log(&CoreEvent::EconomySummary {
+            empire: player_empire,
+            credits_income: 9,
+            maintenance: 2,
+            food_produced: 6,
+            food_consumed: 4,
+        });
+        app.push_core_event_to_log(&CoreEvent::ColonyStatusWarning {
+            colony: player_colony,
+            food_deficit: 1,
+            housing_deficit: 2,
+            unemployed: 3,
+        });
+
+        assert_eq!(
+            app.state.log.len(),
+            2,
+            "Player operational events must still appear in log"
         );
     }
 }

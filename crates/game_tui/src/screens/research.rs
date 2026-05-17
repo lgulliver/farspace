@@ -5,15 +5,16 @@ use crate::layout::{compose_layout, split_horizontal};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::state::TechTag;
+use game_core::state::{TechRarity, TechTag};
 use game_core::{
     all_techs, is_tech_available, tech_by_id, tech_yield_bonus_per_colony, Empire, GameState,
     TechDomain, TechRecord, TechTier, YieldType,
 };
 use ratatui::{
     layout::{Constraint, Layout, Rect},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 
@@ -45,8 +46,79 @@ const TECH_DOMAIN_ORDER: [TechDomain; 6] = [
     TechDomain::Biology,
 ];
 pub(crate) const RESEARCH_DOMAIN_FILTER_COUNT: usize = TECH_DOMAIN_ORDER.len() + 1;
-pub(crate) const RESEARCH_ERA_FILTER_COUNT: usize = 7; // all + 6 eras
 pub(crate) const RESEARCH_STATUS_FILTER_COUNT: usize = 5; // all + 4 statuses
+
+fn tech_domain_sort_index(domain: TechDomain) -> usize {
+    TECH_DOMAIN_ORDER
+        .iter()
+        .position(|candidate| *candidate == domain)
+        .unwrap_or(TECH_DOMAIN_ORDER.len())
+}
+
+fn tech_rarity_style(rarity: TechRarity) -> Style {
+    match rarity {
+        TechRarity::Common => Theme::muted_style(),
+        TechRarity::Uncommon => Theme::success_style(),
+        TechRarity::Rare => Style::default()
+            .fg(Theme::accent2())
+            .add_modifier(Modifier::BOLD),
+        TechRarity::Breakthrough => Style::default()
+            .fg(Color::LightMagenta)
+            .add_modifier(Modifier::BOLD),
+        TechRarity::Dangerous => Style::default()
+            .fg(Theme::warning())
+            .add_modifier(Modifier::BOLD),
+    }
+}
+
+fn tech_tag_style(tag: TechTag) -> Style {
+    match tag {
+        TechTag::Survey | TechTag::Sensors | TechTag::Hyperspace | TechTag::SectorMapping => {
+            Theme::accent_style()
+        }
+        TechTag::Colonization
+        | TechTag::Growth
+        | TechTag::Housing
+        | TechTag::Food
+        | TechTag::Terraforming => Theme::success_style(),
+        TechTag::Shipyard
+        | TechTag::Orbital
+        | TechTag::Production
+        | TechTag::Supply
+        | TechTag::Trade
+        | TechTag::Logistics => Style::default().fg(Theme::accent2()),
+        TechTag::Weapon
+        | TechTag::Defense
+        | TechTag::Invasion
+        | TechTag::Blockade
+        | TechTag::Command
+        | TechTag::ShipClass => Theme::warning_style(),
+        TechTag::Diplomacy | TechTag::Precursor | TechTag::Gateway => {
+            Style::default().fg(Color::LightMagenta)
+        }
+        TechTag::Megastructure | TechTag::Crisis => Style::default()
+            .fg(Theme::warning())
+            .add_modifier(Modifier::BOLD),
+        TechTag::EspionageFuture | TechTag::PopulationJobsFuture | TechTag::Stability => {
+            Theme::muted_style()
+        }
+    }
+}
+
+fn bracket_tag_span(label: impl Into<String>, style: Style) -> Span<'static> {
+    Span::styled(format!("[{}]", label.into()), style)
+}
+
+fn join_tag_spans(tags: &[TechTag]) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::styled("Tags: ", Theme::muted_style())];
+    for (idx, tag) in tags.iter().enumerate() {
+        if idx > 0 {
+            spans.push(Span::raw(" "));
+        }
+        spans.push(bracket_tag_span(tag.label(), tech_tag_style(*tag)));
+    }
+    spans
+}
 
 pub(crate) fn ordered_research_techs() -> Vec<&'static TechRecord> {
     let all = all_techs();
@@ -54,7 +126,13 @@ pub(crate) fn ordered_research_techs() -> Vec<&'static TechRecord> {
         .into_iter()
         .flat_map(|domain| all.iter().filter(move |t| t.domain == domain))
         .collect();
-    ordered.sort_by_key(|tech| (tech.display_order, tech.id));
+    ordered.sort_by_key(|tech| {
+        (
+            tech_domain_sort_index(tech.domain),
+            tech.display_order,
+            tech.id,
+        )
+    });
     ordered
 }
 
@@ -108,6 +186,7 @@ pub(crate) fn filtered_research_techs<'a>(
                 )
             }
         })
+        .filter(|tech| tech_status(game_state, tech) != TechStatus::Locked)
         .filter(|tech| {
             if query.is_empty() {
                 return true;
@@ -119,11 +198,10 @@ pub(crate) fn filtered_research_techs<'a>(
                 .collect::<Vec<_>>()
                 .join(" ");
             let text = format!(
-                "{} {} {} {} {}",
+                "{} {} {} {}",
                 tech.name,
                 tech.description,
                 tech.domain.name(),
-                tech.tier.label(),
                 tags
             )
             .to_ascii_lowercase();
@@ -204,15 +282,6 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
             .name()
             .to_string()
     };
-    let era_filter_label = match app_state.research.era_filter {
-        0 => "All Eras".to_string(),
-        1 => "Era 1".to_string(),
-        2 => "Era 2".to_string(),
-        3 => "Era 3".to_string(),
-        4 => "Era 4".to_string(),
-        5 => "Era 5".to_string(),
-        _ => "Era 6".to_string(),
-    };
     let status_filter_label = match app_state.research.status_filter {
         0 => "All".to_string(),
         1 => "Available".to_string(),
@@ -227,8 +296,8 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
     };
     lines.push(Line::from(Span::styled(
         format!(
-            "Filters: Domain={} · Era={} · Status={} · Search={}",
-            domain_filter_label, era_filter_label, status_filter_label, query_label
+            "Filters: Domain={} · Status={} · Search={}",
+            domain_filter_label, status_filter_label, query_label
         ),
         Theme::muted_style(),
     )));
@@ -258,12 +327,12 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
                 TechStatus::Completed => "[Completed]",
             };
             let rarity_tag = match tech.rarity.label() {
-                "Rare" => "[Rare]",
-                "Breakthrough" => "[Breakthrough]",
-                "Dangerous" => "[Dangerous]",
+                "Rare" => "Rare",
+                "Breakthrough" => "Breakthrough",
+                "Dangerous" => "Dangerous",
                 _ => "",
             };
-            let hook_tag = if tech.future_hook { "[Planned]" } else { "" };
+            let hook_tag = if tech.future_hook { "Planned" } else { "" };
             let style = if is_selected {
                 Theme::highlight_style()
             } else if matches!(status, TechStatus::Active | TechStatus::Completed) {
@@ -275,11 +344,10 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
             };
             lines.push(Line::from(Span::styled(
                 format!(
-                    " {} [{:>3}rp] {} ({}) {}",
+                    " {} [{:>3}rp] {} {}",
                     prefix,
                     tech.cost,
                     tech.name,
-                    tech.tier.short_label(),
                     status_tag
                 ),
                 style,
@@ -288,10 +356,17 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
                 selected_line_idx = lines.len().saturating_sub(1);
             }
             if !rarity_tag.is_empty() || !hook_tag.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    format!("   {} {}", rarity_tag, hook_tag).trim().to_string(),
-                    Theme::muted_style(),
-                )));
+                let mut spans = vec![Span::raw("   ")];
+                if !rarity_tag.is_empty() {
+                    spans.push(bracket_tag_span(rarity_tag, tech_rarity_style(tech.rarity)));
+                }
+                if !hook_tag.is_empty() {
+                    if !rarity_tag.is_empty() {
+                        spans.push(Span::raw(" "));
+                    }
+                    spans.push(bracket_tag_span(hook_tag, Theme::warning_style()));
+                }
+                lines.push(Line::from(spans));
             }
         }
         lines.push(Line::from(""));
@@ -345,45 +420,23 @@ fn render_selected_tech_detail(
     let mut lines = vec![
         Line::from(Span::styled(tech.name, Theme::accent_style())),
         Line::from(Span::styled(
-            format!(
-                "{} • {} • {} rp",
-                tech.domain.name(),
-                tech.tier.label(),
-                tech.cost
-            ),
+            format!("{} • {} rp", tech.domain.name(), tech.cost),
             Theme::muted_style(),
         )),
         Line::from(Span::styled(
             format!("Status: {}", status.label()),
             Theme::default_style(),
         )),
-        Line::from(Span::styled(
-            format!(
-                "Rarity: {}{}",
-                tech.rarity.label(),
-                if tech.future_hook {
-                    " · Planned/Future Hook"
-                } else {
-                    ""
-                }
-            ),
+        Line::from(vec![
+            Span::styled("Rarity: ", Theme::muted_style()),
+            Span::styled(tech.rarity.label(), tech_rarity_style(tech.rarity)),
             if tech.future_hook {
-                Theme::warning_style()
+                Span::styled(" [Planned/Future Hook]", Theme::warning_style())
             } else {
-                Theme::muted_style()
+                Span::raw("")
             },
-        )),
-        Line::from(Span::styled(
-            format!(
-                "Tags: {}",
-                tech.tags
-                    .iter()
-                    .map(TechTag::label)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            Theme::muted_style(),
-        )),
+        ]),
+        Line::from(join_tag_spans(tech.tags)),
         Line::from(""),
         Line::from(tech.description),
         Line::from(""),
@@ -417,7 +470,12 @@ fn render_selected_tech_detail(
         }
     }
 
-    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(Theme::default_style())
+            .wrap(Wrap { trim: false }),
+        inner,
+    );
 }
 
 /// Render active progress and completed-tech summary.
@@ -564,9 +622,82 @@ fn player_research_per_turn(game_state: &GameState, empire: &Empire) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_core::{all_techs, TechId};
     use game_core::Engine;
+    use ratatui::buffer::Buffer;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+
+    fn render_detail_buffer(
+        width: u16,
+        height: u16,
+        app_state: &AppState,
+        game_state: &GameState,
+    ) -> Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_selected_tech_detail(frame, area, app_state, game_state);
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn buffer_rows(buffer: &Buffer) -> Vec<String> {
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| {
+                        buffer
+                            .cell((x, y))
+                            .and_then(|cell| cell.symbol().chars().next())
+                            .unwrap_or(' ')
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn find_text_style(buffer: &Buffer, needle: &str) -> Option<Style> {
+        for y in 0..buffer.area.height {
+            let row: String = (0..buffer.area.width)
+                .map(|x| {
+                    buffer
+                        .cell((x, y))
+                        .and_then(|cell| cell.symbol().chars().next())
+                        .unwrap_or(' ')
+                })
+                .collect();
+            if let Some(x) = row.find(needle) {
+                return buffer
+                    .cell((x as u16, y))
+                    .map(|cell| cell.style());
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn ordered_research_techs_are_grouped_by_domain_then_order() {
+        let ordered = ordered_research_techs();
+
+        for pair in ordered.windows(2) {
+            let left = pair[0];
+            let right = pair[1];
+            let left_key = (tech_domain_sort_index(left.domain), left.display_order, left.id);
+            let right_key = (
+                tech_domain_sort_index(right.domain),
+                right.display_order,
+                right.id,
+            );
+            assert!(
+                left_key <= right_key,
+                "Research ordering must stay linear for cursor navigation"
+            );
+        }
+    }
 
     #[test]
     fn research_screen_renders_without_panic() {
@@ -585,7 +716,7 @@ mod tests {
 
     #[test]
     fn research_screen_with_current_tech() {
-        use game_core::{Command, TechId};
+        use game_core::Command;
 
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -626,8 +757,6 @@ mod tests {
 
     #[test]
     fn research_screen_with_completed_tech() {
-        use game_core::TechId;
-
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut engine = Engine::new(42);
@@ -654,8 +783,6 @@ mod tests {
 
     #[test]
     fn research_screen_all_techs_completed() {
-        use game_core::{all_techs, TechId};
-
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut engine = Engine::new(42);
@@ -699,5 +826,52 @@ mod tests {
                 render_research(frame, area, &app_state, &engine.state);
             })
             .unwrap();
+    }
+
+    #[test]
+    fn research_detail_wraps_long_description() {
+        let engine = Engine::new(42);
+        let app_state = AppState {
+            research: crate::app::ResearchScreenState {
+                query: "Neutrino".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let buffer = render_detail_buffer(36, 18, &app_state, &engine.state);
+        let rows = buffer_rows(&buffer).join("\n");
+
+        assert!(rows.contains("Deep-penetrating"));
+        assert!(rows.contains("sensor arrays"));
+        assert!(rows.contains("interference patterns."));
+    }
+
+    #[test]
+    fn research_detail_colors_rare_rarity_and_tags() {
+        let mut engine = Engine::new(42);
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .research
+            .completed
+            .extend([TechId(3), TechId(6)]);
+        let app_state = AppState {
+            research: crate::app::ResearchScreenState {
+                query: "Cartography".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let buffer = render_detail_buffer(60, 18, &app_state, &engine.state);
+        let rarity_style = find_text_style(&buffer, "Rare").expect("Rare label should render");
+        let tag_style =
+            find_text_style(&buffer, "[Hyperspace]").expect("Hyperspace tag should render");
+
+        assert_eq!(rarity_style.fg, Some(Theme::accent2()));
+        assert_eq!(tag_style.fg, Some(Theme::accent()));
     }
 }

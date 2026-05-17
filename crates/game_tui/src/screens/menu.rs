@@ -2,15 +2,24 @@
 
 use crate::components::render_footer;
 use crate::layout::compose_layout;
+use crate::map_render::visual_hash;
+use crate::renderer::{
+    starfield::{detail_star_glyph, should_render_star, star_magnitude_color, starfield_detail},
+    Canvas,
+};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
+
+const MENU_STARFIELD_SALT: u64 = 0x4D45_4E55;
+const MENU_STARFIELD_TWINKLE_SALT_XOR: u64 = 0x51;
 
 /// Each line of the FARSPACE ASCII art title — kept as separate entries so
 /// ratatui renders them as individual rows (spans with embedded `\n` are
@@ -39,6 +48,11 @@ fn build_menu_lines(use_ascii_title: bool) -> Vec<Line<'static>> {
         )));
     }
     menu_items.extend([
+        Line::from(""),
+        Line::from(Span::styled(
+            "A turn-based 4X space strategy",
+            Theme::muted_style(),
+        )),
         Line::from(""),
         Line::from(vec![
             Span::styled("[N]", Theme::title_style()),
@@ -88,6 +102,46 @@ fn menu_box_size(main_area: Rect) -> (u16, u16, bool) {
     (width, height, use_ascii_title)
 }
 
+fn render_menu_starfield(frame: &mut Frame, area: Rect, app_state: &AppState) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let mut canvas = Canvas::new(area.width, area.height);
+    let detail = starfield_detail(area);
+    let frame_group = if app_state.reduced_motion {
+        0
+    } else {
+        app_state.tick_count / 4
+    };
+    let base_style = Style::default().bg(Theme::space_bg());
+
+    for y in 0..area.height {
+        for x in 0..area.width {
+            canvas.set_cell(x, y, ' ', base_style, 0);
+            let static_hash = visual_hash(0, x, y, 0, MENU_STARFIELD_SALT);
+            if should_render_star(static_hash, detail) {
+                let twinkle_hash = visual_hash(
+                    0,
+                    x,
+                    y,
+                    frame_group,
+                    MENU_STARFIELD_SALT ^ MENU_STARFIELD_TWINKLE_SALT_XOR,
+                );
+                canvas.set_cell(
+                    x,
+                    y,
+                    detail_star_glyph(static_hash, detail),
+                    base_style.fg(star_magnitude_color(static_hash, twinkle_hash)),
+                    1,
+                );
+            }
+        }
+    }
+
+    canvas.render_to_buffer(area, frame.buffer_mut());
+}
+
 /// Render the main menu
 pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
     let (_header_area, main_area, footer_area) = compose_layout(area);
@@ -120,6 +174,8 @@ pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
         .split(v_chunks[1]);
 
     let menu_area = h_chunks[1];
+
+    render_menu_starfield(frame, main_area, app_state);
 
     let menu_items = build_menu_lines(use_ascii_title);
 

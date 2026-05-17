@@ -334,8 +334,11 @@ mod tests {
     #[test]
     fn derive_header_data_fleet_maintenance_applies_empire_modifier() {
         let mut state = game_core::Engine::new(42).state;
-        state.empires.get_mut(&state.player_empire).unwrap().empire_def =
-            Some(game_core::EmpireDefinitionId(7));
+        state
+            .empires
+            .get_mut(&state.player_empire)
+            .unwrap()
+            .empire_def = Some(game_core::EmpireDefinitionId(7));
 
         let data = derive_header_data(&state);
         let expected: i64 = state

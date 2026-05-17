@@ -1122,6 +1122,51 @@ fn playstyle_tag_labels_are_nonempty() {
 }
 
 #[test]
+fn ai_doctrine_helpers_are_stable_and_non_empty() {
+    let doctrines = [
+        AiDoctrine::Explorer,
+        AiDoctrine::Technologist,
+        AiDoctrine::Merchant,
+        AiDoctrine::Imperial,
+        AiDoctrine::Militarist,
+        AiDoctrine::Industrialist,
+        AiDoctrine::Expansionist,
+        AiDoctrine::Isolationist,
+        AiDoctrine::Biologist,
+    ];
+    for doctrine in doctrines {
+        assert!(!doctrine.label().is_empty());
+        assert!(!doctrine.short_code().is_empty());
+        assert!(!doctrine.short_summary().is_empty());
+    }
+}
+
+#[test]
+fn empire_doctrine_weights_match_faction_intent() {
+    let concord = empire_definition_by_id(EmpireDefinitionId(6)).expect("Terran Concord");
+    let dominion = empire_definition_by_id(EmpireDefinitionId(7)).expect("Terran Dominion");
+    let elarith = empire_definition_by_id(EmpireDefinitionId(5)).expect("Elarith Confluence");
+    let thalori = empire_definition_by_id(EmpireDefinitionId(3)).expect("Thalori Exchange");
+
+    assert!(concord.doctrine_weight(AiDoctrine::Explorer) >= 8);
+    assert!(concord.doctrine_weight(AiDoctrine::Technologist) >= 7);
+    assert!(concord.doctrine_weight(AiDoctrine::Merchant) >= 6);
+    assert!(dominion.doctrine_weight(AiDoctrine::Imperial) >= 8);
+    assert!(dominion.doctrine_weight(AiDoctrine::Militarist) >= 8);
+    assert!(dominion.doctrine_weight(AiDoctrine::Industrialist) >= 7);
+    assert!(
+        concord.doctrine_weight(AiDoctrine::Militarist)
+            < dominion.doctrine_weight(AiDoctrine::Militarist)
+    );
+    assert!(
+        concord.doctrine_weight(AiDoctrine::Imperial)
+            < dominion.doctrine_weight(AiDoctrine::Imperial)
+    );
+    assert!(elarith.doctrine_weight(AiDoctrine::Isolationist) >= 7);
+    assert!(thalori.doctrine_weight(AiDoctrine::Merchant) >= 8);
+}
+
+#[test]
 fn scenario_setup_validates_valid_empire_def() {
     let setup = ScenarioSetup {
         seed: 42,

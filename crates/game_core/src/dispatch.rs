@@ -195,18 +195,16 @@ pub fn generate_dispatch(
                 ));
             }
 
-            Event::AncientRuinsDiscovered { star, .. } => {
-                if state.explored_stars.contains(star) {
-                    items.push(item(
-                        DispatchCategory::Research,
-                        DispatchSeverity::Historic,
-                        "Ancient Ruins Discovered — Archaeological Teams Mobilize",
-                        "Pre-spacefaring relics have been unearthed, attracting scientific expeditions from across the empire.",
-                        None,
-                        Some(*star),
-                        None,
-                    ));
-                }
+            Event::AncientRuinsDiscovered { star, .. } if state.explored_stars.contains(star) => {
+                items.push(item(
+                    DispatchCategory::Research,
+                    DispatchSeverity::Historic,
+                    "Ancient Ruins Discovered — Archaeological Teams Mobilize",
+                    "Pre-spacefaring relics have been unearthed, attracting scientific expeditions from across the empire.",
+                    None,
+                    Some(*star),
+                    None,
+                ));
             }
 
             // --- Colonization ---
@@ -290,19 +288,19 @@ pub fn generate_dispatch(
                 ));
             }
 
-            Event::AiResearchSelected { empire, tech: _ } => {
-                if player_knows_empire(state, *empire) {
-                    let empire_name = empire_name_for_id(state, *empire);
-                    items.push(item(
-                        DispatchCategory::Research,
-                        DispatchSeverity::Notice,
-                        format!("{empire_name} Labs Redirect Research Priorities"),
-                        "Intelligence sources indicate a change in rival research direction.",
-                        Some(*empire),
-                        None,
-                        None,
-                    ));
-                }
+            Event::AiResearchSelected { empire, tech: _ }
+                if player_knows_empire(state, *empire) =>
+            {
+                let empire_name = empire_name_for_id(state, *empire);
+                items.push(item(
+                    DispatchCategory::Research,
+                    DispatchSeverity::Notice,
+                    format!("{empire_name} Labs Redirect Research Priorities"),
+                    "Intelligence sources indicate a change in rival research direction.",
+                    Some(*empire),
+                    None,
+                    None,
+                ));
             }
 
             // --- Combat ---
@@ -496,46 +494,40 @@ pub fn generate_dispatch(
                 credits_income,
                 maintenance,
                 ..
-            } => {
-                if *empire == state.player_empire && credits_income - maintenance < 0 {
-                    items.push(item(
-                        DispatchCategory::Economy,
-                        DispatchSeverity::Notable,
-                        "Economic Pressure Strains Imperial Coffers",
-                        "Imperial treasury reports indicate expenditures are outpacing revenue.",
-                        Some(*empire),
-                        None,
-                        None,
-                    ));
-                }
+            } if *empire == state.player_empire && credits_income - maintenance < 0 => {
+                items.push(item(
+                    DispatchCategory::Economy,
+                    DispatchSeverity::Notable,
+                    "Economic Pressure Strains Imperial Coffers",
+                    "Imperial treasury reports indicate expenditures are outpacing revenue.",
+                    Some(*empire),
+                    None,
+                    None,
+                ));
             }
 
-            Event::FoodShortage { empire, .. } => {
-                if *empire == state.player_empire {
-                    items.push(item(
-                        DispatchCategory::Economy,
-                        DispatchSeverity::Urgent,
-                        "Food Reserves Depleted — Population Facing Shortfall",
-                        "Supply chain analysis confirms food stockpiles have fallen to critical levels.",
-                        Some(*empire),
-                        None,
-                        None,
-                    ));
-                }
+            Event::FoodShortage { empire, .. } if *empire == state.player_empire => {
+                items.push(item(
+                    DispatchCategory::Economy,
+                    DispatchSeverity::Urgent,
+                    "Food Reserves Depleted — Population Facing Shortfall",
+                    "Supply chain analysis confirms food stockpiles have fallen to critical levels.",
+                    Some(*empire),
+                    None,
+                    None,
+                ));
             }
 
-            Event::CreditDeficit { empire, .. } => {
-                if *empire == state.player_empire {
-                    items.push(item(
-                        DispatchCategory::Economy,
-                        DispatchSeverity::Urgent,
-                        "Imperial Treasury Reports Credit Shortfall",
-                        "Credit reserves have fallen below zero — maintenance is outpacing income.",
-                        Some(*empire),
-                        None,
-                        None,
-                    ));
-                }
+            Event::CreditDeficit { empire, .. } if *empire == state.player_empire => {
+                items.push(item(
+                    DispatchCategory::Economy,
+                    DispatchSeverity::Urgent,
+                    "Imperial Treasury Reports Credit Shortfall",
+                    "Credit reserves have fallen below zero — maintenance is outpacing income.",
+                    Some(*empire),
+                    None,
+                    None,
+                ));
             }
 
             // --- Trade ---

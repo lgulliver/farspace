@@ -13,6 +13,36 @@ fn tmp_save_path(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
+fn menu_v_key_cycles_visual_mode_without_active_game() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    let before = app.state.visual_mode;
+
+    app.handle_key(key(KeyCode::Char('v')));
+
+    assert_eq!(app.state.visual_mode, before.next());
+}
+
+#[test]
+fn visual_mode_config_roundtrip_from_file() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "farspace_ui_mode_{}_{}.conf",
+        std::process::id(),
+        unique
+    ));
+
+    App::persist_visual_mode_to_path(&path, crate::visual_mode::VisualMode::NerdFont);
+    let loaded = App::load_visual_mode_from_path(&path);
+    let _ = std::fs::remove_file(&path);
+
+    assert_eq!(loaded, crate::visual_mode::VisualMode::NerdFont);
+}
+
+#[test]
 fn toggle_help_overlay_on_question_mark() {
     let mut app = App::new();
     assert!(!app.state.overlay.show_help);

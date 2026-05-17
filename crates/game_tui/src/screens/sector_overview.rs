@@ -61,7 +61,12 @@ pub fn render_sector_overview(
         game_state,
         app_state.navigation.selected_sector,
     );
-    render_log(frame, right_chunks[1], &app_state.log);
+    render_log(
+        frame,
+        right_chunks[1],
+        &app_state.log,
+        app_state.visual_mode,
+    );
 
     let hint = app_state.status_message.as_deref().unwrap_or(
         "Enter zooms to sector detail. Strategic map shows borders, capitals, fleets, and fog.",

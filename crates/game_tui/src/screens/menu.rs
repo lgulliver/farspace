@@ -35,7 +35,7 @@ const TITLE_LINES: &[&str] = &[
 
 const COMPACT_TITLE: &str = "FARSPACE";
 
-fn build_menu_lines(use_ascii_title: bool) -> Vec<Line<'static>> {
+fn build_menu_lines(use_ascii_title: bool, app_state: &AppState) -> Vec<Line<'static>> {
     let mut menu_items: Vec<Line> = vec![Line::from("")];
     if use_ascii_title {
         for line in TITLE_LINES {
@@ -69,6 +69,15 @@ fn build_menu_lines(use_ascii_title: bool) -> Vec<Line<'static>> {
             Span::raw(" Quit"),
         ]),
         Line::from(""),
+        Line::from(vec![
+            Span::styled("[V]", Theme::title_style()),
+            Span::raw(format!(
+                " Visual Mode: {}  ({})",
+                app_state.visual_mode.label(),
+                app_state.visual_mode.preview_sample()
+            )),
+        ]),
+        Line::from(""),
         Line::from(vec![Span::styled(
             "First Turn Quickstart",
             Theme::title_style(),
@@ -82,14 +91,14 @@ fn build_menu_lines(use_ascii_title: bool) -> Vec<Line<'static>> {
     menu_items
 }
 
-fn menu_box_size(main_area: Rect) -> (u16, u16, bool) {
+fn menu_box_size(main_area: Rect, app_state: &AppState) -> (u16, u16, bool) {
     let ascii_title_width = TITLE_LINES
         .iter()
         .map(|line| line.chars().count())
         .max()
         .unwrap_or(0);
     let use_ascii_title = main_area.width > (ascii_title_width as u16 + 4);
-    let content_lines = build_menu_lines(use_ascii_title);
+    let content_lines = build_menu_lines(use_ascii_title, app_state);
     let content_width = content_lines
         .iter()
         .map(|line| line.width() as u16)
@@ -152,7 +161,7 @@ pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
     ));
     render_footer(frame, footer_area, &Screen::Menu, menu_hint);
 
-    let (menu_width, menu_height, use_ascii_title) = menu_box_size(main_area);
+    let (menu_width, menu_height, use_ascii_title) = menu_box_size(main_area, app_state);
 
     let v_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -177,7 +186,7 @@ pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
 
     render_menu_starfield(frame, main_area, app_state);
 
-    let menu_items = build_menu_lines(use_ascii_title);
+    let menu_items = build_menu_lines(use_ascii_title, app_state);
 
     let paragraph = Paragraph::new(menu_items)
         .block(

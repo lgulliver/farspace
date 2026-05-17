@@ -956,7 +956,10 @@ mod tests {
             .scenario
             .as_mut()
             .expect("scenario should exist");
-        scenario.victory_settings.enabled_paths.insert(VictoryPath::Unity);
+        scenario
+            .victory_settings
+            .enabled_paths
+            .insert(VictoryPath::Unity);
         let _ = engine.apply_turn(vec![Command::EndTurn]);
         let lines = build_victory_lines(&engine.state, engine.state.player_empire);
         let unity_line = lines

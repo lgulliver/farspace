@@ -1580,7 +1580,7 @@ impl Engine {
             events.push(Event::ShipDesignInvalid {
                 empire: player,
                 hull_id,
-                reason,
+                reason: reason.to_string(),
             });
             return;
         }

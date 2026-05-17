@@ -310,7 +310,7 @@ pub enum Event {
     ShipDesignInvalid {
         empire: EmpireId,
         hull_id: HullId,
-        reason: &'static str,
+        reason: String,
     },
     /// A ship built from a custom design was completed at a colony.
     CustomShipConstructed {

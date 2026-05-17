@@ -188,6 +188,36 @@ mod tests {
         assert_eq!(original.empires.len(), loaded.empires.len());
         assert_eq!(original.colonies.len(), loaded.colonies.len());
         assert_eq!(original.fleets.len(), loaded.fleets.len());
+
+        let colony_id = *original
+            .colonies
+            .keys()
+            .next()
+            .expect("new game should contain at least one colony");
+        let original_colony = original
+            .colonies
+            .get(&colony_id)
+            .expect("original colony should exist");
+        let loaded_colony = loaded
+            .colonies
+            .get(&colony_id)
+            .expect("loaded colony should exist");
+        let original_planet = original
+            .stars
+            .get(&original_colony.star)
+            .and_then(|s| s.planets.get(original_colony.planet_index));
+        let loaded_planet = loaded
+            .stars
+            .get(&loaded_colony.star)
+            .and_then(|s| s.planets.get(loaded_colony.planet_index));
+        let original_workforce =
+            game_core::yield_model::calculate_yield(original_colony, original_planet).workforce;
+        let loaded_workforce =
+            game_core::yield_model::calculate_yield(loaded_colony, loaded_planet).workforce;
+        assert_eq!(
+            original_workforce, loaded_workforce,
+            "derived workforce summary should round-trip deterministically"
+        );
     }
 
     #[test]

@@ -21,7 +21,87 @@
 //!
 //! * **Maintenance** — sum of per-building and per-orbital-structure costs
 
-use crate::state::{planet_yield_effect, BuildingType, Colony, Planet}; // ColonyRole applied via colony.role.modifiers()
+use crate::state::{planet_yield_effect, BuildingType, Colony, ColonyRole, Planet}; // ColonyRole applied via colony.role.modifiers()
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum JobType {
+    Farmer,
+    Miner,
+    Technician,
+    Researcher,
+    Administrator,
+    Security,
+    Worker,
+    Unemployed,
+}
+
+impl JobType {
+    pub const fn all() -> [JobType; 8] {
+        [
+            JobType::Farmer,
+            JobType::Miner,
+            JobType::Technician,
+            JobType::Researcher,
+            JobType::Administrator,
+            JobType::Security,
+            JobType::Worker,
+            JobType::Unemployed,
+        ]
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            JobType::Farmer => "Farmer",
+            JobType::Miner => "Miner",
+            JobType::Technician => "Technician",
+            JobType::Researcher => "Researcher",
+            JobType::Administrator => "Administrator",
+            JobType::Security => "Security",
+            JobType::Worker => "Worker",
+            JobType::Unemployed => "Unemployed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobAssignment {
+    pub job: JobType,
+    pub filled: u64,
+    pub total_slots: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ColonyWorkforceSummary {
+    pub population: u64,
+    pub housing: u64,
+    pub employed: u64,
+    /// Pops without housing capacity this turn.
+    pub unhoused: u64,
+    /// Housed pops that did not receive a job assignment this turn.
+    pub unemployed: u64,
+    pub housing_deficit: u64,
+    pub assignments: Vec<JobAssignment>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct YieldContext {
+    pub food_shortage: bool,
+    pub stability_pressure: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct YieldBreakdown {
+    pub industry_from_jobs: i64,
+    pub food_from_jobs: i64,
+    pub direct_science_from_jobs: i64,
+    pub direct_credits_from_jobs: i64,
+    pub focus_science: i64,
+    pub focus_credits: i64,
+    pub stability_modifier: i64,
+    pub planet_food_bonus: i64,
+    pub planet_science_bonus: i64,
+}
 
 /// Computed economic yields for a colony in a single turn.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +118,10 @@ pub struct ColonyYield {
     pub food_consumed: i64,
     /// Total credit maintenance cost this turn (surface buildings + orbital structures + role surcharge).
     pub maintenance: i64,
+    /// Workforce assignment snapshot used for UI and deterministic diagnostics.
+    pub workforce: ColonyWorkforceSummary,
+    /// Deterministic decomposition of where yield totals came from.
+    pub breakdown: YieldBreakdown,
 }
 
 /// Calculate colony yields for a single turn.
@@ -50,54 +134,164 @@ pub struct ColonyYield {
 /// Planet specials and strategic resources are applied automatically when the
 /// planet has been surveyed (visibility gate) and a colony exists on it.
 pub fn calculate_yield(colony: &Colony, planet: Option<&Planet>) -> ColonyYield {
+    calculate_yield_with_context(colony, planet, YieldContext::default())
+}
+
+fn promote(priority: &mut Vec<JobType>, job: JobType) {
+    if let Some(idx) = priority.iter().position(|j| *j == job) {
+        let item = priority.remove(idx);
+        priority.insert(0, item);
+    }
+}
+
+fn housing_capacity(colony: &Colony, planet: Option<&Planet>) -> u64 {
+    let base = planet
+        .map(|p| p.size.base_capacity())
+        .unwrap_or(colony.population);
+    let aquaculture_count = colony
+        .buildings
+        .iter()
+        .filter(|b| **b == BuildingType::AquacultureBay)
+        .count() as u64;
+    base + aquaculture_count * 2
+}
+
+fn assignment_priority(role: ColonyRole, context: YieldContext) -> Vec<JobType> {
+    let mut priority = vec![
+        JobType::Worker,
+        JobType::Farmer,
+        JobType::Miner,
+        JobType::Technician,
+        JobType::Researcher,
+        JobType::Administrator,
+        JobType::Security,
+    ];
+
+    if context.food_shortage {
+        promote(&mut priority, JobType::Farmer);
+    }
+    if context.stability_pressure {
+        promote(&mut priority, JobType::Security);
+        promote(&mut priority, JobType::Administrator);
+    }
+
+    match role {
+        ColonyRole::Agricultural => promote(&mut priority, JobType::Farmer),
+        ColonyRole::Industrial => {
+            promote(&mut priority, JobType::Technician);
+            promote(&mut priority, JobType::Miner);
+        }
+        ColonyRole::Scientific => promote(&mut priority, JobType::Researcher),
+        ColonyRole::Financial => promote(&mut priority, JobType::Technician),
+        ColonyRole::Military => {
+            promote(&mut priority, JobType::Security);
+            promote(&mut priority, JobType::Administrator);
+        }
+        ColonyRole::Balanced => {}
+    }
+
+    priority
+}
+
+pub fn calculate_yield_with_context(
+    colony: &Colony,
+    planet: Option<&Planet>,
+    context: YieldContext,
+) -> ColonyYield {
     let pop = colony.population as i64;
     let buildings = &colony.buildings;
     let orbitals = &colony.orbital_installations;
     let role_mod = colony.role.modifiers();
+    let housing = housing_capacity(colony, planet);
+    let assignable_pops = colony.population.min(housing);
 
     // Compute total special/resource yield effect (zero when planet is unsurveyed or absent).
     let special_effect = planet.map(planet_yield_effect).unwrap_or_default();
 
-    // Industry = population + FabricationYard × 2 + stability modifier + role modifier + specials.
-    // stability_modifier = (stability − 100) / 10; clamped at 0 to prevent
-    // negative industry on heavily destabilised colonies.
-    let fabrication_bonus: i64 = buildings
+    let aquaculture_count = buildings
+        .iter()
+        .filter(|b| **b == BuildingType::AquacultureBay)
+        .count() as u64;
+    let fabrication_count = buildings
         .iter()
         .filter(|b| **b == BuildingType::FabricationYard)
-        .count() as i64
-        * 2;
+        .count() as u64;
+    let nexus_count = buildings
+        .iter()
+        .filter(|b| **b == BuildingType::ScienceNexus)
+        .count() as u64;
+
+    let mut total_slots: BTreeMap<JobType, u64> = BTreeMap::new();
+    total_slots.insert(
+        JobType::Farmer,
+        aquaculture_count.saturating_mul(assignable_pops),
+    );
+    total_slots.insert(JobType::Miner, fabrication_count);
+    total_slots.insert(JobType::Technician, fabrication_count);
+    total_slots.insert(
+        JobType::Researcher,
+        nexus_count.saturating_mul(assignable_pops),
+    );
+    total_slots.insert(JobType::Administrator, 1);
+    total_slots.insert(JobType::Security, 1);
+    total_slots.insert(JobType::Worker, housing);
+
+    let priority = assignment_priority(colony.role, context);
+    let mut remaining = assignable_pops;
+    let mut filled_by_job: BTreeMap<JobType, u64> = BTreeMap::new();
+    for job in priority {
+        if job == JobType::Unemployed {
+            continue;
+        }
+        let slots = total_slots.get(&job).copied().unwrap_or(0);
+        let filled = remaining.min(slots);
+        filled_by_job.insert(job, filled);
+        remaining = remaining.saturating_sub(filled);
+        if remaining == 0 {
+            break;
+        }
+    }
+
+    for job in JobType::all() {
+        filled_by_job.entry(job).or_insert(0);
+        total_slots.entry(job).or_insert(0);
+    }
+
+    let employed = assignable_pops.saturating_sub(remaining);
+    let unhoused = colony.population.saturating_sub(assignable_pops);
+    let unemployed = remaining;
+    filled_by_job.insert(JobType::Unemployed, unemployed);
+
+    // Workforce assignment is authoritative for UI + AI reasoning. Economic totals
+    // keep legacy v2 arithmetic for balance continuity in this lite slice.
+    let industry_from_jobs = pop + fabrication_count as i64 * 2;
+    let food_from_jobs = pop + aquaculture_count as i64 * pop;
+    let direct_science_from_jobs = nexus_count as i64 * pop;
+    let direct_credits_from_jobs = 0;
+
     let stability_mod = (colony.stability as i64 - 100) / 10;
     let industry =
-        (pop + fabrication_bonus + stability_mod + role_mod.industry + special_effect.industry)
-            .max(0);
+        (industry_from_jobs + stability_mod + role_mod.industry + special_effect.industry).max(0);
 
     // Credits = industry × prod_pct / 100 + role flat modifier + special flat modifier.
+    let focus_credits = (industry * colony.prod_pct as i64) / 100;
     let credits =
-        ((industry * colony.prod_pct as i64) / 100 + role_mod.credits + special_effect.credits)
+        (focus_credits + direct_credits_from_jobs + role_mod.credits + special_effect.credits)
             .max(0);
 
     // Science = industry × research_pct / 100 + ScienceNexus × population + planet bonus
     //         + role flat modifier + special flat modifier.
-    let nexus_count = buildings
-        .iter()
-        .filter(|b| **b == BuildingType::ScienceNexus)
-        .count() as i64;
     let planet_science_bonus = planet.map(|p| p.class.science_bonus()).unwrap_or(0);
-    let science = ((industry * colony.research_pct as i64) / 100
-        + nexus_count * pop
+    let focus_science = (industry * colony.research_pct as i64) / 100;
+    let science = (focus_science
+        + direct_science_from_jobs
         + planet_science_bonus
         + role_mod.science
         + special_effect.science)
         .max(0);
 
-    // Food = population + planet food bonus + AquacultureBay × population
-    //      + role flat modifier + special flat modifier.
-    let aqua_count = buildings
-        .iter()
-        .filter(|b| **b == BuildingType::AquacultureBay)
-        .count() as i64;
     let planet_food_bonus = planet.map(|p| p.class.food_bonus()).unwrap_or(0);
-    let food = pop + planet_food_bonus + aqua_count * pop + role_mod.food + special_effect.food;
+    let food = food_from_jobs + planet_food_bonus + role_mod.food + special_effect.food;
     let food_consumed = pop;
 
     // Maintenance = sum of building costs + sum of orbital structure costs
@@ -107,6 +301,25 @@ pub fn calculate_yield(colony: &Colony, planet: Option<&Planet>) -> ColonyYield 
     let maintenance =
         (building_maint + orbital_maint + role_mod.maintenance + special_effect.maintenance).max(0);
 
+    let assignments = JobType::all()
+        .into_iter()
+        .map(|job| JobAssignment {
+            job,
+            filled: filled_by_job.get(&job).copied().unwrap_or(0),
+            total_slots: total_slots.get(&job).copied().unwrap_or(0),
+        })
+        .collect();
+
+    let workforce = ColonyWorkforceSummary {
+        population: colony.population,
+        housing,
+        employed,
+        unhoused,
+        unemployed,
+        housing_deficit: colony.population.saturating_sub(housing),
+        assignments,
+    };
+
     ColonyYield {
         industry,
         credits,
@@ -114,6 +327,18 @@ pub fn calculate_yield(colony: &Colony, planet: Option<&Planet>) -> ColonyYield 
         food,
         food_consumed,
         maintenance,
+        workforce,
+        breakdown: YieldBreakdown {
+            industry_from_jobs,
+            food_from_jobs,
+            direct_science_from_jobs,
+            direct_credits_from_jobs,
+            focus_science,
+            focus_credits,
+            stability_modifier: stability_mod,
+            planet_food_bonus,
+            planet_science_bonus,
+        },
     }
 }
 
@@ -298,8 +523,13 @@ mod tests {
         let y_no_planet = calculate_yield(&colony, None);
         let y_terran = calculate_yield(&colony, Some(&terran_planet()));
 
-        // Terran has 0 bonuses, so both should match
-        assert_eq!(y_no_planet, y_terran);
+        // Terran has 0 output modifiers, so economic totals should match.
+        assert_eq!(y_no_planet.industry, y_terran.industry);
+        assert_eq!(y_no_planet.credits, y_terran.credits);
+        assert_eq!(y_no_planet.science, y_terran.science);
+        assert_eq!(y_no_planet.food, y_terran.food);
+        assert_eq!(y_no_planet.food_consumed, y_terran.food_consumed);
+        assert_eq!(y_no_planet.maintenance, y_terran.maintenance);
     }
 
     // ── Negative / edge-case paths ──────────────────────────────────────────
@@ -687,5 +917,64 @@ mod tests {
         let y1 = calculate_yield(&colony, Some(&planet));
         let y2 = calculate_yield(&colony, Some(&planet));
         assert_eq!(y1, y2, "yield with specials must be deterministic");
+    }
+
+    #[test]
+    fn pops_consume_food_deterministically() {
+        let colony = base_colony();
+        let y1 = calculate_yield(&colony, None);
+        let y2 = calculate_yield(&colony, None);
+        assert_eq!(y1.food_consumed, colony.population as i64);
+        assert_eq!(y1.food_consumed, y2.food_consumed);
+    }
+
+    #[test]
+    fn housing_shortage_creates_unemployment() {
+        let mut colony = base_colony();
+        colony.population = 12;
+        let cramped = Planet {
+            name: "Cramped".to_string(),
+            size: PlanetSize::Small,
+            class: PlanetClass::Terran,
+            colony: Some(ColonyId(1)),
+            habitable: true,
+            surveyed: true,
+            specials: vec![],
+            resources: vec![],
+            ancient_ruins_collected: false,
+        };
+        let y = calculate_yield(&colony, Some(&cramped));
+        assert!(y.workforce.housing_deficit > 0);
+        assert!(y.workforce.unhoused > 0);
+        assert_eq!(
+            y.workforce.unemployed, 0,
+            "Unemployment should not include unhoused pops"
+        );
+    }
+
+    #[test]
+    fn building_slots_are_deterministic() {
+        let mut colony = base_colony();
+        colony.buildings = vec![BuildingType::FabricationYard, BuildingType::ScienceNexus];
+        let y1 = calculate_yield(&colony, None);
+        let y2 = calculate_yield(&colony, None);
+        assert_eq!(y1.workforce.assignments, y2.workforce.assignments);
+        assert!(y1
+            .workforce
+            .assignments
+            .iter()
+            .any(|a| a.job == JobType::Researcher && a.total_slots > 0));
+    }
+
+    #[test]
+    fn assignment_deterministic_under_shortage_context() {
+        let colony = base_colony();
+        let ctx = YieldContext {
+            food_shortage: true,
+            stability_pressure: true,
+        };
+        let y1 = calculate_yield_with_context(&colony, None, ctx);
+        let y2 = calculate_yield_with_context(&colony, None, ctx);
+        assert_eq!(y1.workforce.assignments, y2.workforce.assignments);
     }
 }

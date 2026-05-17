@@ -11,6 +11,7 @@ use crate::state::{
     RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission, ShipDesignId, StarId,
     SurveyMission, TechId, YieldType,
 };
+use crate::yield_model::YieldContext;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -38,9 +39,14 @@ const FLEET_TRAVEL_SPEED: f64 = 500.0;
 const HYPERSPACE_TRAVEL_DIVISOR: u32 = 2;
 const ISOLATED_YIELD_PERCENT: i64 = 50;
 const ISOLATED_STABILITY_PENALTY: u8 = 5;
+const MAX_HOUSING_DEFICIT_STABILITY_PENALTY: u8 = 10;
+const MAX_UNEMPLOYMENT_STABILITY_PENALTY: u8 = 5;
+const MAX_ISOLATED_FOOD_DEFICIT_STABILITY_PENALTY: u8 = 5;
 /// Stability penalty applied each turn to a blockaded colony.
 /// Blockade yield reduction reuses `ISOLATED_YIELD_PERCENT` via `apply_isolation_penalty`.
 const BLOCKADED_STABILITY_PENALTY: u8 = 5;
+const MIN_STABILITY_FOR_POP_GROWTH: u8 = 90;
+const POP_GROWTH_PERIOD_TURNS: u32 = 12;
 /// Fixed invasion strength contributed by one troop transport ship.
 const TROOP_TRANSPORT_INVASION_STRENGTH: u32 = 12;
 /// Colony stability after a successful capture.
@@ -875,7 +881,15 @@ impl Engine {
 
         for colony_id in colony_ids {
             // Get colony data needed for yield calculation and build queue
-            let (owner, production, star_id, build_queue_front, accumulated, colony_role) = {
+            let (
+                owner,
+                production,
+                star_id,
+                build_queue_front,
+                accumulated,
+                colony_role,
+                colony_stability,
+            ) = {
                 let colony = self.state.colonies.get(&colony_id).unwrap();
                 (
                     colony.owner,
@@ -884,6 +898,7 @@ impl Engine {
                     colony.build_queue.first().copied(),
                     colony.accumulated_production,
                     colony.role,
+                    colony.stability,
                 )
             };
 
@@ -898,10 +913,26 @@ impl Engine {
                 })
                 .cloned();
 
-            // Calculate yield via the v2 model
+            let is_connected = matches!(
+                current_turn_supply.get(&colony_id),
+                Some(ColonySupplyState::Connected)
+            );
+            let is_blockaded = current_turn_blockade.contains_key(&colony_id);
+            let empire_food_shortage = self
+                .state
+                .empires
+                .get(&owner)
+                .map(|e| e.food < 0)
+                .unwrap_or(false);
+            let context = YieldContext {
+                food_shortage: empire_food_shortage || !is_connected || is_blockaded,
+                stability_pressure: colony_stability < 85 || is_blockaded,
+            };
+
+            // Calculate yield via the pop/jobs model.
             let colony_yield = {
                 let colony = self.state.colonies.get(&colony_id).unwrap();
-                crate::yield_model::calculate_yield(colony, planet.as_ref())
+                crate::yield_model::calculate_yield_with_context(colony, planet.as_ref(), context)
             };
 
             let bonuses = empire_tech_yield_bonus_per_colony
@@ -928,12 +959,6 @@ impl Engine {
             // yield model computed the base industry.  We expose the bonus via
             // the ColonyProduced event so the UI can show "empire bonus" detail.
             let industry = colony_yield.industry + empire_def_mods.industry_per_colony;
-            let is_connected = matches!(
-                current_turn_supply.get(&colony_id),
-                Some(ColonySupplyState::Connected)
-            );
-            let is_blockaded = current_turn_blockade.contains_key(&colony_id);
-
             // Blockade takes effect first; if blockaded, treat as effectively isolated
             // (same yield penalty + stability hit). If already isolated but not blockaded
             // the normal isolation path below handles it — no double penalty.
@@ -946,6 +971,40 @@ impl Engine {
                 (credits, research, food) = apply_isolation_penalty(credits, research, food);
                 if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
                     colony.stability = colony.stability.saturating_sub(ISOLATED_STABILITY_PENALTY);
+                }
+            }
+
+            let food_deficit = (colony_yield.food_consumed - colony_yield.food).max(0);
+            let housing_deficit = colony_yield.workforce.housing_deficit;
+            let unemployed = colony_yield.workforce.unemployed;
+            if food_deficit > 0 || housing_deficit > 0 || unemployed > 0 {
+                events.push(Event::ColonyStatusWarning {
+                    colony: colony_id,
+                    food_deficit,
+                    housing_deficit,
+                    unemployed,
+                });
+            }
+            let mut pressure_penalty = 0u8;
+            if housing_deficit > 0 {
+                pressure_penalty = pressure_penalty.saturating_add(
+                    housing_deficit.min(MAX_HOUSING_DEFICIT_STABILITY_PENALTY as u64) as u8,
+                );
+            }
+            if unemployed > 0 {
+                pressure_penalty =
+                    pressure_penalty.saturating_add(
+                        unemployed.min(MAX_UNEMPLOYMENT_STABILITY_PENALTY as u64) as u8,
+                    );
+            }
+            if !is_connected && food_deficit > 0 {
+                pressure_penalty = pressure_penalty.saturating_add(
+                    food_deficit.min(MAX_ISOLATED_FOOD_DEFICIT_STABILITY_PENALTY as i64) as u8,
+                );
+            }
+            if pressure_penalty > 0 {
+                if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
+                    colony.stability = colony.stability.saturating_sub(pressure_penalty);
                 }
             }
 
@@ -1397,6 +1456,56 @@ impl Engine {
         }
         self.state.colony_blockade = updated_blockade.clone();
         self.last_turn_colony_blockade = updated_blockade;
+
+        // Deterministic population growth tick (lite v1):
+        // - requires available housing
+        // - requires colony stability >= 90
+        // - suppressed while blockaded
+        // - fixed periodic cadence based on (turn + colony_id)
+        for colony_id in sorted_colony_ids(&self.state.colonies) {
+            let (star_id, planet_index, stability, owner) =
+                match self.state.colonies.get(&colony_id) {
+                    Some(c) => (c.star, c.planet_index, c.stability, c.owner),
+                    None => continue,
+                };
+            if self.state.colony_blockade.contains_key(&colony_id)
+                || stability < MIN_STABILITY_FOR_POP_GROWTH
+            {
+                continue;
+            }
+            if self
+                .state
+                .empires
+                .get(&owner)
+                .map(|e| e.food <= 0)
+                .unwrap_or(true)
+            {
+                continue;
+            }
+            let planet = self
+                .state
+                .stars
+                .get(&star_id)
+                .and_then(|s| s.planets.get(planet_index));
+            let Some(colony) = self.state.colonies.get(&colony_id) else {
+                continue;
+            };
+            let y = crate::yield_model::calculate_yield(colony, planet);
+            if y.workforce.housing_deficit > 0 || y.food < y.food_consumed {
+                continue;
+            }
+            let cadence = u64::from(self.state.turn) + colony_id.0;
+            if !cadence.is_multiple_of(u64::from(POP_GROWTH_PERIOD_TURNS)) {
+                continue;
+            }
+            if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
+                colony.population = colony.population.saturating_add(1);
+                events.push(Event::PopulationGrew {
+                    colony: colony_id,
+                    new_population: colony.population,
+                });
+            }
+        }
 
         // Advance turn
         self.state.turn += 1;
@@ -6877,6 +6986,211 @@ mod tests {
         assert_eq!(
             events1, events2,
             "Events must be identical for the same seed"
+        );
+    }
+
+    #[test]
+    fn colony_status_warning_emitted_when_pressure_exists() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let colony = engine.state.colonies.get_mut(&colony_id).unwrap();
+        colony.population = 30;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        let warning = events.iter().find_map(|e| match e {
+            Event::ColonyStatusWarning {
+                colony,
+                food_deficit,
+                housing_deficit,
+                unemployed,
+            } if *colony == colony_id => Some((*food_deficit, *housing_deficit, *unemployed)),
+            _ => None,
+        });
+
+        assert!(
+            warning.is_some(),
+            "ColonyStatusWarning should emit when deficits exist"
+        );
+        let (_food_deficit, housing_deficit, unemployed) = warning.unwrap();
+        assert!(housing_deficit > 0, "Housing deficit should be reported");
+        assert_eq!(unemployed, 0, "Unhoused pops are not unemployed");
+    }
+
+    #[test]
+    fn colony_status_warning_not_emitted_without_pressure() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            !events.iter().any(|e| matches!(
+                e,
+                Event::ColonyStatusWarning { colony, .. } if *colony == colony_id
+            )),
+            "No pressure should produce no colony warning"
+        );
+    }
+
+    #[test]
+    fn colony_pressure_penalty_housing_is_capped() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let before = engine.state.colonies[&colony_id].stability;
+        let colony = engine.state.colonies.get_mut(&colony_id).unwrap();
+        colony.population = 200;
+
+        engine.apply_turn(vec![Command::EndTurn]);
+        let after = engine.state.colonies[&colony_id].stability;
+        assert_eq!(
+            before.saturating_sub(after),
+            MAX_HOUSING_DEFICIT_STABILITY_PENALTY,
+            "Housing pressure penalty should be capped"
+        );
+    }
+
+    #[test]
+    fn population_growth_emits_once_on_expected_cadence() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        engine.state.turn = POP_GROWTH_PERIOD_TURNS - 1;
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .food = 1;
+        let before = engine.state.colonies[&colony_id].population;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        let growth_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, Event::PopulationGrew { colony, .. } if *colony == colony_id))
+            .collect();
+
+        assert_eq!(
+            growth_events.len(),
+            1,
+            "Growth should emit exactly one event"
+        );
+        assert_eq!(
+            engine.state.colonies[&colony_id].population,
+            before + 1,
+            "Population should increase by exactly one"
+        );
+    }
+
+    #[test]
+    fn population_growth_suppressed_by_blockade() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let colony_star = engine.state.colonies[&colony_id].star;
+        engine.state.turn = POP_GROWTH_PERIOD_TURNS - 1;
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .food = 1;
+        let enemy_id = engine.state.ai_empire.expect("AI empire must exist");
+        engine
+            .state
+            .diplomacy
+            .insert(enemy_id, RelationshipStatus::War);
+        engine.state.fleets.insert(
+            FleetId(9_001),
+            Fleet {
+                id: FleetId(9_001),
+                owner: enemy_id,
+                location: colony_star,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 2,
+                integrity: 100,
+            },
+        );
+        let player_id = engine.state.player_empire;
+        engine.state.fleets.retain(|_, f| f.owner != player_id);
+        engine.state.scout_missions.clear();
+        engine.state.survey_missions.clear();
+        engine.state.fleet_missions.clear();
+        engine.state.colony_blockade = engine.state.recompute_colony_blockade();
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::PopulationGrew { colony, .. } if *colony == colony_id)),
+            "Blockaded colony must not grow"
+        );
+    }
+
+    #[test]
+    fn population_growth_suppressed_by_low_stability() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        engine.state.turn = POP_GROWTH_PERIOD_TURNS - 1;
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .food = 1;
+        engine.state.colonies.get_mut(&colony_id).unwrap().stability =
+            MIN_STABILITY_FOR_POP_GROWTH - 1;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::PopulationGrew { colony, .. } if *colony == colony_id)),
+            "Low-stability colony must not grow"
+        );
+    }
+
+    #[test]
+    fn population_growth_suppressed_by_housing_deficit() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        engine.state.turn = POP_GROWTH_PERIOD_TURNS - 1;
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .food = 1;
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .population = 200;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::PopulationGrew { colony, .. } if *colony == colony_id)),
+            "Housing-deficit colony must not grow"
+        );
+    }
+
+    #[test]
+    fn population_growth_suppressed_by_empire_food_shortage() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        engine.state.turn = POP_GROWTH_PERIOD_TURNS - 1;
+        engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .unwrap()
+            .food = -50;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Event::PopulationGrew { colony, .. } if *colony == colony_id)),
+            "Food-short empire must suppress growth"
         );
     }
 

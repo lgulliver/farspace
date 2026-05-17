@@ -714,11 +714,18 @@ fn render_system_detail_facts(
         if let Some(colony) = game_state.colonies.get(&colony_id) {
             let infra = colony.surface_installations.len() + colony.orbital_installations.len();
             let supply = game_state.colony_supply_state(colony.id);
+            let planet_ref = game_state
+                .stars
+                .get(&colony.star)
+                .and_then(|s| s.planets.get(colony.planet_index));
+            let y = game_core::yield_model::calculate_yield(colony, planet_ref);
             format!(
-                "Colony {} (Empire {}, Pop {}, Infra {}, {}, {})",
+                "Colony {} (Empire {}, Pop {}, Emp {}/{}, Infra {}, {}, {})",
                 colony_id.0,
                 colony.owner.0,
                 colony.population,
+                y.workforce.employed,
+                y.workforce.population,
                 infra,
                 supply.label(),
                 colony.unrest_label()
@@ -737,11 +744,43 @@ fn render_system_detail_facts(
     if let Some(colony_id) = planet.colony {
         if let Some(colony) = game_state.colonies.get(&colony_id) {
             let supply = game_state.colony_supply_state(colony.id);
+            let planet_ref = game_state
+                .stars
+                .get(&colony.star)
+                .and_then(|s| s.planets.get(colony.planet_index));
+            let y = game_core::yield_model::calculate_yield(colony, planet_ref);
             lines.push(Line::from(vec![
                 Span::styled("Trade:  ", Theme::muted_style()),
                 Span::styled(
                     supply.label(),
                     if supply == ColonySupplyState::Isolated {
+                        Theme::warning_style()
+                    } else {
+                        Theme::accent_style()
+                    },
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("Economy:", Theme::muted_style()),
+                Span::styled(
+                    format!(
+                        " F {:+}  I {}  S {}  C {}",
+                        y.food - y.food_consumed,
+                        y.industry,
+                        y.science,
+                        y.credits
+                    ),
+                    Theme::accent_style(),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("Housing:", Theme::muted_style()),
+                Span::styled(
+                    format!(
+                        " {} / {}  unemployed {}",
+                        y.workforce.population, y.workforce.housing, y.workforce.unemployed
+                    ),
+                    if y.workforce.unemployed > 0 || y.workforce.housing_deficit > 0 {
                         Theme::warning_style()
                     } else {
                         Theme::accent_style()

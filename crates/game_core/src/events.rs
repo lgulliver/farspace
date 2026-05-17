@@ -163,6 +163,18 @@ pub enum Event {
         /// Total food consumed by population this turn
         food_consumed: i64,
     },
+    /// Colony-level pressure report emitted when shortages or unemployment occur.
+    ColonyStatusWarning {
+        colony: ColonyId,
+        food_deficit: i64,
+        housing_deficit: u64,
+        unemployed: u64,
+    },
+    /// A colony population increase occurred this turn.
+    PopulationGrew {
+        colony: ColonyId,
+        new_population: u64,
+    },
     /// Empire food supply is negative — population is underfed
     FoodShortage {
         empire: EmpireId,
@@ -539,6 +551,19 @@ impl Event {
                     empire.0, credits_income, maintenance, food_produced, food_consumed
                 )
             }
+            Event::ColonyStatusWarning {
+                colony,
+                food_deficit,
+                housing_deficit,
+                unemployed,
+            } => format!(
+                "WARNING: Colony {} pressure — food deficit {}, housing deficit {}, unemployed {}",
+                colony.0, food_deficit, housing_deficit, unemployed
+            ),
+            Event::PopulationGrew {
+                colony,
+                new_population,
+            } => format!("Colony {} population grew to {}", colony.0, new_population),
             Event::FoodShortage { empire, deficit } => {
                 format!(
                     "WARNING: Empire {} food shortage — deficit {}",

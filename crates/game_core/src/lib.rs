@@ -27,4 +27,6 @@ pub use state::{
     Star, StarId, StrategicResource, SurveyMission, TechCapability, TechDomain, TechId, TechRecord,
     TechTier, TechUnlock, YieldEffect, YieldType,
 };
-pub use yield_model::ColonyYield;
+pub use yield_model::{
+    ColonyWorkforceSummary, ColonyYield, JobAssignment, JobType, YieldBreakdown, YieldContext,
+};

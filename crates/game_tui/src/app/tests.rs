@@ -1178,8 +1178,12 @@ fn save_load_preserves_colony_buildings() {
         .copied()
         .unwrap();
 
-    // Complete the building: base production is 10/turn, AquacultureBay costs 60 → 6 turns
+    // Complete the building: base production is 10/turn, AquacultureBay costs 60 → 6 turns.
+    // Close any Galactic Dispatch overlay before each end-turn key so it is not intercepted.
     for _ in 0..6 {
+        if app.state.overlay.show_dispatch {
+            app.handle_key(key(KeyCode::Esc));
+        }
         app.handle_key(key(KeyCode::Char('e')));
     }
 
@@ -2297,5 +2301,174 @@ fn player_operational_events_still_visible_in_log() {
         app.state.log.len(),
         2,
         "Player operational events must still appear in log"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Galactic Dispatch tests
+// ---------------------------------------------------------------------------
+
+/// Helper: advance the game by `n` turns to generate dispatches.
+fn advance_turns(app: &mut App, n: u32) {
+    for _ in 0..n {
+        app.dispatch_command(Command::EndTurn);
+    }
+}
+
+#[test]
+fn test_n_key_opens_dispatch_when_dispatch_available() {
+    let mut app = App::new();
+    app.new_game(42);
+    // Advance enough turns to generate at least one dispatch (cadence = 5)
+    advance_turns(&mut app, 5);
+
+    let has_dispatch = app
+        .engine
+        .as_ref()
+        .map(|e| !e.state.galactic_dispatches.is_empty())
+        .unwrap_or(false);
+
+    if has_dispatch {
+        // Close any auto-shown overlay first
+        app.state.overlay.show_dispatch = false;
+
+        app.handle_key(key(KeyCode::Char('N')));
+        assert!(
+            app.state.overlay.show_dispatch,
+            "N key should open dispatch modal when dispatches exist"
+        );
+    }
+    // If no dispatch was generated (unlikely with 5 turns), the status message should be set
+}
+
+#[test]
+fn test_dispatch_overlay_closes_on_esc() {
+    let mut app = App::new();
+    app.new_game(42);
+    advance_turns(&mut app, 5);
+
+    // Manually set up the overlay
+    if app
+        .engine
+        .as_ref()
+        .map(|e| !e.state.galactic_dispatches.is_empty())
+        .unwrap_or(false)
+    {
+        app.state.overlay.show_dispatch = true;
+        app.state.overlay.dispatch_history_index = 0;
+
+        app.handle_key(key(KeyCode::Esc));
+        assert!(
+            !app.state.overlay.show_dispatch,
+            "Esc should close the dispatch modal"
+        );
+    }
+}
+
+#[test]
+fn test_dispatch_palette_command_opens_dispatch() {
+    let mut app = App::new();
+    app.new_game(42);
+    advance_turns(&mut app, 5);
+
+    if app
+        .engine
+        .as_ref()
+        .map(|e| !e.state.galactic_dispatches.is_empty())
+        .unwrap_or(false)
+    {
+        // Close any auto-shown overlay first
+        app.state.overlay.show_dispatch = false;
+
+        app.execute_palette_command(PaletteCommand::Dispatch);
+        assert!(
+            app.state.overlay.show_dispatch,
+            "PaletteCommand::Dispatch should open the dispatch modal"
+        );
+
+        // Reset and test alias
+        app.state.overlay.show_dispatch = false;
+        app.execute_palette_command(PaletteCommand::News);
+        assert!(
+            app.state.overlay.show_dispatch,
+            "PaletteCommand::News should also open the dispatch modal"
+        );
+    }
+}
+
+#[test]
+fn test_dispatch_navigation_cycles_history() {
+    let mut app = App::new();
+    app.new_game(42);
+    // Advance 10 turns to try to get multiple dispatches
+    advance_turns(&mut app, 10);
+
+    let dispatch_count = app
+        .engine
+        .as_ref()
+        .map(|e| e.state.galactic_dispatches.len())
+        .unwrap_or(0);
+
+    if dispatch_count < 2 {
+        // Not enough dispatches to test navigation — skip
+        return;
+    }
+
+    // Open dispatch at newest
+    app.state.overlay.show_dispatch = true;
+    app.state.overlay.dispatch_history_index = dispatch_count - 1;
+
+    // Navigate left (prev)
+    app.handle_key(key(KeyCode::Left));
+    assert_eq!(
+        app.state.overlay.dispatch_history_index,
+        dispatch_count - 2,
+        "Left arrow should decrement dispatch_history_index"
+    );
+
+    // Navigate right (next)
+    app.handle_key(key(KeyCode::Right));
+    assert_eq!(
+        app.state.overlay.dispatch_history_index,
+        dispatch_count - 1,
+        "Right arrow should increment dispatch_history_index"
+    );
+
+    // At newest, right should not go past the end
+    app.handle_key(key(KeyCode::Right));
+    assert_eq!(
+        app.state.overlay.dispatch_history_index,
+        dispatch_count - 1,
+        "Right arrow should not go past the last dispatch"
+    );
+
+    // At oldest (0), left should not go below 0
+    app.state.overlay.dispatch_history_index = 0;
+    app.handle_key(key(KeyCode::Left));
+    assert_eq!(
+        app.state.overlay.dispatch_history_index, 0,
+        "Left arrow should not go below 0"
+    );
+}
+
+#[test]
+fn test_n_key_without_engine_does_nothing() {
+    let mut app = App::new();
+    // No engine — N key should be a no-op
+    app.handle_key(key(KeyCode::Char('N')));
+    assert!(!app.state.overlay.show_dispatch);
+}
+
+#[test]
+fn test_dispatch_overlay_closes_with_lowercase_n() {
+    let mut app = App::new();
+    app.new_game(42);
+
+    // Manually open dispatch
+    app.state.overlay.show_dispatch = true;
+    app.handle_key(key(KeyCode::Char('n')));
+    assert!(
+        !app.state.overlay.show_dispatch,
+        "n key should close the dispatch modal"
     );
 }

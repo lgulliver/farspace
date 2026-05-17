@@ -332,6 +332,17 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // All new fields have serde defaults; this is a passthrough version bump.
             // v27 saves deserialize safely with defaults for victory fields.
             let mut metadata = save.metadata;
+            metadata.schema_version = 28;
+            migrate(SaveFile {
+                version: 28,
+                metadata,
+                state: save.state,
+            })
+        }
+        28 => {
+            // v28 → v29: GameState gained galactic_dispatches (VecDeque<GalacticDispatch>).
+            // All new fields have serde defaults; this is a passthrough version bump.
+            let mut metadata = save.metadata;
             metadata.schema_version = CURRENT_VERSION;
             Ok(SaveFile {
                 version: CURRENT_VERSION,
@@ -1129,5 +1140,21 @@ mod tests {
                 kind
             );
         }
+    }
+
+    #[test]
+    fn migrate_v28_to_v29() {
+        use crate::schema::SaveMetadata;
+        let save = SaveFile {
+            version: 28,
+            metadata: SaveMetadata {
+                schema_version: 28,
+                ..Default::default()
+            },
+            state: GameState::default(),
+        };
+        let result = migrate(save).expect("v28 → v29 migration should succeed");
+        assert_eq!(result.version, CURRENT_VERSION);
+        assert_eq!(result.metadata.schema_version, CURRENT_VERSION);
     }
 }

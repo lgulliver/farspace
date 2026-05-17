@@ -541,9 +541,12 @@ pub fn generate_dispatch(
     });
 
     let is_cadence = completed_turn.is_multiple_of(DISPATCH_CADENCE);
-    let has_urgent_or_historic = items
-        .iter()
-        .any(|i| matches!(i.severity, DispatchSeverity::Urgent | DispatchSeverity::Historic));
+    let has_urgent_or_historic = items.iter().any(|i| {
+        matches!(
+            i.severity,
+            DispatchSeverity::Urgent | DispatchSeverity::Historic
+        )
+    });
 
     if !is_cadence && !has_urgent_or_historic {
         return None;
@@ -729,19 +732,32 @@ mod tests {
     fn dispatch_items_are_deterministically_ordered() {
         let mut state = minimal_state();
         // Add second empire as known
-        state.diplomacy.insert(EmpireId(2), RelationshipStatus::Contacted);
+        state
+            .diplomacy
+            .insert(EmpireId(2), RelationshipStatus::Contacted);
         let events = vec![
             Event::SystemExplored { star: StarId(10) },
             Event::ResearchCompleted { tech: TechId(1) },
-            Event::FirstContact { with_empire: EmpireId(2) },
+            Event::FirstContact {
+                with_empire: EmpireId(2),
+            },
         ];
         let a = generate_dispatch(0, &events, &state).unwrap();
         let b = generate_dispatch(0, &events, &state).unwrap();
         assert_eq!(a.items, b.items);
         // Research (Notable) should come before Exploration (Notice)
-        let research_pos = a.items.iter().position(|i| i.category == DispatchCategory::Research);
-        let exploration_pos = a.items.iter().position(|i| i.category == DispatchCategory::Exploration);
-        assert!(research_pos < exploration_pos, "Notable should sort before Notice");
+        let research_pos = a
+            .items
+            .iter()
+            .position(|i| i.category == DispatchCategory::Research);
+        let exploration_pos = a
+            .items
+            .iter()
+            .position(|i| i.category == DispatchCategory::Exploration);
+        assert!(
+            research_pos < exploration_pos,
+            "Notable should sort before Notice"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -796,7 +812,10 @@ mod tests {
         assert!(!colonization_items.is_empty());
         // Body must not mention anything special about the planet
         assert!(
-            !colonization_items[0].body.to_lowercase().contains("special"),
+            !colonization_items[0]
+                .body
+                .to_lowercase()
+                .contains("special"),
             "body must not leak unsurveyed planet specials"
         );
     }
@@ -823,9 +842,17 @@ mod tests {
             fleet_b_destroyed: true,
         }];
         let d = generate_dispatch(0, &events, &state).unwrap();
-        let war_items: Vec<_> = d.items.iter().filter(|i| i.category == DispatchCategory::War).collect();
+        let war_items: Vec<_> = d
+            .items
+            .iter()
+            .filter(|i| i.category == DispatchCategory::War)
+            .collect();
         assert!(!war_items.is_empty(), "expected at least one War item");
-        assert_eq!(war_items[0].severity, DispatchSeverity::Urgent, "player-involved combat should be Urgent");
+        assert_eq!(
+            war_items[0].severity,
+            DispatchSeverity::Urgent,
+            "player-involved combat should be Urgent"
+        );
     }
 
     #[test]

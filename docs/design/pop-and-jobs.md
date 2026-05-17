@@ -42,6 +42,7 @@ Assignment is automatic and deterministic:
 3. Fill slots in priority order with available Pops.
 4. Pops beyond housing capacity are marked unhoused (housing deficit).
 5. Remaining housed Pops without a filled slot become unemployed.
+6. Unhoused Pops are never counted as unemployed.
 
 Tie-break behavior is stable and deterministic by fixed enum order.
 

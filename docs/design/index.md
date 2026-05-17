@@ -15,6 +15,7 @@ Use this index as entrypoint for design and direction docs.
 - [Technology Tree](tech-tree.md)
 - [AI Doctrines](ai-doctrines.md)
 - [Victory Conditions](victory-conditions.md)
+- [Galactic Dispatch](galactic-dispatch.md)
 
 ## Additional Design Docs
 

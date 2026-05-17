@@ -276,6 +276,7 @@ impl Engine {
             colony_supply: BTreeMap::new(),
             colony_blockade: BTreeMap::new(),
             victory_status: crate::state::VictoryStatus::default(),
+            galactic_dispatches: std::collections::VecDeque::new(),
         };
 
         let mut engine = Engine {

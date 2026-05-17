@@ -2,7 +2,9 @@
 
 mod logging;
 
-use crate::components::{render_help, render_palette, EventLog, LogEntryKind, PaletteCommand};
+use crate::components::{
+    render_dispatch, render_help, render_palette, EventLog, LogEntryKind, PaletteCommand,
+};
 use crate::keys::KeyMap;
 use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData, OverviewSort};
 use crate::screens::research::{
@@ -56,6 +58,10 @@ pub(crate) struct OverlayState {
     pub(crate) show_help: bool,
     pub(crate) show_palette: bool,
     pub(crate) palette_input: String,
+    /// Whether the Galactic Dispatch modal is open
+    pub(crate) show_dispatch: bool,
+    /// Index into the dispatch history (0 = oldest shown)
+    pub(crate) dispatch_history_index: usize,
 }
 
 /// Cross-screen map/system selection state.
@@ -305,6 +311,9 @@ impl App {
             PaletteCommand::ClearRally => {
                 self.clear_rally_point();
             }
+            PaletteCommand::Dispatch | PaletteCommand::News => {
+                self.open_latest_dispatch();
+            }
         }
     }
 
@@ -345,11 +354,48 @@ impl App {
         if self.state.overlay.show_palette {
             render_palette(frame, area, &self.state.overlay.palette_input);
         }
+
+        if self.state.overlay.show_dispatch {
+            if let Some(engine) = &self.engine {
+                let dispatches = &engine.state.galactic_dispatches;
+                if !dispatches.is_empty() {
+                    let idx = self
+                        .state
+                        .overlay
+                        .dispatch_history_index
+                        .min(dispatches.len().saturating_sub(1));
+                    render_dispatch(frame, area, &dispatches[idx], idx, dispatches.len());
+                }
+            }
+        }
     }
 
     /// Handle a key event
     fn handle_key(&mut self, key: KeyEvent) {
         // Handle overlays first
+        if self.state.overlay.show_dispatch {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('N') | KeyCode::Char('n') => {
+                    self.state.overlay.show_dispatch = false;
+                }
+                KeyCode::Left | KeyCode::Char('h')
+                    if self.state.overlay.dispatch_history_index > 0 =>
+                {
+                    self.state.overlay.dispatch_history_index -= 1;
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    if let Some(engine) = &self.engine {
+                        let max = engine.state.galactic_dispatches.len().saturating_sub(1);
+                        if self.state.overlay.dispatch_history_index < max {
+                            self.state.overlay.dispatch_history_index += 1;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.state.overlay.show_help {
             if KeyMap::is_help(key) || KeyMap::is_escape(key) {
                 self.state.overlay.show_help = false;
@@ -393,6 +439,11 @@ impl App {
 
         if KeyMap::is_quit(key) {
             self.state.quit = true;
+            return;
+        }
+
+        if key.code == KeyCode::Char('N') && self.engine.is_some() {
+            self.open_latest_dispatch();
             return;
         }
 
@@ -1155,6 +1206,18 @@ impl App {
 
         if let Some(report) = end_turn_report {
             self.push_status(LogEntryKind::TurnReport, report);
+            // Auto-show dispatch if a new one was generated this turn
+            if let Some(engine) = &self.engine {
+                if !engine.state.galactic_dispatches.is_empty() {
+                    let last_idx = engine.state.galactic_dispatches.len().saturating_sub(1);
+                    let last_dispatch = &engine.state.galactic_dispatches[last_idx];
+                    // last_dispatch.turn is the completed_turn; state.turn has been incremented
+                    if last_dispatch.turn + 1 == engine.state.turn {
+                        self.state.overlay.dispatch_history_index = last_idx;
+                        self.state.overlay.show_dispatch = true;
+                    }
+                }
+            }
             return;
         }
 
@@ -1566,6 +1629,20 @@ impl App {
 
     fn end_turn(&mut self) {
         self.dispatch_command(Command::EndTurn);
+    }
+
+    /// Open the Galactic Dispatch modal showing the latest dispatch.
+    fn open_latest_dispatch(&mut self) {
+        if let Some(engine) = &self.engine {
+            if !engine.state.galactic_dispatches.is_empty() {
+                self.state.overlay.dispatch_history_index =
+                    engine.state.galactic_dispatches.len().saturating_sub(1);
+                self.state.overlay.show_dispatch = true;
+            } else {
+                let msg = "No dispatches available yet.";
+                self.state.status_message = Some(msg.to_string());
+            }
+        }
     }
 
     /// Dispatch an available scout fleet to the currently selected star system.

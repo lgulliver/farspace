@@ -15,11 +15,21 @@ pub enum PaletteCommand {
     Save,
     Load,
     ClearRally,
+    /// Show the Galactic Dispatch modal
+    Dispatch,
+    /// Show the Galactic Dispatch modal (alias)
+    News,
 }
 
 impl PaletteCommand {
     pub const fn all() -> &'static [Self] {
-        &[Self::Save, Self::Load, Self::ClearRally]
+        &[
+            Self::Save,
+            Self::Load,
+            Self::ClearRally,
+            Self::Dispatch,
+            Self::News,
+        ]
     }
 
     pub const fn keyword(self) -> &'static str {
@@ -27,6 +37,8 @@ impl PaletteCommand {
             Self::Save => "save",
             Self::Load => "load",
             Self::ClearRally => "clear-rally",
+            Self::Dispatch => "dispatch",
+            Self::News => "news",
         }
     }
 
@@ -63,7 +75,7 @@ impl PaletteCommandParseError {
 /// Render the command palette
 pub fn render_palette(frame: &mut Frame, area: Rect, input: &str) {
     // Height 7 = border top + hint line + blank + input line + blank + help line + border bottom
-    let popup_area = centered_fixed(54, 7, area);
+    let popup_area = centered_fixed(70, 7, area);
 
     // Clear the background
     frame.render_widget(Clear, popup_area);
@@ -184,6 +196,14 @@ mod tests {
         assert_eq!(
             PaletteCommand::parse("clear-rally").unwrap(),
             Some(PaletteCommand::ClearRally)
+        );
+        assert_eq!(
+            PaletteCommand::parse("dispatch").unwrap(),
+            Some(PaletteCommand::Dispatch)
+        );
+        assert_eq!(
+            PaletteCommand::parse("news").unwrap(),
+            Some(PaletteCommand::News)
         );
     }
 

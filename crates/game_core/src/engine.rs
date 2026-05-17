@@ -1211,6 +1211,16 @@ impl Engine {
         let completed_turn = self.state.turn;
         events.extend(evaluate_victory_end_turn(&mut self.state, completed_turn));
 
+        // Generate Galactic Dispatch if this is a cadence turn or urgent events exist
+        if let Some(dispatch) =
+            crate::dispatch::generate_dispatch(completed_turn, events, &self.state)
+        {
+            self.state.galactic_dispatches.push_back(dispatch);
+            while self.state.galactic_dispatches.len() > crate::dispatch::DISPATCH_MAX_HISTORY {
+                self.state.galactic_dispatches.pop_front();
+            }
+        }
+
         // Advance turn
         self.state.turn += 1;
         events.push(Event::TurnAdvanced {

@@ -3880,6 +3880,7 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         colony_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
+        galactic_dispatches: std::collections::VecDeque::new(),
     };
 
     // Player star
@@ -4084,6 +4085,7 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         colony_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
+        galactic_dispatches: std::collections::VecDeque::new(),
     };
 
     // Populate stars, empires, colonies, fleet
@@ -4447,6 +4449,7 @@ fn contact_detection_is_deterministic() {
         colony_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
+        galactic_dispatches: std::collections::VecDeque::new(),
     };
 
     // Two AI empires each have a colony at target_star
@@ -8981,6 +8984,7 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         colony_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
+        galactic_dispatches: std::collections::VecDeque::new(),
     };
 
     state.stars.insert(
@@ -10003,4 +10007,40 @@ fn captured_colony_contributes_to_new_owner_economy_next_turn() {
     assert_eq!(engine.state.colonies[&colony_id].owner, player_id);
     assert!(player_summary.is_some());
     assert_eq!(enemy_summary.unwrap_or(0), 0);
+}
+
+#[test]
+fn dispatch_history_trimmed_to_max() {
+    use crate::dispatch::DISPATCH_MAX_HISTORY;
+
+    // Create an engine and run enough turns to overflow DISPATCH_MAX_HISTORY.
+    // Each cadence is 5 turns; we run (DISPATCH_MAX_HISTORY + 2) * 5 turns to guarantee
+    // more than DISPATCH_MAX_HISTORY dispatches would have been generated without trimming.
+    let mut engine = Engine::new(42);
+    let over_limit_turns = (DISPATCH_MAX_HISTORY as u32 + 2) * 5;
+    for _ in 0..over_limit_turns {
+        engine.apply_turn(vec![Command::EndTurn]);
+    }
+
+    assert!(
+        engine.state.galactic_dispatches.len() <= DISPATCH_MAX_HISTORY,
+        "dispatch history must be capped at DISPATCH_MAX_HISTORY ({}), got {}",
+        DISPATCH_MAX_HISTORY,
+        engine.state.galactic_dispatches.len()
+    );
+
+    // Must have the maximum number of dispatches (not fewer)
+    assert_eq!(
+        engine.state.galactic_dispatches.len(),
+        DISPATCH_MAX_HISTORY,
+        "dispatch history should be exactly DISPATCH_MAX_HISTORY after overflow"
+    );
+
+    // The oldest dispatch should have been evicted — the front dispatch turn
+    // must be later than turn 0 (which would be the very first dispatch).
+    let front_turn = engine.state.galactic_dispatches.front().unwrap().turn;
+    assert!(
+        front_turn > 0,
+        "oldest dispatch should have been evicted; front turn is {front_turn}"
+    );
 }

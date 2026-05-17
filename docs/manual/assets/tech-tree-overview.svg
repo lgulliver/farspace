@@ -1,41 +1,341 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="2330" height="1710" viewBox="0 0 2330 1710" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="2590" height="2200" viewBox="0 0 2590 2200" role="img" aria-labelledby="title desc">
   <title id="title">FARSPACE full technology tree map</title>
-  <desc id="desc">Scrollable map of all 60 implemented FARSPACE technologies arranged by domain and era. Solid lines show each domain's progression sequence. Nodes labeled HOOK mark future-hook technologies already visible in research roadmap.</desc>
+  <desc id="desc">Readable map of all 60 FARSPACE technologies grouped by domain and era, with non-overlapping nodes and domain progression paths.</desc>
   <style>
     .bg { fill: #060b16; }
     .grid { stroke: #172339; stroke-width: 1; }
     .era-band { fill: #0d1729; stroke: #253553; stroke-width: 1.5; rx: 14; }
     .era-label { fill: #d7e6ff; font: 700 18px 'IBM Plex Mono', monospace; }
-    .domain-label { fill: #d7e6ff; font: 700 18px 'IBM Plex Mono', monospace; }
+    .domain-label { fill: #e7f0ff; font: 700 18px 'IBM Plex Mono', monospace; }
     .domain-sub { fill: #8fa7d0; font: 500 12px 'IBM Plex Mono', monospace; }
     .title { fill: #e7f0ff; font: 700 28px 'IBM Plex Mono', monospace; }
     .subtitle { fill: #9db8e6; font: 500 14px 'IBM Plex Mono', monospace; }
-    .node-text { fill: #d7e6ff; font: 12px 'IBM Plex Mono', monospace; }
-    .hook-tag { fill: #ffd27c; font: 700 11px 'IBM Plex Mono', monospace; letter-spacing: 0.08em; }
+    .node-id { fill: #8fa7d0; font: 600 11px 'IBM Plex Mono', monospace; letter-spacing: 0.04em; }
+    .node-name { fill: #d7e6ff; font: 12px 'IBM Plex Mono', monospace; }
+    .node-meta { fill: #c4d6f8; font: 11px 'IBM Plex Mono', monospace; }
+    .hook-tag { fill: #ffd27c; font: 700 10px 'IBM Plex Mono', monospace; letter-spacing: 0.08em; }
     .legend { fill: #c7d8f8; font: 12px 'IBM Plex Mono', monospace; }
-    .legend-chip { fill: #101a2c; stroke: #2d4263; stroke-width: 1.5; rx: 8; }
   </style>
-  <rect class="bg" x="0" y="0" width="2330" height="1710"/>
+  <rect class="bg" x="0" y="0" width="2590" height="2200"/>
   <g>
     <text class="title" x="24" y="46">FARSPACE FULL TECH TREE MAP</text>
-    <text class="subtitle" x="24" y="72">All 60 implemented technologies. Scroll page viewport to inspect full layout. Source: docs/design/tech-tree.md.</text>
-    <text class="subtitle" x="24" y="96">Layout groups techs by domain and era. Solid lines show per-domain progression order. HOOK marks future-facing unlocks already exposed in tree.</text>
+    <text class="subtitle" x="24" y="72">Readable layout grouped by domain and era. Open detailed tech pages from manual for full descriptions, prerequisites, and unlocks.</text>
+    <text class="subtitle" x="24" y="96">Solid lines trace each domain progression path. Planned technologies keep HOOK marker.</text>
   </g>
-  <g transform="translate(1970,30)">
-    <rect x="0" y="0" width="320" height="92" rx="14" fill="#0d1729" stroke="#253553" stroke-width="1.5"/>
-    <rect class="legend-chip" x="16" y="16" width="92" height="28"/>
-    <text class="legend" x="30" y="34">standard tech</text>
-    <rect class="legend-chip" x="122" y="16" width="92" height="28" style="stroke:#ffd27c; fill:#15121f"/>
-    <text class="legend" x="139" y="34">HOOK tech</text>
-    <path d="M 18 64 L 84 64" stroke="#6dd3ff" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-    <text class="legend" x="96" y="68">domain progression path</text>
-  </g>
-  <line class="grid" x1="210" y1="134" x2="210" y2="1678"/><line class="grid" x1="550" y1="134" x2="550" y2="1678"/><line class="grid" x1="890" y1="134" x2="890" y2="1678"/><line class="grid" x1="1230" y1="134" x2="1230" y2="1678"/><line class="grid" x1="1570" y1="134" x2="1570" y2="1678"/><line class="grid" x1="1910" y1="134" x2="1910" y2="1678"/><line class="grid" x1="2250" y1="134" x2="2250" y2="1678"/>
-  <line class="grid" x1="210" y1="150" x2="2290" y2="150"/><line class="grid" x1="210" y1="390" x2="2290" y2="390"/><line class="grid" x1="210" y1="630" x2="2290" y2="630"/><line class="grid" x1="210" y1="870" x2="2290" y2="870"/><line class="grid" x1="210" y1="1110" x2="2290" y2="1110"/><line class="grid" x1="210" y1="1350" x2="2290" y2="1350"/><line class="grid" x1="210" y1="1590" x2="2290" y2="1590"/>
-  <rect class="era-band" x="224" y="88" width="312" height="40"/><text class="era-label" x="240" y="114">Era I · Orbital Age</text><rect class="era-band" x="564" y="88" width="312" height="40"/><text class="era-label" x="580" y="114">Era II · Expansion Age</text><rect class="era-band" x="904" y="88" width="312" height="40"/><text class="era-label" x="920" y="114">Era III · Interstellar Age</text><rect class="era-band" x="1244" y="88" width="312" height="40"/><text class="era-label" x="1260" y="114">Era IV · Ascendant Age</text><rect class="era-band" x="1584" y="88" width="312" height="40"/><text class="era-label" x="1600" y="114">Era V · Galactic Age</text><rect class="era-band" x="1924" y="88" width="312" height="40"/><text class="era-label" x="1940" y="114">Era VI · Transcendent Age</text>
-  <text class="domain-label" x="24" y="206">Exploration</text><text class="domain-sub" x="24" y="228">10 techs</text><text class="domain-label" x="24" y="446">Engineering</text><text class="domain-sub" x="24" y="468">10 techs</text><text class="domain-label" x="24" y="686">Military</text><text class="domain-sub" x="24" y="708">10 techs</text><text class="domain-label" x="24" y="926">Society</text><text class="domain-sub" x="24" y="948">10 techs</text><text class="domain-label" x="24" y="1166">Biology</text><text class="domain-sub" x="24" y="1188">10 techs</text><text class="domain-label" x="24" y="1406">Economy</text><text class="domain-sub" x="24" y="1428">10 techs</text>
-  <rect x="210" y="150" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="550" y="150" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="890" y="150" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1230" y="150" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1570" y="150" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1910" y="150" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="210" y="390" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="550" y="390" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="890" y="390" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1230" y="390" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1570" y="390" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1910" y="390" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="210" y="630" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="550" y="630" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="890" y="630" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1230" y="630" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1570" y="630" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1910" y="630" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="210" y="870" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="550" y="870" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="890" y="870" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1230" y="870" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1570" y="870" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1910" y="870" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="210" y="1110" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="550" y="1110" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="890" y="1110" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1230" y="1110" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1570" y="1110" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1910" y="1110" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="210" y="1350" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="550" y="1350" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="890" y="1350" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1230" y="1350" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1570" y="1350" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/><rect x="1910" y="1350" width="340" height="240" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
-  <path d="M 374.0 222.0 L 374.0 234.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 520.0 261.0 L 544.0 261.0 L 544.0 195.0 L 568.0 195.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 714.0 222.0 L 714.0 234.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 714.0 288.0 L 714.0 300.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 860.0 327.0 L 884.0 327.0 L 884.0 195.0 L 908.0 195.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1054.0 222.0 L 1054.0 234.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1054.0 288.0 L 1054.0 300.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1200.0 327.0 L 1224.0 327.0 L 1224.0 195.0 L 1248.0 195.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1540.0 195.0 L 1734.0 195.0 L 1734.0 195.0 L 1928.0 195.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 374.0 462.0 L 374.0 474.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 520.0 501.0 L 544.0 501.0 L 544.0 435.0 L 568.0 435.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 714.0 462.0 L 714.0 474.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 860.0 501.0 L 884.0 501.0 L 884.0 435.0 L 908.0 435.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1054.0 462.0 L 1054.0 474.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1200.0 501.0 L 1224.0 501.0 L 1224.0 435.0 L 1248.0 435.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1540.0 435.0 L 1564.0 435.0 L 1564.0 435.0 L 1588.0 435.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1734.0 462.0 L 1734.0 474.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1880.0 501.0 L 1904.0 501.0 L 1904.0 435.0 L 1928.0 435.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 374.0 702.0 L 374.0 714.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 520.0 741.0 L 544.0 741.0 L 544.0 675.0 L 568.0 675.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 714.0 702.0 L 714.0 714.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 860.0 741.0 L 884.0 741.0 L 884.0 675.0 L 908.0 675.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1054.0 702.0 L 1054.0 714.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1054.0 768.0 L 1054.0 780.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1200.0 807.0 L 1224.0 807.0 L 1224.0 675.0 L 1248.0 675.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1540.0 675.0 L 1564.0 675.0 L 1564.0 675.0 L 1588.0 675.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1880.0 675.0 L 1904.0 675.0 L 1904.0 675.0 L 1928.0 675.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 520.0 915.0 L 544.0 915.0 L 544.0 915.0 L 568.0 915.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 714.0 942.0 L 714.0 954.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 714.0 1008.0 L 714.0 1020.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 860.0 1047.0 L 884.0 1047.0 L 884.0 915.0 L 908.0 915.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1054.0 942.0 L 1054.0 954.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1054.0 1008.0 L 1054.0 1020.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1200.0 1047.0 L 1224.0 1047.0 L 1224.0 915.0 L 1248.0 915.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1540.0 915.0 L 1564.0 915.0 L 1564.0 915.0 L 1588.0 915.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1880.0 915.0 L 1904.0 915.0 L 1904.0 915.0 L 1928.0 915.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 374.0 1182.0 L 374.0 1194.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 520.0 1221.0 L 544.0 1221.0 L 544.0 1155.0 L 568.0 1155.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 714.0 1182.0 L 714.0 1194.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 860.0 1221.0 L 884.0 1221.0 L 884.0 1155.0 L 908.0 1155.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1054.0 1182.0 L 1054.0 1194.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1200.0 1221.0 L 1224.0 1221.0 L 1224.0 1155.0 L 1248.0 1155.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1540.0 1155.0 L 1564.0 1155.0 L 1564.0 1155.0 L 1588.0 1155.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1734.0 1182.0 L 1734.0 1194.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1880.0 1221.0 L 1904.0 1221.0 L 1904.0 1155.0 L 1928.0 1155.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 520.0 1395.0 L 544.0 1395.0 L 544.0 1395.0 L 568.0 1395.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 714.0 1422.0 L 714.0 1434.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 860.0 1461.0 L 884.0 1461.0 L 884.0 1395.0 L 908.0 1395.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1054.0 1422.0 L 1054.0 1434.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1054.0 1488.0 L 1054.0 1500.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1200.0 1527.0 L 1224.0 1527.0 L 1224.0 1395.0 L 1248.0 1395.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1394.0 1422.0 L 1394.0 1434.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1540.0 1461.0 L 1564.0 1461.0 L 1564.0 1395.0 L 1588.0 1395.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/><path d="M 1880.0 1395.0 L 1904.0 1395.0 L 1904.0 1395.0 L 1928.0 1395.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
-  <rect x="228" y="168" width="292" height="54" rx="10" fill="#11233a" stroke="#5eb8ea" stroke-width="1.8"/><rect x="228" y="234" width="292" height="54" rx="10" fill="#11233a" stroke="#5eb8ea" stroke-width="1.8"/><rect x="568" y="168" width="292" height="54" rx="10" fill="#11233a" stroke="#5eb8ea" stroke-width="1.8"/><rect x="568" y="234" width="292" height="54" rx="10" fill="#11233a" stroke="#5eb8ea" stroke-width="1.8"/><rect x="568" y="300" width="292" height="54" rx="10" fill="#11233a" stroke="#5eb8ea" stroke-width="1.8"/><rect x="908" y="168" width="292" height="54" rx="10" fill="#11233a" stroke="#5eb8ea" stroke-width="1.8"/><rect x="908" y="234" width="292" height="54" rx="10" fill="#11233a" stroke="#5eb8ea" stroke-width="1.8"/><rect x="908" y="300" width="292" height="54" rx="10" fill="#11233a" stroke="#5eb8ea" stroke-width="1.8"/><rect x="1248" y="168" width="292" height="54" rx="10" fill="#172339" stroke="#ffd27c" stroke-width="2.1"/><rect x="1928" y="168" width="292" height="54" rx="10" fill="#172339" stroke="#ffd27c" stroke-width="2.1"/><rect x="228" y="408" width="292" height="54" rx="10" fill="#112820" stroke="#74d8ae" stroke-width="1.8"/><rect x="228" y="474" width="292" height="54" rx="10" fill="#112820" stroke="#74d8ae" stroke-width="1.8"/><rect x="568" y="408" width="292" height="54" rx="10" fill="#112820" stroke="#74d8ae" stroke-width="1.8"/><rect x="568" y="474" width="292" height="54" rx="10" fill="#112820" stroke="#74d8ae" stroke-width="1.8"/><rect x="908" y="408" width="292" height="54" rx="10" fill="#112820" stroke="#74d8ae" stroke-width="1.8"/><rect x="908" y="474" width="292" height="54" rx="10" fill="#112820" stroke="#74d8ae" stroke-width="1.8"/><rect x="1248" y="408" width="292" height="54" rx="10" fill="#112820" stroke="#74d8ae" stroke-width="1.8"/><rect x="1588" y="408" width="292" height="54" rx="10" fill="#153027" stroke="#ffd27c" stroke-width="2.1"/><rect x="1588" y="474" width="292" height="54" rx="10" fill="#153027" stroke="#ffd27c" stroke-width="2.1"/><rect x="1928" y="408" width="292" height="54" rx="10" fill="#153027" stroke="#ffd27c" stroke-width="2.1"/><rect x="228" y="648" width="292" height="54" rx="10" fill="#2a171b" stroke="#ef8e80" stroke-width="1.8"/><rect x="228" y="714" width="292" height="54" rx="10" fill="#2a171b" stroke="#ef8e80" stroke-width="1.8"/><rect x="568" y="648" width="292" height="54" rx="10" fill="#2a171b" stroke="#ef8e80" stroke-width="1.8"/><rect x="568" y="714" width="292" height="54" rx="10" fill="#2a171b" stroke="#ef8e80" stroke-width="1.8"/><rect x="908" y="648" width="292" height="54" rx="10" fill="#2a171b" stroke="#ef8e80" stroke-width="1.8"/><rect x="908" y="714" width="292" height="54" rx="10" fill="#2a171b" stroke="#ef8e80" stroke-width="1.8"/><rect x="908" y="780" width="292" height="54" rx="10" fill="#2a171b" stroke="#ef8e80" stroke-width="1.8"/><rect x="1248" y="648" width="292" height="54" rx="10" fill="#2a171b" stroke="#ef8e80" stroke-width="1.8"/><rect x="1588" y="648" width="292" height="54" rx="10" fill="#2a171b" stroke="#ef8e80" stroke-width="1.8"/><rect x="1928" y="648" width="292" height="54" rx="10" fill="#351b1f" stroke="#ffd27c" stroke-width="2.1"/><rect x="228" y="888" width="292" height="54" rx="10" fill="#21182c" stroke="#c39cf4" stroke-width="1.8"/><rect x="568" y="888" width="292" height="54" rx="10" fill="#21182c" stroke="#c39cf4" stroke-width="1.8"/><rect x="568" y="954" width="292" height="54" rx="10" fill="#21182c" stroke="#c39cf4" stroke-width="1.8"/><rect x="568" y="1020" width="292" height="54" rx="10" fill="#21182c" stroke="#c39cf4" stroke-width="1.8"/><rect x="908" y="888" width="292" height="54" rx="10" fill="#21182c" stroke="#c39cf4" stroke-width="1.8"/><rect x="908" y="954" width="292" height="54" rx="10" fill="#21182c" stroke="#c39cf4" stroke-width="1.8"/><rect x="908" y="1020" width="292" height="54" rx="10" fill="#21182c" stroke="#c39cf4" stroke-width="1.8"/><rect x="1248" y="888" width="292" height="54" rx="10" fill="#21182c" stroke="#c39cf4" stroke-width="1.8"/><rect x="1588" y="888" width="292" height="54" rx="10" fill="#291d36" stroke="#ffd27c" stroke-width="2.1"/><rect x="1928" y="888" width="292" height="54" rx="10" fill="#291d36" stroke="#ffd27c" stroke-width="2.1"/><rect x="228" y="1128" width="292" height="54" rx="10" fill="#152418" stroke="#7ad76f" stroke-width="1.8"/><rect x="228" y="1194" width="292" height="54" rx="10" fill="#152418" stroke="#7ad76f" stroke-width="1.8"/><rect x="568" y="1128" width="292" height="54" rx="10" fill="#152418" stroke="#7ad76f" stroke-width="1.8"/><rect x="568" y="1194" width="292" height="54" rx="10" fill="#152418" stroke="#7ad76f" stroke-width="1.8"/><rect x="908" y="1128" width="292" height="54" rx="10" fill="#152418" stroke="#7ad76f" stroke-width="1.8"/><rect x="908" y="1194" width="292" height="54" rx="10" fill="#152418" stroke="#7ad76f" stroke-width="1.8"/><rect x="1248" y="1128" width="292" height="54" rx="10" fill="#1a2c1d" stroke="#ffd27c" stroke-width="2.1"/><rect x="1588" y="1128" width="292" height="54" rx="10" fill="#1a2c1d" stroke="#ffd27c" stroke-width="2.1"/><rect x="1588" y="1194" width="292" height="54" rx="10" fill="#1a2c1d" stroke="#ffd27c" stroke-width="2.1"/><rect x="1928" y="1128" width="292" height="54" rx="10" fill="#1a2c1d" stroke="#ffd27c" stroke-width="2.1"/><rect x="228" y="1368" width="292" height="54" rx="10" fill="#2b2115" stroke="#f0bf67" stroke-width="1.8"/><rect x="568" y="1368" width="292" height="54" rx="10" fill="#2b2115" stroke="#f0bf67" stroke-width="1.8"/><rect x="568" y="1434" width="292" height="54" rx="10" fill="#2b2115" stroke="#f0bf67" stroke-width="1.8"/><rect x="908" y="1368" width="292" height="54" rx="10" fill="#2b2115" stroke="#f0bf67" stroke-width="1.8"/><rect x="908" y="1434" width="292" height="54" rx="10" fill="#2b2115" stroke="#f0bf67" stroke-width="1.8"/><rect x="908" y="1500" width="292" height="54" rx="10" fill="#2b2115" stroke="#f0bf67" stroke-width="1.8"/><rect x="1248" y="1368" width="292" height="54" rx="10" fill="#2b2115" stroke="#f0bf67" stroke-width="1.8"/><rect x="1248" y="1434" width="292" height="54" rx="10" fill="#35281a" stroke="#ffd27c" stroke-width="2.1"/><rect x="1588" y="1368" width="292" height="54" rx="10" fill="#35281a" stroke="#ffd27c" stroke-width="2.1"/><rect x="1928" y="1368" width="292" height="54" rx="10" fill="#35281a" stroke="#ffd27c" stroke-width="2.1"/>
-  <text class="node-text" x="242" y="200">01 · Void Propulsion</text><text class="node-text" x="242" y="266">03 · Neutrino Sensors</text><text class="node-text" x="582" y="200">06 · Drift Mapping</text><text class="node-text" x="582" y="266">12 · Survey Drones</text><text class="node-text" x="582" y="332">13 · Rapid Transit Drives</text><text class="node-text" x="922" y="200">08 · Hyperspace Cartography</text><text class="node-text" x="922" y="266">14 · Advanced Survey Array</text><text class="node-text" x="922" y="332">19 · Sector Cartography</text><text class="node-text" x="1262" y="200">20 · Lane Stabilization</text><text class="hook-tag" x="1482" y="186">HOOK</text><text class="node-text" x="1942" y="191"><tspan x="1942" dy="0">21 · Pan-Galactic Sensor</tspan><tspan x="1942" dy="16">Network</tspan></text><text class="hook-tag" x="2162" y="186">HOOK</text><text class="node-text" x="242" y="440">05 · Lattice Processing</text><text class="node-text" x="242" y="506">22 · Industrial Tooling</text><text class="node-text" x="582" y="440">07 · Orbital Engineering</text><text class="node-text" x="582" y="506">23 · Advanced Fabrication</text><text class="node-text" x="922" y="440">24 · Shipyard Systems</text><text class="node-text" x="922" y="506">25 · Modular Drydocks</text><text class="node-text" x="1262" y="431"><tspan x="1262" dy="0">26 · Orbital Capacity</tspan><tspan x="1262" dy="16">Expansion</tspan></text><text class="node-text" x="1602" y="431"><tspan x="1602" dy="0">27 · Defense Platform</tspan><tspan x="1602" dy="16">Frames</tspan></text><text class="hook-tag" x="1822" y="426">HOOK</text><text class="node-text" x="1602" y="506">28 · Heavy Shipyards</text><text class="hook-tag" x="1822" y="492">HOOK</text><text class="node-text" x="1942" y="440">29 · Megastructure Assembly</text><text class="hook-tag" x="2162" y="426">HOOK</text><text class="node-text" x="242" y="680">04 · Kinetic Barriers</text><text class="node-text" x="242" y="746">30 · Fleet Drills</text><text class="node-text" x="582" y="680">11 · Battle Doctrine</text><text class="node-text" x="582" y="737"><tspan x="582" dy="0">16 · Perimeter Defense</tspan><tspan x="582" dy="16">Doctrine</tspan></text><text class="node-text" x="922" y="680">31 · Missile Systems</text><text class="node-text" x="922" y="737"><tspan x="922" dy="0">17 · Long-Range Strike</tspan><tspan x="922" dy="16">Doctrine</tspan></text><text class="node-text" x="922" y="812">18 · Fleet Coordination</text><text class="node-text" x="1262" y="680">32 · Escort Doctrine</text><text class="node-text" x="1602" y="680">33 · Invasion Logistics</text><text class="node-text" x="1942" y="671"><tspan x="1942" dy="0">34 · Strategic Command</tspan><tspan x="1942" dy="16">Network</tspan></text><text class="hook-tag" x="2162" y="666">HOOK</text><text class="node-text" x="242" y="911"><tspan x="242" dy="0">35 · Colonial</tspan><tspan x="242" dy="16">Administration</tspan></text><text class="node-text" x="582" y="920">36 · Stability Charters</text><text class="node-text" x="582" y="986">37 · Diplomatic Protocols</text><text class="node-text" x="582" y="1052">38 · Civic Cohesion</text><text class="node-text" x="922" y="920">39 · Cultural Exchange</text><text class="node-text" x="922" y="986">40 · Influence Networks</text><text class="node-text" x="922" y="1043"><tspan x="922" dy="0">41 · Occupation</tspan><tspan x="922" dy="16">Administration</tspan></text><text class="node-text" x="1262" y="920">42 · War Powers Act</text><text class="node-text" x="1602" y="920">43 · Alliance Frameworks</text><text class="hook-tag" x="1822" y="906">HOOK</text><text class="node-text" x="1942" y="920">44 · Federation Protocols</text><text class="hook-tag" x="2162" y="906">HOOK</text><text class="node-text" x="242" y="1160">02 · Habitat Seeding</text><text class="node-text" x="242" y="1226">45 · Hydroponic Systems</text><text class="node-text" x="582" y="1160">09 · Xenobiotic Adaptation</text><text class="node-text" x="582" y="1226">46 · Adaptive Medicine</text><text class="node-text" x="922" y="1151"><tspan x="922" dy="0">15 · Colonial Vanguard</tspan><tspan x="922" dy="16">Protocol</tspan></text><text class="node-text" x="922" y="1217"><tspan x="922" dy="0">47 · Hostile-World</tspan><tspan x="922" dy="16">Adaptation</tspan></text><text class="node-text" x="1262" y="1160">48 · Climate Engineering</text><text class="hook-tag" x="1482" y="1146">HOOK</text><text class="node-text" x="1602" y="1160">49 · Biosphere Restoration</text><text class="hook-tag" x="1822" y="1146">HOOK</text><text class="node-text" x="1602" y="1226">50 · Directed Evolution</text><text class="hook-tag" x="1822" y="1212">HOOK</text><text class="node-text" x="1942" y="1160">51 · Gaia Synthesis</text><text class="hook-tag" x="2162" y="1146">HOOK</text><text class="node-text" x="242" y="1400">52 · Market Coordination</text><text class="node-text" x="582" y="1400">10 · Colonial Logistics</text><text class="node-text" x="582" y="1457"><tspan x="582" dy="0">53 · Trade Route</tspan><tspan x="582" dy="16">Administration</tspan></text><text class="node-text" x="922" y="1400">54 · Supply Manifolds</text><text class="node-text" x="922" y="1457"><tspan x="922" dy="0">55 · Maintenance</tspan><tspan x="922" dy="16">Optimization</tspan></text><text class="node-text" x="922" y="1532">56 · Rally Coordination</text><text class="node-text" x="1262" y="1400">57 · Interstellar Banking</text><text class="node-text" x="1262" y="1466">58 · Autonomous Freight</text><text class="hook-tag" x="1482" y="1452">HOOK</text><text class="node-text" x="1602" y="1400">59 · Sector Administration</text><text class="hook-tag" x="1822" y="1386">HOOK</text><text class="node-text" x="1942" y="1391"><tspan x="1942" dy="0">60 · Command Logistics</tspan><tspan x="1942" dy="16">Lattice</tspan></text><text class="hook-tag" x="2162" y="1386">HOOK</text>
+  <rect x="2240" y="28" width="320" height="100" rx="14" fill="#0d1729" stroke="#253553" stroke-width="1.5"/>
+  <rect x="2260" y="46" width="88" height="28" rx="8" fill="#101a2c" stroke="#2d4263" stroke-width="1.5"/>
+  <text class="legend" x="2276" y="64">standard</text>
+  <rect x="2364" y="46" width="88" height="28" rx="8" fill="#15121f" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="legend" x="2384" y="64">HOOK</text>
+  <path d="M 2262 100 L 2338 100" stroke="#6dd3ff" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <text class="legend" x="2354" y="104">progression path</text>
+  <rect class="era-band" x="240" y="118" width="360" height="36"/>
+  <text class="era-label" x="256" y="141">Era I · Orbital Age</text>
+  <rect class="era-band" x="624" y="118" width="360" height="36"/>
+  <text class="era-label" x="640" y="141">Era II · Expansion Age</text>
+  <rect class="era-band" x="1008" y="118" width="360" height="36"/>
+  <text class="era-label" x="1024" y="141">Era III · Interstellar Age</text>
+  <rect class="era-band" x="1392" y="118" width="360" height="36"/>
+  <text class="era-label" x="1408" y="141">Era IV · Ascendant Age</text>
+  <rect class="era-band" x="1776" y="118" width="360" height="36"/>
+  <text class="era-label" x="1792" y="141">Era V · Galactic Age</text>
+  <rect class="era-band" x="2160" y="118" width="360" height="36"/>
+  <text class="era-label" x="2176" y="141">Era VI · Transcendent Age</text>
+  <text class="domain-label" x="24" y="230">Physics &amp; Exploration</text>
+  <text class="domain-sub" x="24" y="250">10 techs · 8 live now</text>
+  <rect x="240" y="170" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="260" y="192" width="320" height="48" rx="10" fill="#101a2c" stroke="#5eb8ea" stroke-width="1.5"/>
+  <text class="node-id" x="272" y="208">T1 · Common · 50 RP</text>
+  <text class="node-name" x="272" y="224">Void Propulsion</text>
+  <rect x="260" y="252" width="320" height="48" rx="10" fill="#101a2c" stroke="#5eb8ea" stroke-width="1.5"/>
+  <text class="node-id" x="272" y="268">T3 · Common · 60 RP</text>
+  <text class="node-name" x="272" y="284">Neutrino Sensors</text>
+  <rect x="624" y="170" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="644" y="192" width="320" height="48" rx="10" fill="#101a2c" stroke="#5eb8ea" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="208">T6 · Common · 90 RP</text>
+  <text class="node-name" x="656" y="224">Drift Mapping</text>
+  <rect x="644" y="252" width="320" height="48" rx="10" fill="#101a2c" stroke="#5eb8ea" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="268">T12 · Common · 95 RP</text>
+  <text class="node-name" x="656" y="284">Survey Drones</text>
+  <rect x="644" y="312" width="320" height="48" rx="10" fill="#101a2c" stroke="#5eb8ea" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="328">T13 · Uncommon · 90 RP</text>
+  <text class="node-name" x="656" y="344">Rapid Transit Drives</text>
+  <rect x="1008" y="170" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1028" y="192" width="320" height="48" rx="10" fill="#101a2c" stroke="#5eb8ea" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="208">T8 · Rare · 140 RP</text>
+  <text class="node-name" x="1040" y="224">Hyperspace Cartography</text>
+  <rect x="1028" y="252" width="320" height="48" rx="10" fill="#101a2c" stroke="#5eb8ea" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="268">T14 · Rare · 160 RP</text>
+  <text class="node-name" x="1040" y="284">Advanced Survey Array</text>
+  <rect x="1028" y="312" width="320" height="48" rx="10" fill="#101a2c" stroke="#5eb8ea" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="328">T19 · Rare · 220 RP</text>
+  <text class="node-name" x="1040" y="344">Sector Cartography</text>
+  <rect x="1392" y="170" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1412" y="192" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="1424" y="208">T20 · Breakthrough · 320 RP</text>
+  <text class="node-name" x="1424" y="224">Lane Stabilization</text>
+  <text class="hook-tag" x="1686" y="208">HOOK</text>
+  <rect x="1776" y="170" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="2160" y="170" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="2180" y="192" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="2192" y="208">T21 · Breakthrough · 680 RP</text>
+  <text class="node-name" x="2192" y="224">Pan-Galactic Sensor Network</text>
+  <text class="hook-tag" x="2454" y="208">HOOK</text>
+  <text class="domain-label" x="24" y="560">Engineering &amp; Industry</text>
+  <text class="domain-sub" x="24" y="580">10 techs · 7 live now</text>
+  <rect x="240" y="500" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="260" y="522" width="320" height="48" rx="10" fill="#101a2c" stroke="#74d8ae" stroke-width="1.5"/>
+  <text class="node-id" x="272" y="538">T5 · Uncommon · 120 RP</text>
+  <text class="node-name" x="272" y="554">Lattice Processing</text>
+  <rect x="260" y="582" width="320" height="48" rx="10" fill="#101a2c" stroke="#74d8ae" stroke-width="1.5"/>
+  <text class="node-id" x="272" y="598">T22 · Common · 70 RP</text>
+  <text class="node-name" x="272" y="614">Industrial Tooling</text>
+  <rect x="624" y="500" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="644" y="522" width="320" height="48" rx="10" fill="#101a2c" stroke="#74d8ae" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="538">T7 · Uncommon · 150 RP</text>
+  <text class="node-name" x="656" y="554">Orbital Engineering</text>
+  <rect x="644" y="582" width="320" height="48" rx="10" fill="#101a2c" stroke="#74d8ae" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="598">T23 · Uncommon · 130 RP</text>
+  <text class="node-name" x="656" y="614">Advanced Fabrication</text>
+  <rect x="1008" y="500" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1028" y="522" width="320" height="48" rx="10" fill="#101a2c" stroke="#74d8ae" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="538">T24 · Uncommon · 210 RP</text>
+  <text class="node-name" x="1040" y="554">Shipyard Systems</text>
+  <rect x="1028" y="582" width="320" height="48" rx="10" fill="#101a2c" stroke="#74d8ae" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="598">T25 · Rare · 240 RP</text>
+  <text class="node-name" x="1040" y="614">Modular Drydocks</text>
+  <rect x="1392" y="500" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1412" y="522" width="320" height="48" rx="10" fill="#101a2c" stroke="#74d8ae" stroke-width="1.5"/>
+  <text class="node-id" x="1424" y="538">T26 · Rare · 310 RP</text>
+  <text class="node-name" x="1424" y="554">Orbital Capacity Expansion</text>
+  <rect x="1776" y="500" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1796" y="522" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="1808" y="538">T27 · Breakthrough · 430 RP</text>
+  <text class="node-name" x="1808" y="554">Defense Platform Frames</text>
+  <text class="hook-tag" x="2070" y="538">HOOK</text>
+  <rect x="1796" y="582" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="1808" y="598">T28 · Breakthrough · 500 RP</text>
+  <text class="node-name" x="1808" y="614">Heavy Shipyards</text>
+  <text class="hook-tag" x="2070" y="598">HOOK</text>
+  <rect x="2160" y="500" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="2180" y="522" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="2192" y="538">T29 · Dangerous · 740 RP</text>
+  <text class="node-name" x="2192" y="554">Megastructure Assembly</text>
+  <text class="hook-tag" x="2454" y="538">HOOK</text>
+  <text class="domain-label" x="24" y="890">Warfare &amp; Defense</text>
+  <text class="domain-sub" x="24" y="910">10 techs · 9 live now</text>
+  <rect x="240" y="830" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="260" y="852" width="320" height="48" rx="10" fill="#101a2c" stroke="#ef8e80" stroke-width="1.5"/>
+  <text class="node-id" x="272" y="868">T4 · Common · 100 RP</text>
+  <text class="node-name" x="272" y="884">Kinetic Barriers</text>
+  <rect x="260" y="912" width="320" height="48" rx="10" fill="#101a2c" stroke="#ef8e80" stroke-width="1.5"/>
+  <text class="node-id" x="272" y="928">T30 · Common · 80 RP</text>
+  <text class="node-name" x="272" y="944">Fleet Drills</text>
+  <rect x="624" y="830" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="644" y="852" width="320" height="48" rx="10" fill="#101a2c" stroke="#ef8e80" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="868">T11 · Uncommon · 130 RP</text>
+  <text class="node-name" x="656" y="884">Battle Doctrine</text>
+  <rect x="644" y="912" width="320" height="48" rx="10" fill="#101a2c" stroke="#ef8e80" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="928">T16 · Uncommon · 110 RP</text>
+  <text class="node-name" x="656" y="944">Perimeter Defense Doctrine</text>
+  <rect x="1008" y="830" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1028" y="852" width="320" height="48" rx="10" fill="#101a2c" stroke="#ef8e80" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="868">T17 · Rare · 170 RP</text>
+  <text class="node-name" x="1040" y="884">Long-Range Strike Doctrine</text>
+  <rect x="1028" y="912" width="320" height="48" rx="10" fill="#101a2c" stroke="#ef8e80" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="928">T18 · Rare · 200 RP</text>
+  <text class="node-name" x="1040" y="944">Fleet Coordination</text>
+  <rect x="1028" y="972" width="320" height="48" rx="10" fill="#101a2c" stroke="#ef8e80" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="988">T31 · Rare · 220 RP</text>
+  <text class="node-name" x="1040" y="1004">Missile Systems</text>
+  <rect x="1392" y="830" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1412" y="852" width="320" height="48" rx="10" fill="#101a2c" stroke="#ef8e80" stroke-width="1.5"/>
+  <text class="node-id" x="1424" y="868">T32 · Rare · 300 RP</text>
+  <text class="node-name" x="1424" y="884">Escort Doctrine</text>
+  <rect x="1776" y="830" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1796" y="852" width="320" height="48" rx="10" fill="#101a2c" stroke="#ef8e80" stroke-width="1.5"/>
+  <text class="node-id" x="1808" y="868">T33 · Breakthrough · 420 RP</text>
+  <text class="node-name" x="1808" y="884">Invasion Logistics</text>
+  <rect x="2160" y="830" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="2180" y="852" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="2192" y="868">T34 · Breakthrough · 700 RP</text>
+  <text class="node-name" x="2192" y="884">Strategic Command Network</text>
+  <text class="hook-tag" x="2454" y="868">HOOK</text>
+  <text class="domain-label" x="24" y="1220">Society &amp; Diplomacy</text>
+  <text class="domain-sub" x="24" y="1240">10 techs · 8 live now</text>
+  <rect x="240" y="1160" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="260" y="1182" width="320" height="48" rx="10" fill="#101a2c" stroke="#c39cf4" stroke-width="1.5"/>
+  <text class="node-id" x="272" y="1198">T35 · Common · 70 RP</text>
+  <text class="node-name" x="272" y="1214">Colonial Administration</text>
+  <rect x="624" y="1160" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="644" y="1182" width="320" height="48" rx="10" fill="#101a2c" stroke="#c39cf4" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="1198">T36 · Uncommon · 120 RP</text>
+  <text class="node-name" x="656" y="1214">Stability Charters</text>
+  <rect x="644" y="1242" width="320" height="48" rx="10" fill="#101a2c" stroke="#c39cf4" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="1258">T37 · Uncommon · 130 RP</text>
+  <text class="node-name" x="656" y="1274">Diplomatic Protocols</text>
+  <rect x="644" y="1302" width="320" height="48" rx="10" fill="#101a2c" stroke="#c39cf4" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="1318">T38 · Uncommon · 140 RP</text>
+  <text class="node-name" x="656" y="1334">Civic Cohesion</text>
+  <rect x="1008" y="1160" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1028" y="1182" width="320" height="48" rx="10" fill="#101a2c" stroke="#c39cf4" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="1198">T39 · Rare · 200 RP</text>
+  <text class="node-name" x="1040" y="1214">Cultural Exchange</text>
+  <rect x="1028" y="1242" width="320" height="48" rx="10" fill="#101a2c" stroke="#c39cf4" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="1258">T40 · Rare · 230 RP</text>
+  <text class="node-name" x="1040" y="1274">Influence Networks</text>
+  <rect x="1028" y="1302" width="320" height="48" rx="10" fill="#101a2c" stroke="#c39cf4" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="1318">T41 · Rare · 250 RP</text>
+  <text class="node-name" x="1040" y="1334">Occupation Administration</text>
+  <rect x="1392" y="1160" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1412" y="1182" width="320" height="48" rx="10" fill="#101a2c" stroke="#c39cf4" stroke-width="1.5"/>
+  <text class="node-id" x="1424" y="1198">T42 · Breakthrough · 320 RP</text>
+  <text class="node-name" x="1424" y="1214">War Powers Act</text>
+  <rect x="1776" y="1160" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1796" y="1182" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="1808" y="1198">T43 · Breakthrough · 460 RP</text>
+  <text class="node-name" x="1808" y="1214">Alliance Frameworks</text>
+  <text class="hook-tag" x="2070" y="1198">HOOK</text>
+  <rect x="2160" y="1160" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="2180" y="1182" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="2192" y="1198">T44 · Dangerous · 760 RP</text>
+  <text class="node-name" x="2192" y="1214">Federation Protocols</text>
+  <text class="hook-tag" x="2454" y="1198">HOOK</text>
+  <text class="domain-label" x="24" y="1550">Biology &amp; Planetary Science</text>
+  <text class="domain-sub" x="24" y="1570">10 techs · 6 live now</text>
+  <rect x="240" y="1490" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="260" y="1512" width="320" height="48" rx="10" fill="#101a2c" stroke="#7ad76f" stroke-width="1.5"/>
+  <text class="node-id" x="272" y="1528">T2 · Common · 80 RP</text>
+  <text class="node-name" x="272" y="1544">Habitat Seeding</text>
+  <rect x="260" y="1572" width="320" height="48" rx="10" fill="#101a2c" stroke="#7ad76f" stroke-width="1.5"/>
+  <text class="node-id" x="272" y="1588">T45 · Common · 70 RP</text>
+  <text class="node-name" x="272" y="1604">Hydroponic Systems</text>
+  <rect x="624" y="1490" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="644" y="1512" width="320" height="48" rx="10" fill="#101a2c" stroke="#7ad76f" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="1528">T9 · Common · 100 RP</text>
+  <text class="node-name" x="656" y="1544">Xenobiotic Adaptation</text>
+  <rect x="644" y="1572" width="320" height="48" rx="10" fill="#101a2c" stroke="#7ad76f" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="1588">T46 · Uncommon · 130 RP</text>
+  <text class="node-name" x="656" y="1604">Adaptive Medicine</text>
+  <rect x="1008" y="1490" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1028" y="1512" width="320" height="48" rx="10" fill="#101a2c" stroke="#7ad76f" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="1528">T15 · Rare · 200 RP</text>
+  <text class="node-name" x="1040" y="1544">Colonial Vanguard Protocol</text>
+  <rect x="1028" y="1572" width="320" height="48" rx="10" fill="#101a2c" stroke="#7ad76f" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="1588">T47 · Rare · 220 RP</text>
+  <text class="node-name" x="1040" y="1604">Hostile-World Adaptation</text>
+  <rect x="1392" y="1490" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1412" y="1512" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="1424" y="1528">T48 · Breakthrough · 340 RP</text>
+  <text class="node-name" x="1424" y="1544">Climate Engineering</text>
+  <text class="hook-tag" x="1686" y="1528">HOOK</text>
+  <rect x="1776" y="1490" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1796" y="1512" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="1808" y="1528">T49 · Breakthrough · 470 RP</text>
+  <text class="node-name" x="1808" y="1544">Biosphere Restoration</text>
+  <text class="hook-tag" x="2070" y="1528">HOOK</text>
+  <rect x="1796" y="1572" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="1808" y="1588">T50 · Dangerous · 520 RP</text>
+  <text class="node-name" x="1808" y="1604">Directed Evolution</text>
+  <text class="hook-tag" x="2070" y="1588">HOOK</text>
+  <rect x="2160" y="1490" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="2180" y="1512" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="2192" y="1528">T51 · Dangerous · 780 RP</text>
+  <text class="node-name" x="2192" y="1544">Gaia Synthesis</text>
+  <text class="hook-tag" x="2454" y="1528">HOOK</text>
+  <text class="domain-label" x="24" y="1880">Economics &amp; Logistics</text>
+  <text class="domain-sub" x="24" y="1900">10 techs · 7 live now</text>
+  <rect x="240" y="1820" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="260" y="1842" width="320" height="48" rx="10" fill="#101a2c" stroke="#f0bf67" stroke-width="1.5"/>
+  <text class="node-id" x="272" y="1858">T52 · Common · 80 RP</text>
+  <text class="node-name" x="272" y="1874">Market Coordination</text>
+  <rect x="624" y="1820" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="644" y="1842" width="320" height="48" rx="10" fill="#101a2c" stroke="#f0bf67" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="1858">T10 · Uncommon · 120 RP</text>
+  <text class="node-name" x="656" y="1874">Colonial Logistics</text>
+  <rect x="644" y="1902" width="320" height="48" rx="10" fill="#101a2c" stroke="#f0bf67" stroke-width="1.5"/>
+  <text class="node-id" x="656" y="1918">T53 · Uncommon · 140 RP</text>
+  <text class="node-name" x="656" y="1934">Trade Route Administration</text>
+  <rect x="1008" y="1820" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1028" y="1842" width="320" height="48" rx="10" fill="#101a2c" stroke="#f0bf67" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="1858">T54 · Rare · 230 RP</text>
+  <text class="node-name" x="1040" y="1874">Supply Manifolds</text>
+  <rect x="1028" y="1902" width="320" height="48" rx="10" fill="#101a2c" stroke="#f0bf67" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="1918">T55 · Rare · 240 RP</text>
+  <text class="node-name" x="1040" y="1934">Maintenance Optimization</text>
+  <rect x="1028" y="1962" width="320" height="48" rx="10" fill="#101a2c" stroke="#f0bf67" stroke-width="1.5"/>
+  <text class="node-id" x="1040" y="1978">T56 · Rare · 250 RP</text>
+  <text class="node-name" x="1040" y="1994">Rally Coordination</text>
+  <rect x="1392" y="1820" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1412" y="1842" width="320" height="48" rx="10" fill="#101a2c" stroke="#f0bf67" stroke-width="1.5"/>
+  <text class="node-id" x="1424" y="1858">T57 · Breakthrough · 330 RP</text>
+  <text class="node-name" x="1424" y="1874">Interstellar Banking</text>
+  <rect x="1412" y="1902" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="1424" y="1918">T58 · Breakthrough · 360 RP</text>
+  <text class="node-name" x="1424" y="1934">Autonomous Freight</text>
+  <text class="hook-tag" x="1686" y="1918">HOOK</text>
+  <rect x="1776" y="1820" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="1796" y="1842" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="1808" y="1858">T59 · Breakthrough · 470 RP</text>
+  <text class="node-name" x="1808" y="1874">Sector Administration</text>
+  <text class="hook-tag" x="2070" y="1858">HOOK</text>
+  <rect x="2160" y="1820" width="360" height="300" rx="18" fill="#0c1526" stroke="#1b2940" stroke-width="1"/>
+  <rect x="2180" y="1842" width="320" height="48" rx="10" fill="#13101c" stroke="#ffd27c" stroke-width="1.5"/>
+  <text class="node-id" x="2192" y="1858">T60 · Dangerous · 760 RP</text>
+  <text class="node-name" x="2192" y="1874">Command Logistics Lattice</text>
+  <text class="hook-tag" x="2454" y="1858">HOOK</text>
+  <path d="M 420.0 216.0 L 420.0 216.0 L 420.0 276.0 L 420.0 276.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 420.0 276.0 L 612.0 276.0 L 612.0 216.0 L 804.0 216.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 216.0 L 996.0 216.0 L 996.0 216.0 L 1188.0 216.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 216.0 L 996.0 216.0 L 996.0 276.0 L 804.0 276.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 276.0 L 804.0 276.0 L 804.0 336.0 L 804.0 336.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 336.0 L 996.0 336.0 L 996.0 276.0 L 1188.0 276.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 276.0 L 1188.0 276.0 L 1188.0 336.0 L 1188.0 336.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 336.0 L 1380.0 336.0 L 1380.0 216.0 L 1572.0 216.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1572.0 216.0 L 1956.0 216.0 L 1956.0 216.0 L 2340.0 216.0" stroke="#5eb8ea" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 420.0 546.0 L 612.0 546.0 L 612.0 546.0 L 804.0 546.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 546.0 L 612.0 546.0 L 612.0 606.0 L 420.0 606.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 420.0 606.0 L 612.0 606.0 L 612.0 606.0 L 804.0 606.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 606.0 L 996.0 606.0 L 996.0 546.0 L 1188.0 546.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 546.0 L 1188.0 546.0 L 1188.0 606.0 L 1188.0 606.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 606.0 L 1380.0 606.0 L 1380.0 546.0 L 1572.0 546.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1572.0 546.0 L 1764.0 546.0 L 1764.0 546.0 L 1956.0 546.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1956.0 546.0 L 1956.0 546.0 L 1956.0 606.0 L 1956.0 606.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1956.0 606.0 L 2148.0 606.0 L 2148.0 546.0 L 2340.0 546.0" stroke="#74d8ae" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 420.0 876.0 L 612.0 876.0 L 612.0 876.0 L 804.0 876.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 876.0 L 804.0 876.0 L 804.0 936.0 L 804.0 936.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 936.0 L 996.0 936.0 L 996.0 876.0 L 1188.0 876.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 876.0 L 1188.0 876.0 L 1188.0 936.0 L 1188.0 936.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 936.0 L 804.0 936.0 L 804.0 936.0 L 420.0 936.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 420.0 936.0 L 804.0 936.0 L 804.0 996.0 L 1188.0 996.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 996.0 L 1380.0 996.0 L 1380.0 876.0 L 1572.0 876.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1572.0 876.0 L 1764.0 876.0 L 1764.0 876.0 L 1956.0 876.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1956.0 876.0 L 2148.0 876.0 L 2148.0 876.0 L 2340.0 876.0" stroke="#ef8e80" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 420.0 1206.0 L 612.0 1206.0 L 612.0 1206.0 L 804.0 1206.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 1206.0 L 804.0 1206.0 L 804.0 1266.0 L 804.0 1266.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 1266.0 L 804.0 1266.0 L 804.0 1326.0 L 804.0 1326.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 1326.0 L 996.0 1326.0 L 996.0 1206.0 L 1188.0 1206.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 1206.0 L 1188.0 1206.0 L 1188.0 1266.0 L 1188.0 1266.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 1266.0 L 1188.0 1266.0 L 1188.0 1326.0 L 1188.0 1326.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 1326.0 L 1380.0 1326.0 L 1380.0 1206.0 L 1572.0 1206.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1572.0 1206.0 L 1764.0 1206.0 L 1764.0 1206.0 L 1956.0 1206.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1956.0 1206.0 L 2148.0 1206.0 L 2148.0 1206.0 L 2340.0 1206.0" stroke="#c39cf4" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 420.0 1536.0 L 612.0 1536.0 L 612.0 1536.0 L 804.0 1536.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 1536.0 L 996.0 1536.0 L 996.0 1536.0 L 1188.0 1536.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 1536.0 L 804.0 1536.0 L 804.0 1596.0 L 420.0 1596.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 420.0 1596.0 L 612.0 1596.0 L 612.0 1596.0 L 804.0 1596.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 1596.0 L 996.0 1596.0 L 996.0 1596.0 L 1188.0 1596.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 1596.0 L 1380.0 1596.0 L 1380.0 1536.0 L 1572.0 1536.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1572.0 1536.0 L 1764.0 1536.0 L 1764.0 1536.0 L 1956.0 1536.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1956.0 1536.0 L 1956.0 1536.0 L 1956.0 1596.0 L 1956.0 1596.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1956.0 1596.0 L 2148.0 1596.0 L 2148.0 1536.0 L 2340.0 1536.0" stroke="#7ad76f" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 1866.0 L 612.0 1866.0 L 612.0 1866.0 L 420.0 1866.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 420.0 1866.0 L 612.0 1866.0 L 612.0 1926.0 L 804.0 1926.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 804.0 1926.0 L 996.0 1926.0 L 996.0 1866.0 L 1188.0 1866.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 1866.0 L 1188.0 1866.0 L 1188.0 1926.0 L 1188.0 1926.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 1926.0 L 1188.0 1926.0 L 1188.0 1986.0 L 1188.0 1986.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1188.0 1986.0 L 1380.0 1986.0 L 1380.0 1866.0 L 1572.0 1866.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1572.0 1866.0 L 1572.0 1866.0 L 1572.0 1926.0 L 1572.0 1926.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1572.0 1926.0 L 1764.0 1926.0 L 1764.0 1866.0 L 1956.0 1866.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 1956.0 1866.0 L 2148.0 1866.0 L 2148.0 1866.0 L 2340.0 1866.0" stroke="#f0bf67" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
 </svg>

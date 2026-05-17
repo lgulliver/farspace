@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FARSPACE Tech Tree Library</title>
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body>
+    <header class="hero hero-subpage">
+      <p class="eyebrow">FARSPACE // TECH LIBRARY</p>
+      <h1>FARSPACE Tech Tree Library</h1>
+      <p class="subtitle">Domain-by-domain reference for all implemented technologies and roadmap-facing future hooks.</p>
+      <nav class="toc">
+        <a href="../index.html">Field manual</a>
+        <a href="./index.html">Tech tree index</a>
+      </nav>
+        <nav class="subnav">
+          <a href="./index.html">Tech index</a>
+          <a href="./exploration.html">Physics &amp; Exploration</a>
+          <a href="./engineering.html">Engineering &amp; Industry</a>
+          <a href="./military.html">Warfare &amp; Defense</a>
+          <a href="./society.html">Society &amp; Diplomacy</a>
+          <a href="./biology.html">Biology &amp; Planetary Science</a>
+          <a href="./economy.html">Economics &amp; Logistics</a>
+        </nav>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>Research Library</h2>
+        <p>Per-domain tech pages with costs, prerequisites, unlocks, and tags pulled from current game data.</p>
+        <div class="directory-grid">
+        <article class="directory-card">
+          <h3><a href="./exploration.html">Physics &amp; Exploration</a></h3>
+          <p>Scan depth, frontier reach, lane knowledge.</p>
+          <ul class="tech-stat-list compact">
+            <li><strong>Techs:</strong> 10</li>
+            <li><strong>Implemented:</strong> 8</li>
+            <li><strong>Future hooks:</strong> 2</li>
+          </ul>
+          <a class="button-link" href="./exploration.html">Open Physics &amp; Exploration</a>
+        </article>
+        <article class="directory-card">
+          <h3><a href="./engineering.html">Engineering &amp; Industry</a></h3>
+          <p>Orbital growth, production depth, heavy construction.</p>
+          <ul class="tech-stat-list compact">
+            <li><strong>Techs:</strong> 10</li>
+            <li><strong>Implemented:</strong> 7</li>
+            <li><strong>Future hooks:</strong> 3</li>
+          </ul>
+          <a class="button-link" href="./engineering.html">Open Engineering &amp; Industry</a>
+        </article>
+        <article class="directory-card">
+          <h3><a href="./military.html">Warfare &amp; Defense</a></h3>
+          <p>Fleet doctrine, invasion posture, front-line control.</p>
+          <ul class="tech-stat-list compact">
+            <li><strong>Techs:</strong> 10</li>
+            <li><strong>Implemented:</strong> 9</li>
+            <li><strong>Future hooks:</strong> 1</li>
+          </ul>
+          <a class="button-link" href="./military.html">Open Warfare &amp; Defense</a>
+        </article>
+        <article class="directory-card">
+          <h3><a href="./society.html">Society &amp; Diplomacy</a></h3>
+          <p>Governance, cohesion, diplomacy, wartime authority.</p>
+          <ul class="tech-stat-list compact">
+            <li><strong>Techs:</strong> 10</li>
+            <li><strong>Implemented:</strong> 8</li>
+            <li><strong>Future hooks:</strong> 2</li>
+          </ul>
+          <a class="button-link" href="./society.html">Open Society &amp; Diplomacy</a>
+        </article>
+        <article class="directory-card">
+          <h3><a href="./biology.html">Biology &amp; Planetary Science</a></h3>
+          <p>Growth, adaptation, planetary improvement, terraforming.</p>
+          <ul class="tech-stat-list compact">
+            <li><strong>Techs:</strong> 10</li>
+            <li><strong>Implemented:</strong> 6</li>
+            <li><strong>Future hooks:</strong> 4</li>
+          </ul>
+          <a class="button-link" href="./biology.html">Open Biology &amp; Planetary Science</a>
+        </article>
+        <article class="directory-card">
+          <h3><a href="./economy.html">Economics &amp; Logistics</a></h3>
+          <p>Trade flow, maintenance, command-scale logistics.</p>
+          <ul class="tech-stat-list compact">
+            <li><strong>Techs:</strong> 10</li>
+            <li><strong>Implemented:</strong> 7</li>
+            <li><strong>Future hooks:</strong> 3</li>
+          </ul>
+          <a class="button-link" href="./economy.html">Open Economics &amp; Logistics</a>
+        </article>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Reading Guide</h2>
+        <ul>
+          <li><strong>Implemented now:</strong> tech already has active gameplay effect or unlock.</li>
+          <li><strong>Future hook:</strong> tech is visible in tree and planning docs, but some downstream mechanics are roadmap-facing.</li>
+          <li><strong>Prerequisites:</strong> exact current tech gates from <code>game_core</code>.</li>
+          <li><strong>Unlocks:</strong> ship designs, capabilities, orbitals, or per-colony yield bonuses.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

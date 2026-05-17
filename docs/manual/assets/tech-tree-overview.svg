@@ -4,17 +4,17 @@
   <style>
     .bg { fill: #060b16; }
     .grid { stroke: #172339; stroke-width: 1; }
-    .era-band { fill: #0d1729; stroke: #253553; stroke-width: 1.5; rx: 14; }
-    .era-label { fill: #d7e6ff; font: 700 18px 'IBM Plex Mono', monospace; }
-    .domain-label { fill: #e7f0ff; font: 700 18px 'IBM Plex Mono', monospace; }
-    .domain-sub { fill: #8fa7d0; font: 500 12px 'IBM Plex Mono', monospace; }
-    .title { fill: #e7f0ff; font: 700 28px 'IBM Plex Mono', monospace; }
-    .subtitle { fill: #9db8e6; font: 500 14px 'IBM Plex Mono', monospace; }
-    .node-id { fill: #8fa7d0; font: 600 11px 'IBM Plex Mono', monospace; letter-spacing: 0.04em; }
-    .node-name { fill: #d7e6ff; font: 12px 'IBM Plex Mono', monospace; }
-    .node-meta { fill: #c4d6f8; font: 11px 'IBM Plex Mono', monospace; }
-    .hook-tag { fill: #ffd27c; font: 700 10px 'IBM Plex Mono', monospace; letter-spacing: 0.08em; }
-    .legend { fill: #c7d8f8; font: 12px 'IBM Plex Mono', monospace; }
+    .era-band { fill: #0d1729; stroke: #253553; stroke-width: 1.5; }
+    .era-label { fill: #d7e6ff; font: 700 18px 'DejaVu Sans Mono', 'Liberation Mono', 'Consolas', monospace; }
+    .domain-label { fill: #e7f0ff; font: 700 18px 'DejaVu Sans Mono', 'Liberation Mono', 'Consolas', monospace; }
+    .domain-sub { fill: #8fa7d0; font: 500 12px 'DejaVu Sans Mono', 'Liberation Mono', 'Consolas', monospace; }
+    .title { fill: #e7f0ff; font: 700 28px 'DejaVu Sans Mono', 'Liberation Mono', 'Consolas', monospace; }
+    .subtitle { fill: #9db8e6; font: 500 14px 'DejaVu Sans Mono', 'Liberation Mono', 'Consolas', monospace; }
+    .node-id { fill: #8fa7d0; font: 600 11px 'DejaVu Sans Mono', 'Liberation Mono', 'Consolas', monospace; letter-spacing: 0.04em; }
+    .node-name { fill: #d7e6ff; font: 12px 'DejaVu Sans Mono', 'Liberation Mono', 'Consolas', monospace; }
+    .node-meta { fill: #c4d6f8; font: 11px 'DejaVu Sans Mono', 'Liberation Mono', 'Consolas', monospace; }
+    .hook-tag { fill: #ffd27c; font: 700 10px 'DejaVu Sans Mono', 'Liberation Mono', 'Consolas', monospace; letter-spacing: 0.08em; }
+    .legend { fill: #c7d8f8; font: 12px 'DejaVu Sans Mono', 'Liberation Mono', 'Consolas', monospace; }
   </style>
   <rect class="bg" x="0" y="0" width="2590" height="2200"/>
   <g>
@@ -29,17 +29,17 @@
   <text class="legend" x="2384" y="64">HOOK</text>
   <path d="M 2262 100 L 2338 100" stroke="#6dd3ff" stroke-width="2.5" fill="none" stroke-linecap="round"/>
   <text class="legend" x="2354" y="104">progression path</text>
-  <rect class="era-band" x="240" y="118" width="360" height="36"/>
+  <rect class="era-band" x="240" y="118" width="360" height="36" rx="14"/>
   <text class="era-label" x="256" y="141">Era I · Orbital Age</text>
-  <rect class="era-band" x="624" y="118" width="360" height="36"/>
+  <rect class="era-band" x="624" y="118" width="360" height="36" rx="14"/>
   <text class="era-label" x="640" y="141">Era II · Expansion Age</text>
-  <rect class="era-band" x="1008" y="118" width="360" height="36"/>
+  <rect class="era-band" x="1008" y="118" width="360" height="36" rx="14"/>
   <text class="era-label" x="1024" y="141">Era III · Interstellar Age</text>
-  <rect class="era-band" x="1392" y="118" width="360" height="36"/>
+  <rect class="era-band" x="1392" y="118" width="360" height="36" rx="14"/>
   <text class="era-label" x="1408" y="141">Era IV · Ascendant Age</text>
-  <rect class="era-band" x="1776" y="118" width="360" height="36"/>
+  <rect class="era-band" x="1776" y="118" width="360" height="36" rx="14"/>
   <text class="era-label" x="1792" y="141">Era V · Galactic Age</text>
-  <rect class="era-band" x="2160" y="118" width="360" height="36"/>
+  <rect class="era-band" x="2160" y="118" width="360" height="36" rx="14"/>
   <text class="era-label" x="2176" y="141">Era VI · Transcendent Age</text>
   <text class="domain-label" x="24" y="230">Physics &amp; Exploration</text>
   <text class="domain-sub" x="24" y="250">10 techs · 8 live now</text>

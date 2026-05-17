@@ -86,7 +86,7 @@ Status labels:
 - **Status:** **In Progress**
 - Deterministic AI turn driver exists (research/build/scout/colonize/colony-role decisions)
 - Empire identity profiles influence AI weighting
-- Advanced doctrine systems beyond current deterministic heuristics are pending
+- AI doctrine weighting is implemented for research, production, expansion, and diplomacy drift
 
 ## TUI Screens
 

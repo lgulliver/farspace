@@ -1,135 +1,124 @@
 # FARSPACE
 
-A deterministic, turn-based 4X space strategy game for the terminal.
+Deterministic, turn-based 4X space strategy for terminal.
 
-**Stack:** Rust · ratatui · crossterm
+- **Language:** Rust (2021)
+- **UI:** `ratatui` + `crossterm`
+- **Simulation:** headless `game_core` with command/event model
+- **Design:** keyboard-first, professional terminal UX
+- **IP policy:** original IP only
 
----
+## Current Status
 
-## Project Status
+FARSPACE is playable alpha with multi-screen TUI and deterministic core loop.
 
-FARSPACE is currently an **early playable alpha**.
+- Current implementation snapshot: [`docs/current-state.md`](docs/current-state.md)
+- Architecture source of truth: [`docs/architecture.md`](docs/architecture.md)
+- Full delivery plan: [`docs/roadmap.md`](docs/roadmap.md)
+- Next delivery queue: [`docs/next-slices.md`](docs/next-slices.md)
+- Recently completed:
+  - ✅ Large-Scale Tech Tree v2
+  - ✅ Research Queue v1
 
-The game already supports a full turn loop (explore → survey → colonize → build → research → end turn), but many systems are still intentionally minimal or incomplete.
+## Core Design Goals
 
-- What works today: see [`docs/current-state.md`](docs/current-state.md)
-- Intended early progression: see [`docs/gameplay-loop.md`](docs/gameplay-loop.md)
-- Planned feature progression: see [`docs/roadmap.md`](docs/roadmap.md)
+- Deterministic simulation: same seed + same commands => same outcomes
+- Strict crate boundaries: headless core, TUI adapter, separate save/content crates
+- Command/event pipeline over direct mutation from UI
+- Keyboard-first terminal interaction with contextual help and command palette
+- Incremental vertical slices with tests and coverage gate
 
----
+## Terminal / TUI Vision
 
-## Architecture
+- Fast, clear, low-noise tactical readability in text UI
+- Global `?` contextual help and `:` command palette
+- Resize-safe layouts with `ratatui` constraints
+- State/event driven screens (menu, setup, sector, system, colony, research, diplomacy, overview)
 
-FARSPACE uses a strict headless-core / TUI-client separation:
+## Architecture Overview
 
-| Crate | Role |
-|---|---|
-| `game_core` | Pure simulation — commands, validation, state, events. No terminal dependencies. |
-| `game_content` | Static content — tech trees, ship templates, planet traits. |
-| `game_save` | Save/load — versioned JSON serialisation of `GameState`. |
-| `game_tui` | ratatui TUI — input → Commands, Events → rendering. |
-| `farspace` | Binary entrypoint — terminal setup and main loop. |
+Core flow:
 
-The UI sends **Commands** to the core. The core validates, mutates state, and emits **Events**. The UI renders events. The UI never mutates core state directly.
-
----
-
-## Install
-
-### Pre-built binaries
-
-Download the latest release for your platform from the [Releases page](https://github.com/lgulliver/farspace/releases):
-
-| Platform | File |
-|---|---|
-| Linux x86_64 | `farspace-linux-x86_64` |
-| Linux aarch64 | `farspace-linux-aarch64` |
-| macOS x86_64 | `farspace-macos-x86_64` |
-| macOS aarch64 (Apple Silicon) | `farspace-macos-aarch64` |
-| Windows x86_64 | `farspace-windows-x86_64.exe` |
-
-On Linux/macOS, make the binary executable and run it:
-
-```bash
-chmod +x farspace-linux-x86_64
-./farspace-linux-x86_64
+```text
+UI input
+→ Command
+→ game_core validation
+→ state mutation
+→ Events
+→ TUI rendering / turn report (event log)
 ```
 
-### Build from source
+Detailed architecture and boundaries: [`docs/architecture.md`](docs/architecture.md)
 
-Requires [Rust](https://rustup.rs/) (stable toolchain).
+## Workspace / Crate Layout
+
+| Crate | Responsibility |
+|---|---|
+| `game_core` | Headless simulation: state, commands, events, deterministic turn processing, AI |
+| `game_tui` | ratatui/crossterm UI: key handling, screen state, rendering, command dispatch |
+| `game_content` | Static content helpers and templates |
+| `game_save` | Versioned save/load and migrations for `GameState` |
+| `farspace` | Binary entrypoint and terminal lifecycle |
+
+## Quickstart
 
 ```bash
 git clone https://github.com/lgulliver/farspace.git
 cd farspace
-cargo build --release -p farspace
-# Linux/macOS:
-./target/release/farspace
-# Windows:
-target\release\farspace.exe
+cargo run -p farspace
 ```
 
----
+### Common Controls
 
-## Play the Current Alpha
+- `N`: new game
+- `L`: load game from menu
+- `hjkl` / arrows: navigation
+- `Enter` / `e` / `t`: confirm or end turn (context dependent)
+- `?`: contextual help
+- `:`: command palette (`save`, `load`)
+- `Q` / `Ctrl+C`: quit
 
-### Quick start
-
-1. Run the binary.
-2. Press `N` for **New Game**.
-3. Use `hjkl`/arrow keys to move selection.
-4. Use `Enter` to move deeper into views (sector → system, etc.).
-5. Use `S` (contextual) for scouting/survey actions.
-6. Use `C` in System view to colonize when a valid colonizer is present.
-7. Use `r` to pick research, `O` for empire overview.
-8. Use `e`/`t` to end turn.
-
-### Useful global keys
-
-- `?` — contextual help
-- `:` — command palette (`save`, `load`)
-- `Q` / `Ctrl+C` — quit
-
----
-
-## Known limitations
-
-- No final victory/endgame condition yet.
-- Diplomacy is first-contact visibility only (no treaties/stances UI yet).
-- No tactical combat; combat is deterministic auto-resolve summaries.
-- No ship design editor or dedicated fleet management screen (merge/split/stance).
-- New game setup options (seed/galaxy settings) are not exposed in UI yet.
-- No user-configurable keybindings/themes yet.
-
----
-
-## Development
+## Testing and Coverage
 
 ```bash
-cargo build --workspace
-cargo test --workspace --all-targets
-cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --all-targets
+cargo llvm-cov --workspace --all-targets --fail-under-lines 80
 ```
 
-### Coverage
+Testing policy details: [`docs/testing.md`](docs/testing.md)
 
-```bash
-cargo install cargo-llvm-cov   # install once
-cargo llvm-cov --workspace --all-targets --summary-only
-```
+## Current Gameplay Loop
 
-Minimum required: **80%** (enforced by CI).
+Current playable loop:
 
----
+1. Start game from menu and setup
+2. Explore sectors and systems
+3. Survey planets with science fleets
+4. Colonize surveyed habitable worlds
+5. Manage colony queues/economy/research
+6. End turn, process events, react to AI and diplomacy state
 
-## Docs
+More detail: [`docs/gameplay-loop.md`](docs/gameplay-loop.md)
 
-- [`docs/roadmap.md`](docs/roadmap.md) — phased feature plan
-- [`docs/current-state.md`](docs/current-state.md) — implemented systems, partial systems, and gaps
-- [`docs/gameplay-loop.md`](docs/gameplay-loop.md) — intended first-30-turn gameplay loop
-- [`docs/testing.md`](docs/testing.md) — testing standards and coverage policy
-- [`docs/skills/`](docs/skills/) — playbooks for common development tasks
-- [`docs/issues/`](docs/issues/) — initial issue drafts
-- [`docs/github-labels.md`](docs/github-labels.md) — label definitions
-- [`.github/copilot-instructions.md`](.github/copilot-instructions.md) — Copilot/agent guidance
+## Current Limitations
+
+- No final victory/campaign end-state yet
+- No tactical battle layer (combat is auto-resolve)
+- Diplomacy has relationship states and war declaration, but no treaty/deal system
+- Pop/jobs simulation layer is not implemented yet
+- Advanced late-game systems are roadmap items
+
+## Contribution and Agent Workflow (Summary)
+
+- Read first: [`AGENTS.md`](AGENTS.md)
+- Follow docs source-of-truth set:
+  - [`docs/architecture.md`](docs/architecture.md)
+  - [`docs/roadmap.md`](docs/roadmap.md)
+  - [`docs/current-state.md`](docs/current-state.md)
+  - [`docs/next-slices.md`](docs/next-slices.md)
+  - [`docs/testing.md`](docs/testing.md)
+  - [`docs/design/index.md`](docs/design/index.md)
+- Keep changes small, deterministic, and boundary-safe
+- Add tests for meaningful behavior changes; keep coverage >= 80%

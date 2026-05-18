@@ -4686,6 +4686,11 @@ fn make_combat_state(
     state.fleets.clear();
     state.fleet_missions.clear();
     state.scout_missions.clear();
+    state.survey_missions.clear();
+    state.fleet_custom_designs.clear();
+    state.fleet_roles.clear();
+    state.fleet_formations.clear();
+    state.fleet_names.clear();
 
     let player = state.player_empire;
     let enemy_empire = EmpireId(2);

@@ -3146,8 +3146,15 @@ impl Engine {
         }
     }
 
-    fn should_avoid_engagement(&self, fleet_id: FleetId, own_strength: u32, enemy_strength: u32) -> bool {
-        let role = self.state.fleet_role_for(fleet_id);
+    fn should_avoid_engagement(
+        &self,
+        fleet_id: FleetId,
+        own_strength: u32,
+        enemy_strength: u32,
+    ) -> bool {
+        let Some(role) = self.state.fleet_roles.get(&fleet_id).copied() else {
+            return false;
+        };
         matches!(role, FleetRole::ExplorationFleet | FleetRole::SurveyGroup)
             && enemy_strength > own_strength.saturating_mul(2)
     }
@@ -3157,53 +3164,55 @@ impl Engine {
             Some(fleet) => fleet,
             None => return (100, 100, 40),
         };
-        let role = self.state.fleet_role_for(fleet_id);
+        let role = self.state.fleet_roles.get(&fleet_id).copied();
         let formation = self.state.fleet_formation_for(fleet_id);
 
         let mut attack_pct: u32 = 100;
         let mut defense_pct: u32 = 100;
         let mut retreat_threshold: u32 = 40;
 
-        match role {
-            FleetRole::ExplorationFleet => {
-                attack_pct = attack_pct.saturating_sub(20);
-                defense_pct = defense_pct.saturating_sub(10);
-                retreat_threshold = 75;
-            }
-            FleetRole::SurveyGroup => {
-                attack_pct = attack_pct.saturating_sub(15);
-                retreat_threshold = 70;
-            }
-            FleetRole::ColonyEscort => {
-                defense_pct = defense_pct.saturating_add(10);
-                retreat_threshold = 60;
-            }
-            FleetRole::PatrolFleet => {
-                defense_pct = defense_pct.saturating_add(5);
-            }
-            FleetRole::StrikeFleet => {
-                attack_pct = attack_pct.saturating_add(15);
-                defense_pct = defense_pct.saturating_sub(5);
-                retreat_threshold = 30;
-            }
-            FleetRole::DefenseFleet => {
-                defense_pct = defense_pct.saturating_add(20);
-            }
-            FleetRole::InvasionFleet => {
-                defense_pct = defense_pct.saturating_add(10);
-                retreat_threshold = 60;
-            }
-            FleetRole::BlockadeFleet => {
-                attack_pct = attack_pct.saturating_add(10);
-                retreat_threshold = 35;
-            }
-            FleetRole::RapidResponseFleet => {
-                attack_pct = attack_pct.saturating_add(5);
-                retreat_threshold = 55;
-            }
-            FleetRole::TradeProtectionFleet => {
-                defense_pct = defense_pct.saturating_add(10);
-                retreat_threshold = 60;
+        if let Some(role) = role {
+            match role {
+                FleetRole::ExplorationFleet => {
+                    attack_pct = attack_pct.saturating_sub(20);
+                    defense_pct = defense_pct.saturating_sub(10);
+                    retreat_threshold = 75;
+                }
+                FleetRole::SurveyGroup => {
+                    attack_pct = attack_pct.saturating_sub(15);
+                    retreat_threshold = 70;
+                }
+                FleetRole::ColonyEscort => {
+                    defense_pct = defense_pct.saturating_add(10);
+                    retreat_threshold = 60;
+                }
+                FleetRole::PatrolFleet => {
+                    defense_pct = defense_pct.saturating_add(5);
+                }
+                FleetRole::StrikeFleet => {
+                    attack_pct = attack_pct.saturating_add(15);
+                    defense_pct = defense_pct.saturating_sub(5);
+                    retreat_threshold = 30;
+                }
+                FleetRole::DefenseFleet => {
+                    defense_pct = defense_pct.saturating_add(20);
+                }
+                FleetRole::InvasionFleet => {
+                    defense_pct = defense_pct.saturating_add(10);
+                    retreat_threshold = 60;
+                }
+                FleetRole::BlockadeFleet => {
+                    attack_pct = attack_pct.saturating_add(10);
+                    retreat_threshold = 35;
+                }
+                FleetRole::RapidResponseFleet => {
+                    attack_pct = attack_pct.saturating_add(5);
+                    retreat_threshold = 55;
+                }
+                FleetRole::TradeProtectionFleet => {
+                    defense_pct = defense_pct.saturating_add(10);
+                    retreat_threshold = 60;
+                }
             }
         }
 
@@ -3242,26 +3251,6 @@ impl Engine {
             });
             if has_vulnerable_friendly {
                 defense_pct = defense_pct.saturating_add(15);
-            }
-        }
-
-        if let Some(def) = self
-            .state
-            .empires
-            .get(&fleet.owner)
-            .and_then(|empire| empire.empire_def)
-            .and_then(empire_definition_by_id)
-        {
-            let aggression = def.doctrine_weight(AiDoctrine::Militarist) as u32
-                + def.doctrine_weight(AiDoctrine::Imperial) as u32;
-            let caution = def.doctrine_weight(AiDoctrine::Isolationist) as u32
-                + def.doctrine_weight(AiDoctrine::Merchant) as u32;
-            attack_pct = attack_pct.saturating_add((aggression / 2).min(20));
-            defense_pct = defense_pct.saturating_add((caution / 2).min(20));
-            if caution > aggression {
-                retreat_threshold = retreat_threshold.saturating_add(((caution - aggression) / 2).min(15));
-            } else {
-                retreat_threshold = retreat_threshold.saturating_sub(((aggression - caution) / 2).min(10));
             }
         }
 

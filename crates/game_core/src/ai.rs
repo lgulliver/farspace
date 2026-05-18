@@ -26,6 +26,7 @@ use crate::yield_model::{calculate_yield_with_context, YieldContext};
 
 const FUTURE_PENALTY_MULTIPLIER: i32 = 12;
 const FOOD_CRISIS_SCORE_BONUS: i32 = 18;
+const MAX_SAFE_SCOUT_HOSTILE_STRENGTH: u32 = 4;
 
 /// Run one AI decision pass for the given empire.
 ///
@@ -1094,7 +1095,7 @@ fn pick_scout_target(state: &GameState, empire_id: EmpireId) -> Option<(FleetId,
                 })
                 .map(|fleet| fleet.strength)
                 .sum();
-            hostile_strength <= 4
+            hostile_strength <= MAX_SAFE_SCOUT_HOSTILE_STRENGTH
         })
         .filter_map(|&sid| {
             let s = state.stars.get(&sid)?;

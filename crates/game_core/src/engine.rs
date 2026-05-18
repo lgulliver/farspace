@@ -42,6 +42,8 @@ pub(crate) const SURVEY_TURNS: u32 = 2;
 /// keeps the empire identity assignment independent from galaxy-generation and
 /// in-game RNG streams while remaining fully deterministic for a given game seed.
 const EMPIRE_ASSIGN_SALT: u64 = 0x6172_7473_5f49_5044;
+const MAX_FLEET_NAME_LENGTH: usize = 32;
+const EXPLORER_AVOID_ENGAGEMENT_MULTIPLIER: u32 = 2;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct YieldBonuses {
@@ -1646,7 +1648,7 @@ impl Engine {
             events.push(Event::error("Fleet name cannot be empty"));
             return;
         }
-        if trimmed.len() > 32 {
+        if trimmed.len() > MAX_FLEET_NAME_LENGTH {
             events.push(Event::error("Fleet name too long (max 32 chars)"));
             return;
         }
@@ -3154,7 +3156,7 @@ impl Engine {
             return false;
         };
         matches!(role, FleetRole::ExplorationFleet | FleetRole::SurveyGroup)
-            && enemy_strength > own_strength.saturating_mul(2)
+            && enemy_strength > own_strength.saturating_mul(EXPLORER_AVOID_ENGAGEMENT_MULTIPLIER)
     }
 
     fn fleet_combat_profile(&self, fleet_id: FleetId, star_id: StarId) -> (u32, u32, u32) {

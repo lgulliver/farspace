@@ -37,6 +37,7 @@ pub fn run_ai_turn(state: &mut GameState, ai_empire_id: EmpireId) -> Vec<Event> 
     ai_select_research(state, ai_empire_id, &mut events);
     ai_queue_builds(state, ai_empire_id, &mut events);
     ai_dispatch_scouts(state, ai_empire_id, &mut events);
+    ai_dispatch_combat_fleets(state, ai_empire_id, &mut events);
     ai_colonize(state, ai_empire_id, &mut events);
     ai_assign_colony_roles(state, ai_empire_id, &mut events);
 
@@ -733,6 +734,132 @@ fn ai_dispatch_scouts(state: &mut GameState, empire_id: EmpireId, events: &mut V
             });
         }
         events.push(Event::AiScoutDispatched {
+            empire: empire_id,
+            fleet: fleet_id,
+            destination,
+        });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Combat fleet dispatch
+// ---------------------------------------------------------------------------
+
+/// Dispatch idle AI combat fleets toward enemy (player) colonies when at war.
+///
+/// Only activates after turn 20 to give both sides time to build up.
+/// Fleets are sorted by `FleetId` for determinism; targets are sorted by
+/// ascending squared distance from the fleet's current position, with
+/// `StarId` as a tie-breaker.
+fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Event>) {
+    // Only active after turn 20 to prevent immediate combat
+    if state.turn < 20 {
+        return;
+    }
+
+    // Only dispatch when formally at war with the player
+    let player = state.player_empire;
+    let at_war = matches!(
+        state.relationship_status(empire_id, player),
+        crate::state::RelationshipStatus::War
+    );
+    if !at_war {
+        return;
+    }
+
+    // Collect idle combat fleet IDs in deterministic (BTreeMap key) order
+    let combat_fleet_ids: Vec<FleetId> = state
+        .fleets
+        .keys()
+        .copied()
+        .filter(|&fid| {
+            let f = &state.fleets[&fid];
+            f.owner == empire_id
+                && f.kind.is_combat()
+                && !state.fleet_missions.contains_key(&fid)
+                && !state.scout_missions.contains_key(&fid)
+                && !state.survey_missions.contains_key(&fid)
+        })
+        .collect();
+
+    if combat_fleet_ids.is_empty() {
+        return;
+    }
+
+    // Collect all player colony stars as attack targets (deduplicated, deterministic order)
+    let target_stars: Vec<StarId> = state
+        .colonies
+        .values()
+        .filter(|c| c.owner == player)
+        .map(|c| c.star)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+
+    if target_stars.is_empty() {
+        return;
+    }
+
+    for fleet_id in combat_fleet_ids {
+        let fleet_loc = match state.fleets.get(&fleet_id) {
+            Some(f) => f.location,
+            None => continue,
+        };
+
+        // Find the nearest player colony star; tie-break by ascending StarId
+        let fleet_star = match state.stars.get(&fleet_loc) {
+            Some(s) => s,
+            None => continue,
+        };
+        let (fleet_x, fleet_y) = (fleet_star.x, fleet_star.y);
+
+        let mut candidates: Vec<(i64, StarId)> = target_stars
+            .iter()
+            .filter_map(|&sid| {
+                let s = state.stars.get(&sid)?;
+                let dx = (s.x - fleet_x) as i64;
+                let dy = (s.y - fleet_y) as i64;
+                Some((dx * dx + dy * dy, sid))
+            })
+            .collect();
+
+        // Sort deterministically: closest first, then ascending StarId
+        candidates.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+
+        let destination = match candidates.first() {
+            Some(&(_, sid)) => sid,
+            None => continue,
+        };
+
+        // Skip if already at destination
+        if fleet_loc == destination {
+            continue;
+        }
+
+        let (turns, used_lane) = travel_turns_with_lanes(state, empire_id, fleet_loc, destination);
+
+        use crate::state::FleetMission;
+        state.fleet_missions.insert(
+            fleet_id,
+            FleetMission {
+                fleet: fleet_id,
+                destination,
+                turns_remaining: turns,
+                origin: fleet_loc,
+                total_duration: turns,
+            },
+        );
+
+        if used_lane {
+            events.push(Event::HyperspaceLaneUsed {
+                empire: empire_id,
+                fleet: fleet_id,
+                from: fleet_loc,
+                to: destination,
+            });
+        }
+
+        events.push(Event::AiCombatFleetDispatched {
             empire: empire_id,
             fleet: fleet_id,
             destination,
@@ -2784,5 +2911,87 @@ mod tests {
             doctrine_victory_preference(&engine.state, player, VictoryPath::Dominion),
             doctrine_victory_preference(&replay.state, replay_player, VictoryPath::Dominion)
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Combat fleet dispatch
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_ai_dispatches_combat_fleet_when_at_war() {
+        use crate::state::{Fleet, FleetId, FleetKind, RelationshipStatus, StarId};
+
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+        let player = engine.state.player_empire;
+
+        // Advance to turn 20 so the dispatch threshold is met
+        engine.state.turn = 20;
+
+        // Set war status (diplomacy is stored on GameState keyed by non-player empire ID)
+        engine.state.diplomacy.insert(ai, RelationshipStatus::War);
+
+        // Find a player colony star to use as a target
+        let player_colony_star: StarId = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == player)
+            .map(|c| c.star)
+            .expect("Player must have a colony");
+
+        // Find any AI colony star for fleet placement
+        let ai_star: StarId = engine
+            .state
+            .colonies
+            .values()
+            .find(|c| c.owner == ai)
+            .map(|c| c.star)
+            .unwrap_or(player_colony_star);
+
+        // Inject an idle combat fleet (Escort Frigate) for the AI at its colony star
+        let combat_fleet_id = FleetId(9000);
+        engine.state.fleets.insert(
+            combat_fleet_id,
+            Fleet {
+                id: combat_fleet_id,
+                owner: ai,
+                location: ai_star,
+                ships: 1,
+                kind: FleetKind::EscortFrigate,
+                strength: 10,
+                integrity: 100,
+            },
+        );
+
+        // Run one AI turn
+        let events = run_ai_turn(&mut engine.state, ai);
+
+        // The combat fleet should have been dispatched (or already at target)
+        let dispatched = events.iter().any(|e| {
+            matches!(
+                e,
+                Event::AiCombatFleetDispatched {
+                    empire,
+                    fleet,
+                    ..
+                } if *empire == ai && *fleet == combat_fleet_id
+            )
+        });
+
+        // If the AI is at the same star as the player colony, no dispatch needed
+        let already_there = ai_star == player_colony_star;
+
+        if !already_there {
+            assert!(
+                dispatched,
+                "AI should dispatch combat fleet toward player colony when at war (turn >= 20)"
+            );
+            // The fleet should now have a mission
+            assert!(
+                engine.state.fleet_missions.contains_key(&combat_fleet_id),
+                "Dispatched fleet must have an active FleetMission"
+            );
+        }
     }
 }

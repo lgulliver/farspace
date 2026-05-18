@@ -207,6 +207,12 @@ pub enum Event {
         fleet: FleetId,
         destination: StarId,
     },
+    /// AI empire has dispatched a combat fleet toward an enemy colony
+    AiCombatFleetDispatched {
+        empire: EmpireId,
+        fleet: FleetId,
+        destination: StarId,
+    },
     /// AI empire has founded a new colony
     AiColonized {
         empire: EmpireId,
@@ -620,6 +626,16 @@ impl Event {
             } => {
                 format!(
                     "AI Empire {}: scout {} dispatched to system {}",
+                    empire.0, fleet.0, destination.0
+                )
+            }
+            Event::AiCombatFleetDispatched {
+                empire,
+                fleet,
+                destination,
+            } => {
+                format!(
+                    "AI Empire {}: combat fleet {} dispatched toward system {}",
                     empire.0, fleet.0, destination.0
                 )
             }

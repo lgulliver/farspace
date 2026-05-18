@@ -889,11 +889,7 @@ impl Engine {
                             let (fleet_kind, strength, integrity) =
                                 if let Some(design) = self.state.custom_designs.get(&design_id) {
                                     let stats = design.derived_stats();
-                                    (
-                                        stats.fleet_kind,
-                                        stats.attack.max(1),
-                                        stats.hp.max(1),
-                                    )
+                                    (stats.fleet_kind, stats.attack.max(1), stats.hp.max(1))
                                 } else {
                                     events.push(Event::error(format!(
                                         "Custom design {} not found at completion",

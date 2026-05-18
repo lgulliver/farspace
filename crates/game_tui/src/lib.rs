@@ -12,5 +12,6 @@ pub mod renderer;
 pub mod screens;
 pub mod theme;
 pub mod viewport;
+pub mod visual_mode;
 
 pub use app::{App, AppState};

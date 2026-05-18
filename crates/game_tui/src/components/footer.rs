@@ -60,7 +60,12 @@ fn push_wrapped_hint_lines<'a>(
 /// Render the footer with contextual hints
 pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Option<&str>) {
     let hints = match screen {
-        Screen::Menu => vec![("[N]", "New Game"), ("[L]", "Load"), ("[Q]", "Quit")],
+        Screen::Menu => vec![
+            ("[N]", "New Game"),
+            ("[L]", "Load"),
+            ("[V]", "Visual Mode"),
+            ("[Q]", "Quit"),
+        ],
         Screen::EmpireSelect => vec![
             ("[j/k ↑↓]", "Browse"),
             ("[Enter]", "Confirm"),

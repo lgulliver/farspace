@@ -44,7 +44,12 @@ pub fn render_system(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
         .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
         .split(right);
     render_system_details(frame, right_chunks[0], app_state, game_state);
-    render_log(frame, right_chunks[1], &app_state.log);
+    render_log(
+        frame,
+        right_chunks[1],
+        &app_state.log,
+        app_state.visual_mode,
+    );
 
     let hint = app_state
         .status_message

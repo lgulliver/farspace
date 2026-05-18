@@ -12,6 +12,7 @@ use crate::screens::research::{
     RESEARCH_STATUS_FILTER_COUNT,
 };
 use crate::screens::Screen;
+use crate::visual_mode::{map_symbol_for_mode, user_config_path, VisualMode};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
     empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, Engine,
@@ -52,6 +53,8 @@ pub struct AppState {
     pub(crate) reduced_motion: bool,
     /// Status line shown in contextual footer hints.
     pub(crate) status_message: Option<String>,
+    /// Terminal glyph mode for rendering text and icons.
+    pub(crate) visual_mode: VisualMode,
 }
 
 /// UI overlay state shared by all screens.
@@ -190,10 +193,87 @@ fn first_idle_player_fleet(
 }
 
 impl App {
+    fn load_visual_mode_from_path(path: &std::path::Path) -> VisualMode {
+        let Ok(contents) = std::fs::read_to_string(path) else {
+            return VisualMode::default();
+        };
+        contents
+            .lines()
+            .find_map(|line| {
+                let mut parts = line.splitn(2, '=');
+                let key = parts.next()?.trim();
+                let value = parts.next()?.trim();
+                (key == "visual_mode")
+                    .then_some(value)
+                    .and_then(VisualMode::from_config_value)
+            })
+            .unwrap_or_default()
+    }
+
+    fn persist_visual_mode_to_path(
+        path: &std::path::Path,
+        mode: VisualMode,
+    ) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, format!("visual_mode={}\n", mode.config_value()))
+    }
+
+    fn load_visual_mode() -> VisualMode {
+        let Some(path) = user_config_path() else {
+            return VisualMode::default();
+        };
+        Self::load_visual_mode_from_path(&path)
+    }
+
+    fn persist_visual_mode(&mut self) -> std::io::Result<()> {
+        let Some(path) = user_config_path() else {
+            return Ok(());
+        };
+        Self::persist_visual_mode_to_path(&path, self.state.visual_mode)
+    }
+
+    fn cycle_visual_mode(&mut self) {
+        self.state.visual_mode = self.state.visual_mode.next();
+        let message = format!(
+            "Visual mode: {} ({})",
+            self.state.visual_mode.label(),
+            self.state.visual_mode.preview_sample()
+        );
+        match self.persist_visual_mode() {
+            Ok(()) => self.push_status(LogEntryKind::Other, message),
+            Err(err) => self.push_error_status(format!("{message} — config save failed: {err}")),
+        }
+    }
+
+    fn apply_visual_mode_fallback(&self, frame: &mut Frame) {
+        // Global pass is intentional: every widget/path gets guaranteed fallback
+        // coverage without per-component branching. NerdFont mode bypasses this.
+        if self.state.visual_mode == VisualMode::NerdFont {
+            return;
+        }
+        let area = frame.area();
+        let buffer = frame.buffer_mut();
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                if let Some(cell) = buffer.cell_mut((x, y)) {
+                    let mapped = map_symbol_for_mode(self.state.visual_mode, cell.symbol());
+                    if let std::borrow::Cow::Owned(mapped) = mapped {
+                        cell.set_symbol(&mapped);
+                    }
+                }
+            }
+        }
+    }
+
     /// Create a new application
     pub fn new() -> Self {
         App {
-            state: AppState::default(),
+            state: AppState {
+                visual_mode: Self::load_visual_mode(),
+                ..AppState::default()
+            },
             engine: None,
         }
     }
@@ -374,6 +454,8 @@ impl App {
                 }
             }
         }
+
+        self.apply_visual_mode_fallback(frame);
     }
 
     /// Handle a key event
@@ -482,6 +564,8 @@ impl App {
         if KeyMap::is_new_game(key) {
             // Navigate to empire selection first.
             self.state.active = Screen::EmpireSelect;
+        } else if matches!(key.code, KeyCode::Char('v') | KeyCode::Char('V')) {
+            self.cycle_visual_mode();
         } else if KeyMap::is_load_game(key) {
             let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);
             match self.load_game(&path) {

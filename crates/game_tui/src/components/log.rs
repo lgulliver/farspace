@@ -1,6 +1,7 @@
 //! Event log component
 
 use crate::theme::Theme;
+use crate::visual_mode::VisualMode;
 use ratatui::{
     layout::Rect,
     style::Style,
@@ -169,24 +170,52 @@ fn style_for_class(class: LogEntryKind) -> Style {
     }
 }
 
-fn prefix_for_class(class: LogEntryKind) -> &'static str {
-    match class {
-        LogEntryKind::LowSignal => "",
-        LogEntryKind::Error => "✖ ",
-        LogEntryKind::Warning => "⚠ ",
-        LogEntryKind::TurnReport => "📊 ",
-        LogEntryKind::TurnFlow => "⏵ ",
-        LogEntryKind::Research => "✓ ",
-        LogEntryKind::Survey => "◌ ",
-        LogEntryKind::Colony => "◎ ",
-        LogEntryKind::Scout | LogEntryKind::Fleet => "➤ ",
-        LogEntryKind::SaveLoad => "💾 ",
-        LogEntryKind::Diplomacy | LogEntryKind::Other => "• ",
+fn prefix_for_class(class: LogEntryKind, mode: VisualMode) -> &'static str {
+    match mode {
+        VisualMode::Ascii => match class {
+            LogEntryKind::LowSignal => "",
+            LogEntryKind::Error => "x ",
+            LogEntryKind::Warning => "! ",
+            LogEntryKind::TurnReport => "# ",
+            LogEntryKind::TurnFlow => "> ",
+            LogEntryKind::Research => "v ",
+            LogEntryKind::Survey => "o ",
+            LogEntryKind::Colony => "o ",
+            LogEntryKind::Scout | LogEntryKind::Fleet => "> ",
+            LogEntryKind::SaveLoad => "s ",
+            LogEntryKind::Diplomacy | LogEntryKind::Other => ". ",
+        },
+        VisualMode::Unicode => match class {
+            LogEntryKind::LowSignal => "",
+            LogEntryKind::Error => "✖ ",
+            LogEntryKind::Warning => "⚠ ",
+            LogEntryKind::TurnReport => "◆ ",
+            LogEntryKind::TurnFlow => "▸ ",
+            LogEntryKind::Research => "✓ ",
+            LogEntryKind::Survey => "◌ ",
+            LogEntryKind::Colony => "◎ ",
+            LogEntryKind::Scout | LogEntryKind::Fleet => "➤ ",
+            LogEntryKind::SaveLoad => "◈ ",
+            LogEntryKind::Diplomacy | LogEntryKind::Other => "• ",
+        },
+        VisualMode::NerdFont => match class {
+            LogEntryKind::LowSignal => "",
+            LogEntryKind::Error => "\u{f057} ",
+            LogEntryKind::Warning => "\u{f071} ",
+            LogEntryKind::TurnReport => "\u{f080} ",
+            LogEntryKind::TurnFlow => "\u{e0b1} ",
+            LogEntryKind::Research => "\u{f00c} ",
+            LogEntryKind::Survey => "\u{f111} ",
+            LogEntryKind::Colony => "\u{f015} ",
+            LogEntryKind::Scout | LogEntryKind::Fleet => "\u{f0a9} ",
+            LogEntryKind::SaveLoad => "\u{f0c7} ",
+            LogEntryKind::Diplomacy | LogEntryKind::Other => "\u{f111} ",
+        },
     }
 }
 
 /// Render the event log
-pub fn render_log(frame: &mut Frame, area: Rect, log: &EventLog) {
+pub fn render_log(frame: &mut Frame, area: Rect, log: &EventLog, mode: VisualMode) {
     let visible_lines = (area.height.saturating_sub(2)) as usize;
     let formatted: Vec<(String, Style)> = log
         .last_n_with_kind(log.len())
@@ -195,7 +224,7 @@ pub fn render_log(frame: &mut Frame, area: Rect, log: &EventLog) {
                 None
             } else {
                 Some((
-                    format!("{}{}", prefix_for_class(class), entry),
+                    format!("{}{}", prefix_for_class(class, mode), entry),
                     style_for_class(class),
                 ))
             }
@@ -244,7 +273,11 @@ mod tests {
         if class == LogEntryKind::LowSignal {
             None
         } else {
-            Some(format!("{}{}", prefix_for_class(class), entry))
+            Some(format!(
+                "{}{}",
+                prefix_for_class(class, VisualMode::Unicode),
+                entry
+            ))
         }
     }
 
@@ -287,7 +320,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_log(frame, area, &log);
+                render_log(frame, area, &log, VisualMode::Unicode);
             })
             .unwrap();
     }
@@ -371,7 +404,7 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                render_log(frame, frame.area(), &log);
+                render_log(frame, frame.area(), &log, VisualMode::Unicode);
             })
             .unwrap();
     }
@@ -392,7 +425,7 @@ mod tests {
     fn formatted_entries_get_visual_prefixes() {
         assert_eq!(
             test_format_entry("Turn 4 report: explored 1, surveyed 1").unwrap(),
-            "📊 Turn 4 report: explored 1, surveyed 1"
+            "◆ Turn 4 report: explored 1, surveyed 1"
         );
         assert_eq!(
             test_format_entry("Error: bad command").unwrap(),
@@ -417,7 +450,7 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                render_log(frame, frame.area(), &log);
+                render_log(frame, frame.area(), &log, VisualMode::Unicode);
             })
             .unwrap();
 
@@ -450,7 +483,7 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                render_log(frame, frame.area(), &log);
+                render_log(frame, frame.area(), &log, VisualMode::Unicode);
             })
             .unwrap();
 

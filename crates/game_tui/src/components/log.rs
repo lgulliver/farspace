@@ -1,8 +1,8 @@
 //! Event log component
 
+use crate::glyphs::glyphs_for_mode;
 use crate::theme::Theme;
 use crate::visual_mode::VisualMode;
-use crate::glyphs::glyphs_for_mode;
 use ratatui::{
     layout::Rect,
     style::Style,
@@ -171,10 +171,10 @@ fn style_for_class(class: LogEntryKind) -> Style {
     }
 }
 
-fn prefix_for_class(class: LogEntryKind, mode: VisualMode) -> String {
+fn prefix_for_class(class: LogEntryKind, mode: VisualMode) -> Option<char> {
     let glyphs = glyphs_for_mode(mode);
     let icon = match class {
-        LogEntryKind::LowSignal => return String::new(),
+        LogEntryKind::LowSignal => return None,
         LogEntryKind::Error => glyphs.status_error,
         LogEntryKind::Warning => glyphs.warning,
         LogEntryKind::TurnReport => glyphs.resource,
@@ -186,7 +186,7 @@ fn prefix_for_class(class: LogEntryKind, mode: VisualMode) -> String {
         LogEntryKind::SaveLoad => glyphs.status_save,
         LogEntryKind::Diplomacy | LogEntryKind::Other => glyphs.bullet,
     };
-    format!("{icon} ")
+    Some(icon)
 }
 
 /// Render the event log
@@ -198,10 +198,10 @@ pub fn render_log(frame: &mut Frame, area: Rect, log: &EventLog, mode: VisualMod
             if class == LogEntryKind::LowSignal {
                 None
             } else {
-                Some((
-                    format!("{}{}", prefix_for_class(class, mode), entry),
-                    style_for_class(class),
-                ))
+                let prefix = prefix_for_class(class, mode)
+                    .map(|icon| format!("{icon} "))
+                    .unwrap_or_default();
+                Some((format!("{prefix}{entry}"), style_for_class(class)))
             }
         })
         .collect();
@@ -248,11 +248,10 @@ mod tests {
         if class == LogEntryKind::LowSignal {
             None
         } else {
-            Some(format!(
-                "{}{}",
-                prefix_for_class(class, VisualMode::Unicode),
-                entry
-            ))
+            let prefix = prefix_for_class(class, VisualMode::Unicode)
+                .map(|icon| format!("{icon} "))
+                .unwrap_or_default();
+            Some(format!("{prefix}{entry}"))
         }
     }
 

@@ -2,10 +2,7 @@
 
 use crate::layout::centered_fixed;
 use crate::theme::Theme;
-use crate::{
-    glyphs::glyphs_for_mode,
-    visual_mode::VisualMode,
-};
+use crate::{glyphs::glyphs_for_mode, visual_mode::VisualMode};
 use ratatui::{
     layout::Rect,
     text::{Line, Span},

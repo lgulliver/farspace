@@ -75,7 +75,15 @@ fn major_screens_render_smoke_in_all_visual_modes() {
     let mut terminal = Terminal::new(backend).unwrap();
     let mut app = App::new();
     app.new_game(42);
-    let selected_colony = app.engine.as_ref().unwrap().state.colonies.keys().next().copied();
+    let selected_colony = app
+        .engine
+        .as_ref()
+        .unwrap()
+        .state
+        .colonies
+        .keys()
+        .next()
+        .copied();
     let screens = [
         Screen::Menu,
         Screen::SectorOverview,

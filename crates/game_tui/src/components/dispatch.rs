@@ -2,10 +2,7 @@
 
 use crate::layout::centered_rect;
 use crate::theme::Theme;
-use crate::{
-    glyphs::glyphs_for_mode,
-    visual_mode::VisualMode,
-};
+use crate::{glyphs::glyphs_for_mode, visual_mode::VisualMode};
 use game_core::{DispatchCategory, DispatchSeverity, GalacticDispatch};
 use ratatui::{
     layout::Rect,
@@ -51,7 +48,7 @@ pub fn render_dispatch(
 
     // Separator
     lines.push(Line::from(Span::styled(
-        glyphs.lane.to_string().repeat(separator_len),
+        glyphs.horizontal_rule.to_string().repeat(separator_len),
         Theme::dim_border_style(),
     )));
 
@@ -109,7 +106,7 @@ pub fn render_dispatch(
     // Separator before footer
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        glyphs.lane.to_string().repeat(separator_len),
+        glyphs.horizontal_rule.to_string().repeat(separator_len),
         Theme::dim_border_style(),
     )));
 
@@ -117,7 +114,10 @@ pub fn render_dispatch(
     let mut footer_spans: Vec<Span> = Vec::new();
     if total_count > 1 {
         footer_spans.push(Span::styled(
-            format!("{} prev / {} next", glyphs.selector_left, glyphs.selector_right),
+            format!(
+                "{} prev / {} next",
+                glyphs.selector_left, glyphs.selector_right
+            ),
             Theme::muted_style(),
         ));
         footer_spans.push(Span::styled(

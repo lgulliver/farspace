@@ -234,12 +234,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
     }
 
     render_known_lanes_in_sector(
-        &mut cells,
-        game_state,
-        app_state,
-        sector_id,
-        &viewport,
-        glyphs,
+        &mut cells, game_state, app_state, sector_id, &viewport, &glyphs,
     );
 
     for star in &stars_in_sector {
@@ -400,7 +395,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
     if !app_state.reduced_motion {
         let show_indicator = (app_state.tick_count / TRANSIT_ANIMATION_PERIOD).is_multiple_of(2);
         if show_indicator {
-            render_travelling_fleets(&mut cells, game_state, sector_id, &viewport, glyphs);
+            render_travelling_fleets(&mut cells, game_state, sector_id, &viewport, &glyphs);
         }
     }
 
@@ -429,7 +424,7 @@ fn render_travelling_fleets(
     game_state: &GameState,
     sector_id: SectorId,
     viewport: &MapViewport,
-    glyphs: GlyphSet,
+    glyphs: &GlyphSet,
 ) {
     let fleet_indicator_style = Style::default()
         .fg(Color::Magenta)
@@ -511,11 +506,20 @@ fn render_local_legend(frame: &mut Frame, area: Rect, mode: crate::visual_mode::
             Style::default().fg(Color::LightYellow),
         ),
         Span::styled(" Capital  ", Theme::dim_border_style()),
-        Span::styled(glyphs.scout_route.to_string(), Style::default().fg(Color::Yellow)),
+        Span::styled(
+            glyphs.scout_route.to_string(),
+            Style::default().fg(Color::Yellow),
+        ),
         Span::styled(" Scout Route  ", Theme::dim_border_style()),
-        Span::styled(glyphs.fleet_route.to_string(), Style::default().fg(Color::Cyan)),
+        Span::styled(
+            glyphs.fleet_route.to_string(),
+            Style::default().fg(Color::Cyan),
+        ),
         Span::styled(" Fleet Route  ", Theme::dim_border_style()),
-        Span::styled(glyphs.transit.to_string(), Style::default().fg(Color::Magenta)),
+        Span::styled(
+            glyphs.transit.to_string(),
+            Style::default().fg(Color::Magenta),
+        ),
         Span::styled(" Transit  ", Theme::dim_border_style()),
         Span::styled(glyphs.star_unexplored.to_string(), Theme::muted_style()),
         Span::styled(" Unexplored", Theme::dim_border_style()),
@@ -635,7 +639,7 @@ fn render_known_lanes_in_sector(
     app_state: &AppState,
     sector_id: SectorId,
     viewport: &MapViewport,
-    glyphs: GlyphSet,
+    glyphs: &GlyphSet,
 ) {
     let player_has_cartography = game_state
         .empires
@@ -1032,7 +1036,9 @@ mod tests {
             .unwrap();
         assert_eq!(
             cell.symbol(),
-            glyphs_for_mode(app_state.visual_mode).star_selected.to_string()
+            glyphs_for_mode(app_state.visual_mode)
+                .star_selected
+                .to_string()
         );
         if let Some(owner) = star_owner(&game_state, star_id) {
             assert_ne!(

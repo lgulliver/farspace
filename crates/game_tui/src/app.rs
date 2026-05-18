@@ -2340,11 +2340,17 @@ impl App {
         if fleets.is_empty() {
             return;
         }
-        let selected = fleets[self
-            .state
-            .navigation
-            .selected_fleet_index
-            .min(fleets.len().saturating_sub(1))];
+        let Some(selected) = fleets
+            .get(
+                self.state
+                    .navigation
+                    .selected_fleet_index
+                    .min(fleets.len().saturating_sub(1)),
+            )
+            .copied()
+        else {
+            return;
+        };
         let Some(engine) = &self.engine else {
             return;
         };
@@ -2377,11 +2383,17 @@ impl App {
             );
             return;
         }
-        let selected = fleets[self
-            .state
-            .navigation
-            .selected_fleet_index
-            .min(fleets.len().saturating_sub(1))];
+        let Some(selected) = fleets
+            .get(
+                self.state
+                    .navigation
+                    .selected_fleet_index
+                    .min(fleets.len().saturating_sub(1)),
+            )
+            .copied()
+        else {
+            return;
+        };
         let Some(engine) = &self.engine else {
             return;
         };
@@ -2404,11 +2416,17 @@ impl App {
             );
             return;
         }
-        let selected = fleets[self
-            .state
-            .navigation
-            .selected_fleet_index
-            .min(fleets.len().saturating_sub(1))];
+        let Some(selected) = fleets
+            .get(
+                self.state
+                    .navigation
+                    .selected_fleet_index
+                    .min(fleets.len().saturating_sub(1)),
+            )
+            .copied()
+        else {
+            return;
+        };
         let Some(engine) = &self.engine else {
             return;
         };

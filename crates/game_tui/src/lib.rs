@@ -5,6 +5,7 @@
 pub mod app;
 pub mod components;
 pub mod faction;
+pub mod glyphs;
 pub mod keys;
 pub mod layout;
 pub mod map_render;

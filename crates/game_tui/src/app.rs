@@ -403,6 +403,9 @@ impl App {
             PaletteCommand::ClearRally => {
                 self.clear_rally_point();
             }
+            PaletteCommand::VisualMode => {
+                self.cycle_visual_mode();
+            }
             PaletteCommand::Dispatch | PaletteCommand::News => {
                 self.open_latest_dispatch();
             }
@@ -444,7 +447,12 @@ impl App {
         }
 
         if self.state.overlay.show_palette {
-            render_palette(frame, area, &self.state.overlay.palette_input);
+            render_palette(
+                frame,
+                area,
+                &self.state.overlay.palette_input,
+                self.state.visual_mode,
+            );
         }
 
         if self.state.overlay.show_dispatch {
@@ -456,7 +464,14 @@ impl App {
                         .overlay
                         .dispatch_history_index
                         .min(dispatches.len().saturating_sub(1));
-                    render_dispatch(frame, area, &dispatches[idx], idx, dispatches.len());
+                    render_dispatch(
+                        frame,
+                        area,
+                        &dispatches[idx],
+                        idx,
+                        dispatches.len(),
+                        self.state.visual_mode,
+                    );
                 }
             }
         }

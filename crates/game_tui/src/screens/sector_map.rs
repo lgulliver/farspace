@@ -9,6 +9,7 @@ use crate::components::{derive_header_data, render_footer, render_header, render
 use crate::faction::{
     empire_visual, star_fog_state, star_is_capital, star_owner, visible_star_ids, FogState,
 };
+use crate::glyphs::{glyphs_for_mode, GlyphSet};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::map_render::{
     push_halo, visual_hash, CellCommand, HaloSpec, LabelCommand, LabelPlacement, LayeredMap,
@@ -77,6 +78,7 @@ pub fn render_sector_map(
 }
 
 fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_state: &AppState) {
+    let glyphs = glyphs_for_mode(app_state.visual_mode);
     let sector_name = app_state
         .navigation
         .selected_sector
@@ -231,7 +233,14 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
         }
     }
 
-    render_known_lanes_in_sector(&mut cells, game_state, app_state, sector_id, &viewport);
+    render_known_lanes_in_sector(
+        &mut cells,
+        game_state,
+        app_state,
+        sector_id,
+        &viewport,
+        glyphs,
+    );
 
     for star in &stars_in_sector {
         let Some(ScreenPoint { x, y }) =
@@ -261,7 +270,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
             } else {
                 Theme::highlight_style()
             };
-            ('@', style, 10)
+            (glyphs.star_selected, style, 10)
         } else if let Some(owner) = owner {
             let visual = empire_visual(game_state, owner);
             let mut style = Style::default().fg(visual.color);
@@ -281,7 +290,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
                     Style::default().fg(Color::Gray),
                     5,
                 ),
-                FogState::Unexplored => ('◌', Theme::muted_style(), 5),
+                FogState::Unexplored => (glyphs.star_unexplored, Theme::muted_style(), 5),
             }
         };
 
@@ -301,7 +310,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
                 order: 0,
                 x,
                 y: y.saturating_sub(1),
-                symbol: Some('^'),
+                symbol: Some(glyphs.capital_marker),
                 style: Style::default().fg(Color::LightYellow),
                 protect: 2,
             });
@@ -313,7 +322,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
                 order: 1,
                 x: x.saturating_add(1).min(map_area.width.saturating_sub(1)),
                 y,
-                symbol: Some('+'),
+                symbol: Some(glyphs.scout_route),
                 style: Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
@@ -325,7 +334,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
                 order: 1,
                 x: x.saturating_add(1).min(map_area.width.saturating_sub(1)),
                 y,
-                symbol: Some('~'),
+                symbol: Some(glyphs.fleet_route),
                 style: Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
@@ -335,7 +344,11 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
 
         if stationary_fleets > 0 {
             let marker_x = x.saturating_add(1).min(map_area.width.saturating_sub(1));
-            let marker = if stationary_fleets > 1 { '+' } else { '›' };
+            let marker = if stationary_fleets > 1 {
+                glyphs.fleet_stationary_multi
+            } else {
+                glyphs.fleet_stationary_single
+            };
             let fleet_color = owner
                 .map(|empire| empire_visual(game_state, empire).color)
                 .unwrap_or(Color::LightCyan);
@@ -387,7 +400,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
     if !app_state.reduced_motion {
         let show_indicator = (app_state.tick_count / TRANSIT_ANIMATION_PERIOD).is_multiple_of(2);
         if show_indicator {
-            render_travelling_fleets(&mut cells, game_state, sector_id, &viewport);
+            render_travelling_fleets(&mut cells, game_state, sector_id, &viewport, glyphs);
         }
     }
 
@@ -404,6 +417,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
         render_local_legend(
             frame,
             Rect::new(inner.x, inner.y + inner.height - 1, inner.width, 1),
+            app_state.visual_mode,
         );
     }
 }
@@ -415,6 +429,7 @@ fn render_travelling_fleets(
     game_state: &GameState,
     sector_id: SectorId,
     viewport: &MapViewport,
+    glyphs: GlyphSet,
 ) {
     let fleet_indicator_style = Style::default()
         .fg(Color::Magenta)
@@ -447,7 +462,7 @@ fn render_travelling_fleets(
                 order: 3,
                 x,
                 y,
-                symbol: Some('►'),
+                symbol: Some(glyphs.transit),
                 style: fleet_indicator_style,
                 protect: 0,
             });
@@ -478,7 +493,7 @@ fn render_travelling_fleets(
                 order: 4,
                 x,
                 y,
-                symbol: Some('►'),
+                symbol: Some(glyphs.transit),
                 style: scout_indicator_style,
                 protect: 0,
             });
@@ -486,19 +501,23 @@ fn render_travelling_fleets(
     }
 }
 
-fn render_local_legend(frame: &mut Frame, area: Rect) {
+fn render_local_legend(frame: &mut Frame, area: Rect, mode: crate::visual_mode::VisualMode) {
+    let glyphs = glyphs_for_mode(mode);
     let spans = vec![
-        Span::styled("@", Theme::highlight_style()),
+        Span::styled(glyphs.star_selected.to_string(), Theme::highlight_style()),
         Span::styled(" Selected  ", Theme::dim_border_style()),
-        Span::styled("^", Style::default().fg(Color::LightYellow)),
+        Span::styled(
+            glyphs.capital_marker.to_string(),
+            Style::default().fg(Color::LightYellow),
+        ),
         Span::styled(" Capital  ", Theme::dim_border_style()),
-        Span::styled("+", Style::default().fg(Color::Yellow)),
+        Span::styled(glyphs.scout_route.to_string(), Style::default().fg(Color::Yellow)),
         Span::styled(" Scout Route  ", Theme::dim_border_style()),
-        Span::styled("~", Style::default().fg(Color::Cyan)),
+        Span::styled(glyphs.fleet_route.to_string(), Style::default().fg(Color::Cyan)),
         Span::styled(" Fleet Route  ", Theme::dim_border_style()),
-        Span::styled("►", Style::default().fg(Color::Magenta)),
+        Span::styled(glyphs.transit.to_string(), Style::default().fg(Color::Magenta)),
         Span::styled(" Transit  ", Theme::dim_border_style()),
-        Span::styled("◌", Theme::muted_style()),
+        Span::styled(glyphs.star_unexplored.to_string(), Theme::muted_style()),
         Span::styled(" Unexplored", Theme::dim_border_style()),
     ];
 
@@ -507,6 +526,7 @@ fn render_local_legend(frame: &mut Frame, area: Rect) {
 }
 
 fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app_state: &AppState) {
+    let glyphs = glyphs_for_mode(app_state.visual_mode);
     let border_style = Theme::dim_border_style();
 
     let block = Block::default()
@@ -558,7 +578,11 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
         } else {
             star_owner(game_state, star.id)
         };
-        let prefix = if is_selected { "▶" } else { " " };
+        let prefix = if is_selected {
+            glyphs.list_selected.to_string()
+        } else {
+            " ".to_string()
+        };
         let name: Cow<'_, str> = if matches!(fog, FogState::Unexplored) {
             Cow::Owned("???".to_string())
         } else {
@@ -568,7 +592,7 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
         let symbol = if let Some(owner) = owner {
             empire_visual(game_state, owner).symbol
         } else if matches!(fog, FogState::Unexplored) {
-            '◌'
+            glyphs.star_unexplored
         } else {
             star.spectral_class.as_char()
         };
@@ -611,6 +635,7 @@ fn render_known_lanes_in_sector(
     app_state: &AppState,
     sector_id: SectorId,
     viewport: &MapViewport,
+    glyphs: GlyphSet,
 ) {
     let player_has_cartography = game_state
         .empires
@@ -658,7 +683,11 @@ fn render_known_lanes_in_sector(
         } else {
             Style::default().fg(Color::DarkGray)
         };
-        let glyph = if is_highlight { '•' } else { '·' };
+        let glyph = if is_highlight {
+            glyphs.lane_highlight
+        } else {
+            glyphs.lane
+        };
         for ScreenPoint { x, y } in viewport.world_line_to_cells(
             WorldPoint::new(a.x as f64, a.y as f64),
             WorldPoint::new(b.x as f64, b.y as f64),
@@ -739,6 +768,7 @@ fn background_cells(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::glyphs::glyphs_for_mode;
     use game_core::Engine;
     use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
@@ -980,9 +1010,10 @@ mod tests {
             .cell((render_area.x + hidden_pos.x, render_area.y + hidden_pos.y))
             .unwrap();
         let visual = empire_visual(&game_state, game_state.player_empire);
+        let glyphs = glyphs_for_mode(app_state.visual_mode);
         assert_eq!(owned_cell.symbol(), visual.symbol.to_string());
         assert_eq!(owned_cell.fg, visual.color);
-        assert_eq!(hidden_cell.symbol(), "◌");
+        assert_eq!(hidden_cell.symbol(), glyphs.star_unexplored.to_string());
     }
 
     #[test]
@@ -999,7 +1030,10 @@ mod tests {
         let cell = buf
             .cell((render_area.x + pos.x, render_area.y + pos.y))
             .unwrap();
-        assert_eq!(cell.symbol(), "@");
+        assert_eq!(
+            cell.symbol(),
+            glyphs_for_mode(app_state.visual_mode).star_selected.to_string()
+        );
         if let Some(owner) = star_owner(&game_state, star_id) {
             assert_ne!(
                 cell.symbol(),
@@ -1038,8 +1072,9 @@ mod tests {
         let buffer = render_system_list_to_buffer(&app_state, &game_state, 48, 18);
         let text = buffer_text(&buffer, Rect::new(0, 0, 48, 18));
         let visual = empire_visual(&game_state, game_state.player_empire);
+        let glyphs = glyphs_for_mode(app_state.visual_mode);
 
-        assert!(text.contains("◌ ???"));
+        assert!(text.contains(&format!("{} ???", glyphs.star_unexplored)));
         assert!(!text.contains(&format!("{} ???", visual.symbol)));
     }
 
@@ -1089,7 +1124,9 @@ mod tests {
                 .cell((render_area.x + pos.x, render_area.y + pos.y))
                 .unwrap()
                 .symbol(),
-            "◌",
+            glyphs_for_mode(app_state.visual_mode)
+                .star_unexplored
+                .to_string(),
         );
         assert_eq!(
             with_buffer

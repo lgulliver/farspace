@@ -1,6 +1,7 @@
 //! Colony detail screen
 
 use crate::components::{derive_header_data, render_footer, render_header};
+use crate::glyphs::glyphs_for_mode;
 use crate::layout::{compose_layout, split_horizontal};
 use crate::renderer::{
     palette::ColorToken,
@@ -79,6 +80,7 @@ fn render_colony_portrait(
     app_state: &AppState,
     game_state: &GameState,
 ) {
+    let glyphs = glyphs_for_mode(app_state.visual_mode);
     let block = Block::default()
         .title(" Colony Portrait ")
         .borders(Borders::ALL)
@@ -136,7 +138,7 @@ fn render_colony_portrait(
     let needs_identity_overlay = needs_planet_identity_overlay(portrait_area, detail);
     canvas.draw_sprite(&portrait, x, y, 0, RenderLayer::Bodies.z_base());
     if needs_identity_overlay {
-        draw_planet_identity_overlay(&mut canvas, portrait_area);
+        draw_planet_identity_overlay(&mut canvas, portrait_area, glyphs.planet_colonized);
     }
     canvas.draw_text(
         1,
@@ -182,7 +184,7 @@ fn needs_planet_identity_overlay(area: Rect, detail: DetailLevel) -> bool {
     matches!(detail, DetailLevel::Tiny | DetailLevel::Compact) || area.width < 9 || area.height < 7
 }
 
-fn draw_planet_identity_overlay(canvas: &mut Canvas, area: Rect) {
+fn draw_planet_identity_overlay(canvas: &mut Canvas, area: Rect, icon: char) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -191,7 +193,7 @@ fn draw_planet_identity_overlay(canvas: &mut Canvas, area: Rect) {
     canvas.set_cell(
         center_x,
         center_y,
-        '◉',
+        icon,
         ColorToken::Accent.to_style(None),
         RenderLayer::Labels.z_base() + 2,
     );
@@ -218,6 +220,7 @@ fn render_colony_stats(
     app_state: &AppState,
     game_state: &GameState,
 ) {
+    let glyphs = glyphs_for_mode(app_state.visual_mode);
     let block = Block::default()
         .title(" Colony ")
         .borders(Borders::ALL)
@@ -337,7 +340,7 @@ fn render_colony_stats(
                 Line::from(vec![
                     Span::styled("Blockade: ", Theme::muted_style()),
                     Span::styled(
-                        format!("⚔ Blockaded by {}", empire_name),
+                        format!("{} Blockaded by {}", glyphs.blockade, empire_name),
                         Theme::error_style(),
                     ),
                     Span::styled("  (no food, -50% yield, -stability)", Theme::muted_style()),
@@ -480,7 +483,7 @@ fn render_colony_stats(
             }
             for resource in &p.resources {
                 lines.push(Line::from(vec![
-                    Span::styled("  ◆ ", Theme::accent_style()),
+                    Span::styled(format!("  {} ", glyphs.resource), Theme::accent_style()),
                     Span::styled(resource.name(), Theme::default_style()),
                     Span::styled(
                         format!(" ({})", resource.description()),
@@ -529,6 +532,7 @@ fn render_colony_buildings(
     app_state: &AppState,
     game_state: &GameState,
 ) {
+    let glyphs = glyphs_for_mode(app_state.visual_mode);
     let block = Block::default()
         .title(" Buildings ")
         .borders(Borders::ALL)
@@ -557,7 +561,7 @@ fn render_colony_buildings(
         .iter()
         .map(|bt| {
             Line::from(vec![
-                Span::styled("  • ", Theme::accent_style()),
+                Span::styled(format!("  {} ", glyphs.bullet), Theme::accent_style()),
                 Span::styled(bt.name(), Theme::default_style()),
             ])
         })
@@ -574,6 +578,7 @@ fn render_role_selector(
     app_state: &AppState,
     game_state: &GameState,
 ) {
+    let glyphs = glyphs_for_mode(app_state.visual_mode);
     let is_active = app_state.colony.role_panel_active;
     let border_style = if is_active {
         Theme::focused_border_style()
@@ -611,7 +616,11 @@ fn render_role_selector(
             let is_selected = i == cursor && is_active;
             let is_current = *role == current_role;
             let prefix = if is_selected { ">" } else { " " };
-            let current_mark = if is_current { " ✓" } else { "  " };
+            let current_mark = if is_current {
+                format!(" {}", glyphs.status_done)
+            } else {
+                "  ".to_string()
+            };
             let style = if is_selected {
                 Theme::highlight_style()
             } else if is_current {

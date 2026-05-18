@@ -2,6 +2,10 @@
 
 use crate::layout::centered_fixed;
 use crate::theme::Theme;
+use crate::{
+    glyphs::glyphs_for_mode,
+    visual_mode::VisualMode,
+};
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
@@ -15,6 +19,7 @@ pub enum PaletteCommand {
     Save,
     Load,
     ClearRally,
+    VisualMode,
     /// Show the Galactic Dispatch modal
     Dispatch,
     /// Show the Galactic Dispatch modal (alias)
@@ -27,6 +32,7 @@ impl PaletteCommand {
             Self::Save,
             Self::Load,
             Self::ClearRally,
+            Self::VisualMode,
             Self::Dispatch,
             Self::News,
         ]
@@ -37,6 +43,7 @@ impl PaletteCommand {
             Self::Save => "save",
             Self::Load => "load",
             Self::ClearRally => "clear-rally",
+            Self::VisualMode => "visual-mode",
             Self::Dispatch => "dispatch",
             Self::News => "news",
         }
@@ -49,14 +56,16 @@ impl PaletteCommand {
             return Ok(None);
         }
 
-        Self::all()
-            .iter()
-            .copied()
-            .find(|command| command.keyword() == normalized)
-            .map(Some)
-            .ok_or_else(|| PaletteCommandParseError {
-                command: normalized.to_string(),
-            })
+        let parsed = match normalized {
+            "mode" | "visual" => Some(Self::VisualMode),
+            _ => Self::all()
+                .iter()
+                .copied()
+                .find(|command| command.keyword() == normalized),
+        };
+        parsed.map(Some).ok_or_else(|| PaletteCommandParseError {
+            command: normalized.to_string(),
+        })
     }
 }
 
@@ -73,9 +82,10 @@ impl PaletteCommandParseError {
 }
 
 /// Render the command palette
-pub fn render_palette(frame: &mut Frame, area: Rect, input: &str) {
+pub fn render_palette(frame: &mut Frame, area: Rect, input: &str, mode: VisualMode) {
     // Height 7 = border top + hint line + blank + input line + blank + help line + border bottom
     let popup_area = centered_fixed(70, 7, area);
+    let glyphs = glyphs_for_mode(mode);
 
     // Clear the background
     frame.render_widget(Clear, popup_area);
@@ -88,7 +98,10 @@ pub fn render_palette(frame: &mut Frame, area: Rect, input: &str) {
             if index == 0 {
                 spans.push(Span::styled("Commands: ", Theme::muted_style()));
             } else {
-                spans.push(Span::styled("  ·  ", Theme::dim_border_style()));
+                spans.push(Span::styled(
+                    format!("  {}  ", glyphs.separator_dot),
+                    Theme::dim_border_style(),
+                ));
             }
             spans.push(Span::styled(command.keyword(), Theme::title_style()));
             spans
@@ -101,7 +114,7 @@ pub fn render_palette(frame: &mut Frame, area: Rect, input: &str) {
         Line::from(vec![
             Span::styled(": ", Theme::accent_style()),
             Span::raw(input),
-            Span::styled("▌", Theme::accent_style()),
+            Span::styled(glyphs.palette_cursor.to_string(), Theme::accent_style()),
         ]),
         Line::from(""),
         Line::from(vec![
@@ -139,7 +152,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_palette(frame, area, "test input");
+                render_palette(frame, area, "test input", VisualMode::Unicode);
             })
             .unwrap();
     }
@@ -152,7 +165,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_palette(frame, area, "");
+                render_palette(frame, area, "", VisualMode::Ascii);
             })
             .unwrap();
     }
@@ -165,7 +178,12 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_palette(frame, area, "save_a_very_long_filename_that_overflows");
+                render_palette(
+                    frame,
+                    area,
+                    "save_a_very_long_filename_that_overflows",
+                    VisualMode::NerdFont,
+                );
             })
             .unwrap();
     }
@@ -178,7 +196,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_palette(frame, area, "save");
+                render_palette(frame, area, "save", VisualMode::Unicode);
             })
             .unwrap();
     }
@@ -196,6 +214,14 @@ mod tests {
         assert_eq!(
             PaletteCommand::parse("clear-rally").unwrap(),
             Some(PaletteCommand::ClearRally)
+        );
+        assert_eq!(
+            PaletteCommand::parse("visual-mode").unwrap(),
+            Some(PaletteCommand::VisualMode)
+        );
+        assert_eq!(
+            PaletteCommand::parse("mode").unwrap(),
+            Some(PaletteCommand::VisualMode)
         );
         assert_eq!(
             PaletteCommand::parse("dispatch").unwrap(),

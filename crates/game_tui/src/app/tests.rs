@@ -59,6 +59,50 @@ fn visual_mode_invalid_config_falls_back_to_default() {
 }
 
 #[test]
+fn switching_visual_mode_does_not_mutate_game_core_state() {
+    let mut app = App::new();
+    app.new_game(42);
+    let before = app.engine.as_ref().unwrap().state.clone();
+
+    app.execute_palette_command(PaletteCommand::VisualMode);
+
+    assert_eq!(app.engine.as_ref().unwrap().state, before);
+}
+
+#[test]
+fn major_screens_render_smoke_in_all_visual_modes() {
+    let backend = TestBackend::new(140, 40);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let mut app = App::new();
+    app.new_game(42);
+    let selected_colony = app.engine.as_ref().unwrap().state.colonies.keys().next().copied();
+    let screens = [
+        Screen::Menu,
+        Screen::SectorOverview,
+        Screen::SectorMap,
+        Screen::System,
+        Screen::Colony,
+        Screen::Research,
+        Screen::EmpireOverview,
+    ];
+
+    for mode in [
+        crate::visual_mode::VisualMode::Ascii,
+        crate::visual_mode::VisualMode::Unicode,
+        crate::visual_mode::VisualMode::NerdFont,
+    ] {
+        app.state.visual_mode = mode;
+        for screen in screens {
+            app.state.active = screen;
+            if screen == Screen::Colony {
+                app.state.colony.selected_colony = selected_colony;
+            }
+            terminal.draw(|frame| app.render(frame)).unwrap();
+        }
+    }
+}
+
+#[test]
 fn toggle_help_overlay_on_question_mark() {
     let mut app = App::new();
     assert!(!app.state.overlay.show_help);

@@ -3,6 +3,7 @@
 use std::{borrow::Cow, f32::consts::PI};
 
 use crate::components::{derive_header_data, render_footer, render_header, render_log};
+use crate::glyphs::{glyphs_for_mode, GlyphSet};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::renderer::{
     palette::ColorToken,
@@ -97,6 +98,7 @@ fn render_orbital_panel(
     app_state: &AppState,
     game_state: &GameState,
 ) {
+    let glyphs = glyphs_for_mode(app_state.visual_mode);
     let block = Block::default()
         .title(" System Orbits ")
         .borders(Borders::ALL)
@@ -116,7 +118,7 @@ fn render_orbital_panel(
     };
 
     let mut lines = vec![Line::from(vec![
-        Span::styled("☉ ", Theme::title_style()),
+        Span::styled(format!("{} ", glyphs.resource), Theme::title_style()),
         Span::styled(star.name.as_str(), Theme::title_style()),
         Span::styled(
             format!(" [{}]", star.spectral_class.as_char()),
@@ -132,7 +134,7 @@ fn render_orbital_panel(
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(split_height), Constraint::Min(1)])
         .split(inner);
-    render_system_visual(frame, panel_chunks[0], app_state, star);
+    render_system_visual(frame, panel_chunks[0], app_state, star, glyphs);
 
     let selected_planet = app_state
         .navigation
@@ -140,7 +142,11 @@ fn render_orbital_panel(
         .min(star.planets.len().saturating_sub(1));
     for (index, planet) in star.planets.iter().enumerate() {
         let selected = index == selected_planet;
-        let prefix = if selected { "▶" } else { " " };
+        let prefix = if selected {
+            glyphs.list_selected.to_string()
+        } else {
+            " ".to_string()
+        };
         let survey_state = planet_survey_state(game_state, star.id, index, planet.surveyed);
         let surveyed_mark = match survey_state {
             "Surveyed" => "S",
@@ -152,8 +158,8 @@ fn render_orbital_panel(
         let blockade_mark = planet
             .colony
             .and_then(|cid| game_state.colony_blockade_state(cid))
-            .map(|_| "⚔")
-            .unwrap_or("");
+            .map(|_| glyphs.blockade.to_string())
+            .unwrap_or_default();
         let invasion_mark = planet
             .colony
             .and_then(|cid| game_state.colonies.get(&cid))
@@ -166,9 +172,9 @@ fn render_orbital_panel(
             })
             .unwrap_or("");
         let colony_mark = if planet.colony.is_some() {
-            "◉"
+            glyphs.planet_colonized.to_string()
         } else {
-            "○"
+            glyphs.planet_uncolonized.to_string()
         };
         let label: Cow<'_, str> = if survey_state == "Surveyed" {
             Cow::Borrowed(planet.name.as_str())
@@ -212,6 +218,7 @@ fn render_system_visual(
     area: Rect,
     app_state: &AppState,
     star: &game_core::Star,
+    glyphs: GlyphSet,
 ) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -268,6 +275,7 @@ fn render_system_visual(
                 rx,
                 ry,
                 index == selected_planet,
+                glyphs,
             );
 
             let angle = (-0.58 * PI) + ((index % 6) as f32 * 0.37);
@@ -314,6 +322,7 @@ fn render_system_visual(
                     sprite.width,
                     sprite.height,
                     flash,
+                    glyphs,
                 );
             }
         }
@@ -337,12 +346,17 @@ fn draw_orbit_ring(
     rx: u16,
     ry: u16,
     selected: bool,
+    glyphs: GlyphSet,
 ) {
     if rx < 2 || ry < 2 {
         return;
     }
 
-    let glyph = if selected { '•' } else { '·' };
+    let glyph = if selected {
+        glyphs.orbit_selected
+    } else {
+        glyphs.orbit
+    };
     let style = if selected {
         ColorToken::Accent.to_style(None)
     } else {
@@ -375,6 +389,7 @@ fn draw_selection_brackets(
     sprite_width: u16,
     sprite_height: u16,
     flash: bool,
+    glyphs: GlyphSet,
 ) {
     let style = if flash {
         ColorToken::Accent2.to_style(None)
@@ -392,10 +407,34 @@ fn draw_selection_brackets(
         .saturating_add(1)
         .min(area.height.saturating_sub(1));
 
-    canvas.set_cell(left_x, y, '⟨', style, RenderLayer::Selection.z_base());
-    canvas.set_cell(right_x, y, '⟩', style, RenderLayer::Selection.z_base());
-    canvas.set_cell(x, top_y, '⌃', style, RenderLayer::Selection.z_base());
-    canvas.set_cell(x, bottom_y, '⌄', style, RenderLayer::Selection.z_base());
+    canvas.set_cell(
+        left_x,
+        y,
+        glyphs.selector_left,
+        style,
+        RenderLayer::Selection.z_base(),
+    );
+    canvas.set_cell(
+        right_x,
+        y,
+        glyphs.selector_right,
+        style,
+        RenderLayer::Selection.z_base(),
+    );
+    canvas.set_cell(
+        x,
+        top_y,
+        glyphs.selector_up,
+        style,
+        RenderLayer::Selection.z_base(),
+    );
+    canvas.set_cell(
+        x,
+        bottom_y,
+        glyphs.selector_down,
+        style,
+        RenderLayer::Selection.z_base(),
+    );
 }
 
 fn render_system_details(
@@ -456,6 +495,7 @@ fn render_system_details(
         frame,
         detail_chunks[0],
         game_state,
+        app_state.visual_mode,
         star,
         planet,
         selected_planet,
@@ -465,6 +505,7 @@ fn render_system_details(
         frame,
         detail_chunks[1],
         game_state,
+        app_state.visual_mode,
         planet,
         survey_state,
         &fleets_here,
@@ -476,11 +517,13 @@ fn render_selected_planet_hero(
     frame: &mut Frame,
     area: Rect,
     game_state: &GameState,
+    mode: crate::visual_mode::VisualMode,
     star: &game_core::Star,
     planet: &game_core::Planet,
     selected_planet: usize,
     survey_state: &str,
 ) {
+    let glyphs = glyphs_for_mode(mode);
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -520,7 +563,7 @@ fn render_selected_planet_hero(
     let sprite_y = chunks[0].height.saturating_sub(sprite.height) / 2;
     canvas.draw_sprite(&sprite, sprite_x, sprite_y, 0, RenderLayer::Bodies.z_base());
     if needs_identity_overlay {
-        draw_planet_identity_overlay(&mut canvas, chunks[0]);
+        draw_planet_identity_overlay(&mut canvas, chunks[0], glyphs);
     }
     draw_selection_brackets(
         &mut canvas,
@@ -530,6 +573,7 @@ fn render_selected_planet_hero(
         sprite.width,
         sprite.height,
         true,
+        glyphs,
     );
     canvas.render_to_buffer(chunks[0], frame.buffer_mut());
 
@@ -604,7 +648,7 @@ fn needs_planet_identity_overlay(area: Rect, detail: DetailLevel) -> bool {
     matches!(detail, DetailLevel::Tiny | DetailLevel::Compact) || area.width < 9 || area.height < 7
 }
 
-fn draw_planet_identity_overlay(canvas: &mut Canvas, area: Rect) {
+fn draw_planet_identity_overlay(canvas: &mut Canvas, area: Rect, glyphs: GlyphSet) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -613,7 +657,7 @@ fn draw_planet_identity_overlay(canvas: &mut Canvas, area: Rect) {
     canvas.set_cell(
         center_x,
         center_y,
-        '◉',
+        glyphs.planet_colonized,
         ColorToken::Accent.to_style(None),
         RenderLayer::Labels.z_base() + 2,
     );
@@ -637,11 +681,13 @@ fn render_system_detail_facts(
     frame: &mut Frame,
     area: Rect,
     game_state: &GameState,
+    mode: crate::visual_mode::VisualMode,
     planet: &game_core::Planet,
     survey_state: &str,
     fleets_here: &[&game_core::Fleet],
     selected_fleet_index: usize,
 ) {
+    let glyphs = glyphs_for_mode(mode);
     let mut lines = Vec::new();
     lines.push(Line::from(vec![
         Span::styled("Survey: ", Theme::muted_style()),
@@ -828,7 +874,7 @@ fn render_system_detail_facts(
             let order_label = match game_state.fleet_orders.get(&fleet.id) {
                 Some(game_core::FleetOrder::Hold) => " [Hold]".to_string(),
                 Some(game_core::FleetOrder::MoveToSystem(star_id)) => {
-                    format!(" [→ {}]", star_id.0)
+                    format!(" [{} {}]", glyphs.arrow_right, star_id.0)
                 }
                 None => String::new(),
             };
@@ -852,9 +898,9 @@ fn render_system_detail_facts(
                 })
                 .unwrap_or_else(|| "off ? def ? inv ? mob ?".to_string());
             let prefix = if idx == selected_fleet_index {
-                "▶"
+                glyphs.list_selected.to_string()
             } else {
-                " "
+                " ".to_string()
             };
             let mut name = game_state.fleet_name_for(fleet.id);
             if matches!(fleet.kind, FleetKind::Science | FleetKind::SurveyCutter) {
@@ -863,12 +909,14 @@ fn render_system_detail_facts(
                 }
             }
             lines.push(Line::from(Span::raw(format!(
-                "{prefix} {} [{} | {} | DOC {}] {} · {}{}",
+                "{} {} [{} | {} | DOC {}] {} {} {}{}",
+                prefix,
                 name,
                 role.label(),
                 formation.label(),
                 doctrine,
                 composition,
+                glyphs.separator_dot,
                 summary,
                 order_label
             ))));

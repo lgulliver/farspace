@@ -974,18 +974,18 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
         };
         let (fleet_x, fleet_y) = (fleet_star.x, fleet_star.y);
 
-        let preferred_targets: std::collections::BTreeSet<StarId> = if role == FleetRole::BlockadeFleet
-        {
-            state
-                .colonies
-                .values()
-                .filter(|colony| colony.owner == player)
-                .filter(|colony| !state.colony_blockade.contains_key(&colony.id))
-                .map(|colony| colony.star)
-                .collect()
-        } else {
-            std::collections::BTreeSet::new()
-        };
+        let preferred_targets: std::collections::BTreeSet<StarId> =
+            if role == FleetRole::BlockadeFleet {
+                state
+                    .colonies
+                    .values()
+                    .filter(|colony| colony.owner == player)
+                    .filter(|colony| !state.colony_blockade.contains_key(&colony.id))
+                    .map(|colony| colony.star)
+                    .collect()
+            } else {
+                std::collections::BTreeSet::new()
+            };
         let target_pool: Vec<StarId> = if preferred_targets.is_empty() {
             target_stars.clone()
         } else {

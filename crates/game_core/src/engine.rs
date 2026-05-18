@@ -3080,10 +3080,8 @@ impl Engine {
 
             let a_attack = ((a_str as u64 * a_attack_pct.max(10) as u64) / 100).max(1);
             let d_attack = ((d_str as u64 * d_attack_pct.max(10) as u64) / 100).max(1);
-            let a_effective_defense =
-                (a_defense * a_defense_pct.max(10) as u64 / 100).max(1);
-            let d_effective_defense =
-                (d_defense * d_defense_pct.max(10) as u64 / 100).max(1);
+            let a_effective_defense = (a_defense * a_defense_pct.max(10) as u64 / 100).max(1);
+            let d_effective_defense = (d_defense * d_defense_pct.max(10) as u64 / 100).max(1);
 
             // Simultaneous damage: each fleet takes damage proportional to the
             // opponent's strength relative to its own effective defense.

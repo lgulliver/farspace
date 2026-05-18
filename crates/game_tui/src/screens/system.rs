@@ -851,7 +851,11 @@ fn render_system_detail_facts(
                     )
                 })
                 .unwrap_or_else(|| "off ? def ? inv ? mob ?".to_string());
-            let prefix = if idx == selected_fleet_index { "▶" } else { " " };
+            let prefix = if idx == selected_fleet_index {
+                "▶"
+            } else {
+                " "
+            };
             let mut name = game_state.fleet_name_for(fleet.id);
             if matches!(fleet.kind, FleetKind::Science | FleetKind::SurveyCutter) {
                 if let Some(mission) = game_state.survey_missions.get(&fleet.id) {

@@ -2340,8 +2340,11 @@ impl App {
         if fleets.is_empty() {
             return;
         }
-        let selected =
-            fleets[self.state.navigation.selected_fleet_index.min(fleets.len().saturating_sub(1))];
+        let selected = fleets[self
+            .state
+            .navigation
+            .selected_fleet_index
+            .min(fleets.len().saturating_sub(1))];
         let Some(engine) = &self.engine else {
             return;
         };
@@ -2369,11 +2372,16 @@ impl App {
     fn cycle_selected_fleet_role(&mut self) {
         let fleets = self.player_fleets_at_selected_star();
         if fleets.is_empty() {
-            self.push_error_status("Unavailable: set fleet role — no player fleets in this system.");
+            self.push_error_status(
+                "Unavailable: set fleet role — no player fleets in this system.",
+            );
             return;
         }
-        let selected =
-            fleets[self.state.navigation.selected_fleet_index.min(fleets.len().saturating_sub(1))];
+        let selected = fleets[self
+            .state
+            .navigation
+            .selected_fleet_index
+            .min(fleets.len().saturating_sub(1))];
         let Some(engine) = &self.engine else {
             return;
         };
@@ -2396,8 +2404,11 @@ impl App {
             );
             return;
         }
-        let selected =
-            fleets[self.state.navigation.selected_fleet_index.min(fleets.len().saturating_sub(1))];
+        let selected = fleets[self
+            .state
+            .navigation
+            .selected_fleet_index
+            .min(fleets.len().saturating_sub(1))];
         let Some(engine) = &self.engine else {
             return;
         };

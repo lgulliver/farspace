@@ -10633,16 +10633,12 @@ fn fleet_role_and_formation_assignment_commands_are_deterministic() {
         engine.state.fleet_formation_for(fleet_id),
         crate::state::FleetFormation::Aggressive
     );
-    assert!(
-        events_a
-            .iter()
-            .any(|e| matches!(e, Event::FleetRoleChanged { fleet, .. } if *fleet == fleet_id))
-    );
-    assert!(
-        events_a
-            .iter()
-            .any(|e| matches!(e, Event::FleetFormationChanged { fleet, .. } if *fleet == fleet_id))
-    );
+    assert!(events_a
+        .iter()
+        .any(|e| matches!(e, Event::FleetRoleChanged { fleet, .. } if *fleet == fleet_id)));
+    assert!(events_a
+        .iter()
+        .any(|e| matches!(e, Event::FleetFormationChanged { fleet, .. } if *fleet == fleet_id)));
     assert_eq!(
         events_a
             .iter()

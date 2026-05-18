@@ -1852,12 +1852,12 @@ impl GameState {
         };
         let mut survey_capability: u32 = if fleet.kind.is_survey() { 100 } else { 0 };
         let mut mobility: i32 = 100;
-        let mut blockade_strength = if fleet.kind.is_combat() || fleet.kind == FleetKind::TroopTransport
-        {
-            fleet.strength
-        } else {
-            0
-        };
+        let mut blockade_strength =
+            if fleet.kind.is_combat() || fleet.kind == FleetKind::TroopTransport {
+                fleet.strength
+            } else {
+                0
+            };
         let mut escort_quality = if matches!(
             fleet.kind,
             FleetKind::EscortFrigate | FleetKind::PatrolCorvette | FleetKind::Destroyer

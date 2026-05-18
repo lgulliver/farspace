@@ -1986,14 +1986,14 @@ mod tests {
             .find(|fleet| fleet.owner == engine.state.player_empire)
             .map(|fleet| fleet.id)
             .expect("player fleet required");
-        engine.state.fleet_roles.insert(
-            fleet_id,
-            game_core::FleetRole::RapidResponseFleet,
-        );
-        engine.state.fleet_formations.insert(
-            fleet_id,
-            game_core::FleetFormation::FastAttack,
-        );
+        engine
+            .state
+            .fleet_roles
+            .insert(fleet_id, game_core::FleetRole::RapidResponseFleet);
+        engine
+            .state
+            .fleet_formations
+            .insert(fleet_id, game_core::FleetFormation::FastAttack);
         engine
             .state
             .fleet_names

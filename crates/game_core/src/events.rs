@@ -876,7 +876,11 @@ impl Event {
                     empire.0, design_id.0, colony.0, fleet.0
                 )
             }
-            Event::InvasionFleetAssembled { empire, fleet, star } => format!(
+            Event::InvasionFleetAssembled {
+                empire,
+                fleet,
+                star,
+            } => format!(
                 "Empire {} assembled invasion fleet {} at system {}",
                 empire.0, fleet.0, star.0
             ),

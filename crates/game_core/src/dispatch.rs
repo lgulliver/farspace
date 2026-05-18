@@ -727,10 +727,11 @@ mod tests {
             colony_blockade: Default::default(),
             victory_status: Default::default(),
             galactic_dispatches: VecDeque::new(),
+            custom_designs: Default::default(),
+            next_custom_design_id: 0,
+            fleet_custom_designs: Default::default(),
         }
     }
-
-    // ------------------------------------------------------------------
     // Cadence behaviour
     // ------------------------------------------------------------------
 

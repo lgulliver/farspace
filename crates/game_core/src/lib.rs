@@ -23,17 +23,19 @@ pub use dispatch::{
 pub use engine::{fleet_maintenance_for_empire, Engine};
 pub use events::Event;
 pub use state::{
-    all_empire_definitions, all_ship_designs, all_techs, available_tech_ids,
-    empire_definition_by_id, is_tech_available, planet_yield_effect, tech_by_id,
-    tech_yield_bonus_per_colony, BuildItem, BuildingType, Colony, ColonyId, ColonyRole,
-    ColonySupplyState, DifficultyLevel, Empire, EmpireDefinition, EmpireDefinitionId, EmpireId,
-    EmpireTraitModifiers, Fleet, FleetId, FleetKind, FleetLocation, FleetMission, FleetOrder,
-    GalaxySize, GameState, HyperspaceLane, OrbitalStructureType, Planet, PlanetClass, PlanetSize,
+    all_components, all_empire_definitions, all_hull_templates, all_ship_designs, all_techs,
+    available_tech_ids, components_for_slot, empire_definition_by_id, is_component_unlocked,
+    is_tech_available, planet_yield_effect, tech_by_id, tech_yield_bonus_per_colony, BuildItem,
+    BuildingType, Colony, ColonyId, ColonyRole, ColonySupplyState, ComponentDef, ComponentId,
+    ComponentTag, CustomDesignId, CustomShipDesign, DerivedShipStats, DifficultyLevel, Empire,
+    EmpireDefinition, EmpireDefinitionId, EmpireId, EmpireTraitModifiers, Fleet, FleetId,
+    FleetKind, FleetLocation, FleetMission, FleetOrder, GalaxySize, GameState, HullId,
+    HullTemplate, HyperspaceLane, OrbitalStructureType, Planet, PlanetClass, PlanetSize,
     PlanetSpecial, PlaystyleTag, ProductionItem, RelationshipStatus, ResearchState, RoleModifiers,
-    ScenarioSetup, ScoutMission, Sector, SectorId, ShipDesignId, ShipDesignRecord, SpectralClass,
-    Star, StarId, StrategicResource, SurveyMission, TechCapability, TechDomain, TechId, TechRecord,
-    TechTier, TechUnlock, VictoryCondition, VictoryPath, VictoryProgress, VictoryProgressValue,
-    VictorySettings, VictoryStatus, YieldEffect, YieldType,
+    ScenarioSetup, ScoutMission, Sector, SectorId, ShipDesignId, ShipDesignRecord, SlotCategory,
+    SpectralClass, Star, StarId, StrategicResource, SurveyMission, TechCapability, TechDomain,
+    TechId, TechRecord, TechTier, TechUnlock, VictoryCondition, VictoryPath, VictoryProgress,
+    VictoryProgressValue, VictorySettings, VictoryStatus, YieldEffect, YieldType,
 };
 pub use yield_model::{
     ColonyWorkforceSummary, ColonyYield, JobAssignment, JobType, YieldBreakdown, YieldContext,

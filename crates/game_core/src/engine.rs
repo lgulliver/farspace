@@ -9,10 +9,11 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hyperspace_lanes};
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
-    AiDoctrine, BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, Empire, EmpireId,
-    Fleet, FleetId, FleetKind, FleetMission, FleetOrder, GameState, HyperspaceLane,
-    OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
-    ShipDesignId, StarId, SurveyMission, TechId, YieldType,
+    AiDoctrine, BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, ComponentId,
+    CustomDesignId, CustomShipDesign, Empire, EmpireId, Fleet, FleetId, FleetKind, FleetMission,
+    FleetOrder, GameState, HullId, HyperspaceLane, OrbitalStructureType, RelationshipStatus,
+    ResearchState, ScenarioSetup, ScoutMission, ShipDesignId, StarId, SurveyMission, TechId,
+    YieldType,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
@@ -210,8 +211,9 @@ pub struct Engine {
 
 /// Compute total fleet maintenance for an empire from game state.
 ///
-/// Each fleet contributes its kind's base maintenance cost, adjusted by
-/// the empire's `fleet_maintenance_modifier_per_fleet` (flat per-fleet delta).
+/// Each fleet contributes its kind's base maintenance cost, adjusted by:
+/// - the empire's `fleet_maintenance_modifier_per_fleet` (flat per-fleet delta), and
+/// - the `maintenance_modifier` from the custom design used to build the fleet (if any).
 pub fn fleet_maintenance_for_empire(state: &GameState, empire_id: EmpireId) -> i64 {
     let modifier = state
         .empires
@@ -225,7 +227,17 @@ pub fn fleet_maintenance_for_empire(state: &GameState, empire_id: EmpireId) -> i
         .fleets
         .values()
         .filter(|f| f.owner == empire_id)
-        .map(|f| (f.kind.maintenance_cost() as i64 + modifier).max(0))
+        .map(|f| {
+            // For custom-designed fleets, use the design's computed maintenance cost.
+            // For static ship types, fall back to the kind's base cost.
+            let base = state
+                .fleet_custom_designs
+                .get(&f.id)
+                .and_then(|did| state.custom_designs.get(did))
+                .map(|d| d.derived_stats().maintenance as i64)
+                .unwrap_or_else(|| f.kind.maintenance_cost() as i64);
+            (base + modifier).max(0)
+        })
         .sum()
 }
 
@@ -276,6 +288,33 @@ impl Engine {
                 item.cost(),
                 def.military_modifiers.shipyard_cost_modifier_pct,
             ),
+            BuildItem::CustomShip(design_id) => {
+                if let Some(design) = self.state.custom_designs.get(&design_id) {
+                    let base_cost = design.derived_stats().production_cost;
+                    // Apply empire cost modifier based on the hull's fleet role
+                    let modifier_pct = match design.derived_stats().fleet_kind {
+                        FleetKind::Scout | FleetKind::FastScout => {
+                            def.military_modifiers.scout_cost_modifier_pct
+                        }
+                        FleetKind::Science | FleetKind::SurveyCutter => {
+                            def.military_modifiers.science_ship_cost_modifier_pct
+                        }
+                        FleetKind::TroopTransport => {
+                            def.military_modifiers.troop_transport_cost_modifier_pct
+                        }
+                        FleetKind::EscortFrigate
+                        | FleetKind::MissileFrigate
+                        | FleetKind::Destroyer
+                        | FleetKind::PatrolCorvette => {
+                            def.military_modifiers.combat_ship_cost_modifier_pct
+                        }
+                        _ => 0,
+                    };
+                    apply_cost_modifier(base_cost, modifier_pct)
+                } else {
+                    u64::MAX
+                }
+            }
             _ => item.cost(),
         }
     }
@@ -502,6 +541,16 @@ impl Engine {
                 }
                 Command::DeclareWar { target } => {
                     self.process_declare_war(target, &mut events);
+                }
+                Command::CreateShipDesign {
+                    hull_id,
+                    components,
+                    name,
+                } => {
+                    self.create_ship_design(hull_id, components, name, &mut events);
+                }
+                Command::DeleteShipDesign { design_id } => {
+                    self.delete_ship_design(design_id, &mut events);
                 }
             }
         }
@@ -834,6 +883,47 @@ impl Engine {
                                     fleet_id, colony_id, star_id, events,
                                 );
                             }
+                        }
+                        BuildItem::CustomShip(design_id) => {
+                            // Clone the stats we need before mutating state
+                            let (fleet_kind, strength, integrity) =
+                                if let Some(design) = self.state.custom_designs.get(&design_id) {
+                                    let stats = design.derived_stats();
+                                    (stats.fleet_kind, stats.attack.max(1), stats.hp.max(1))
+                                } else {
+                                    events.push(Event::error(format!(
+                                        "Custom design {} not found at completion",
+                                        design_id.0
+                                    )));
+                                    (FleetKind::Scout, 1, 100)
+                                };
+                            let fleet_id = self.state.next_fleet_id();
+                            self.state.fleets.insert(
+                                fleet_id,
+                                Fleet {
+                                    id: fleet_id,
+                                    owner,
+                                    location: star_id,
+                                    ships: 1,
+                                    kind: fleet_kind,
+                                    strength,
+                                    integrity,
+                                },
+                            );
+                            // Record the design association so maintenance and defense
+                            // modifiers from component choices remain in effect.
+                            self.state.fleet_custom_designs.insert(fleet_id, design_id);
+                            events.push(Event::FleetCreated {
+                                fleet: fleet_id,
+                                location: star_id,
+                            });
+                            events.push(Event::CustomShipConstructed {
+                                empire: owner,
+                                colony: colony_id,
+                                design_id,
+                                fleet: fleet_id,
+                            });
+                            self.maybe_route_to_rally_point(fleet_id, colony_id, star_id, events);
                         }
                         BuildItem::SurfaceStructure(bt) | BuildItem::Structure(bt) => {
                             if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
@@ -1489,7 +1579,75 @@ impl Engine {
             .insert(target, crate::state::RelationshipStatus::War);
     }
 
-    /// If `colony_id` has a rally point set, auto-route the newly created `fleet_id`
+    fn create_ship_design(
+        &mut self,
+        hull_id: HullId,
+        components: Vec<ComponentId>,
+        name: Option<String>,
+        events: &mut Vec<Event>,
+    ) {
+        let player = self.state.player_empire;
+        let completed_techs: Vec<_> = self
+            .state
+            .empires
+            .get(&player)
+            .map(|e| e.research.completed.to_vec())
+            .unwrap_or_default();
+
+        let design_name =
+            name.unwrap_or_else(|| format!("Design {}", self.state.next_custom_design_id));
+        let design = CustomShipDesign {
+            design_id: CustomDesignId(self.state.next_custom_design_id),
+            hull_id,
+            components,
+            owner: player,
+            name: design_name.clone(),
+            obsolete: false,
+        };
+
+        if let Err(reason) = design.validate(&completed_techs) {
+            events.push(Event::ShipDesignInvalid {
+                empire: player,
+                hull_id,
+                reason: reason.to_string(),
+            });
+            return;
+        }
+
+        let design_id = design.design_id;
+        self.state.custom_designs.insert(design_id, design);
+        self.state.next_custom_design_id += 1;
+
+        events.push(Event::ShipDesignCreated {
+            empire: player,
+            design_id,
+            hull_id,
+            name: design_name,
+        });
+    }
+
+    fn delete_ship_design(&mut self, design_id: CustomDesignId, events: &mut Vec<Event>) {
+        let player = self.state.player_empire;
+
+        match self.state.custom_designs.get_mut(&design_id) {
+            None => {
+                events.push(Event::error(format!(
+                    "Custom design {} not found",
+                    design_id.0
+                )));
+            }
+            Some(design) if design.owner != player => {
+                events.push(Event::error("Cannot delete a design you do not own"));
+            }
+            Some(design) => {
+                design.obsolete = true;
+                events.push(Event::ShipDesignDeleted {
+                    empire: player,
+                    design_id,
+                });
+            }
+        }
+    }
     /// (produced at `from_star`) toward that rally point.
     ///
     /// Silently skips routing when:
@@ -1711,6 +1869,46 @@ impl Engine {
                     design_id.0
                 )));
                 return;
+            }
+        }
+
+        if let BuildItem::CustomShip(design_id) = item {
+            let empire = match self.state.empires.get(&self.state.player_empire) {
+                Some(e) => e,
+                None => {
+                    events.push(Event::error("Player empire not found"));
+                    return;
+                }
+            };
+            let completed_techs: Vec<_> = empire.research.completed.to_vec();
+            match self.state.custom_designs.get(&design_id) {
+                None => {
+                    events.push(Event::error(format!(
+                        "Custom design {} not found",
+                        design_id.0
+                    )));
+                    return;
+                }
+                Some(design) => {
+                    if design.obsolete {
+                        events.push(Event::error(format!(
+                            "Custom design {} is obsolete",
+                            design_id.0
+                        )));
+                        return;
+                    }
+                    if design.owner != self.state.player_empire {
+                        events.push(Event::error("Custom design not owned by player"));
+                        return;
+                    }
+                    if let Err(reason) = design.validate(&completed_techs) {
+                        events.push(Event::error(format!(
+                            "Custom design {} invalid: {}",
+                            design_id.0, reason
+                        )));
+                        return;
+                    }
+                }
             }
         }
 
@@ -2218,6 +2416,7 @@ impl Engine {
         self.state.fleets.remove(&fleet_id);
         self.state.scout_missions.remove(&fleet_id);
         self.state.fleet_missions.remove(&fleet_id);
+        self.state.fleet_custom_designs.remove(&fleet_id);
 
         events.push(Event::ColonizationCompleted {
             empire: empire_id,
@@ -2364,6 +2563,7 @@ impl Engine {
             self.state.scout_missions.remove(&fleet_id);
             self.state.survey_missions.remove(&fleet_id);
             self.state.fleet_orders.remove(&fleet_id);
+            self.state.fleet_custom_designs.remove(&fleet_id);
             // Ownership and fleet changes can invalidate cached blockade state.
             // Recompute now so the next end-turn economy pass does not use stale blockade entries.
             self.state.colony_blockade = self.state.recompute_colony_blockade();
@@ -2425,6 +2625,7 @@ impl Engine {
             self.state.fleet_missions.remove(&fleet_id);
             self.state.scout_missions.remove(&fleet_id);
             self.state.survey_missions.remove(&fleet_id);
+            self.state.fleet_custom_designs.remove(&fleet_id);
         }
         transports_lost
     }
@@ -2590,15 +2791,32 @@ impl Engine {
                 None => continue,
             };
 
+            // Apply defense modifiers from custom designs, if any.
+            // A positive defense_modifier increases the divisor, reducing incoming damage.
+            let a_defense = self
+                .state
+                .fleet_custom_designs
+                .get(&arrived_fleet_id)
+                .and_then(|did| self.state.custom_designs.get(did))
+                .map(|d| d.derived_stats().defense.max(1) as u64)
+                .unwrap_or(a_str as u64);
+            let d_defense = self
+                .state
+                .fleet_custom_designs
+                .get(&enemy_id)
+                .and_then(|did| self.state.custom_designs.get(did))
+                .map(|d| d.derived_stats().defense.max(1) as u64)
+                .unwrap_or(d_str as u64);
+
             // Simultaneous damage: each fleet takes damage proportional to the
-            // opponent's strength relative to its own.
-            // Formula: damage = (opponent_strength * 100) / own_strength
-            // This means equal strengths → both take 100 damage (destroyed).
+            // opponent's strength relative to its own effective defense.
+            // Formula: damage = (opponent_strength * 100) / own_defense
+            // Equal attack and defense → both take 100 damage (destroyed).
             // Use u64 intermediates to avoid overflow when strength is large.
             let damage_to_arrived: u32 =
-                ((d_str as u64 * 100) / (a_str as u64).max(1)).min(u32::MAX as u64) as u32;
+                ((d_str as u64 * 100) / a_defense.max(1)).min(u32::MAX as u64) as u32;
             let damage_to_enemy: u32 =
-                ((a_str as u64 * 100) / (d_str as u64).max(1)).min(u32::MAX as u64) as u32;
+                ((a_str as u64 * 100) / d_defense.max(1)).min(u32::MAX as u64) as u32;
 
             let new_a_int = a_int.saturating_sub(damage_to_arrived);
             let new_d_int = d_int.saturating_sub(damage_to_enemy);
@@ -2622,12 +2840,14 @@ impl Engine {
 
             if fleet_a_destroyed {
                 self.state.fleets.remove(&arrived_fleet_id);
+                self.state.fleet_custom_designs.remove(&arrived_fleet_id);
             } else if let Some(f) = self.state.fleets.get_mut(&arrived_fleet_id) {
                 f.integrity = new_a_int;
             }
 
             if fleet_b_destroyed {
                 self.state.fleets.remove(&enemy_id);
+                self.state.fleet_custom_designs.remove(&enemy_id);
             } else if let Some(f) = self.state.fleets.get_mut(&enemy_id) {
                 f.integrity = new_d_int;
             }

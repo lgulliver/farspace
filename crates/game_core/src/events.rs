@@ -1,7 +1,8 @@
 //! Events emitted by the game engine
 
 use crate::state::{
-    BuildItem, ColonyId, ColonyRole, EmpireId, FleetId, FleetOrder, StarId, TechId, VictoryPath,
+    BuildItem, ColonyId, ColonyRole, CustomDesignId, EmpireId, FleetId, FleetOrder, HullId, StarId,
+    TechId, VictoryPath,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -299,6 +300,31 @@ pub enum Event {
         winner: EmpireId,
         path: VictoryPath,
         turn: u32,
+    },
+    /// A player or AI empire created a custom ship design.
+    ShipDesignCreated {
+        empire: EmpireId,
+        design_id: CustomDesignId,
+        hull_id: HullId,
+        name: String,
+    },
+    /// A custom ship design was marked obsolete and removed.
+    ShipDesignDeleted {
+        empire: EmpireId,
+        design_id: CustomDesignId,
+    },
+    /// Validation of a custom ship design failed.
+    ShipDesignInvalid {
+        empire: EmpireId,
+        hull_id: HullId,
+        reason: String,
+    },
+    /// A ship built from a custom design was completed at a colony.
+    CustomShipConstructed {
+        empire: EmpireId,
+        colony: ColonyId,
+        design_id: CustomDesignId,
+        fleet: FleetId,
     },
 }
 
@@ -760,6 +786,41 @@ impl Event {
                     winner.0,
                     path.label(),
                     turn
+                )
+            }
+            Event::ShipDesignCreated {
+                empire,
+                design_id,
+                hull_id,
+                name,
+            } => {
+                format!(
+                    "Empire {}: custom design {} '{}' created (hull {})",
+                    empire.0, design_id.0, name, hull_id.0
+                )
+            }
+            Event::ShipDesignDeleted { empire, design_id } => {
+                format!("Empire {}: custom design {} deleted", empire.0, design_id.0)
+            }
+            Event::ShipDesignInvalid {
+                empire,
+                hull_id,
+                reason,
+            } => {
+                format!(
+                    "Empire {}: ship design invalid for hull {} — {}",
+                    empire.0, hull_id.0, reason
+                )
+            }
+            Event::CustomShipConstructed {
+                empire,
+                colony,
+                design_id,
+                fleet,
+            } => {
+                format!(
+                    "Empire {}: custom ship (design {}) completed at colony {} as fleet {}",
+                    empire.0, design_id.0, colony.0, fleet.0
                 )
             }
         }

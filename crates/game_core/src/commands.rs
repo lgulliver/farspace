@@ -1,7 +1,8 @@
 //! Commands that can be issued to the game engine
 
 use crate::state::{
-    BuildItem, ColonyId, ColonyRole, EmpireId, FleetId, FleetOrder, StarId, TechId,
+    BuildItem, ColonyId, ColonyRole, ComponentId, CustomDesignId, EmpireId, FleetId, FleetOrder,
+    HullId, StarId, TechId,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -66,6 +67,14 @@ pub enum Command {
     SetFleetOrder { fleet: FleetId, order: FleetOrder },
     /// Declare war on a known empire, setting the relationship to `War`
     DeclareWar { target: EmpireId },
+    /// Create a new custom ship design for the player empire
+    CreateShipDesign {
+        hull_id: HullId,
+        components: Vec<ComponentId>,
+        name: Option<String>,
+    },
+    /// Delete an existing custom ship design
+    DeleteShipDesign { design_id: CustomDesignId },
 }
 
 #[cfg(test)]
@@ -147,6 +156,32 @@ mod tests {
             fleet: FleetId(2),
             star: StarId(5),
             planet_index: 1,
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn create_ship_design_serialization() {
+        use crate::state::{ComponentId, HullId};
+        let cmd = Command::CreateShipDesign {
+            hull_id: HullId(1),
+            components: vec![ComponentId(20), ComponentId(32)],
+            name: Some("Test Scout".to_string()),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn delete_ship_design_serialization() {
+        use crate::state::CustomDesignId;
+        let cmd = Command::DeleteShipDesign {
+            design_id: CustomDesignId(5),
         };
         let json = serde_json::to_string(&cmd).unwrap();
         let parsed: Command = serde_json::from_str(&json).unwrap();

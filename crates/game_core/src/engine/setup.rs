@@ -248,7 +248,7 @@ impl Engine {
 
         let legacy_ai_empire = ai_empire_ids.first().copied();
 
-        let state = GameState {
+        let mut state = GameState {
             seed,
             turn: 1,
             sectors,
@@ -277,7 +277,16 @@ impl Engine {
             colony_blockade: BTreeMap::new(),
             victory_status: crate::state::VictoryStatus::default(),
             galactic_dispatches: std::collections::VecDeque::new(),
+            custom_designs: std::collections::BTreeMap::new(),
+            next_custom_design_id: 0,
+            fleet_custom_designs: std::collections::BTreeMap::new(),
         };
+
+        // Generate initial ship designs for all AI empires
+        let ai_empire_ids_copy: Vec<_> = state.ai_empires.clone();
+        for ai_empire_id in &ai_empire_ids_copy {
+            crate::ai::ai_generate_designs(&mut state, *ai_empire_id);
+        }
 
         let mut engine = Engine {
             state,

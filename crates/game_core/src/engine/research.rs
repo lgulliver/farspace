@@ -225,6 +225,11 @@ impl Engine {
             events.push(Event::HyperspaceCartographyUnlocked { empire: empire_id });
         }
 
+        // If this is an AI empire, regenerate ship designs now that new techs are available.
+        if self.state.ai_empires.contains(&empire_id) {
+            crate::ai::ai_generate_designs(&mut self.state, empire_id);
+        }
+
         let mut transition_source = completed_tech;
         loop {
             let next_started = self.dequeue_next_valid_queued_research(empire_id, events);

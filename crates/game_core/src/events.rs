@@ -1,8 +1,8 @@
 //! Events emitted by the game engine
 
 use crate::state::{
-    BuildItem, ColonyId, ColonyRole, CustomDesignId, EmpireId, FleetId, FleetOrder, HullId,
-    StarId, TechId, VictoryPath,
+    BuildItem, ColonyId, ColonyRole, CustomDesignId, EmpireId, FleetId, FleetOrder, HullId, StarId,
+    TechId, VictoryPath,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -300,6 +300,7 @@ pub enum Event {
         empire: EmpireId,
         design_id: CustomDesignId,
         hull_id: HullId,
+        name: String,
     },
     /// A custom ship design was marked obsolete and removed.
     ShipDesignDeleted {
@@ -775,17 +776,15 @@ impl Event {
                 empire,
                 design_id,
                 hull_id,
+                name,
             } => {
                 format!(
-                    "Empire {}: custom design {} created (hull {})",
-                    empire.0, design_id.0, hull_id.0
+                    "Empire {}: custom design {} '{}' created (hull {})",
+                    empire.0, design_id.0, name, hull_id.0
                 )
             }
             Event::ShipDesignDeleted { empire, design_id } => {
-                format!(
-                    "Empire {}: custom design {} deleted",
-                    empire.0, design_id.0
-                )
+                format!("Empire {}: custom design {} deleted", empire.0, design_id.0)
             }
             Event::ShipDesignInvalid {
                 empire,

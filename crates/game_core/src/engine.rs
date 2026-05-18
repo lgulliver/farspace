@@ -283,7 +283,27 @@ impl Engine {
             ),
             BuildItem::CustomShip(design_id) => {
                 if let Some(design) = self.state.custom_designs.get(&design_id) {
-                    design.derived_stats().production_cost
+                    let base_cost = design.derived_stats().production_cost;
+                    // Apply empire cost modifier based on the hull's fleet role
+                    let modifier_pct = match design.derived_stats().fleet_kind {
+                        FleetKind::Scout | FleetKind::FastScout => {
+                            def.military_modifiers.scout_cost_modifier_pct
+                        }
+                        FleetKind::Science | FleetKind::SurveyCutter => {
+                            def.military_modifiers.science_ship_cost_modifier_pct
+                        }
+                        FleetKind::TroopTransport => {
+                            def.military_modifiers.troop_transport_cost_modifier_pct
+                        }
+                        FleetKind::EscortFrigate
+                        | FleetKind::MissileFrigate
+                        | FleetKind::Destroyer
+                        | FleetKind::PatrolCorvette => {
+                            def.military_modifiers.combat_ship_cost_modifier_pct
+                        }
+                        _ => 0,
+                    };
+                    apply_cost_modifier(base_cost, modifier_pct)
                 } else {
                     u64::MAX
                 }
@@ -1567,12 +1587,14 @@ impl Engine {
             .map(|e| e.research.completed.to_vec())
             .unwrap_or_default();
 
+        let design_name =
+            name.unwrap_or_else(|| format!("Design {}", self.state.next_custom_design_id));
         let design = CustomShipDesign {
             design_id: CustomDesignId(self.state.next_custom_design_id),
             hull_id,
             components,
             owner: player,
-            name: name.unwrap_or_else(|| format!("Design {}", self.state.next_custom_design_id)),
+            name: design_name.clone(),
             obsolete: false,
         };
 
@@ -1586,15 +1608,14 @@ impl Engine {
         }
 
         let design_id = design.design_id;
-        self.state
-            .custom_designs
-            .insert(design_id, design);
+        self.state.custom_designs.insert(design_id, design);
         self.state.next_custom_design_id += 1;
 
         events.push(Event::ShipDesignCreated {
             empire: player,
             design_id,
             hull_id,
+            name: design_name,
         });
     }
 

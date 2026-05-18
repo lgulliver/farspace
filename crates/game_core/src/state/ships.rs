@@ -1,5 +1,4 @@
 use super::*;
-use std::collections::BTreeMap;
 
 // ---------------------------------------------------------------------------
 // Custom ship designs
@@ -45,8 +44,15 @@ impl CustomShipDesign {
         let mut hp = hull.base_hp as i32;
         let mut cost = hull.base_cost as i64;
         let mut maintenance = hull.base_maintenance as i32;
-        let mut invasion_strength = 0u32;
-        let mut survey_effectiveness = 0u32;
+        // Hull-granted capabilities: certain FleetKinds always provide these
+        let mut invasion_strength: u32 = match hull.fleet_kind {
+            FleetKind::TroopTransport => 12,
+            _ => 0,
+        };
+        let mut survey_effectiveness: u32 = match hull.fleet_kind {
+            FleetKind::Science | FleetKind::SurveyCutter => 100,
+            _ => 0,
+        };
 
         for &comp_id in &self.components {
             if let Some(comp) = comp_id.def() {
@@ -67,7 +73,7 @@ impl CustomShipDesign {
 
         DerivedShipStats {
             attack: attack.max(1) as u32,
-            defense: defense.max(0) as u32,
+            defense: defense.max(1) as u32,
             hp: hp.max(1) as u32,
             production_cost: cost.max(1) as u64,
             maintenance: maintenance.max(0) as u32,
@@ -78,7 +84,7 @@ impl CustomShipDesign {
     }
 
     /// Validate that the design is buildable: hull and all components must be
-    /// tech-unlocked, and components must match available hull slots.
+    /// tech-unlocked, and components must match available hull slots exactly.
     pub fn validate(&self, completed_techs: &[TechId]) -> Result<(), &'static str> {
         let hull = match self.hull_id.template() {
             Some(h) => h,
@@ -92,30 +98,27 @@ impl CustomShipDesign {
             }
         }
 
-        // Count available slots by category using a BTreeMap for determinism
-        let mut available: BTreeMap<SlotCategory, usize> = BTreeMap::new();
-        for &slot in hull.slots {
-            *available.entry(slot).or_insert(0) += 1;
+        // Component count must equal slot count exactly — no partial or over-configured designs
+        if self.components.len() != hull.slots.len() {
+            return Err("Component count does not match hull slot count");
         }
 
-        // Verify each component fits a slot and is tech-unlocked
-        for &comp_id in &self.components {
+        // Verify each component in slot order: category must match slot, tech must be unlocked
+        for (&comp_id, &slot_cat) in self.components.iter().zip(hull.slots.iter()) {
             let comp = match comp_id.def() {
                 Some(c) => c,
                 None => return Err("Invalid component"),
             };
+
+            if comp.category != slot_cat {
+                return Err("Component category does not match slot");
+            }
 
             if let Some(tech) = comp.required_tech {
                 if !completed_techs.contains(&tech) {
                     return Err("Component tech not unlocked");
                 }
             }
-
-            let count = available.entry(comp.category).or_insert(0);
-            if *count == 0 {
-                return Err("Component category does not match hull slots");
-            }
-            *count -= 1;
         }
 
         Ok(())
@@ -329,21 +332,25 @@ mod tests {
     #[test]
     fn derived_stats_with_component_modifies_attack() {
         let base = make_design(HullId::SCOUT, vec![]).derived_stats();
-        // ComponentId(20) is Fusion Drive — Engine slot, gives movement_modifier
+        // ComponentId(20) is Chemical Thrusters — Engine slot, zero stat modifiers
         let design = make_design(HullId::SCOUT, vec![ComponentId(20)]);
         let stats = design.derived_stats();
-        // Both should have valid stats; with component cost should be >= base cost
+        // Both should have valid stats; cost with component should be >= base cost
         assert!(stats.production_cost >= base.production_cost);
         assert!(stats.hp >= 1);
         assert!(stats.attack >= 1);
     }
 
-    /// Test 3: validate positive path — no-component scout hull with no tech requirement.
+    /// Test 3: validate positive path — scout hull with correct components and no tech requirement.
     #[test]
     fn validate_scout_hull_no_tech_required() {
-        let design = make_design(HullId::SCOUT, vec![]);
+        // Scout has [Engine, Utility] slots; ComponentId(20)=Chemical Thrusters, ComponentId(32)=Cargo Pods
+        let design = make_design(HullId::SCOUT, vec![ComponentId(20), ComponentId(32)]);
         let result = design.validate(&[]);
-        assert!(result.is_ok(), "Scout hull with no components should be valid with no techs");
+        assert!(
+            result.is_ok(),
+            "Scout hull with correct components should be valid with no techs"
+        );
     }
 
     /// Test 4: validate negative path — hull requires tech not in list.
@@ -352,41 +359,65 @@ mod tests {
         // Colony Ark requires COLONIAL_VANGUARD (TechId 15)
         let design = make_design(HullId::COLONY_ARK, vec![]);
         let result = design.validate(&[]);
-        assert!(result.is_err(), "Colony Ark without Colonial Vanguard tech should fail validation");
-    }
-
-    /// Test 5: validate negative path — wrong slot category (Mass Driver is Weapon, Scout has no Weapon slot).
-    #[test]
-    fn validate_fails_wrong_slot_category() {
-        // Scout hull has Engine + Utility slots only; ComponentId(1) Mass Driver is Weapon
-        let design = make_design(HullId::SCOUT, vec![ComponentId(1)]);
-        let result = design.validate(&[TechId(4)]); // provide tech so tech check passes
         assert!(
             result.is_err(),
-            "Mass Driver (Weapon) should not fit Scout hull (Engine+Utility slots)"
+            "Colony Ark without Colonial Vanguard tech should fail validation"
         );
-        assert_eq!(result.unwrap_err(), "Component category does not match hull slots");
+    }
+
+    /// Test 5: validate negative path — wrong slot category (Kinetic Battery is Weapon, Scout first slot is Engine).
+    #[test]
+    fn validate_fails_wrong_slot_category() {
+        // Scout hull has [Engine, Utility] slots; put Kinetic Battery (Weapon) in Engine slot → mismatch
+        let design = make_design(HullId::SCOUT, vec![ComponentId(1), ComponentId(32)]);
+        let result = design.validate(&[TechId(4)]); // provide Kinetic Battery tech so tech check isn't the blocker
+        assert!(
+            result.is_err(),
+            "Kinetic Battery (Weapon) should not fit Scout hull Engine slot"
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            "Component category does not match slot"
+        );
     }
 
     /// Test 6: validate negative path — component tech not unlocked.
     #[test]
     fn validate_fails_when_component_tech_missing() {
         // ComponentId(2) is Missile Rack — Weapon slot, requires TechId(17) STRIKE_DOCTRINE
-        // Escort Frigate has a Weapon slot; hull requires TechId(16) PERIMETER_DEFENSE
-        // Unlock hull tech (16) but NOT component tech (17)
-        let design = make_design(HullId::ESCORT_FRIGATE, vec![ComponentId(2)]);
-        let result = design.validate(&[TechId(16)]); // hull unlocked, component not
-        assert!(result.is_err(), "Component with locked tech should fail validation");
+        // Escort Frigate slot 0 is Weapon; hull requires TechId(16) PERIMETER_DEFENSE
+        // Provide hull tech (16) but NOT component tech (17)
+        let design = make_design(
+            HullId::ESCORT_FRIGATE,
+            vec![
+                ComponentId(2),
+                ComponentId(10),
+                ComponentId(20),
+                ComponentId(30),
+            ],
+        );
+        let result = design.validate(&[TechId(16)]); // hull unlocked, Missile Rack not
+        assert!(
+            result.is_err(),
+            "Component with locked tech should fail validation"
+        );
         assert_eq!(result.unwrap_err(), "Component tech not unlocked");
     }
 
-    /// Test 7: validate positive path with unlocked tech.
+    /// Test 7: validate positive path with unlocked tech — Colony Ark with all required techs.
     #[test]
     fn validate_succeeds_with_correct_tech_unlocked() {
-        // Colony Ark requires COLONIAL_VANGUARD (TechId 15)
-        let design = make_design(HullId::COLONY_ARK, vec![]);
-        let result = design.validate(&[TechId(15)]);
-        assert!(result.is_ok(), "Colony Ark with Colonial Vanguard tech should pass validation");
+        // Colony Ark has [Engine, MissionModule, Utility] slots and requires TechId(15)
+        // Components: Chemical Thrusters(Engine), Colony Core(MissionModule,needs 2), Cargo Pods(Utility)
+        let design = make_design(
+            HullId::COLONY_ARK,
+            vec![ComponentId(20), ComponentId(40), ComponentId(32)],
+        );
+        let result = design.validate(&[TechId(15), TechId(2)]);
+        assert!(
+            result.is_ok(),
+            "Colony Ark with all required techs should pass validation"
+        );
     }
 
     /// Test 8: derived_stats for invalid hull returns default.

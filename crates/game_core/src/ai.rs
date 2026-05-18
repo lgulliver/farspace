@@ -17,8 +17,8 @@ use crate::engine::travel_turns_with_lanes;
 use crate::events::Event;
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, AiDoctrine, BuildItem, BuildingType,
-    Colony, ColonyId, ColonyRole, ComponentId, CustomDesignId, CustomShipDesign, EmpireId,
-    FleetId, FleetKind, GameState, OrbitalStructureType, PlanetClass, PlaystyleTag, ScoutMission,
+    Colony, ColonyId, ColonyRole, ComponentId, CustomDesignId, CustomShipDesign, EmpireId, FleetId,
+    FleetKind, GameState, OrbitalStructureType, PlanetClass, PlaystyleTag, ScoutMission,
     ShipDesignId, SlotCategory, StarId, TechDomain, TechId, TechTag, VictoryPath,
 };
 use crate::yield_model::{calculate_yield_with_context, YieldContext};
@@ -385,6 +385,19 @@ fn ai_queue_builds(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<
 
     for colony_id in colony_ids {
         if let Some(item) = pick_build_item(state, empire_id, colony_id) {
+            // If we would build a static ship design, prefer a custom design for the same
+            // fleet kind when the empire has one available — doctrine designs take effect here.
+            let item = if let BuildItem::Ship(design_id) = item {
+                if let Some(record) = design_id.record() {
+                    custom_ship_for_fleet_kind(state, empire_id, record.fleet_kind)
+                        .map(BuildItem::CustomShip)
+                        .unwrap_or(item)
+                } else {
+                    item
+                }
+            } else {
+                item
+            };
             if let Some(colony) = state.colonies.get_mut(&colony_id) {
                 colony.build_queue.push(item);
             }
@@ -395,6 +408,26 @@ fn ai_queue_builds(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<
             });
         }
     }
+}
+
+/// Return the first non-obsolete custom design owned by `empire_id` whose hull matches
+/// `fleet_kind`, or `None` if no such design exists.
+fn custom_ship_for_fleet_kind(
+    state: &GameState,
+    empire_id: EmpireId,
+    fleet_kind: FleetKind,
+) -> Option<CustomDesignId> {
+    state
+        .custom_designs
+        .values()
+        .find(|d| {
+            d.owner == empire_id
+                && !d.obsolete
+                && d.hull_id
+                    .template()
+                    .is_some_and(|h| h.fleet_kind == fleet_kind)
+        })
+        .map(|d| d.design_id)
 }
 
 /// Pick what to build at a colony with an empty queue.
@@ -1061,22 +1094,22 @@ pub fn ai_generate_designs(state: &mut GameState, empire_id: EmpireId) {
             continue;
         }
 
-        // For each slot pick best available component
+        // Pick one component per slot in hull slot order (never sort — order must match hull.slots)
         let mut components: Vec<ComponentId> = Vec::new();
-        let mut slots: Vec<SlotCategory> = hull.slots.to_vec();
-        // Sort slots for determinism
-        slots.sort_by_key(|s| *s as u8);
-
-        for slot in &slots {
-            if let Some(best) = pick_best_component(
-                all_comps,
-                *slot,
-                &completed_techs,
-                doctrine,
-                &components,
-            ) {
+        for &slot in hull.slots {
+            if let Some(best) =
+                pick_best_component(all_comps, slot, &completed_techs, doctrine, &components)
+            {
                 components.push(best);
+            } else {
+                // No valid component available for this slot — skip this hull
+                components.clear();
+                break;
             }
+        }
+
+        if components.len() != hull.slots.len() {
+            continue;
         }
 
         let design_id = CustomDesignId(state.next_custom_design_id);
@@ -1111,10 +1144,7 @@ fn pick_best_component(
     let mut candidates: Vec<_> = all_comps
         .iter()
         .filter(|c| c.category == slot)
-        .filter(|c| {
-            c.required_tech
-                .is_none_or(|t| completed_techs.contains(&t))
-        })
+        .filter(|c| c.required_tech.is_none_or(|t| completed_techs.contains(&t)))
         .collect();
 
     if candidates.is_empty() {
@@ -1132,7 +1162,31 @@ fn pick_best_component(
 fn score_component_for_doctrine(comp: &crate::state::ComponentDef, doctrine: AiDoctrine) -> i32 {
     use crate::state::ComponentTag;
 
+    // Base: balanced stat contribution
     let mut score = comp.attack_modifier + comp.defense_modifier + comp.hp_modifier;
+
+    // Doctrine-specific multipliers for movement and maintenance
+    match doctrine {
+        AiDoctrine::Explorer | AiDoctrine::Expansionist => {
+            // Prefer fast, long-range components
+            score += comp.movement_modifier * 3;
+            score -= comp.maintenance_modifier;
+        }
+        AiDoctrine::Merchant => {
+            // Prefer low-upkeep, long-range components
+            score -= comp.maintenance_modifier * 2;
+            score += comp.movement_modifier * 2;
+        }
+        AiDoctrine::Militarist | AiDoctrine::Imperial => {
+            // Prefer high attack
+            score += comp.attack_modifier * 2;
+        }
+        AiDoctrine::Isolationist => {
+            // Prefer defense and hp
+            score += comp.defense_modifier * 2 + comp.hp_modifier;
+        }
+        _ => {}
+    }
 
     for &tag in comp.special_tags {
         let bonus: i32 = match (doctrine, tag) {
@@ -1144,6 +1198,11 @@ fn score_component_for_doctrine(comp: &crate::state::ComponentDef, doctrine: AiD
             | (AiDoctrine::Biologist, ComponentTag::Colony) => 4,
             (AiDoctrine::Imperial, ComponentTag::Invasion)
             | (AiDoctrine::Militarist, ComponentTag::Invasion) => 3,
+            (AiDoctrine::Explorer, ComponentTag::LongRange)
+            | (AiDoctrine::Expansionist, ComponentTag::LongRange)
+            | (AiDoctrine::Merchant, ComponentTag::LongRange) => 4,
+            (AiDoctrine::Explorer, ComponentTag::Sensors)
+            | (AiDoctrine::Expansionist, ComponentTag::Sensors) => 3,
             _ => 1,
         };
         score += bonus;
@@ -1545,16 +1604,25 @@ mod tests {
         let events = engine.apply_turn(vec![crate::commands::Command::EndTurn]);
 
         let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
+        // The AI queues a Scout build — either as a static design or via a custom design
+        // that maps to the Scout fleet kind.
+        let queued_scout = colony.build_queue.iter().any(|item| match item {
+            BuildItem::Ship(id) => *id == ShipDesignId::SCOUT,
+            BuildItem::CustomShip(did) => engine
+                .state
+                .custom_designs
+                .get(did)
+                .and_then(|d| d.hull_id.template())
+                .is_some_and(|h| h.fleet_kind == FleetKind::Scout),
+            _ => false,
+        });
         assert!(
-            colony
-                .build_queue
-                .contains(&BuildItem::Ship(ShipDesignId::SCOUT)),
+            queued_scout,
             "AI must queue Scout when FabricationYard built and colonizer exists"
         );
         assert!(events.iter().any(|e| matches!(
             e,
-            Event::AiBuildQueued { empire, item, .. }
-            if *empire == ai && *item == BuildItem::Ship(ShipDesignId::SCOUT)
+            Event::AiBuildQueued { empire, .. } if *empire == ai
         )));
     }
 

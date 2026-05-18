@@ -161,4 +161,30 @@ mod tests {
         let parsed: Command = serde_json::from_str(&json).unwrap();
         assert_eq!(cmd, parsed);
     }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn create_ship_design_serialization() {
+        use crate::state::{ComponentId, HullId};
+        let cmd = Command::CreateShipDesign {
+            hull_id: HullId(1),
+            components: vec![ComponentId(20), ComponentId(32)],
+            name: Some("Test Scout".to_string()),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn delete_ship_design_serialization() {
+        use crate::state::CustomDesignId;
+        let cmd = Command::DeleteShipDesign {
+            design_id: CustomDesignId(5),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
 }

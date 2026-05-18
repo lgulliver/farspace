@@ -50,6 +50,7 @@ pub struct ShipDesignerState {
 impl ShipDesignerState {
     pub fn reset_to_browse(&mut self) {
         self.mode = DesignerMode::Browse;
+        self.panel = DesignerPanel::DesignList;
         self.current_components.clear();
         self.name_input = None;
         self.active_slot_idx = 0;
@@ -59,6 +60,7 @@ impl ShipDesignerState {
     pub fn begin_new_design(&mut self) {
         self.mode = DesignerMode::NewDesign;
         self.panel = DesignerPanel::SlotConfig;
+        self.selected_design_idx = 0;
         self.current_components.clear();
         self.name_input = None;
         self.active_slot_idx = 0;
@@ -69,7 +71,18 @@ impl ShipDesignerState {
         self.mode = DesignerMode::EditSlots;
         self.active_slot_idx = 0;
         self.component_cursor = 0;
-        self.current_components = vec![ComponentId(0); hull.slots.len()];
+        // Pre-fill with first available component per slot (ComponentId(0) = no component yet)
+        self.current_components = hull
+            .slots
+            .iter()
+            .map(|&cat| {
+                game_core::components_for_slot(cat)
+                    .into_iter()
+                    .find(|c| c.required_tech.is_none())
+                    .map(|c| c.component_id)
+                    .unwrap_or(ComponentId(0))
+            })
+            .collect();
     }
 }
 
@@ -104,12 +117,7 @@ pub fn render_ship_designer(
 
 // ── Left panel: Design List ───────────────────────────────────────────────────
 
-fn render_design_list(
-    frame: &mut Frame,
-    area: Rect,
-    app_state: &AppState,
-    game_state: &GameState,
-) {
+fn render_design_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let ds = &app_state.ship_designer;
     let focused = ds.panel == DesignerPanel::DesignList;
     let border_style = if focused {
@@ -179,12 +187,7 @@ fn render_design_list(
 
 // ── Center panel: Slot Config ─────────────────────────────────────────────────
 
-fn render_slot_config(
-    frame: &mut Frame,
-    area: Rect,
-    app_state: &AppState,
-    game_state: &GameState,
-) {
+fn render_slot_config(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let ds = &app_state.ship_designer;
     let focused = ds.panel == DesignerPanel::SlotConfig;
     let border_style = if focused {
@@ -223,8 +226,7 @@ fn render_slot_config(
                     .values()
                     .filter(|d| d.owner == player && !d.obsolete)
                     .collect();
-                let design_idx = (ds.selected_design_idx - 1)
-                    .min(existing.len().saturating_sub(1));
+                let design_idx = (ds.selected_design_idx - 1).min(existing.len().saturating_sub(1));
                 if let Some(design) = existing.get(design_idx) {
                     if let Some(hull) = design.hull_id.template() {
                         lines.push(Line::from(Span::styled(
@@ -239,11 +241,7 @@ fn render_slot_config(
                                 .map(|d| d.name)
                                 .unwrap_or("(empty)");
                             lines.push(Line::from(vec![Span::styled(
-                                format!(
-                                    " [{}] {}",
-                                    slot_category_label(*cat),
-                                    comp_name
-                                ),
+                                format!(" [{}] {}", slot_category_label(*cat), comp_name),
                                 Theme::default_style(),
                             )]));
                         }
@@ -307,13 +305,14 @@ fn render_slot_config(
 
                     let comps = components_for_slot(*cat);
                     for (ci, comp) in comps.iter().enumerate() {
-                        let chosen_id = ds.current_components.get(slot_idx).copied()
+                        let chosen_id = ds
+                            .current_components
+                            .get(slot_idx)
+                            .copied()
                             .unwrap_or(ComponentId(0));
                         let is_chosen = chosen_id == comp.component_id;
-                        let is_cursor =
-                            is_active_slot && ds.component_cursor == ci;
-                        let locked =
-                            !is_component_unlocked(comp.component_id, &completed);
+                        let is_cursor = is_active_slot && ds.component_cursor == ci;
+                        let locked = !is_component_unlocked(comp.component_id, &completed);
                         let bullet = if is_chosen { "●" } else { "○" };
                         let lock_suffix = if locked { " [locked]" } else { "" };
                         let stat_tag = build_stat_tag(comp);
@@ -327,10 +326,7 @@ fn render_slot_config(
                             Theme::default_style()
                         };
                         lines.push(Line::from(vec![Span::styled(
-                            format!(
-                                "   {bullet} {}{}{}",
-                                comp.name, stat_tag, lock_suffix
-                            ),
+                            format!("   {bullet} {}{}{}", comp.name, stat_tag, lock_suffix),
                             sty,
                         )]));
                     }
@@ -351,12 +347,7 @@ fn render_slot_config(
 
 // ── Right panel: Stats ────────────────────────────────────────────────────────
 
-fn render_stats_panel(
-    frame: &mut Frame,
-    area: Rect,
-    app_state: &AppState,
-    game_state: &GameState,
-) {
+fn render_stats_panel(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let ds = &app_state.ship_designer;
     let focused = ds.panel == DesignerPanel::Stats;
     let border_style = if focused {
@@ -386,8 +377,7 @@ fn render_stats_panel(
                     .values()
                     .filter(|d| d.owner == player && !d.obsolete)
                     .collect();
-                let design_idx = (ds.selected_design_idx - 1)
-                    .min(existing.len().saturating_sub(1));
+                let design_idx = (ds.selected_design_idx - 1).min(existing.len().saturating_sub(1));
                 if let Some(design) = existing.get(design_idx) {
                     push_design_stats(&mut lines, design, game_state);
                 }
@@ -415,7 +405,10 @@ fn render_stats_panel(
                 let stats = scratch.derived_stats();
                 push_derived_stats(&mut lines, hull.name, hull.role, &stats);
             } else {
-                lines.push(Line::from(Span::styled(" No hull selected.", Theme::muted_style())));
+                lines.push(Line::from(Span::styled(
+                    " No hull selected.",
+                    Theme::muted_style(),
+                )));
             }
         }
     }
@@ -438,7 +431,12 @@ fn push_design_stats(lines: &mut Vec<Line>, design: &CustomShipDesign, _game_sta
     push_derived_stats(lines, hull_name, hull_role, &stats);
 }
 
-fn push_derived_stats(lines: &mut Vec<Line>, hull_name: &str, role: &str, stats: &DerivedShipStats) {
+fn push_derived_stats(
+    lines: &mut Vec<Line>,
+    hull_name: &str,
+    role: &str,
+    stats: &DerivedShipStats,
+) {
     lines.push(Line::from(vec![Span::styled(
         format!(" Hull:  {hull_name}"),
         Theme::title_style(),
@@ -473,7 +471,7 @@ fn push_derived_stats(lines: &mut Vec<Line>, hull_name: &str, role: &str, stats:
 // ── Helper functions ──────────────────────────────────────────────────────────
 
 #[allow(dead_code)]
-fn current_hull<'a>(ds: &ShipDesignerState, _game_state: &'a GameState) -> Option<&'static HullTemplate> {
+fn current_hull(ds: &ShipDesignerState, _game_state: &GameState) -> Option<&'static HullTemplate> {
     all_hull_templates().get(ds.selected_hull_idx)
 }
 

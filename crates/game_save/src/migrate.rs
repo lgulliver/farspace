@@ -1197,7 +1197,10 @@ mod tests {
         let design = CustomShipDesign {
             design_id: CustomDesignId(1),
             hull_id: HullId::SCOUT,
-            components: vec![ComponentId::CHEMICAL_THRUSTERS, ComponentId::LONG_RANGE_SENSORS],
+            components: vec![
+                ComponentId::CHEMICAL_THRUSTERS,
+                ComponentId::LONG_RANGE_SENSORS,
+            ],
             owner: EmpireId(1),
             name: "Test Scout".to_string(),
             obsolete: false,
@@ -1222,7 +1225,10 @@ mod tests {
         assert!(!loaded_design.obsolete);
         assert_eq!(
             loaded_design.components,
-            vec![ComponentId::CHEMICAL_THRUSTERS, ComponentId::LONG_RANGE_SENSORS]
+            vec![
+                ComponentId::CHEMICAL_THRUSTERS,
+                ComponentId::LONG_RANGE_SENSORS
+            ]
         );
     }
 }

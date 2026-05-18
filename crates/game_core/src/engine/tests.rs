@@ -1,7 +1,7 @@
 use super::*;
 use crate::state::{
-    BuildingType, CustomDesignId, HullId, Planet, PlanetClass, PlanetSize, PlanetSpecial,
-    SectorId, StrategicResource,
+    BuildingType, ComponentId, CustomDesignId, HullId, Planet, PlanetClass, PlanetSize,
+    PlanetSpecial, SectorId, StrategicResource,
 };
 
 /// Inject a Shipyard directly into a colony's orbital installations.
@@ -10045,15 +10045,16 @@ fn create_ship_design_creates_design_and_event() {
     let player = engine.state.player_empire;
     let initial_count = engine.state.custom_designs.len();
 
+    // Scout has [Engine, Utility] slots: Chemical Thrusters (20) + Cargo Pods (32)
     let events = engine.apply_turn(vec![Command::CreateShipDesign {
         hull_id: scout_hull_id(),
-        components: vec![],
+        components: vec![ComponentId(20), ComponentId(32)],
         name: Some("My Scout".to_string()),
     }]);
 
-    let created = events.iter().any(|e| {
-        matches!(e, Event::ShipDesignCreated { empire, .. } if *empire == player)
-    });
+    let created = events
+        .iter()
+        .any(|e| matches!(e, Event::ShipDesignCreated { empire, .. } if *empire == player));
     assert!(created, "ShipDesignCreated event must be emitted");
     assert_eq!(
         engine.state.custom_designs.len(),
@@ -10065,7 +10066,7 @@ fn create_ship_design_creates_design_and_event() {
         .state
         .custom_designs
         .values()
-        .find(|d| d.owner == player)
+        .find(|d| d.owner == player && d.name == "My Scout")
         .unwrap();
     assert_eq!(design.name, "My Scout");
     assert_eq!(design.owner, player);
@@ -10078,10 +10079,10 @@ fn delete_ship_design_marks_obsolete_and_emits_event() {
     let mut engine = Engine::new(42);
     let player = engine.state.player_empire;
 
-    // Create a design first
+    // Create a design first — Scout with valid components
     engine.apply_turn(vec![Command::CreateShipDesign {
         hull_id: scout_hull_id(),
-        components: vec![],
+        components: vec![ComponentId(20), ComponentId(32)],
         name: None,
     }]);
 
@@ -10096,9 +10097,9 @@ fn delete_ship_design_marks_obsolete_and_emits_event() {
 
     let events = engine.apply_turn(vec![Command::DeleteShipDesign { design_id }]);
 
-    let deleted = events.iter().any(|e| {
-        matches!(e, Event::ShipDesignDeleted { empire, .. } if *empire == player)
-    });
+    let deleted = events
+        .iter()
+        .any(|e| matches!(e, Event::ShipDesignDeleted { empire, .. } if *empire == player));
     assert!(deleted, "ShipDesignDeleted event must be emitted");
     assert!(
         engine.state.custom_designs[&design_id].obsolete,
@@ -10120,10 +10121,13 @@ fn create_ship_design_invalid_hull_tech_emits_invalid_event() {
         name: None,
     }]);
 
-    let invalid = events.iter().any(|e| {
-        matches!(e, Event::ShipDesignInvalid { empire, .. } if *empire == player)
-    });
-    assert!(invalid, "ShipDesignInvalid event must be emitted for missing hull tech");
+    let invalid = events
+        .iter()
+        .any(|e| matches!(e, Event::ShipDesignInvalid { empire, .. } if *empire == player));
+    assert!(
+        invalid,
+        "ShipDesignInvalid event must be emitted for missing hull tech"
+    );
     assert_eq!(
         engine.state.custom_designs.len(),
         initial_count,
@@ -10137,10 +10141,15 @@ fn delete_ship_design_unknown_id_emits_error() {
     let mut engine = Engine::new(42);
     let bogus_id = CustomDesignId(9999);
 
-    let events = engine.apply_turn(vec![Command::DeleteShipDesign { design_id: bogus_id }]);
+    let events = engine.apply_turn(vec![Command::DeleteShipDesign {
+        design_id: bogus_id,
+    }]);
 
     let has_error = events.iter().any(|e| matches!(e, Event::Error { .. }));
-    assert!(has_error, "Error event must be emitted for unknown design id");
+    assert!(
+        has_error,
+        "Error event must be emitted for unknown design id"
+    );
 }
 
 /// Test: AI empires have designs generated on setup
@@ -10156,7 +10165,11 @@ fn ai_empires_have_designs_after_setup() {
             .custom_designs
             .values()
             .any(|d| d.owner == *ai_id && !d.obsolete);
-        assert!(has_design, "AI empire {} must have at least one design", ai_id.0);
+        assert!(
+            has_design,
+            "AI empire {} must have at least one design",
+            ai_id.0
+        );
     }
 }
 
@@ -10168,7 +10181,7 @@ fn create_ship_design_is_deterministic() {
 
     let cmds = vec![Command::CreateShipDesign {
         hull_id: scout_hull_id(),
-        components: vec![],
+        components: vec![ComponentId(20), ComponentId(32)],
         name: Some("Det".to_string()),
     }];
 
@@ -10177,6 +10190,116 @@ fn create_ship_design_is_deterministic() {
 
     let id_a = engine_a.state.next_custom_design_id;
     let id_b = engine_b.state.next_custom_design_id;
-    assert_eq!(id_a, id_b, "next_custom_design_id must be identical after identical commands");
+    assert_eq!(
+        id_a, id_b,
+        "next_custom_design_id must be identical after identical commands"
+    );
     assert_eq!(engine_a.state.custom_designs, engine_b.state.custom_designs);
+}
+
+/// Test: BuildItem::CustomShip queued through production completes and spawns a fleet.
+#[test]
+fn build_custom_ship_creates_fleet_on_completion() {
+    let mut engine = Engine::new(42);
+    let player = engine.state.player_empire;
+    let colony_id = player_colony(&engine);
+
+    give_colony_shipyard(&mut engine, colony_id);
+
+    // Create a Scout design with valid components: Chemical Thrusters + Cargo Pods
+    let design_events = engine.apply_turn(vec![Command::CreateShipDesign {
+        hull_id: HullId::SCOUT,
+        components: vec![ComponentId(20), ComponentId(32)],
+        name: Some("Battle Scout".to_string()),
+    }]);
+    let design_id = design_events
+        .iter()
+        .find_map(|e| {
+            if let Event::ShipDesignCreated { design_id, .. } = e {
+                Some(*design_id)
+            } else {
+                None
+            }
+        })
+        .expect("ShipDesignCreated event must be present");
+
+    let fleet_count_before = engine.state.fleets.len();
+
+    // Queue and complete the custom ship build
+    engine
+        .state
+        .colonies
+        .get_mut(&colony_id)
+        .unwrap()
+        .production = 9999;
+    engine.apply_turn(vec![
+        Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::CustomShip(design_id),
+        },
+        Command::EndTurn,
+    ]);
+
+    assert!(
+        engine.state.fleets.len() > fleet_count_before,
+        "A new fleet must be spawned after custom ship production completes"
+    );
+
+    // Verify fleet has the expected kind from the Scout hull
+    let new_fleet = engine
+        .state
+        .fleets
+        .values()
+        .filter(|f| f.owner == player)
+        .max_by_key(|f| f.id.0)
+        .expect("Player must own at least one fleet");
+    assert_eq!(new_fleet.kind, FleetKind::Scout);
+    assert!(new_fleet.strength >= 1);
+}
+
+/// Test: BuildItem::CustomShip with obsolete design emits ShipDesignInvalid on queue.
+#[test]
+fn build_custom_ship_obsolete_design_fails() {
+    let mut engine = Engine::new(42);
+    let _player = engine.state.player_empire;
+    let colony_id = player_colony(&engine);
+
+    give_colony_shipyard(&mut engine, colony_id);
+
+    // Create and delete (mark obsolete) a design
+    let design_events = engine.apply_turn(vec![Command::CreateShipDesign {
+        hull_id: HullId::SCOUT,
+        components: vec![ComponentId(20), ComponentId(32)],
+        name: None,
+    }]);
+    let design_id = design_events
+        .iter()
+        .find_map(|e| {
+            if let Event::ShipDesignCreated { design_id, .. } = e {
+                Some(*design_id)
+            } else {
+                None
+            }
+        })
+        .expect("ShipDesignCreated must be present");
+
+    // Mark design obsolete
+    engine
+        .state
+        .custom_designs
+        .get_mut(&design_id)
+        .unwrap()
+        .obsolete = true;
+
+    // Attempt to queue the obsolete design — should emit an error
+    let events = engine.apply_turn(vec![Command::QueueBuild {
+        colony: colony_id,
+        item: BuildItem::CustomShip(design_id),
+    }]);
+
+    let has_error = events.iter().any(|e| matches!(e, Event::Error { .. }));
+    assert!(
+        has_error,
+        "Queuing an obsolete custom design must emit an Error event"
+    );
 }

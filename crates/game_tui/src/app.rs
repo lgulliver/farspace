@@ -16,8 +16,8 @@ use crate::screens::Screen;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
     empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, ComponentId,
-    Engine, Event as CoreEvent, FleetId, FleetKind, GalaxySize,
-    OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId,
+    Engine, Event as CoreEvent, FleetId, FleetKind, GalaxySize, OrbitalStructureType,
+    ScenarioSetup, SectorId, StarId, TechId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -36,6 +36,8 @@ pub struct App {
 #[derive(Debug, Clone, Default)]
 pub struct AppState {
     pub(crate) active: Screen,
+    /// The screen to return to when closing Ship Designer with Esc.
+    pub(crate) previous_screen: Screen,
     pub(crate) overlay: OverlayState,
     pub(crate) navigation: NavigationState,
     pub(crate) sector_overview: SectorOverviewState,
@@ -462,6 +464,7 @@ impl App {
 
         // 'W' opens Ship Designer from any game screen
         if key.code == KeyCode::Char('W') && self.engine.is_some() {
+            self.state.previous_screen = self.state.active;
             self.state.active = Screen::ShipDesigner;
             self.state.ship_designer.reset_to_browse();
             return;
@@ -1200,7 +1203,7 @@ impl App {
         match key.code {
             KeyCode::Esc => match self.state.ship_designer.mode {
                 Browse => {
-                    self.state.active = Screen::SectorMap;
+                    self.state.active = self.state.previous_screen;
                 }
                 _ => {
                     self.state.ship_designer.reset_to_browse();
@@ -1286,7 +1289,22 @@ impl App {
             .and_then(|h| h.slots.get(slot_idx))
             .copied();
         if let Some(cat) = category {
-            let comps = game_core::components_for_slot(cat);
+            // Only show components that are unlocked
+            let completed: Vec<_> = self
+                .engine
+                .as_ref()
+                .map(|e| {
+                    e.state
+                        .empires
+                        .get(&e.state.player_empire)
+                        .map(|emp| emp.research.completed.to_vec())
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
+            let comps: Vec<_> = game_core::components_for_slot(cat)
+                .into_iter()
+                .filter(|c| game_core::is_component_unlocked(c.component_id, &completed))
+                .collect();
             let count = comps.len();
             if count == 0 {
                 return;
@@ -1295,7 +1313,12 @@ impl App {
             let new_cursor = ((cur as i32 + delta).rem_euclid(count as i32)) as usize;
             self.state.ship_designer.component_cursor = new_cursor;
             if let Some(comp) = comps.get(new_cursor) {
-                if let Some(slot) = self.state.ship_designer.current_components.get_mut(slot_idx) {
+                if let Some(slot) = self
+                    .state
+                    .ship_designer
+                    .current_components
+                    .get_mut(slot_idx)
+                {
                     *slot = comp.component_id;
                 }
             }
@@ -1314,6 +1337,26 @@ impl App {
                 if let Some(h) =
                     game_core::all_hull_templates().get(self.state.ship_designer.selected_hull_idx)
                 {
+                    // Block entry into slot editing if hull tech is not yet unlocked
+                    let completed: Vec<_> = self
+                        .engine
+                        .as_ref()
+                        .map(|e| {
+                            e.state
+                                .empires
+                                .get(&e.state.player_empire)
+                                .map(|emp| emp.research.completed.to_vec())
+                                .unwrap_or_default()
+                        })
+                        .unwrap_or_default();
+                    if let Some(tech) = h.required_tech {
+                        if !completed.contains(&tech) {
+                            self.push_error_status(
+                                "Hull not yet unlocked — research required tech first.".to_string(),
+                            );
+                            return;
+                        }
+                    }
                     self.state.ship_designer.begin_edit_slots(h);
                 }
             }
@@ -1362,14 +1405,7 @@ impl App {
                 return;
             }
         };
-        let components: Vec<ComponentId> = self
-            .state
-            .ship_designer
-            .current_components
-            .iter()
-            .filter(|c| c.0 != 0)
-            .copied()
-            .collect();
+        let components: Vec<ComponentId> = self.state.ship_designer.current_components.clone();
         let name = self
             .state
             .ship_designer
@@ -1378,15 +1414,45 @@ impl App {
             .unwrap_or_else(|| format!("{} Design", hull.name));
         let hull_id = hull.hull_id;
         self.state.ship_designer.reset_to_browse();
-        self.dispatch_command(Command::CreateShipDesign {
-            hull_id,
-            components,
-            name: Some(name),
-        });
-        self.state.status_message = Some("Design saved.".to_string());
+        // Apply the command immediately and check whether a design was actually created
+        let is_end_turn = false;
+        let (events, _end_turn_report) = {
+            let engine = match &mut self.engine {
+                Some(engine) => engine,
+                None => return,
+            };
+            let evs = engine.apply_turn(vec![Command::CreateShipDesign {
+                hull_id,
+                components,
+                name: Some(name),
+            }]);
+            (evs, is_end_turn.then_some(()))
+        };
+        for event in &events {
+            self.push_core_event_to_log(event);
+        }
+        // Only show success if a design was actually created
+        if events
+            .iter()
+            .any(|e| matches!(e, CoreEvent::ShipDesignCreated { .. }))
+        {
+            self.state.status_message = Some("Design saved.".to_string());
+        } else if let Some(CoreEvent::Error { message }) = events.iter().find(|e| e.is_error()) {
+            self.state.status_message = Some(format!("Error: {}", message));
+        } else if events
+            .iter()
+            .any(|e| matches!(e, CoreEvent::ShipDesignInvalid { .. }))
+        {
+            self.state.status_message =
+                Some("Design invalid — check hull/component requirements.".to_string());
+        }
     }
 
     fn delete_ship_design(&mut self) {
+        // Delete only makes sense in Browse mode
+        if !matches!(self.state.ship_designer.mode, DesignerMode::Browse) {
+            return;
+        }
         if self.state.ship_designer.selected_design_idx == 0 {
             return;
         }
@@ -1401,8 +1467,8 @@ impl App {
             .values()
             .filter(|d| d.owner == player && !d.obsolete)
             .collect();
-        let design_idx = (self.state.ship_designer.selected_design_idx - 1)
-            .min(designs.len().saturating_sub(1));
+        let design_idx =
+            (self.state.ship_designer.selected_design_idx - 1).min(designs.len().saturating_sub(1));
         if let Some(design) = designs.get(design_idx) {
             let design_id = design.design_id;
             self.state.ship_designer.selected_design_idx = 0;

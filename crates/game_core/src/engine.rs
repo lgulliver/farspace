@@ -1649,7 +1649,10 @@ impl Engine {
             return;
         }
         if trimmed.len() > MAX_FLEET_NAME_LENGTH {
-            events.push(Event::error("Fleet name too long (max 32 chars)"));
+            events.push(Event::error(format!(
+                "Fleet name too long (max {} chars)",
+                MAX_FLEET_NAME_LENGTH
+            )));
             return;
         }
         self.state.fleet_names.insert(fleet_id, trimmed.to_string());

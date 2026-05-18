@@ -1832,7 +1832,7 @@ impl GameState {
         self.fleets
             .get(&fleet_id)
             .map(|fleet| format!("{} {}", fleet.kind.label(), fleet_id.0))
-            .unwrap_or_else(|| format!("Fleet {}", fleet_id.0))
+            .unwrap_or_else(|| format!("Unknown Fleet {}", fleet_id.0))
     }
 
     /// Compute deterministic strategic summary for one fleet.

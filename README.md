@@ -188,6 +188,11 @@ More detail: [`docs/gameplay-loop.md`](docs/gameplay-loop.md)
 - Pop/jobs simulation layer is not implemented yet
 - Advanced late-game systems are roadmap items
 
+
+## License
+
+Licensed under the [GNU General Public License v3.0](LICENSE) (GPL-3.0-only).
+
 ## Contribution and Agent Workflow (Summary)
 
 - Read first: [`AGENTS.md`](AGENTS.md)

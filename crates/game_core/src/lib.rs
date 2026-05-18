@@ -4,6 +4,7 @@
 //! command processing, and event generation for FARSPACE.
 
 pub mod ai;
+pub mod balance;
 pub mod commands;
 pub mod deterministic;
 pub mod dispatch;
@@ -19,7 +20,7 @@ pub use dispatch::{
     generate_dispatch, DispatchCategory, DispatchItem, DispatchSeverity, GalacticDispatch,
     DISPATCH_CADENCE, DISPATCH_MAX_HISTORY,
 };
-pub use engine::Engine;
+pub use engine::{fleet_maintenance_for_empire, Engine};
 pub use events::Event;
 pub use state::{
     all_components, all_empire_definitions, all_hull_templates, all_ship_designs, all_techs,

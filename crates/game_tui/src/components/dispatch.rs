@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn render_dispatch_single_item_no_nav_hint() {
+    fn render_dispatch_single_history_entry_no_nav_hint() {
         // total_count=1 means no nav hint shown — just verify no panic
         let backend = TestBackend::new(100, 35);
         let mut terminal = Terminal::new(backend).unwrap();

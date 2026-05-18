@@ -11,6 +11,7 @@ use game_core::{
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -59,7 +60,7 @@ pub struct EmpireOverviewSummary {
     pub colony_count: usize,
     pub connected_colonies: usize,
     pub isolated_colonies: usize,
-    pub victory_lines: Vec<String>,
+    pub victory_lines: Vec<(String, Style)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -289,8 +290,8 @@ pub fn derive_empire_overview(
     }
 }
 
-fn build_victory_lines(game_state: &GameState, empire_id: EmpireId) -> Vec<String> {
-    let mut lines = Vec::new();
+fn build_victory_lines(game_state: &GameState, empire_id: EmpireId) -> Vec<(String, Style)> {
+    let mut lines: Vec<(String, Style)> = Vec::new();
     let settings = game_state
         .scenario
         .as_ref()
@@ -304,10 +305,13 @@ fn build_victory_lines(game_state: &GameState, empire_id: EmpireId) -> Vec<Strin
             .iter()
             .find(|progress| progress.path == *path);
         let Some(progress) = progress else {
-            lines.push(format!(
-                "{} [{}] unavailable",
-                path.label(),
-                if enabled { "ON" } else { "OFF" }
+            lines.push((
+                format!(
+                    "{} [{}] unavailable",
+                    path.label(),
+                    if enabled { "ON" } else { "OFF" }
+                ),
+                Theme::muted_style(),
             ));
             continue;
         };
@@ -392,12 +396,28 @@ fn build_victory_lines(game_state: &GameState, empire_id: EmpireId) -> Vec<Strin
         } else {
             "ON"
         };
-        lines.push(format!(
-            "{} [{}] {}% {}",
-            path.label(),
-            status,
-            progress.progress_percent,
-            detail
+        let percent = progress.progress_percent as usize;
+        let filled = percent * 10 / 100;
+        let bar = format!("[{}{}]", "█".repeat(filled), "░".repeat(10 - filled));
+        let style = if !enabled {
+            Theme::muted_style()
+        } else if percent >= 75 {
+            Theme::success_style()
+        } else if percent >= 50 {
+            Style::default().fg(Theme::accent2())
+        } else {
+            Theme::default_style()
+        };
+        lines.push((
+            format!(
+                "{} [{}] {} {}% {}",
+                path.label(),
+                status,
+                bar,
+                progress.progress_percent,
+                detail
+            ),
+            style,
         ));
     }
     if let (Some(winner), Some(path), Some(turn)) = (
@@ -410,12 +430,15 @@ fn build_victory_lines(game_state: &GameState, empire_id: EmpireId) -> Vec<Strin
             .get(&winner)
             .map(|empire| empire.name.as_str())
             .unwrap_or("Unknown");
-        lines.push(format!(
-            "Winner: {} (E{}) via {} on turn {}",
-            winner_name,
-            winner.0,
-            path.label(),
-            turn
+        lines.push((
+            format!(
+                "Winner: {} (E{}) via {} on turn {}",
+                winner_name,
+                winner.0,
+                path.label(),
+                turn
+            ),
+            Theme::success_style(),
         ));
     } else {
         let player_marker = game_state
@@ -425,7 +448,10 @@ fn build_victory_lines(game_state: &GameState, empire_id: EmpireId) -> Vec<Strin
             .find(|progress| progress.leading_empire == Some(empire_id))
             .map(|progress| progress.path.label())
             .unwrap_or("none");
-        lines.push(format!("Player leading path: {}", player_marker));
+        lines.push((
+            format!("Player leading path: {}", player_marker),
+            Theme::default_style(),
+        ));
     }
     lines
 }
@@ -556,10 +582,10 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
         ),
     ]);
     let mut lines = vec![line];
-    for victory_line in &summary.victory_lines {
+    for (text, style) in &summary.victory_lines {
         lines.push(Line::from(vec![
             Span::styled("Victory ", Theme::muted_style()),
-            Span::styled(victory_line, Theme::default_style()),
+            Span::styled(text, *style),
         ]));
     }
     frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
@@ -964,7 +990,8 @@ mod tests {
         let lines = build_victory_lines(&engine.state, engine.state.player_empire);
         let unity_line = lines
             .iter()
-            .find(|line| line.starts_with("Unity "))
+            .find(|(text, _)| text.starts_with("Unity "))
+            .map(|(text, _)| text.as_str())
             .expect("unity line should be present");
         assert!(unity_line.contains("[ON]"));
         assert!(!unity_line.contains("[FUTURE]"));

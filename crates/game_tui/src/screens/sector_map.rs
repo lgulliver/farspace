@@ -62,7 +62,12 @@ pub fn render_sector_map(
         .split(right_area);
 
     render_system_list(frame, right_chunks[0], game_state, app_state);
-    render_log(frame, right_chunks[1], &app_state.log);
+    render_log(
+        frame,
+        right_chunks[1],
+        &app_state.log,
+        app_state.visual_mode,
+    );
 
     let hint = app_state
         .status_message

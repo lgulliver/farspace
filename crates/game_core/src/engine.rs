@@ -21,6 +21,18 @@ use crate::yield_model::YieldContext;
 use rand_chacha::ChaCha8Rng;
 use std::collections::{BTreeMap, BTreeSet};
 
+// Import balance constants directly so they are available as bare names in
+// this module and (via `use super::*`) in the test sub-module, preserving
+// backward compatibility with all existing tests.
+use crate::balance::{
+    BLOCKADED_STABILITY_PENALTY, BORDER_TENSION_DISTANCE_SQ, CAPTURED_UNREST_STABILITY,
+    FLEET_TRAVEL_SPEED, HYPERSPACE_TRAVEL_DIVISOR, ISOLATED_STABILITY_PENALTY,
+    ISOLATED_YIELD_PERCENT, MAX_HOUSING_DEFICIT_STABILITY_PENALTY,
+    MAX_ISOLATED_FOOD_DEFICIT_STABILITY_PENALTY, MAX_UNEMPLOYMENT_STABILITY_PENALTY,
+    MIN_STABILITY_FOR_POP_GROWTH, POP_GROWTH_PERIOD_TURNS, SEVERE_BORDER_TENSION_DISTANCE_SQ,
+    TROOP_TRANSPORT_INVASION_STRENGTH,
+};
+
 /// Number of turns for a science ship to survey a planet
 pub(crate) const SURVEY_TURNS: u32 = 2;
 
@@ -30,43 +42,6 @@ pub(crate) const SURVEY_TURNS: u32 = 2;
 /// keeps the empire identity assignment independent from galaxy-generation and
 /// in-game RNG streams while remaining fully deterministic for a given game seed.
 const EMPIRE_ASSIGN_SALT: u64 = 0x6172_7473_5f49_5044;
-
-/// Fleet travel speed in galaxy coordinate units per turn.
-///
-/// Stars are generated in the range `-500..=500` on each axis, giving a maximum
-/// possible distance of `≈1414` units.  A speed of `500` yields:
-/// * dist  ≤ 500  →  1 turn  (close-range, same or adjacent sectors)
-/// * dist  ≤ 1000 →  2 turns (medium-range)
-/// * dist  > 1000 →  3 turns (long-range, far sectors)
-const FLEET_TRAVEL_SPEED: f64 = 500.0;
-/// Direct hyperspace lanes reduce duration to `ceil(base_turns / 2)`.
-const HYPERSPACE_TRAVEL_DIVISOR: u32 = 2;
-const ISOLATED_YIELD_PERCENT: i64 = 50;
-const ISOLATED_STABILITY_PENALTY: u8 = 5;
-const MAX_HOUSING_DEFICIT_STABILITY_PENALTY: u8 = 10;
-const MAX_UNEMPLOYMENT_STABILITY_PENALTY: u8 = 5;
-const MAX_ISOLATED_FOOD_DEFICIT_STABILITY_PENALTY: u8 = 5;
-/// Stability penalty applied each turn to a blockaded colony.
-/// Blockade yield reduction reuses `ISOLATED_YIELD_PERCENT` via `apply_isolation_penalty`.
-const BLOCKADED_STABILITY_PENALTY: u8 = 5;
-const MIN_STABILITY_FOR_POP_GROWTH: u8 = 90;
-const POP_GROWTH_PERIOD_TURNS: u32 = 12;
-/// Fixed invasion strength contributed by one troop transport ship.
-const TROOP_TRANSPORT_INVASION_STRENGTH: u32 = 12;
-/// Colony stability after a successful capture.
-const CAPTURED_UNREST_STABILITY: u8 = 40;
-/// Squared-distance threshold for routine border pressure.
-///
-/// `40_000` corresponds to roughly 200 map units, which is close enough for
-/// neighboring home systems and early border colonies to feel contested without
-/// treating the entire sector as immediate pressure.
-const BORDER_TENSION_DISTANCE_SQ: i64 = 40_000;
-/// Squared-distance threshold for severe border pressure.
-///
-/// `12_000` corresponds to roughly 110 map units, representing very close
-/// frontier overlap where the AI is allowed to escalate toward its harshest
-/// diplomacy posture.
-const SEVERE_BORDER_TENSION_DISTANCE_SQ: i64 = 12_000;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct YieldBonuses {
@@ -234,6 +209,38 @@ pub struct Engine {
     last_turn_colony_blockade: BTreeMap<ColonyId, EmpireId>,
 }
 
+/// Compute total fleet maintenance for an empire from game state.
+///
+/// Each fleet contributes its kind's base maintenance cost, adjusted by:
+/// - the empire's `fleet_maintenance_modifier_per_fleet` (flat per-fleet delta), and
+/// - the `maintenance_modifier` from the custom design used to build the fleet (if any).
+pub fn fleet_maintenance_for_empire(state: &GameState, empire_id: EmpireId) -> i64 {
+    let modifier = state
+        .empires
+        .get(&empire_id)
+        .and_then(|empire| empire.empire_def)
+        .and_then(empire_definition_by_id)
+        .map(|def| def.military_modifiers.fleet_maintenance_modifier_per_fleet)
+        .unwrap_or(0);
+
+    state
+        .fleets
+        .values()
+        .filter(|f| f.owner == empire_id)
+        .map(|f| {
+            // For custom-designed fleets, use the design's computed maintenance cost.
+            // For static ship types, fall back to the kind's base cost.
+            let base = state
+                .fleet_custom_designs
+                .get(&f.id)
+                .and_then(|did| state.custom_designs.get(did))
+                .map(|d| d.derived_stats().maintenance as i64)
+                .unwrap_or_else(|| f.kind.maintenance_cost() as i64);
+            (base + modifier).max(0)
+        })
+        .sum()
+}
+
 impl Engine {
     fn empire_definition(
         &self,
@@ -323,16 +330,7 @@ impl Engine {
     /// Each fleet contributes its kind's base maintenance cost, adjusted by
     /// the empire's `fleet_maintenance_modifier_per_fleet` (flat per-fleet delta).
     fn fleet_maintenance_for_empire(&self, empire_id: EmpireId) -> i64 {
-        let modifier = self
-            .empire_definition(empire_id)
-            .map(|def| def.military_modifiers.fleet_maintenance_modifier_per_fleet)
-            .unwrap_or(0);
-        self.state
-            .fleets
-            .values()
-            .filter(|f| f.owner == empire_id)
-            .map(|f| (f.kind.maintenance_cost() as i64 + modifier).max(0))
-            .sum()
+        fleet_maintenance_for_empire(&self.state, empire_id)
     }
 
     fn invasion_strength_for_empire(&self, empire_id: EmpireId, ships: u32) -> u32 {
@@ -781,7 +779,13 @@ impl Engine {
                 } else {
                     0
                 };
-                let mut production_pool = accumulated + production + ship_bonus;
+                // Use the yield-model industry as effective production so that
+                // output scales with population and FabricationYard buildings.
+                // We take the max with the raw `colony.production` field so that
+                // tests which set `production = 999` for instant builds remain
+                // unaffected.
+                let effective_production = (colony_yield.industry.max(1) as u64).max(production);
+                let mut production_pool = accumulated + effective_production + ship_bonus;
 
                 // Determine how many items complete this turn and collect them.
                 // We read the queue once, computing completions, then drain the prefix.
@@ -882,16 +886,20 @@ impl Engine {
                         }
                         BuildItem::CustomShip(design_id) => {
                             // Clone the stats we need before mutating state
-                            let (fleet_kind, strength) =
+                            let (fleet_kind, strength, integrity) =
                                 if let Some(design) = self.state.custom_designs.get(&design_id) {
                                     let stats = design.derived_stats();
-                                    (stats.fleet_kind, stats.attack.max(1))
+                                    (
+                                        stats.fleet_kind,
+                                        stats.attack.max(1),
+                                        stats.hp.max(1),
+                                    )
                                 } else {
                                     events.push(Event::error(format!(
                                         "Custom design {} not found at completion",
                                         design_id.0
                                     )));
-                                    (FleetKind::Scout, 1)
+                                    (FleetKind::Scout, 1, 100)
                                 };
                             let fleet_id = self.state.next_fleet_id();
                             self.state.fleets.insert(
@@ -903,9 +911,12 @@ impl Engine {
                                     ships: 1,
                                     kind: fleet_kind,
                                     strength,
-                                    integrity: 100,
+                                    integrity,
                                 },
                             );
+                            // Record the design association so maintenance and defense
+                            // modifiers from component choices remain in effect.
+                            self.state.fleet_custom_designs.insert(fleet_id, design_id);
                             events.push(Event::FleetCreated {
                                 fleet: fleet_id,
                                 location: star_id,
@@ -2409,6 +2420,7 @@ impl Engine {
         self.state.fleets.remove(&fleet_id);
         self.state.scout_missions.remove(&fleet_id);
         self.state.fleet_missions.remove(&fleet_id);
+        self.state.fleet_custom_designs.remove(&fleet_id);
 
         events.push(Event::ColonizationCompleted {
             empire: empire_id,
@@ -2555,6 +2567,7 @@ impl Engine {
             self.state.scout_missions.remove(&fleet_id);
             self.state.survey_missions.remove(&fleet_id);
             self.state.fleet_orders.remove(&fleet_id);
+            self.state.fleet_custom_designs.remove(&fleet_id);
             // Ownership and fleet changes can invalidate cached blockade state.
             // Recompute now so the next end-turn economy pass does not use stale blockade entries.
             self.state.colony_blockade = self.state.recompute_colony_blockade();
@@ -2616,6 +2629,7 @@ impl Engine {
             self.state.fleet_missions.remove(&fleet_id);
             self.state.scout_missions.remove(&fleet_id);
             self.state.survey_missions.remove(&fleet_id);
+            self.state.fleet_custom_designs.remove(&fleet_id);
         }
         transports_lost
     }
@@ -2781,15 +2795,32 @@ impl Engine {
                 None => continue,
             };
 
+            // Apply defense modifiers from custom designs, if any.
+            // A positive defense_modifier increases the divisor, reducing incoming damage.
+            let a_defense = self
+                .state
+                .fleet_custom_designs
+                .get(&arrived_fleet_id)
+                .and_then(|did| self.state.custom_designs.get(did))
+                .map(|d| d.derived_stats().defense.max(1) as u64)
+                .unwrap_or(a_str as u64);
+            let d_defense = self
+                .state
+                .fleet_custom_designs
+                .get(&enemy_id)
+                .and_then(|did| self.state.custom_designs.get(did))
+                .map(|d| d.derived_stats().defense.max(1) as u64)
+                .unwrap_or(d_str as u64);
+
             // Simultaneous damage: each fleet takes damage proportional to the
-            // opponent's strength relative to its own.
-            // Formula: damage = (opponent_strength * 100) / own_strength
-            // This means equal strengths → both take 100 damage (destroyed).
+            // opponent's strength relative to its own effective defense.
+            // Formula: damage = (opponent_strength * 100) / own_defense
+            // Equal attack and defense → both take 100 damage (destroyed).
             // Use u64 intermediates to avoid overflow when strength is large.
             let damage_to_arrived: u32 =
-                ((d_str as u64 * 100) / (a_str as u64).max(1)).min(u32::MAX as u64) as u32;
+                ((d_str as u64 * 100) / a_defense.max(1)).min(u32::MAX as u64) as u32;
             let damage_to_enemy: u32 =
-                ((a_str as u64 * 100) / (d_str as u64).max(1)).min(u32::MAX as u64) as u32;
+                ((a_str as u64 * 100) / d_defense.max(1)).min(u32::MAX as u64) as u32;
 
             let new_a_int = a_int.saturating_sub(damage_to_arrived);
             let new_d_int = d_int.saturating_sub(damage_to_enemy);
@@ -2813,12 +2844,14 @@ impl Engine {
 
             if fleet_a_destroyed {
                 self.state.fleets.remove(&arrived_fleet_id);
+                self.state.fleet_custom_designs.remove(&arrived_fleet_id);
             } else if let Some(f) = self.state.fleets.get_mut(&arrived_fleet_id) {
                 f.integrity = new_a_int;
             }
 
             if fleet_b_destroyed {
                 self.state.fleets.remove(&enemy_id);
+                self.state.fleet_custom_designs.remove(&enemy_id);
             } else if let Some(f) = self.state.fleets.get_mut(&enemy_id) {
                 f.integrity = new_d_int;
             }

@@ -279,6 +279,7 @@ impl Engine {
             galactic_dispatches: std::collections::VecDeque::new(),
             custom_designs: std::collections::BTreeMap::new(),
             next_custom_design_id: 0,
+            fleet_custom_designs: std::collections::BTreeMap::new(),
         };
 
         // Generate initial ship designs for all AI empires

@@ -48,10 +48,17 @@ const TECH_DOMAIN_ORDER: [TechDomain; 6] = [
     TechDomain::Biology,
 ];
 pub(crate) const RESEARCH_DOMAIN_FILTER_COUNT: usize = TECH_DOMAIN_ORDER.len() + 1;
-pub(crate) const RESEARCH_ERA_FILTER_COUNT: usize = 7; // all + tiers I..VI
+const ERA_FILTERS: [(&str, Option<TechTier>); 7] = [
+    ("All", None),
+    ("I", Some(TechTier::I)),
+    ("II", Some(TechTier::II)),
+    ("III", Some(TechTier::III)),
+    ("IV", Some(TechTier::IV)),
+    ("V", Some(TechTier::V)),
+    ("VI", Some(TechTier::VI)),
+];
+pub(crate) const RESEARCH_ERA_FILTER_COUNT: usize = ERA_FILTERS.len();
 pub(crate) const RESEARCH_STATUS_FILTER_COUNT: usize = 6; // all + 5 statuses
-const ERA_FILTER_LABELS: [&str; RESEARCH_ERA_FILTER_COUNT] =
-    ["All", "I", "II", "III", "IV", "V", "VI"];
 
 fn tech_domain_sort_index(domain: TechDomain) -> usize {
     TECH_DOMAIN_ORDER
@@ -162,20 +169,10 @@ pub(crate) fn filtered_research_techs<'a>(
             }
         })
         .filter(|tech| {
-            if era_filter == 0 {
-                true
-            } else {
-                let tier = match era_filter {
-                    1 => TechTier::I,
-                    2 => TechTier::II,
-                    3 => TechTier::III,
-                    4 => TechTier::IV,
-                    5 => TechTier::V,
-                    6 => TechTier::VI,
-                    _ => unreachable!("era_filter is clamped to 0..=6"),
-                };
-                tech.tier == tier
-            }
+            let Some((_, tier_filter)) = ERA_FILTERS.get(era_filter) else {
+                return false;
+            };
+            tier_filter.is_none_or(|tier| tech.tier == tier)
         })
         .filter(|tech| {
             if status_filter == 0 {
@@ -291,10 +288,10 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
             .name()
             .to_string()
     };
-    let era_filter_label = ERA_FILTER_LABELS
+    let era_filter_label = ERA_FILTERS
         .get(app_state.research.era_filter)
-        .copied()
-        .unwrap_or(ERA_FILTER_LABELS[RESEARCH_ERA_FILTER_COUNT - 1])
+        .map(|(label, _)| *label)
+        .unwrap_or(ERA_FILTERS[RESEARCH_ERA_FILTER_COUNT - 1].0)
         .to_string();
     let status_filter_label = match app_state.research.status_filter {
         0 => "All".to_string(),

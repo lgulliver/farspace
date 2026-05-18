@@ -1231,4 +1231,54 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn save_load_round_trip_preserves_dispatch_history() {
+        use crate::{load, save};
+        use game_core::dispatch::{
+            DispatchCategory, DispatchItem, DispatchSeverity, GalacticDispatch,
+        };
+
+        let mut state = GameState::default();
+        // Populate a non-empty dispatch history
+        state.galactic_dispatches.push_back(GalacticDispatch {
+            turn: 4,
+            title: "Galactic Dispatch — Turn 5".to_string(),
+            items: vec![DispatchItem {
+                category: DispatchCategory::Exploration,
+                severity: DispatchSeverity::Notice,
+                headline: "Survey Crews Chart New Frontier Worlds".to_string(),
+                body: "Scout vessels have confirmed a new system entry.".to_string(),
+                related_empire_id: None,
+                related_star_id: None,
+                related_planet_index: None,
+            }],
+        });
+        state.galactic_dispatches.push_back(GalacticDispatch {
+            turn: 9,
+            title: "Galactic Dispatch — Turn 10".to_string(),
+            items: vec![],
+        });
+
+        let bytes = save(&state).expect("save should succeed");
+        let loaded = load(&bytes).expect("load should succeed");
+
+        assert_eq!(
+            loaded.galactic_dispatches, state.galactic_dispatches,
+            "dispatch history must survive a save/load round-trip"
+        );
+        assert_eq!(
+            loaded.galactic_dispatches.len(),
+            2,
+            "both dispatches must be present after round-trip"
+        );
+        assert_eq!(
+            loaded.galactic_dispatches[0].title,
+            "Galactic Dispatch — Turn 5"
+        );
+        assert_eq!(
+            loaded.galactic_dispatches[1].title,
+            "Galactic Dispatch — Turn 10"
+        );
+    }
 }

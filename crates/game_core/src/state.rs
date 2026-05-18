@@ -1599,6 +1599,10 @@ pub struct GameState {
     /// Counter for the next custom design ID to allocate.
     #[cfg_attr(feature = "serde", serde(default))]
     pub next_custom_design_id: u32,
+    /// Maps fleets built from custom designs to their originating design ID.
+    /// Used to apply derived stats (maintenance, defense) for custom-built fleets.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub fleet_custom_designs: BTreeMap<FleetId, CustomDesignId>,
 }
 
 impl GameState {
@@ -1885,6 +1889,8 @@ impl PartialEq for GameState {
             && self.victory_status == other.victory_status
             && self.custom_designs == other.custom_designs
             && self.next_custom_design_id == other.next_custom_design_id
+            && self.fleet_custom_designs == other.fleet_custom_designs
+            && self.galactic_dispatches == other.galactic_dispatches
     }
 }
 
@@ -1944,6 +1950,7 @@ impl Default for GameState {
             galactic_dispatches: VecDeque::new(),
             custom_designs: BTreeMap::new(),
             next_custom_design_id: 0,
+            fleet_custom_designs: BTreeMap::new(),
         }
     }
 }

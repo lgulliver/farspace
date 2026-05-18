@@ -2,6 +2,9 @@ use super::*;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static TEST_FILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
@@ -10,6 +13,49 @@ fn key(code: KeyCode) -> KeyEvent {
 /// Create a unique temporary file path for tests to avoid parallel races.
 fn tmp_save_path(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("farspace_test_{}.sav", name))
+}
+
+#[test]
+fn menu_v_key_cycles_visual_mode_without_active_game() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    let before = app.state.visual_mode;
+
+    app.handle_key(key(KeyCode::Char('v')));
+
+    assert_eq!(app.state.visual_mode, before.next());
+}
+
+#[test]
+fn visual_mode_config_roundtrip_from_file() {
+    let unique = TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "farspace_ui_mode_{}_{}.conf",
+        std::process::id(),
+        unique
+    ));
+
+    App::persist_visual_mode_to_path(&path, crate::visual_mode::VisualMode::NerdFont).unwrap();
+    let loaded = App::load_visual_mode_from_path(&path);
+    let _ = std::fs::remove_file(&path);
+
+    assert_eq!(loaded, crate::visual_mode::VisualMode::NerdFont);
+}
+
+#[test]
+fn visual_mode_invalid_config_falls_back_to_default() {
+    let unique = TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "farspace_ui_mode_invalid_{}_{}.conf",
+        std::process::id(),
+        unique
+    ));
+    std::fs::write(&path, "visual_mode=invalid\n").unwrap();
+
+    let loaded = App::load_visual_mode_from_path(&path);
+    let _ = std::fs::remove_file(&path);
+
+    assert_eq!(loaded, crate::visual_mode::VisualMode::default());
 }
 
 #[test]
@@ -2308,19 +2354,18 @@ fn player_operational_events_still_visible_in_log() {
 // Galactic Dispatch tests
 // ---------------------------------------------------------------------------
 
-/// Helper: advance the game by `n` turns to generate dispatches.
-fn advance_turns(app: &mut App, n: u32) {
-    for _ in 0..n {
-        app.dispatch_command(Command::EndTurn);
-    }
-}
-
 #[test]
 fn test_n_key_opens_dispatch_when_dispatch_available() {
     let mut app = App::new();
     app.new_game(42);
     // Advance enough turns to generate at least one dispatch (cadence = 5)
-    advance_turns(&mut app, 5);
+    // Close any auto-opened overlay before each end-turn key
+    for _ in 0..5 {
+        if app.state.overlay.show_dispatch {
+            app.state.overlay.show_dispatch = false;
+        }
+        app.dispatch_command(Command::EndTurn);
+    }
 
     let has_dispatch = app
         .engine
@@ -2328,80 +2373,98 @@ fn test_n_key_opens_dispatch_when_dispatch_available() {
         .map(|e| !e.state.galactic_dispatches.is_empty())
         .unwrap_or(false);
 
-    if has_dispatch {
-        // Close any auto-shown overlay first
-        app.state.overlay.show_dispatch = false;
+    assert!(
+        has_dispatch,
+        "advancing 5 turns must produce at least one cadence dispatch"
+    );
 
-        app.handle_key(key(KeyCode::Char('N')));
-        assert!(
-            app.state.overlay.show_dispatch,
-            "N key should open dispatch modal when dispatches exist"
-        );
-    }
-    // If no dispatch was generated (unlikely with 5 turns), the status message should be set
+    // Close any auto-shown overlay
+    app.state.overlay.show_dispatch = false;
+
+    app.handle_key(key(KeyCode::Char('N')));
+    assert!(
+        app.state.overlay.show_dispatch,
+        "N key should open dispatch modal when dispatches exist"
+    );
 }
 
 #[test]
 fn test_dispatch_overlay_closes_on_esc() {
     let mut app = App::new();
     app.new_game(42);
-    advance_turns(&mut app, 5);
-
-    // Manually set up the overlay
-    if app
-        .engine
-        .as_ref()
-        .map(|e| !e.state.galactic_dispatches.is_empty())
-        .unwrap_or(false)
-    {
-        app.state.overlay.show_dispatch = true;
-        app.state.overlay.dispatch_history_index = 0;
-
-        app.handle_key(key(KeyCode::Esc));
-        assert!(
-            !app.state.overlay.show_dispatch,
-            "Esc should close the dispatch modal"
-        );
+    for _ in 0..5 {
+        if app.state.overlay.show_dispatch {
+            app.state.overlay.show_dispatch = false;
+        }
+        app.dispatch_command(Command::EndTurn);
     }
+
+    assert!(
+        app.engine
+            .as_ref()
+            .map(|e| !e.state.galactic_dispatches.is_empty())
+            .unwrap_or(false),
+        "advancing 5 turns must produce at least one cadence dispatch"
+    );
+
+    app.state.overlay.show_dispatch = true;
+    app.state.overlay.dispatch_history_index = 0;
+
+    app.handle_key(key(KeyCode::Esc));
+    assert!(
+        !app.state.overlay.show_dispatch,
+        "Esc should close the dispatch modal"
+    );
 }
 
 #[test]
 fn test_dispatch_palette_command_opens_dispatch() {
     let mut app = App::new();
     app.new_game(42);
-    advance_turns(&mut app, 5);
-
-    if app
-        .engine
-        .as_ref()
-        .map(|e| !e.state.galactic_dispatches.is_empty())
-        .unwrap_or(false)
-    {
-        // Close any auto-shown overlay first
-        app.state.overlay.show_dispatch = false;
-
-        app.execute_palette_command(PaletteCommand::Dispatch);
-        assert!(
-            app.state.overlay.show_dispatch,
-            "PaletteCommand::Dispatch should open the dispatch modal"
-        );
-
-        // Reset and test alias
-        app.state.overlay.show_dispatch = false;
-        app.execute_palette_command(PaletteCommand::News);
-        assert!(
-            app.state.overlay.show_dispatch,
-            "PaletteCommand::News should also open the dispatch modal"
-        );
+    for _ in 0..5 {
+        if app.state.overlay.show_dispatch {
+            app.state.overlay.show_dispatch = false;
+        }
+        app.dispatch_command(Command::EndTurn);
     }
+
+    assert!(
+        app.engine
+            .as_ref()
+            .map(|e| !e.state.galactic_dispatches.is_empty())
+            .unwrap_or(false),
+        "advancing 5 turns must produce at least one cadence dispatch"
+    );
+
+    // Close any auto-shown overlay first
+    app.state.overlay.show_dispatch = false;
+
+    app.execute_palette_command(PaletteCommand::Dispatch);
+    assert!(
+        app.state.overlay.show_dispatch,
+        "PaletteCommand::Dispatch should open the dispatch modal"
+    );
+
+    // Reset and test alias
+    app.state.overlay.show_dispatch = false;
+    app.execute_palette_command(PaletteCommand::News);
+    assert!(
+        app.state.overlay.show_dispatch,
+        "PaletteCommand::News should also open the dispatch modal"
+    );
 }
 
 #[test]
 fn test_dispatch_navigation_cycles_history() {
     let mut app = App::new();
     app.new_game(42);
-    // Advance 10 turns to try to get multiple dispatches
-    advance_turns(&mut app, 10);
+    // Advance 10 turns to get multiple dispatches (cadence=5 → 2 dispatches)
+    for _ in 0..10 {
+        if app.state.overlay.show_dispatch {
+            app.state.overlay.show_dispatch = false;
+        }
+        app.dispatch_command(Command::EndTurn);
+    }
 
     let dispatch_count = app
         .engine
@@ -2409,10 +2472,10 @@ fn test_dispatch_navigation_cycles_history() {
         .map(|e| e.state.galactic_dispatches.len())
         .unwrap_or(0);
 
-    if dispatch_count < 2 {
-        // Not enough dispatches to test navigation — skip
-        return;
-    }
+    assert!(
+        dispatch_count >= 2,
+        "advancing 10 turns must produce at least 2 cadence dispatches, got {dispatch_count}"
+    );
 
     // Open dispatch at newest
     app.state.overlay.show_dispatch = true;
@@ -2540,40 +2603,31 @@ fn v_key_opens_victory_overview_with_progress_lines() {
 fn command_palette_core_commands_save_load_and_dispatch_work() {
     let mut app = App::new();
     app.new_game(42);
-    let temp_root = std::env::temp_dir().join(format!(
-        "farspace_palette_test_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&temp_root).expect("temp dir should be created");
-    let original_dir = std::env::current_dir().expect("current dir should be readable");
-    std::env::set_current_dir(&temp_root).expect("current dir should switch to temp dir");
-    let save_path = temp_root.join("farspace.sav");
+    let save_path = tmp_save_path("palette_core_commands");
+    let _ = std::fs::remove_file(&save_path);
 
     app.end_turn();
     let turn_before_save = app.engine.as_ref().unwrap().state.turn;
-    app.execute_palette_input("save");
+    app.execute_palette_command_with_path(PaletteCommand::Save, &save_path);
     assert!(app
         .state
         .status_message
         .as_deref()
-        .is_some_and(|msg| msg.contains("Save: wrote farspace.sav")));
+        .is_some_and(|msg| msg.contains("Save: wrote")));
 
     app.end_turn();
     assert!(app.engine.as_ref().unwrap().state.turn > turn_before_save);
-    app.execute_palette_input("load");
+    app.execute_palette_command_with_path(PaletteCommand::Load, &save_path);
     assert_eq!(app.engine.as_ref().unwrap().state.turn, turn_before_save);
 
-    advance_turns(&mut app, 5);
+    for _ in 0..5 {
+        app.end_turn();
+    }
     app.state.overlay.show_dispatch = false;
     app.execute_palette_input("dispatch");
     assert!(app.state.overlay.show_dispatch);
 
-    std::env::set_current_dir(&original_dir).expect("current dir should restore");
     let _ = std::fs::remove_file(&save_path);
-    let _ = std::fs::remove_dir_all(&temp_root);
 }
 
 #[test]

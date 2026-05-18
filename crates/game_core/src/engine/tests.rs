@@ -3884,6 +3884,7 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         galactic_dispatches: std::collections::VecDeque::new(),
         custom_designs: BTreeMap::new(),
         next_custom_design_id: 0,
+        fleet_custom_designs: BTreeMap::new(),
     };
 
     // Player star
@@ -4091,6 +4092,7 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         galactic_dispatches: std::collections::VecDeque::new(),
         custom_designs: BTreeMap::new(),
         next_custom_design_id: 0,
+        fleet_custom_designs: BTreeMap::new(),
     };
 
     // Populate stars, empires, colonies, fleet
@@ -4457,6 +4459,7 @@ fn contact_detection_is_deterministic() {
         galactic_dispatches: std::collections::VecDeque::new(),
         custom_designs: BTreeMap::new(),
         next_custom_design_id: 0,
+        fleet_custom_designs: BTreeMap::new(),
     };
 
     // Two AI empires each have a colony at target_star
@@ -8994,6 +8997,7 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         galactic_dispatches: std::collections::VecDeque::new(),
         custom_designs: BTreeMap::new(),
         next_custom_design_id: 0,
+        fleet_custom_designs: BTreeMap::new(),
     };
 
     state.stars.insert(
@@ -10173,6 +10177,238 @@ fn ai_empires_have_designs_after_setup() {
     }
 }
 
+// Balance and pacing tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod balance_tests {
+    use super::*;
+    use crate::balance;
+
+    /// Verify that Void Propulsion (cost=40, TechId(1)) can complete within 15 turns
+    /// for a standard starting colony researching it from turn 1.
+    #[test]
+    fn test_early_research_pacing() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+
+        // Set Void Propulsion as the active research
+        if let Some(empire) = engine.state.empires.get_mut(&player) {
+            empire.research.current_tech = Some(TechId(1));
+            empire.research.progress = 0;
+        }
+
+        let mut completed = false;
+        for _ in 0..15 {
+            let events = engine.apply_turn(vec![Command::EndTurn]);
+            if events
+                .iter()
+                .any(|e| matches!(e, Event::ResearchCompleted { tech, .. } if *tech == TechId(1)))
+            {
+                completed = true;
+                break;
+            }
+        }
+
+        assert!(
+            completed,
+            "Void Propulsion (cost {}) should complete within 15 turns from a standard colony",
+            40
+        );
+    }
+
+    /// Verify that a colony with higher population produces more industry.
+    #[test]
+    fn test_production_scales_with_population() {
+        use crate::yield_model::calculate_yield;
+
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        // Get a reference planet for yield calculation
+        let (star_id, planet_index) = {
+            let c = &engine.state.colonies[&colony_id];
+            (c.star, c.planet_index)
+        };
+        let planet = engine
+            .state
+            .stars
+            .get(&star_id)
+            .and_then(|s| s.planets.get(planet_index))
+            .cloned();
+
+        // Set up a low-pop colony
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .population = 5;
+        let low_pop_colony = engine.state.colonies[&colony_id].clone();
+        let yield_low = calculate_yield(&low_pop_colony, planet.as_ref());
+
+        // Set up a high-pop colony
+        engine
+            .state
+            .colonies
+            .get_mut(&colony_id)
+            .unwrap()
+            .population = 20;
+        let high_pop_colony = engine.state.colonies[&colony_id].clone();
+        let yield_high = calculate_yield(&high_pop_colony, planet.as_ref());
+
+        assert!(
+            yield_high.industry > yield_low.industry,
+            "Colony with pop=20 ({}) should produce more industry than pop=5 ({})",
+            yield_high.industry,
+            yield_low.industry
+        );
+    }
+
+    /// Verify that population grows when conditions are met (enough food, stability, housing).
+    #[test]
+    fn test_pop_growth_within_bounds() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        let colony_id = ColonyId(1);
+        let initial_pop = engine.state.colonies[&colony_id].population;
+
+        // Set stability well above the threshold
+        engine.state.colonies.get_mut(&colony_id).unwrap().stability = 100;
+
+        // Ensure empire has food surplus (required for pop growth)
+        engine.state.empires.get_mut(&player).unwrap().food = 100;
+
+        // Derive the required turn so that cadence = turn + colony_id.0 is a multiple
+        // of POP_GROWTH_PERIOD_TURNS.  The formula generalises for any colony_id.0 value:
+        //   turn ≡ -colony_id.0 (mod POP_GROWTH_PERIOD_TURNS)
+        let period = u64::from(POP_GROWTH_PERIOD_TURNS);
+        let growth_turn = ((period - colony_id.0 % period) % period) as u32;
+        engine.state.turn = growth_turn;
+
+        let events = engine.apply_turn(vec![Command::EndTurn]);
+        let grew = events
+            .iter()
+            .any(|e| matches!(e, Event::PopulationGrew { colony, .. } if *colony == colony_id));
+
+        let final_pop = engine.state.colonies[&colony_id].population;
+
+        assert!(
+            grew || final_pop > initial_pop,
+            "Population should grow when stability=100, food surplus, and growth cadence met \
+             (initial_pop={}, final_pop={}, grew={})",
+            initial_pop,
+            final_pop,
+            grew
+        );
+    }
+
+    /// Verify that a blockaded colony loses stability over time.
+    #[test]
+    fn test_blockade_stability_pressure() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+
+        let enemy_id = engine.state.ai_empire.expect("Engine must have AI empire");
+
+        // Directly inject the blockade state to bypass the "defender present"
+        // guard (the starting engine has a player scout at the home star).
+        // This tests the stability penalty logic in process_end_turn directly.
+        engine.state.colony_blockade.insert(colony_id, enemy_id);
+
+        let initial_stability = engine.state.colonies[&colony_id].stability;
+
+        engine.apply_turn(vec![Command::EndTurn]);
+        let after_stability = engine.state.colonies[&colony_id].stability;
+
+        // Note: process_end_turn recomputes blockade at the end; the penalty is
+        // applied based on the pre-turn blockade we injected above.
+        assert!(
+            after_stability < initial_stability,
+            "Blockaded colony stability ({}) should decrease from initial ({})",
+            after_stability,
+            initial_stability
+        );
+        assert_eq!(
+            initial_stability - after_stability,
+            balance::BLOCKADED_STABILITY_PENALTY,
+            "Stability loss must equal BLOCKADED_STABILITY_PENALTY"
+        );
+    }
+
+    /// Verify that population growth is suppressed when food balance is negative.
+    #[test]
+    fn test_colony_growth_suppressed_food_shortage() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        let colony_id = ColonyId(1);
+
+        // Put empire in food deficit
+        engine.state.empires.get_mut(&player).unwrap().food = -10;
+
+        // Set stability high (not the limiting factor)
+        engine.state.colonies.get_mut(&colony_id).unwrap().stability = 100;
+
+        let initial_pop = engine.state.colonies[&colony_id].population;
+
+        // Advance many turns to confirm no growth occurs
+        for _ in 0..50 {
+            // Keep food negative
+            engine.state.empires.get_mut(&player).unwrap().food = -10;
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+
+        let final_pop = engine.state.colonies[&colony_id].population;
+        assert_eq!(
+            final_pop, initial_pop,
+            "Population should not grow when empire food is negative"
+        );
+    }
+
+    /// Verify that empire credits decrease when maintaining many fleets.
+    #[test]
+    fn test_maintenance_limits_fleet_spam() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+
+        // Give the player empire a lot of credits to start
+        engine.state.empires.get_mut(&player).unwrap().credits = 1_000;
+
+        // Add many combat fleets (Patrol Corvettes have maintenance cost 1)
+        let player_star = engine.state.colonies[&ColonyId(1)].star;
+        // Start IDs high enough to avoid collisions with the engine-generated fleets
+        // that Engine::new() pre-inserts (which begin at low IDs like 1, 2, …).
+        let start_fleet_id = 9_200u64;
+        for i in 0..20 {
+            let fid = FleetId(start_fleet_id + i);
+            engine.state.fleets.insert(
+                fid,
+                Fleet {
+                    id: fid,
+                    owner: player,
+                    location: player_star,
+                    ships: 1,
+                    kind: FleetKind::PatrolCorvette,
+                    strength: 5,
+                    integrity: 100,
+                },
+            );
+        }
+
+        let credits_before = engine.state.empires[&player].credits;
+        engine.apply_turn(vec![Command::EndTurn]);
+        let credits_after = engine.state.empires[&player].credits;
+
+        // Credits should have decreased due to fleet maintenance
+        assert!(
+            credits_after < credits_before,
+            "Empire credits should decrease after paying fleet maintenance (before={}, after={})",
+            credits_before,
+            credits_after
+        );
+    }
+}
+
 /// Test: CreateShipDesign is deterministic — same seed, same commands → same design ID
 #[test]
 fn create_ship_design_is_deterministic() {
@@ -10301,5 +10537,41 @@ fn build_custom_ship_obsolete_design_fails() {
     assert!(
         has_error,
         "Queuing an obsolete custom design must emit an Error event"
+    );
+}
+
+#[test]
+fn dispatch_history_trimmed_to_max() {
+    use crate::dispatch::DISPATCH_MAX_HISTORY;
+
+    // Create an engine and run enough turns to overflow DISPATCH_MAX_HISTORY.
+    // Each cadence is 5 turns; we run (DISPATCH_MAX_HISTORY + 2) * 5 turns to guarantee
+    // more than DISPATCH_MAX_HISTORY dispatches would have been generated without trimming.
+    let mut engine = Engine::new(42);
+    let over_limit_turns = (DISPATCH_MAX_HISTORY as u32 + 2) * 5;
+    for _ in 0..over_limit_turns {
+        engine.apply_turn(vec![Command::EndTurn]);
+    }
+
+    assert!(
+        engine.state.galactic_dispatches.len() <= DISPATCH_MAX_HISTORY,
+        "dispatch history must be capped at DISPATCH_MAX_HISTORY ({}), got {}",
+        DISPATCH_MAX_HISTORY,
+        engine.state.galactic_dispatches.len()
+    );
+
+    // Must have the maximum number of dispatches (not fewer)
+    assert_eq!(
+        engine.state.galactic_dispatches.len(),
+        DISPATCH_MAX_HISTORY,
+        "dispatch history should be exactly DISPATCH_MAX_HISTORY after overflow"
+    );
+
+    // The oldest dispatch should have been evicted — the front dispatch turn
+    // must be later than turn 0 (which would be the very first dispatch).
+    let front_turn = engine.state.galactic_dispatches.front().unwrap().turn;
+    assert!(
+        front_turn > 0,
+        "oldest dispatch should have been evicted; front turn is {front_turn}"
     );
 }

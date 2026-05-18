@@ -17,8 +17,8 @@ use crate::visual_mode::{map_symbol_for_mode, user_config_path, VisualMode};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
     empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, ComponentId,
-    Engine, Event as CoreEvent, FleetId, FleetKind, GalaxySize, OrbitalStructureType,
-    ScenarioSetup, SectorId, StarId, TechId,
+    Engine, Event as CoreEvent, FleetFormation, FleetId, FleetKind, FleetRole, GalaxySize,
+    OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -80,6 +80,8 @@ pub(crate) struct NavigationState {
     pub(crate) selected_star: Option<StarId>,
     /// Selected planet index when inspecting a system.
     pub(crate) selected_planet_index: usize,
+    /// Selected fleet index when inspecting fleet posture in a system.
+    pub(crate) selected_fleet_index: usize,
 }
 
 /// Sector overview screen state.
@@ -905,6 +907,15 @@ impl App {
             }
             KeyCode::Char('I') => {
                 self.invade_selected_planet();
+            }
+            KeyCode::Char('f') => {
+                self.cycle_system_fleet_focus();
+            }
+            KeyCode::Char('R') => {
+                self.cycle_selected_fleet_role();
+            }
+            KeyCode::Char('F') => {
+                self.cycle_selected_fleet_formation();
             }
             KeyCode::Char('c') => {
                 if !self.try_enter_colony() {
@@ -2295,6 +2306,142 @@ impl App {
             star: star_id,
             planet_index,
         });
+    }
+
+    fn player_fleets_at_selected_star(&self) -> Vec<FleetId> {
+        let Some(engine) = &self.engine else {
+            return Vec::new();
+        };
+        let Some(star_id) = self.state.navigation.selected_star else {
+            return Vec::new();
+        };
+        engine
+            .state
+            .fleets
+            .values()
+            .filter(|fleet| fleet.owner == engine.state.player_empire && fleet.location == star_id)
+            .map(|fleet| fleet.id)
+            .collect()
+    }
+
+    fn cycle_system_fleet_focus(&mut self) {
+        let fleets = self.player_fleets_at_selected_star();
+        if fleets.is_empty() {
+            self.push_error_status("Unavailable: inspect fleet — no player fleets in this system.");
+            return;
+        }
+        self.state.navigation.selected_fleet_index =
+            (self.state.navigation.selected_fleet_index + 1) % fleets.len();
+        self.inspect_selected_fleet_composition();
+    }
+
+    fn inspect_selected_fleet_composition(&mut self) {
+        let fleets = self.player_fleets_at_selected_star();
+        if fleets.is_empty() {
+            return;
+        }
+        let Some(selected) = fleets
+            .get(
+                self.state
+                    .navigation
+                    .selected_fleet_index
+                    .min(fleets.len().saturating_sub(1)),
+            )
+            .copied()
+        else {
+            return;
+        };
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        let role = engine.state.fleet_role_for(selected);
+        let formation = engine.state.fleet_formation_for(selected);
+        if let Some(summary) = engine.state.fleet_evaluation(selected) {
+            self.push_status(
+                LogEntryKind::Other,
+                format!(
+                    "Fleet {} [{} | {}] off {} def {} inv {} mob {} esc {} blk {}",
+                    selected.0,
+                    role.label(),
+                    formation.label(),
+                    summary.offensive,
+                    summary.defensive,
+                    summary.invasion_capability,
+                    summary.mobility,
+                    summary.escort_quality,
+                    summary.blockade_strength
+                ),
+            );
+        }
+    }
+
+    fn cycle_selected_fleet_role(&mut self) {
+        let fleets = self.player_fleets_at_selected_star();
+        if fleets.is_empty() {
+            self.push_error_status(
+                "Unavailable: set fleet role — no player fleets in this system.",
+            );
+            return;
+        }
+        let Some(selected) = fleets
+            .get(
+                self.state
+                    .navigation
+                    .selected_fleet_index
+                    .min(fleets.len().saturating_sub(1)),
+            )
+            .copied()
+        else {
+            return;
+        };
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        let current = engine.state.fleet_role_for(selected);
+        let roles = FleetRole::all();
+        let idx = roles.iter().position(|role| *role == current).unwrap_or(0);
+        let next = roles[(idx + 1) % roles.len()];
+        self.dispatch_command(Command::SetFleetRole {
+            fleet: selected,
+            role: next,
+        });
+        self.inspect_selected_fleet_composition();
+    }
+
+    fn cycle_selected_fleet_formation(&mut self) {
+        let fleets = self.player_fleets_at_selected_star();
+        if fleets.is_empty() {
+            self.push_error_status(
+                "Unavailable: set fleet formation — no player fleets in this system.",
+            );
+            return;
+        }
+        let Some(selected) = fleets
+            .get(
+                self.state
+                    .navigation
+                    .selected_fleet_index
+                    .min(fleets.len().saturating_sub(1)),
+            )
+            .copied()
+        else {
+            return;
+        };
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        let current = engine.state.fleet_formation_for(selected);
+        let formations = FleetFormation::all();
+        let idx = formations
+            .iter()
+            .position(|formation| *formation == current)
+            .unwrap_or(0);
+        let next = formations[(idx + 1) % formations.len()];
+        self.dispatch_command(Command::SetFleetFormation {
+            fleet: selected,
+            formation: next,
+        });
+        self.inspect_selected_fleet_composition();
     }
 }
 

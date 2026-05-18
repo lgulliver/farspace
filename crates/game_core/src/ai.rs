@@ -17,14 +17,16 @@ use crate::engine::travel_turns_with_lanes;
 use crate::events::Event;
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, AiDoctrine, BuildItem, BuildingType,
-    Colony, ColonyId, ColonyRole, ComponentId, CustomDesignId, CustomShipDesign, EmpireId, FleetId,
-    FleetKind, GameState, OrbitalStructureType, PlanetClass, PlaystyleTag, ScoutMission,
-    ShipDesignId, SlotCategory, StarId, TechDomain, TechId, TechTag, VictoryPath,
+    Colony, ColonyId, ColonyRole, ComponentId, CustomDesignId, CustomShipDesign, EmpireId,
+    FleetFormation, FleetId, FleetKind, FleetRole, GameState, OrbitalStructureType, PlanetClass,
+    PlaystyleTag, ScoutMission, ShipDesignId, SlotCategory, StarId, TechDomain, TechId, TechTag,
+    VictoryPath,
 };
 use crate::yield_model::{calculate_yield_with_context, YieldContext};
 
 const FUTURE_PENALTY_MULTIPLIER: i32 = 12;
 const FOOD_CRISIS_SCORE_BONUS: i32 = 18;
+const MAX_SAFE_SCOUT_HOSTILE_STRENGTH: u32 = 4;
 
 /// Run one AI decision pass for the given empire.
 ///
@@ -36,6 +38,7 @@ pub fn run_ai_turn(state: &mut GameState, ai_empire_id: EmpireId) -> Vec<Event> 
 
     ai_select_research(state, ai_empire_id, &mut events);
     ai_queue_builds(state, ai_empire_id, &mut events);
+    ai_assign_fleet_posture(state, ai_empire_id, &mut events);
     ai_dispatch_scouts(state, ai_empire_id, &mut events);
     ai_dispatch_combat_fleets(state, ai_empire_id, &mut events);
     ai_colonize(state, ai_empire_id, &mut events);
@@ -744,10 +747,118 @@ fn pick_build_item(
 // Scout dispatch
 // ---------------------------------------------------------------------------
 
+fn ai_assign_fleet_posture(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Event>) {
+    let def = state
+        .empires
+        .get(&empire_id)
+        .and_then(|empire| empire.empire_def)
+        .and_then(empire_definition_by_id);
+    let doctrine = |axis| def.map(|d| d.doctrine_weight(axis)).unwrap_or(0);
+
+    let militarist = doctrine(AiDoctrine::Militarist);
+    let imperial = doctrine(AiDoctrine::Imperial);
+    let isolationist = doctrine(AiDoctrine::Isolationist);
+    let merchant = doctrine(AiDoctrine::Merchant);
+    let explorer = doctrine(AiDoctrine::Explorer);
+
+    let at_war_with_player = matches!(
+        state.relationship_status(empire_id, state.player_empire),
+        crate::state::RelationshipStatus::War
+    );
+    let has_hostile_colonies = state.colonies.values().any(|colony| {
+        colony.owner == state.player_empire
+            && state
+                .relationship_status(empire_id, colony.owner)
+                .is_hostile_or_war()
+    });
+
+    let fleet_ids: Vec<_> = state
+        .fleets
+        .iter()
+        .filter_map(|(fid, fleet)| (fleet.owner == empire_id).then_some(*fid))
+        .collect();
+
+    for fleet_id in fleet_ids {
+        let Some(fleet) = state.fleets.get(&fleet_id) else {
+            continue;
+        };
+        let role = match fleet.kind {
+            FleetKind::Scout | FleetKind::FastScout => {
+                if explorer >= 8 {
+                    FleetRole::RapidResponseFleet
+                } else {
+                    FleetRole::ExplorationFleet
+                }
+            }
+            FleetKind::Science | FleetKind::SurveyCutter => FleetRole::SurveyGroup,
+            FleetKind::Colonizer | FleetKind::ColonyArk => FleetRole::ColonyEscort,
+            FleetKind::TroopTransport => FleetRole::InvasionFleet,
+            FleetKind::PatrolCorvette => {
+                if merchant >= 8 {
+                    FleetRole::TradeProtectionFleet
+                } else if isolationist >= militarist.saturating_add(imperial) {
+                    FleetRole::DefenseFleet
+                } else {
+                    FleetRole::PatrolFleet
+                }
+            }
+            FleetKind::EscortFrigate | FleetKind::MissileFrigate | FleetKind::Destroyer => {
+                if at_war_with_player && has_hostile_colonies && imperial >= 8 {
+                    FleetRole::BlockadeFleet
+                } else if militarist + imperial >= 12 {
+                    FleetRole::StrikeFleet
+                } else if isolationist >= militarist {
+                    FleetRole::DefenseFleet
+                } else {
+                    FleetRole::PatrolFleet
+                }
+            }
+        };
+
+        let formation = match role {
+            FleetRole::ExplorationFleet | FleetRole::RapidResponseFleet => {
+                FleetFormation::FastAttack
+            }
+            FleetRole::SurveyGroup => FleetFormation::Balanced,
+            FleetRole::ColonyEscort | FleetRole::InvasionFleet => FleetFormation::EscortScreen,
+            FleetRole::DefenseFleet | FleetRole::TradeProtectionFleet => FleetFormation::Defensive,
+            FleetRole::StrikeFleet => {
+                if matches!(fleet.kind, FleetKind::MissileFrigate) {
+                    FleetFormation::Artillery
+                } else {
+                    FleetFormation::Aggressive
+                }
+            }
+            FleetRole::BlockadeFleet => FleetFormation::Defensive,
+            FleetRole::PatrolFleet => FleetFormation::Balanced,
+        };
+
+        if state.fleet_roles.get(&fleet_id).copied() != Some(role) {
+            state.fleet_roles.insert(fleet_id, role);
+            events.push(Event::FleetRoleChanged {
+                fleet: fleet_id,
+                role,
+            });
+        }
+        if state.fleet_formations.get(&fleet_id).copied() != Some(formation) {
+            state.fleet_formations.insert(fleet_id, formation);
+            events.push(Event::FleetFormationChanged {
+                fleet: fleet_id,
+                formation,
+            });
+        }
+        state
+            .fleet_names
+            .entry(fleet_id)
+            .or_insert_with(|| format!("{} {}", fleet.kind.label(), fleet_id.0));
+    }
+}
+
 fn ai_dispatch_scouts(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Event>) {
     if let Some((fleet_id, destination)) = pick_scout_target(state, empire_id) {
         let origin = state.fleets[&fleet_id].location;
-        let (turns, used_lane) = travel_turns_with_lanes(state, empire_id, origin, destination);
+        let (turns, used_lane) =
+            ai_travel_turns_for_fleet(state, fleet_id, empire_id, origin, destination);
         state.scout_missions.insert(
             fleet_id,
             ScoutMission {
@@ -772,6 +883,23 @@ fn ai_dispatch_scouts(state: &mut GameState, empire_id: EmpireId, events: &mut V
             destination,
         });
     }
+}
+
+fn ai_travel_turns_for_fleet(
+    state: &GameState,
+    fleet_id: FleetId,
+    empire_id: EmpireId,
+    origin: StarId,
+    destination: StarId,
+) -> (u32, bool) {
+    let (base_turns, used_lane) = travel_turns_with_lanes(state, empire_id, origin, destination);
+    let mobility = state
+        .fleet_evaluation(fleet_id)
+        .map(|summary| summary.mobility)
+        .unwrap_or(100)
+        .max(1);
+    let adjusted_turns = ((base_turns as u64 * 100).div_ceil(mobility as u64) as u32).max(1);
+    (adjusted_turns, used_lane)
 }
 
 // ---------------------------------------------------------------------------
@@ -838,6 +966,7 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
             Some(f) => f.location,
             None => continue,
         };
+        let role = state.fleet_role_for(fleet_id);
 
         // Find the nearest player colony star; tie-break by ascending StarId
         let fleet_star = match state.stars.get(&fleet_loc) {
@@ -846,7 +975,25 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
         };
         let (fleet_x, fleet_y) = (fleet_star.x, fleet_star.y);
 
-        let mut candidates: Vec<(i64, StarId)> = target_stars
+        let preferred_targets: std::collections::BTreeSet<StarId> =
+            if role == FleetRole::BlockadeFleet {
+                state
+                    .colonies
+                    .values()
+                    .filter(|colony| colony.owner == player)
+                    .filter(|colony| !state.colony_blockade.contains_key(&colony.id))
+                    .map(|colony| colony.star)
+                    .collect()
+            } else {
+                std::collections::BTreeSet::new()
+            };
+        let target_pool: Vec<StarId> = if preferred_targets.is_empty() {
+            target_stars.clone()
+        } else {
+            preferred_targets.into_iter().collect()
+        };
+
+        let mut candidates: Vec<(i64, StarId)> = target_pool
             .iter()
             .filter_map(|&sid| {
                 let s = state.stars.get(&sid)?;
@@ -869,7 +1016,8 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
             continue;
         }
 
-        let (turns, used_lane) = travel_turns_with_lanes(state, empire_id, fleet_loc, destination);
+        let (turns, used_lane) =
+            ai_travel_turns_for_fleet(state, fleet_id, empire_id, fleet_loc, destination);
 
         use crate::state::FleetMission;
         state.fleet_missions.insert(
@@ -934,6 +1082,21 @@ fn pick_scout_target(state: &GameState, empire_id: EmpireId) -> Option<(FleetId,
         .stars
         .keys()
         .filter(|&sid| !state.ai_explored_stars.contains(sid) && !already_targeted.contains(sid))
+        .filter(|&&sid| {
+            let hostile_strength: u32 = state
+                .fleets
+                .values()
+                .filter(|fleet| {
+                    fleet.location == sid
+                        && fleet.owner != empire_id
+                        && state
+                            .relationship_status(empire_id, fleet.owner)
+                            .is_hostile_or_war()
+                })
+                .map(|fleet| fleet.strength)
+                .sum();
+            hostile_strength <= MAX_SAFE_SCOUT_HOSTILE_STRENGTH
+        })
         .filter_map(|&sid| {
             let s = state.stars.get(&sid)?;
             let dx = (s.x - fleet_star.x) as i64;
@@ -3224,5 +3387,103 @@ mod tests {
                 "Dispatched fleet must have an active FleetMission"
             );
         }
+    }
+
+    #[test]
+    fn terran_concord_and_dominion_fleet_posture_differs() {
+        use crate::state::{EmpireDefinitionId, Fleet, FleetFormation, FleetRole};
+
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        let ai = ai_id(&engine);
+
+        engine.state.empires.get_mut(&player).unwrap().empire_def = Some(EmpireDefinitionId(6)); // Terran Concord
+        engine.state.empires.get_mut(&ai).unwrap().empire_def = Some(EmpireDefinitionId(7)); // Terran Dominion
+        engine
+            .state
+            .diplomacy
+            .insert(ai, crate::state::RelationshipStatus::War);
+        engine.state.turn = 30;
+
+        let player_star = engine.state.empires[&player].home_star;
+        let ai_star = engine.state.empires[&ai].home_star;
+        let concord_fleet = FleetId(7001);
+        let dominion_fleet = FleetId(7002);
+        engine.state.fleets.insert(
+            concord_fleet,
+            Fleet {
+                id: concord_fleet,
+                owner: player,
+                location: player_star,
+                ships: 1,
+                kind: FleetKind::EscortFrigate,
+                strength: 6,
+                integrity: 100,
+            },
+        );
+        engine.state.fleets.insert(
+            dominion_fleet,
+            Fleet {
+                id: dominion_fleet,
+                owner: ai,
+                location: ai_star,
+                ships: 1,
+                kind: FleetKind::EscortFrigate,
+                strength: 6,
+                integrity: 100,
+            },
+        );
+
+        let _ = run_ai_turn(&mut engine.state, player);
+        let _ = run_ai_turn(&mut engine.state, ai);
+
+        assert_eq!(
+            engine.state.fleet_formation_for(concord_fleet),
+            FleetFormation::Defensive
+        );
+        assert!(
+            matches!(
+                engine.state.fleet_role_for(dominion_fleet),
+                FleetRole::StrikeFleet | FleetRole::BlockadeFleet | FleetRole::PatrolFleet
+            ),
+            "Dominion fleet should not mirror Concord defensive posture"
+        );
+    }
+
+    #[test]
+    fn exploration_fleets_avoid_high_threat_targets_when_possible() {
+        use crate::state::Fleet;
+
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+        let player = engine.state.player_empire;
+
+        // Pick one unexplored star and place a strong hostile fleet there.
+        let threatened_star = *engine
+            .state
+            .stars
+            .keys()
+            .find(|sid| !engine.state.ai_explored_stars.contains(sid))
+            .expect("need unexplored target");
+        engine
+            .state
+            .diplomacy
+            .insert(ai, crate::state::RelationshipStatus::War);
+        engine.state.fleets.insert(
+            FleetId(7010),
+            Fleet {
+                id: FleetId(7010),
+                owner: player,
+                location: threatened_star,
+                ships: 2,
+                kind: FleetKind::Destroyer,
+                strength: 20,
+                integrity: 100,
+            },
+        );
+
+        let (_, target) =
+            pick_scout_target(&engine.state, ai).expect("AI should still find a safe scout target");
+        assert_ne!(target, threatened_star);
     }
 }

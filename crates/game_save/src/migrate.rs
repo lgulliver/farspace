@@ -356,6 +356,18 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // Both fields carry #[serde(default)] so old saves deserialise them as empty
             // map / 0 respectively.  This is a passthrough version bump.
             let mut metadata = save.metadata;
+            metadata.schema_version = 30;
+            migrate(SaveFile {
+                version: 30,
+                metadata,
+                state: save.state,
+            })
+        }
+        30 => {
+            // v30 → v31: GameState gained fleet_roles, fleet_formations, and fleet_names
+            // for Fleet Roles and Formations v1. All fields carry serde defaults, so this
+            // remains a passthrough bump preserving existing saves.
+            let mut metadata = save.metadata;
             metadata.schema_version = CURRENT_VERSION;
             Ok(SaveFile {
                 version: CURRENT_VERSION,

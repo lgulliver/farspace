@@ -3876,6 +3876,9 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         hyperspace_lanes: BTreeSet::new(),
         known_hyperspace_lanes: BTreeSet::new(),
         fleet_orders: BTreeMap::new(),
+        fleet_roles: BTreeMap::new(),
+        fleet_formations: BTreeMap::new(),
+        fleet_names: BTreeMap::new(),
         scenario: None,
         ai_empires: vec![ai_id],
         colony_supply: BTreeMap::new(),
@@ -4084,6 +4087,9 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         hyperspace_lanes: BTreeSet::new(),
         known_hyperspace_lanes: BTreeSet::new(),
         fleet_orders: BTreeMap::new(),
+        fleet_roles: BTreeMap::new(),
+        fleet_formations: BTreeMap::new(),
+        fleet_names: BTreeMap::new(),
         scenario: None,
         ai_empires: vec![ai_id],
         colony_supply: BTreeMap::new(),
@@ -4451,6 +4457,9 @@ fn contact_detection_is_deterministic() {
         hyperspace_lanes: BTreeSet::new(),
         known_hyperspace_lanes: BTreeSet::new(),
         fleet_orders: BTreeMap::new(),
+        fleet_roles: BTreeMap::new(),
+        fleet_formations: BTreeMap::new(),
+        fleet_names: BTreeMap::new(),
         scenario: None,
         ai_empires: vec![ai1, ai2],
         colony_supply: BTreeMap::new(),
@@ -4677,6 +4686,11 @@ fn make_combat_state(
     state.fleets.clear();
     state.fleet_missions.clear();
     state.scout_missions.clear();
+    state.survey_missions.clear();
+    state.fleet_custom_designs.clear();
+    state.fleet_roles.clear();
+    state.fleet_formations.clear();
+    state.fleet_names.clear();
 
     let player = state.player_empire;
     let enemy_empire = EmpireId(2);
@@ -8989,6 +9003,9 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         hyperspace_lanes: BTreeSet::new(),
         known_hyperspace_lanes: BTreeSet::new(),
         fleet_orders: BTreeMap::new(),
+        fleet_roles: BTreeMap::new(),
+        fleet_formations: BTreeMap::new(),
+        fleet_names: BTreeMap::new(),
         scenario: None,
         ai_empires: vec![],
         colony_supply: BTreeMap::new(),
@@ -10574,4 +10591,126 @@ fn dispatch_history_trimmed_to_max() {
         front_turn > 0,
         "oldest dispatch should have been evicted; front turn is {front_turn}"
     );
+}
+
+#[test]
+fn fleet_role_and_formation_assignment_commands_are_deterministic() {
+    let mut engine = Engine::new(42);
+    let fleet_id = engine
+        .state
+        .fleets
+        .values()
+        .find(|fleet| fleet.owner == engine.state.player_empire)
+        .map(|fleet| fleet.id)
+        .expect("player fleet required");
+
+    let events_a = engine.apply_turn(vec![
+        Command::SetFleetRole {
+            fleet: fleet_id,
+            role: crate::state::FleetRole::StrikeFleet,
+        },
+        Command::SetFleetFormation {
+            fleet: fleet_id,
+            formation: crate::state::FleetFormation::Aggressive,
+        },
+    ]);
+    let events_b = engine.apply_turn(vec![
+        Command::SetFleetRole {
+            fleet: fleet_id,
+            role: crate::state::FleetRole::StrikeFleet,
+        },
+        Command::SetFleetFormation {
+            fleet: fleet_id,
+            formation: crate::state::FleetFormation::Aggressive,
+        },
+    ]);
+
+    assert_eq!(
+        engine.state.fleet_role_for(fleet_id),
+        crate::state::FleetRole::StrikeFleet
+    );
+    assert_eq!(
+        engine.state.fleet_formation_for(fleet_id),
+        crate::state::FleetFormation::Aggressive
+    );
+    assert!(events_a
+        .iter()
+        .any(|e| matches!(e, Event::FleetRoleChanged { fleet, .. } if *fleet == fleet_id)));
+    assert!(events_a
+        .iter()
+        .any(|e| matches!(e, Event::FleetFormationChanged { fleet, .. } if *fleet == fleet_id)));
+    assert_eq!(
+        events_a
+            .iter()
+            .filter(|e| matches!(e, Event::FleetRoleChanged { .. }))
+            .count(),
+        events_b
+            .iter()
+            .filter(|e| matches!(e, Event::FleetRoleChanged { .. }))
+            .count()
+    );
+}
+
+#[test]
+fn fleet_role_assignment_unknown_fleet_emits_error() {
+    let mut engine = Engine::new(42);
+    let events = engine.apply_turn(vec![Command::SetFleetRole {
+        fleet: FleetId(999_999),
+        role: crate::state::FleetRole::DefenseFleet,
+    }]);
+    assert!(events.iter().any(|e| e.is_error()));
+}
+
+#[test]
+fn fleet_evaluation_is_deterministic_for_same_composition() {
+    let engine_a = Engine::new(123);
+    let engine_b = Engine::new(123);
+    let fleet_id = engine_a
+        .state
+        .fleets
+        .keys()
+        .next()
+        .copied()
+        .expect("fleet required");
+
+    assert_eq!(
+        engine_a.state.fleet_evaluation(fleet_id),
+        engine_b.state.fleet_evaluation(fleet_id)
+    );
+}
+
+#[test]
+fn fleet_formation_modifiers_change_summary_deterministically() {
+    let mut engine = Engine::new(42);
+    let fleet_id = engine
+        .state
+        .fleets
+        .values()
+        .find(|fleet| fleet.owner == engine.state.player_empire)
+        .map(|fleet| fleet.id)
+        .expect("player fleet required");
+
+    let baseline = engine
+        .state
+        .fleet_evaluation(fleet_id)
+        .expect("summary required");
+    engine.apply_turn(vec![Command::SetFleetFormation {
+        fleet: fleet_id,
+        formation: crate::state::FleetFormation::Aggressive,
+    }]);
+    let aggressive = engine
+        .state
+        .fleet_evaluation(fleet_id)
+        .expect("summary required");
+    engine.apply_turn(vec![Command::SetFleetFormation {
+        fleet: fleet_id,
+        formation: crate::state::FleetFormation::Defensive,
+    }]);
+    let defensive = engine
+        .state
+        .fleet_evaluation(fleet_id)
+        .expect("summary required");
+
+    assert!(aggressive.offensive >= baseline.offensive);
+    assert!(defensive.defensive >= baseline.defensive);
 }

@@ -16,7 +16,7 @@ use crate::renderer::{
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{ColonySupplyState, FleetKind, GameState};
+use game_core::{empire_definition_by_id, ColonySupplyState, FleetKind, GameState};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
@@ -468,6 +468,7 @@ fn render_system_details(
         planet,
         survey_state,
         &fleets_here,
+        app_state.navigation.selected_fleet_index,
     );
 }
 
@@ -639,6 +640,7 @@ fn render_system_detail_facts(
     planet: &game_core::Planet,
     survey_state: &str,
     fleets_here: &[&game_core::Fleet],
+    selected_fleet_index: usize,
 ) {
     let mut lines = Vec::new();
     lines.push(Line::from(vec![
@@ -822,7 +824,7 @@ fn render_system_detail_facts(
     if fleets_here.is_empty() {
         lines.push(Line::from(Span::styled("  None", Theme::muted_style())));
     } else {
-        for fleet in fleets_here {
+        for (idx, fleet) in fleets_here.iter().enumerate() {
             let order_label = match game_state.fleet_orders.get(&fleet.id) {
                 Some(game_core::FleetOrder::Hold) => " [Hold]".to_string(),
                 Some(game_core::FleetOrder::MoveToSystem(star_id)) => {
@@ -830,71 +832,47 @@ fn render_system_detail_facts(
                 }
                 None => String::new(),
             };
-            let label = match fleet.kind {
-                FleetKind::Colonizer => {
-                    format!("  Colony Ship {}{}", fleet.id.0, order_label)
-                }
-                FleetKind::ColonyArk => {
-                    format!("  Colony Ark {}{}", fleet.id.0, order_label)
-                }
-                FleetKind::Scout => format!("  Scout {}{}", fleet.id.0, order_label),
-                FleetKind::FastScout => {
-                    format!("  Fast Scout {}{}", fleet.id.0, order_label)
-                }
-                FleetKind::Science => {
-                    let mission = game_state.survey_missions.get(&fleet.id);
-                    match mission {
-                        Some(mission) => format!(
-                            "  Science Ship {} (Surveying orbit {}){}",
-                            fleet.id.0,
-                            mission.planet_index + 1,
-                            order_label
-                        ),
-                        None => format!("  Science Ship {}{}", fleet.id.0, order_label),
-                    }
-                }
-                FleetKind::SurveyCutter => {
-                    let mission = game_state.survey_missions.get(&fleet.id);
-                    match mission {
-                        Some(mission) => format!(
-                            "  Survey Cutter {} (Surveying orbit {}){}",
-                            fleet.id.0,
-                            mission.planet_index + 1,
-                            order_label
-                        ),
-                        None => format!("  Survey Cutter {}{}", fleet.id.0, order_label),
-                    }
-                }
-                FleetKind::TroopTransport => {
-                    format!("  Troop Transport {}{}", fleet.id.0, order_label)
-                }
-                FleetKind::EscortFrigate => {
+            let role = game_state.fleet_role_for(fleet.id);
+            let formation = game_state.fleet_formation_for(fleet.id);
+            let doctrine = game_state
+                .empires
+                .get(&fleet.owner)
+                .and_then(|empire| empire.empire_def)
+                .and_then(empire_definition_by_id)
+                .map(|def| def.doctrine_short_summary())
+                .unwrap_or_else(|| "N/A".to_string());
+            let composition = format!("{}x {}", fleet.ships, fleet.kind.label());
+            let summary = game_state
+                .fleet_evaluation(fleet.id)
+                .map(|eval| {
                     format!(
-                        "  Escort Frigate {} [str:{}]{}",
-                        fleet.id.0, fleet.strength, order_label
+                        "off {} def {} inv {} mob {}",
+                        eval.offensive, eval.defensive, eval.invasion_capability, eval.mobility
                     )
+                })
+                .unwrap_or_else(|| "off ? def ? inv ? mob ?".to_string());
+            let prefix = if idx == selected_fleet_index { "▶" } else { " " };
+            let mut name = game_state.fleet_name_for(fleet.id);
+            if matches!(fleet.kind, FleetKind::Science | FleetKind::SurveyCutter) {
+                if let Some(mission) = game_state.survey_missions.get(&fleet.id) {
+                    name.push_str(&format!(" (Surveying orbit {})", mission.planet_index + 1));
                 }
-                FleetKind::MissileFrigate => {
-                    format!(
-                        "  Missile Frigate {} [str:{}]{}",
-                        fleet.id.0, fleet.strength, order_label
-                    )
-                }
-                FleetKind::Destroyer => {
-                    format!(
-                        "  Destroyer {} [str:{}]{}",
-                        fleet.id.0, fleet.strength, order_label
-                    )
-                }
-                FleetKind::PatrolCorvette => {
-                    format!(
-                        "  Patrol Corvette {} [str:{}]{}",
-                        fleet.id.0, fleet.strength, order_label
-                    )
-                }
-            };
-            lines.push(Line::from(Span::raw(label)));
+            }
+            lines.push(Line::from(Span::raw(format!(
+                "{prefix} {} [{} | {} | DOC {}] {} · {}{}",
+                name,
+                role.label(),
+                formation.label(),
+                doctrine,
+                composition,
+                summary,
+                order_label
+            ))));
         }
+        lines.push(Line::from(Span::styled(
+            "  [f] focus fleet  [R] next role  [F] next formation",
+            Theme::muted_style(),
+        )));
     }
 
     frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), area);

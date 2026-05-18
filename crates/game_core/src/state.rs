@@ -1093,6 +1093,103 @@ impl FleetOrder {
     }
 }
 
+/// Strategic mission role assigned to a fleet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum FleetRole {
+    #[default]
+    PatrolFleet,
+    ExplorationFleet,
+    SurveyGroup,
+    ColonyEscort,
+    StrikeFleet,
+    DefenseFleet,
+    InvasionFleet,
+    BlockadeFleet,
+    RapidResponseFleet,
+    TradeProtectionFleet,
+}
+
+impl FleetRole {
+    pub fn all() -> &'static [FleetRole] {
+        &[
+            FleetRole::ExplorationFleet,
+            FleetRole::SurveyGroup,
+            FleetRole::ColonyEscort,
+            FleetRole::PatrolFleet,
+            FleetRole::StrikeFleet,
+            FleetRole::DefenseFleet,
+            FleetRole::InvasionFleet,
+            FleetRole::BlockadeFleet,
+            FleetRole::RapidResponseFleet,
+            FleetRole::TradeProtectionFleet,
+        ]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FleetRole::ExplorationFleet => "Exploration Fleet",
+            FleetRole::SurveyGroup => "Survey Group",
+            FleetRole::ColonyEscort => "Colony Escort",
+            FleetRole::PatrolFleet => "Patrol Fleet",
+            FleetRole::StrikeFleet => "Strike Fleet",
+            FleetRole::DefenseFleet => "Defense Fleet",
+            FleetRole::InvasionFleet => "Invasion Fleet",
+            FleetRole::BlockadeFleet => "Blockade Fleet",
+            FleetRole::RapidResponseFleet => "Rapid Response Fleet",
+            FleetRole::TradeProtectionFleet => "Trade Protection Fleet",
+        }
+    }
+
+    pub fn default_for_kind(kind: FleetKind) -> FleetRole {
+        match kind {
+            FleetKind::Scout | FleetKind::FastScout => FleetRole::ExplorationFleet,
+            FleetKind::Science | FleetKind::SurveyCutter => FleetRole::SurveyGroup,
+            FleetKind::Colonizer | FleetKind::ColonyArk => FleetRole::ColonyEscort,
+            FleetKind::TroopTransport => FleetRole::InvasionFleet,
+            FleetKind::EscortFrigate | FleetKind::PatrolCorvette => FleetRole::DefenseFleet,
+            FleetKind::MissileFrigate | FleetKind::Destroyer => FleetRole::StrikeFleet,
+        }
+    }
+}
+
+/// Abstract fleet formation posture used by strategic auto-resolve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum FleetFormation {
+    #[default]
+    Balanced,
+    Aggressive,
+    Defensive,
+    FastAttack,
+    Artillery,
+    EscortScreen,
+}
+
+impl FleetFormation {
+    pub fn all() -> &'static [FleetFormation] {
+        &[
+            FleetFormation::Balanced,
+            FleetFormation::Aggressive,
+            FleetFormation::Defensive,
+            FleetFormation::FastAttack,
+            FleetFormation::Artillery,
+            FleetFormation::EscortScreen,
+        ]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FleetFormation::Balanced => "Balanced",
+            FleetFormation::Aggressive => "Aggressive",
+            FleetFormation::Defensive => "Defensive",
+            FleetFormation::FastAttack => "Fast Attack",
+            FleetFormation::Artillery => "Artillery",
+            FleetFormation::EscortScreen => "Escort Screen",
+        }
+    }
+}
+
 /// The role of a fleet
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -1123,6 +1220,22 @@ pub enum FleetKind {
 }
 
 impl FleetKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            FleetKind::Scout => "Scout",
+            FleetKind::Science => "Science Ship",
+            FleetKind::Colonizer => "Colony Ship",
+            FleetKind::TroopTransport => "Troop Transport",
+            FleetKind::FastScout => "Fast Scout",
+            FleetKind::SurveyCutter => "Survey Cutter",
+            FleetKind::ColonyArk => "Colony Ark",
+            FleetKind::EscortFrigate => "Escort Frigate",
+            FleetKind::MissileFrigate => "Missile Frigate",
+            FleetKind::Destroyer => "Destroyer",
+            FleetKind::PatrolCorvette => "Patrol Corvette",
+        }
+    }
+
     /// Credits-per-turn maintenance cost for one fleet of this kind.
     pub fn maintenance_cost(self) -> u32 {
         match self {
@@ -1192,6 +1305,19 @@ pub struct Fleet {
     /// Structural integrity of this fleet (starts at 100; 0 = destroyed)
     #[cfg_attr(feature = "serde", serde(default = "default_fleet_integrity"))]
     pub integrity: u32,
+}
+
+/// Deterministic derived fleet summary used by AI planning and strategic UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct FleetEvaluation {
+    pub offensive: u32,
+    pub defensive: u32,
+    pub invasion_capability: u32,
+    pub survey_capability: u32,
+    pub mobility: u32,
+    pub blockade_strength: u32,
+    pub escort_quality: u32,
 }
 
 #[cfg(feature = "serde")]
@@ -1561,6 +1687,15 @@ pub struct GameState {
     /// A fleet with no entry here has no explicit order and is considered idle.
     #[cfg_attr(feature = "serde", serde(default))]
     pub fleet_orders: BTreeMap<FleetId, FleetOrder>,
+    /// Authoritative strategic role assignment per fleet.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub fleet_roles: BTreeMap<FleetId, FleetRole>,
+    /// Authoritative formation stance per fleet.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub fleet_formations: BTreeMap<FleetId, FleetFormation>,
+    /// Optional user/AI-assigned fleet names.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub fleet_names: BTreeMap<FleetId, String>,
     /// Scenario setup used to create this game.  Preserved through save/load
     /// for display and future scenario tooling.  `None` for games started
     /// before this field was introduced (pre-v20 saves).
@@ -1668,6 +1803,179 @@ impl GameState {
         self.colony_blockade.get(&colony_id).copied()
     }
 
+    /// Return fleet role, defaulting deterministically from fleet kind.
+    pub fn fleet_role_for(&self, fleet_id: FleetId) -> FleetRole {
+        self.fleet_roles
+            .get(&fleet_id)
+            .copied()
+            .or_else(|| {
+                self.fleets
+                    .get(&fleet_id)
+                    .map(|fleet| FleetRole::default_for_kind(fleet.kind))
+            })
+            .unwrap_or(FleetRole::PatrolFleet)
+    }
+
+    /// Return fleet formation, defaulting to Balanced.
+    pub fn fleet_formation_for(&self, fleet_id: FleetId) -> FleetFormation {
+        self.fleet_formations
+            .get(&fleet_id)
+            .copied()
+            .unwrap_or(FleetFormation::Balanced)
+    }
+
+    /// Return fleet display name, falling back to deterministic generated name.
+    pub fn fleet_name_for(&self, fleet_id: FleetId) -> String {
+        if let Some(name) = self.fleet_names.get(&fleet_id) {
+            return name.clone();
+        }
+        self.fleets
+            .get(&fleet_id)
+            .map(|fleet| format!("{} {}", fleet.kind.label(), fleet_id.0))
+            .unwrap_or_else(|| format!("Fleet {}", fleet_id.0))
+    }
+
+    /// Compute deterministic strategic summary for one fleet.
+    pub fn fleet_evaluation(&self, fleet_id: FleetId) -> Option<FleetEvaluation> {
+        let fleet = self.fleets.get(&fleet_id)?;
+        let role = self.fleet_role_for(fleet_id);
+        let formation = self.fleet_formation_for(fleet_id);
+
+        let mut offensive = fleet.strength.saturating_mul(fleet.ships.max(1));
+        let mut defensive = (fleet.integrity / 10)
+            .saturating_add(fleet.strength)
+            .saturating_mul(fleet.ships.max(1));
+        let mut invasion_capability = if fleet.kind == FleetKind::TroopTransport {
+            fleet.ships.saturating_mul(12)
+        } else {
+            0
+        };
+        let mut survey_capability: u32 = if fleet.kind.is_survey() { 100 } else { 0 };
+        let mut mobility: i32 = 100;
+        let mut blockade_strength = if fleet.kind.is_combat() || fleet.kind == FleetKind::TroopTransport
+        {
+            fleet.strength
+        } else {
+            0
+        };
+        let mut escort_quality = if matches!(
+            fleet.kind,
+            FleetKind::EscortFrigate | FleetKind::PatrolCorvette | FleetKind::Destroyer
+        ) {
+            fleet.strength
+        } else {
+            0
+        };
+
+        if let Some(design_id) = self.fleet_custom_designs.get(&fleet_id) {
+            if let Some(design) = self.custom_designs.get(design_id) {
+                let stats = design.derived_stats();
+                offensive = offensive.saturating_add(stats.attack);
+                defensive = defensive.saturating_add(stats.defense.saturating_add(stats.hp / 5));
+                invasion_capability = invasion_capability.saturating_add(stats.invasion_strength);
+                survey_capability = survey_capability.saturating_add(stats.survey_effectiveness);
+            }
+        }
+
+        match role {
+            FleetRole::ExplorationFleet => {
+                offensive = offensive.saturating_mul(85) / 100;
+                defensive = defensive.saturating_mul(90) / 100;
+                mobility += 20;
+            }
+            FleetRole::SurveyGroup => {
+                survey_capability = survey_capability.saturating_add(35);
+                mobility += 10;
+            }
+            FleetRole::ColonyEscort => {
+                escort_quality = escort_quality.saturating_add(12);
+                defensive = defensive.saturating_mul(110) / 100;
+            }
+            FleetRole::PatrolFleet => {
+                blockade_strength = blockade_strength.saturating_add(8);
+            }
+            FleetRole::StrikeFleet => {
+                offensive = offensive.saturating_mul(120) / 100;
+            }
+            FleetRole::DefenseFleet => {
+                defensive = defensive.saturating_mul(125) / 100;
+                escort_quality = escort_quality.saturating_add(18);
+            }
+            FleetRole::InvasionFleet => {
+                invasion_capability = invasion_capability.saturating_add(20);
+                escort_quality = escort_quality.saturating_add(6);
+            }
+            FleetRole::BlockadeFleet => {
+                blockade_strength = blockade_strength.saturating_mul(140) / 100;
+                offensive = offensive.saturating_mul(110) / 100;
+            }
+            FleetRole::RapidResponseFleet => {
+                mobility += 30;
+                offensive = offensive.saturating_mul(105) / 100;
+            }
+            FleetRole::TradeProtectionFleet => {
+                defensive = defensive.saturating_mul(115) / 100;
+                escort_quality = escort_quality.saturating_add(14);
+            }
+        }
+
+        match formation {
+            FleetFormation::Balanced => {}
+            FleetFormation::Aggressive => {
+                offensive = offensive.saturating_mul(125) / 100;
+                defensive = defensive.saturating_mul(90) / 100;
+            }
+            FleetFormation::Defensive => {
+                offensive = offensive.saturating_mul(90) / 100;
+                defensive = defensive.saturating_mul(125) / 100;
+                mobility -= 10;
+            }
+            FleetFormation::FastAttack => {
+                mobility += 20;
+                offensive = offensive.saturating_mul(110) / 100;
+                defensive = defensive.saturating_mul(85) / 100;
+            }
+            FleetFormation::Artillery => {
+                offensive = offensive.saturating_mul(120) / 100;
+                defensive = defensive.saturating_mul(90) / 100;
+                blockade_strength = blockade_strength.saturating_add(10);
+            }
+            FleetFormation::EscortScreen => {
+                offensive = offensive.saturating_mul(90) / 100;
+                defensive = defensive.saturating_mul(120) / 100;
+                escort_quality = escort_quality.saturating_add(25);
+            }
+        }
+
+        if let Some(def) = self
+            .empires
+            .get(&fleet.owner)
+            .and_then(|empire| empire.empire_def)
+            .and_then(empire_definition_by_id)
+        {
+            let aggression = def.doctrine_weight(AiDoctrine::Militarist) as u32
+                + def.doctrine_weight(AiDoctrine::Imperial) as u32;
+            let caution = def.doctrine_weight(AiDoctrine::Isolationist) as u32
+                + def.doctrine_weight(AiDoctrine::Merchant) as u32;
+            let mobility_bias = def.doctrine_weight(AiDoctrine::Explorer) as i32
+                + def.doctrine_weight(AiDoctrine::Expansionist) as i32;
+
+            offensive = offensive.saturating_mul(100 + aggression.min(25)) / 100;
+            defensive = defensive.saturating_mul(100 + caution.min(25)) / 100;
+            mobility += (mobility_bias / 2).clamp(-20, 20);
+        }
+
+        Some(FleetEvaluation {
+            offensive: offensive.max(1),
+            defensive: defensive.max(1),
+            invasion_capability,
+            survey_capability,
+            mobility: mobility.clamp(50, 180) as u32,
+            blockade_strength,
+            escort_quality,
+        })
+    }
+
     /// Derive the relationship between two empires from the player's perspective.
     ///
     /// If neither empire is the player, returns `Unknown` (AI–AI not tracked).
@@ -1735,7 +2043,13 @@ impl GameState {
                             .relationship_status(colony_owner, *owner)
                             .is_hostile_or_war()
                 })
-                .min_by_key(|(fid, _)| *fid);
+                .min_by_key(|(fid, _)| {
+                    let strength = self
+                        .fleet_evaluation(*fid)
+                        .map(|eval| eval.blockade_strength)
+                        .unwrap_or(0);
+                    (u32::MAX.saturating_sub(strength), *fid)
+                });
 
             if let Some((_, blockading_empire)) = blockading_fleet {
                 // Only blocked if no friendly idle fleet is also present.
@@ -1882,6 +2196,9 @@ impl PartialEq for GameState {
             && self.hyperspace_lanes == other.hyperspace_lanes
             && self.known_hyperspace_lanes == other.known_hyperspace_lanes
             && self.fleet_orders == other.fleet_orders
+            && self.fleet_roles == other.fleet_roles
+            && self.fleet_formations == other.fleet_formations
+            && self.fleet_names == other.fleet_names
             && self.scenario == other.scenario
             && self.ai_empires == other.ai_empires
             && self.colony_supply == other.colony_supply
@@ -1942,6 +2259,9 @@ impl Default for GameState {
             hyperspace_lanes: BTreeSet::new(),
             known_hyperspace_lanes: BTreeSet::new(),
             fleet_orders: BTreeMap::new(),
+            fleet_roles: BTreeMap::new(),
+            fleet_formations: BTreeMap::new(),
+            fleet_names: BTreeMap::new(),
             scenario: None,
             ai_empires: Vec::new(),
             colony_supply: BTreeMap::new(),

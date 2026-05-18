@@ -10,10 +10,10 @@ use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hypers
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
     AiDoctrine, BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState, ComponentId,
-    CustomDesignId, CustomShipDesign, Empire, EmpireId, Fleet, FleetId, FleetKind, FleetMission,
-    FleetOrder, GameState, HullId, HyperspaceLane, OrbitalStructureType, RelationshipStatus,
-    ResearchState, ScenarioSetup, ScoutMission, ShipDesignId, StarId, SurveyMission, TechId,
-    YieldType,
+    CustomDesignId, CustomShipDesign, Empire, EmpireId, Fleet, FleetFormation, FleetId, FleetKind,
+    FleetMission, FleetOrder, FleetRole, GameState, HullId, HyperspaceLane, OrbitalStructureType,
+    RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission, ShipDesignId, StarId,
+    SurveyMission, TechId, YieldType,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
@@ -539,6 +539,15 @@ impl Engine {
                 Command::SetFleetOrder { fleet, order } => {
                     self.process_set_fleet_order(fleet, order, &mut events);
                 }
+                Command::SetFleetRole { fleet, role } => {
+                    self.process_set_fleet_role(fleet, role, &mut events);
+                }
+                Command::SetFleetFormation { fleet, formation } => {
+                    self.process_set_fleet_formation(fleet, formation, &mut events);
+                }
+                Command::RenameFleet { fleet, name } => {
+                    self.process_rename_fleet(fleet, name, &mut events);
+                }
                 Command::DeclareWar { target } => {
                     self.process_declare_war(target, &mut events);
                 }
@@ -842,6 +851,13 @@ impl Engine {
                                     fleet: fleet_id,
                                     location: star_id,
                                 });
+                                self.initialize_fleet_posture(
+                                    fleet_id,
+                                    owner,
+                                    design.fleet_kind,
+                                    star_id,
+                                    events,
+                                );
                                 self.maybe_route_to_rally_point(
                                     fleet_id, colony_id, star_id, events,
                                 );
@@ -879,6 +895,13 @@ impl Engine {
                                     fleet: fleet_id,
                                     location: star_id,
                                 });
+                                self.initialize_fleet_posture(
+                                    fleet_id,
+                                    owner,
+                                    design.fleet_kind,
+                                    star_id,
+                                    events,
+                                );
                                 self.maybe_route_to_rally_point(
                                     fleet_id, colony_id, star_id, events,
                                 );
@@ -917,6 +940,9 @@ impl Engine {
                                 fleet: fleet_id,
                                 location: star_id,
                             });
+                            self.initialize_fleet_posture(
+                                fleet_id, owner, fleet_kind, star_id, events,
+                            );
                             events.push(Event::CustomShipConstructed {
                                 empire: owner,
                                 colony: colony_id,
@@ -1228,6 +1254,26 @@ impl Engine {
                         star: star_id,
                         by_empire,
                     });
+                    if let Some((fleet_id, _)) = self
+                        .state
+                        .fleets
+                        .iter()
+                        .filter(|(fid, fleet)| {
+                            fleet.location == star_id
+                                && fleet.owner == by_empire
+                                && !self.state.fleet_missions.contains_key(*fid)
+                                && !self.state.scout_missions.contains_key(*fid)
+                                && !self.state.survey_missions.contains_key(*fid)
+                        })
+                        .min_by_key(|(fid, _)| *fid)
+                    {
+                        events.push(Event::BlockadeFleetEstablished {
+                            fleet: *fleet_id,
+                            colony: colony_id,
+                            star: star_id,
+                            by_empire,
+                        });
+                    }
                 }
                 (true, None) => {
                     events.push(Event::BlockadeEnded {
@@ -1493,8 +1539,8 @@ impl Engine {
                 && !self.state.survey_missions.contains_key(&fleet_id)
                 && !self.state.fleet_missions.contains_key(&fleet_id);
             if is_idle {
-                let (turns, used_lane) = travel_turns_with_lanes(
-                    &self.state,
+                let (turns, used_lane) = self.travel_turns_for_fleet(
+                    fleet_id,
                     self.state.player_empire,
                     from,
                     destination,
@@ -1532,6 +1578,153 @@ impl Engine {
             fleet: fleet_id,
             order,
         });
+    }
+
+    fn process_set_fleet_role(
+        &mut self,
+        fleet_id: FleetId,
+        role: FleetRole,
+        events: &mut Vec<Event>,
+    ) {
+        let fleet = match self.state.fleets.get(&fleet_id) {
+            Some(fleet) => fleet,
+            None => {
+                events.push(Event::error(format!("Fleet {} not found", fleet_id.0)));
+                return;
+            }
+        };
+        if fleet.owner != self.state.player_empire {
+            events.push(Event::error("Fleet not owned by player"));
+            return;
+        }
+        self.state.fleet_roles.insert(fleet_id, role);
+        events.push(Event::FleetRoleChanged {
+            fleet: fleet_id,
+            role,
+        });
+    }
+
+    fn process_set_fleet_formation(
+        &mut self,
+        fleet_id: FleetId,
+        formation: FleetFormation,
+        events: &mut Vec<Event>,
+    ) {
+        let fleet = match self.state.fleets.get(&fleet_id) {
+            Some(fleet) => fleet,
+            None => {
+                events.push(Event::error(format!("Fleet {} not found", fleet_id.0)));
+                return;
+            }
+        };
+        if fleet.owner != self.state.player_empire {
+            events.push(Event::error("Fleet not owned by player"));
+            return;
+        }
+        self.state.fleet_formations.insert(fleet_id, formation);
+        events.push(Event::FleetFormationChanged {
+            fleet: fleet_id,
+            formation,
+        });
+    }
+
+    fn process_rename_fleet(&mut self, fleet_id: FleetId, name: String, events: &mut Vec<Event>) {
+        let fleet = match self.state.fleets.get(&fleet_id) {
+            Some(fleet) => fleet,
+            None => {
+                events.push(Event::error(format!("Fleet {} not found", fleet_id.0)));
+                return;
+            }
+        };
+        if fleet.owner != self.state.player_empire {
+            events.push(Event::error("Fleet not owned by player"));
+            return;
+        }
+
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            events.push(Event::error("Fleet name cannot be empty"));
+            return;
+        }
+        if trimmed.len() > 32 {
+            events.push(Event::error("Fleet name too long (max 32 chars)"));
+            return;
+        }
+        self.state.fleet_names.insert(fleet_id, trimmed.to_string());
+        events.push(Event::FleetRenamed {
+            fleet: fleet_id,
+            name: trimmed.to_string(),
+        });
+    }
+
+    fn default_fleet_formation_for_owner(
+        &self,
+        owner: EmpireId,
+        role: FleetRole,
+        fleet_kind: FleetKind,
+    ) -> FleetFormation {
+        if let Some(def) = self
+            .state
+            .empires
+            .get(&owner)
+            .and_then(|empire| empire.empire_def)
+            .and_then(empire_definition_by_id)
+        {
+            if role == FleetRole::InvasionFleet {
+                return FleetFormation::EscortScreen;
+            }
+            if role == FleetRole::ExplorationFleet || role == FleetRole::RapidResponseFleet {
+                return FleetFormation::FastAttack;
+            }
+            let aggression = def.doctrine_weight(AiDoctrine::Militarist)
+                + def.doctrine_weight(AiDoctrine::Imperial);
+            let caution = def.doctrine_weight(AiDoctrine::Isolationist)
+                + def.doctrine_weight(AiDoctrine::Merchant);
+            if aggression >= caution.saturating_add(4) {
+                if matches!(fleet_kind, FleetKind::MissileFrigate) {
+                    return FleetFormation::Artillery;
+                }
+                return FleetFormation::Aggressive;
+            }
+            if caution >= aggression.saturating_add(4) {
+                return FleetFormation::Defensive;
+            }
+        }
+        FleetFormation::Balanced
+    }
+
+    fn initialize_fleet_posture(
+        &mut self,
+        fleet_id: FleetId,
+        owner: EmpireId,
+        fleet_kind: FleetKind,
+        at_star: StarId,
+        events: &mut Vec<Event>,
+    ) {
+        let role = FleetRole::default_for_kind(fleet_kind);
+        let formation = self.default_fleet_formation_for_owner(owner, role, fleet_kind);
+        self.state.fleet_roles.insert(fleet_id, role);
+        self.state.fleet_formations.insert(fleet_id, formation);
+        self.state
+            .fleet_names
+            .entry(fleet_id)
+            .or_insert_with(|| format!("{} {}", fleet_kind.label(), fleet_id.0));
+        events.push(Event::FleetRoleChanged {
+            fleet: fleet_id,
+            role,
+        });
+        events.push(Event::FleetFormationChanged {
+            fleet: fleet_id,
+            formation,
+        });
+
+        if role == FleetRole::InvasionFleet {
+            events.push(Event::InvasionFleetAssembled {
+                empire: owner,
+                fleet: fleet_id,
+                star: at_star,
+            });
+        }
     }
 
     /// Declare war on `target_empire`, setting the diplomatic relationship to `War`.
@@ -1698,7 +1891,7 @@ impl Engine {
         };
 
         let (turns, used_lane) =
-            travel_turns_with_lanes(&self.state, empire_id, from_star, rally_star);
+            self.travel_turns_for_fleet(fleet_id, empire_id, from_star, rally_star);
 
         self.state.fleet_missions.insert(
             fleet_id,
@@ -1730,6 +1923,24 @@ impl Engine {
                 to: rally_star,
             });
         }
+    }
+
+    fn travel_turns_for_fleet(
+        &self,
+        fleet_id: FleetId,
+        empire_id: EmpireId,
+        from: StarId,
+        to: StarId,
+    ) -> (u32, bool) {
+        let (base_turns, used_lane) = travel_turns_with_lanes(&self.state, empire_id, from, to);
+        let mobility = self
+            .state
+            .fleet_evaluation(fleet_id)
+            .map(|summary| summary.mobility)
+            .unwrap_or(100)
+            .max(1);
+        let adjusted_turns = ((base_turns as u64 * 100).div_ceil(mobility as u64) as u32).max(1);
+        (adjusted_turns, used_lane)
     }
 
     fn process_move_fleet(
@@ -1811,7 +2022,7 @@ impl Engine {
 
         // Calculate travel time from distance, with direct-lane bonus when available.
         let (turns, used_lane) =
-            travel_turns_with_lanes(&self.state, self.state.player_empire, from, destination);
+            self.travel_turns_for_fleet(fleet_id, self.state.player_empire, from, destination);
 
         // Create the fleet mission
         self.state.fleet_missions.insert(
@@ -2126,7 +2337,7 @@ impl Engine {
         // Calculate travel time from distance, with direct-lane bonus when available.
         let origin = fleet.location;
         let (turns, used_lane) =
-            travel_turns_with_lanes(&self.state, self.state.player_empire, origin, destination);
+            self.travel_turns_for_fleet(fleet_id, self.state.player_empire, origin, destination);
 
         // Create the scout mission
         self.state.scout_missions.insert(
@@ -2413,10 +2624,7 @@ impl Engine {
         // Consume the colonizer fleet.
         // The mission maps are cleared defensively so that no stale entries can
         // accumulate if the fleet was somehow in an inconsistent state on load.
-        self.state.fleets.remove(&fleet_id);
-        self.state.scout_missions.remove(&fleet_id);
-        self.state.fleet_missions.remove(&fleet_id);
-        self.state.fleet_custom_designs.remove(&fleet_id);
+        self.remove_fleet_and_assignments(fleet_id);
 
         events.push(Event::ColonizationCompleted {
             empire: empire_id,
@@ -2531,7 +2739,27 @@ impl Engine {
             return;
         };
         let defense_strength = Self::colony_defense_strength(&target_colony);
-        let invasion_strength = self.invasion_strength_for_empire(fleet.owner, fleet.ships);
+        let base_invasion_strength = self.invasion_strength_for_empire(fleet.owner, fleet.ships);
+        let escort_quality: u32 = self
+            .state
+            .fleets
+            .iter()
+            .filter(|(fid, f)| {
+                **fid != fleet_id
+                    && f.owner == fleet.owner
+                    && f.location == star_id
+                    && !self.state.fleet_missions.contains_key(*fid)
+                    && !self.state.scout_missions.contains_key(*fid)
+                    && !self.state.survey_missions.contains_key(*fid)
+            })
+            .map(|(fid, _)| {
+                self.state
+                    .fleet_evaluation(*fid)
+                    .map(|eval| eval.escort_quality)
+                    .unwrap_or(0)
+            })
+            .sum();
+        let invasion_strength = base_invasion_strength.saturating_add(escort_quality / 5);
 
         if hostile_orbital_defenders {
             events.push(Event::InvasionFailed {
@@ -2558,12 +2786,7 @@ impl Engine {
                 colony.rally_point = None;
             }
 
-            self.state.fleets.remove(&fleet_id);
-            self.state.fleet_missions.remove(&fleet_id);
-            self.state.scout_missions.remove(&fleet_id);
-            self.state.survey_missions.remove(&fleet_id);
-            self.state.fleet_orders.remove(&fleet_id);
-            self.state.fleet_custom_designs.remove(&fleet_id);
+            self.remove_fleet_and_assignments(fleet_id);
             // Ownership and fleet changes can invalidate cached blockade state.
             // Recompute now so the next end-turn economy pass does not use stale blockade entries.
             self.state.colony_blockade = self.state.recompute_colony_blockade();
@@ -2620,14 +2843,21 @@ impl Engine {
             }
         }
         if should_remove {
-            self.state.fleets.remove(&fleet_id);
-            self.state.fleet_orders.remove(&fleet_id);
-            self.state.fleet_missions.remove(&fleet_id);
-            self.state.scout_missions.remove(&fleet_id);
-            self.state.survey_missions.remove(&fleet_id);
-            self.state.fleet_custom_designs.remove(&fleet_id);
+            self.remove_fleet_and_assignments(fleet_id);
         }
         transports_lost
+    }
+
+    fn remove_fleet_and_assignments(&mut self, fleet_id: FleetId) {
+        self.state.fleets.remove(&fleet_id);
+        self.state.fleet_orders.remove(&fleet_id);
+        self.state.fleet_roles.remove(&fleet_id);
+        self.state.fleet_formations.remove(&fleet_id);
+        self.state.fleet_names.remove(&fleet_id);
+        self.state.fleet_missions.remove(&fleet_id);
+        self.state.scout_missions.remove(&fleet_id);
+        self.state.survey_missions.remove(&fleet_id);
+        self.state.fleet_custom_designs.remove(&fleet_id);
     }
 
     /// Mark a specific planet as surveyed and emit a `PlanetSurveyCompleted` event.
@@ -2791,6 +3021,46 @@ impl Engine {
                 None => continue,
             };
 
+            events.push(Event::FleetEngagementStarted {
+                star: star_id,
+                fleet_a: arrived_fleet_id,
+                fleet_b: enemy_id,
+            });
+
+            if self.should_avoid_engagement(arrived_fleet_id, a_str, d_str)
+                && self.start_retreat_if_possible(arrived_fleet_id, star_id, events)
+            {
+                break;
+            }
+            if self.should_avoid_engagement(enemy_id, d_str, a_str)
+                && self.start_retreat_if_possible(enemy_id, star_id, events)
+            {
+                continue;
+            }
+
+            let (mut a_attack_pct, a_defense_pct, a_retreat_threshold) =
+                self.fleet_combat_profile(arrived_fleet_id, star_id);
+            let (mut d_attack_pct, d_defense_pct, d_retreat_threshold) =
+                self.fleet_combat_profile(enemy_id, star_id);
+
+            // Artillery tends to counter defensive formations in auto-resolve.
+            if self.state.fleet_formation_for(arrived_fleet_id) == FleetFormation::Artillery
+                && matches!(
+                    self.state.fleet_formation_for(enemy_id),
+                    FleetFormation::Defensive | FleetFormation::EscortScreen
+                )
+            {
+                a_attack_pct = a_attack_pct.saturating_add(10);
+            }
+            if self.state.fleet_formation_for(enemy_id) == FleetFormation::Artillery
+                && matches!(
+                    self.state.fleet_formation_for(arrived_fleet_id),
+                    FleetFormation::Defensive | FleetFormation::EscortScreen
+                )
+            {
+                d_attack_pct = d_attack_pct.saturating_add(10);
+            }
+
             // Apply defense modifiers from custom designs, if any.
             // A positive defense_modifier increases the divisor, reducing incoming damage.
             let a_defense = self
@@ -2808,15 +3078,22 @@ impl Engine {
                 .map(|d| d.derived_stats().defense.max(1) as u64)
                 .unwrap_or(d_str as u64);
 
+            let a_attack = ((a_str as u64 * a_attack_pct.max(10) as u64) / 100).max(1);
+            let d_attack = ((d_str as u64 * d_attack_pct.max(10) as u64) / 100).max(1);
+            let a_effective_defense =
+                (a_defense * a_defense_pct.max(10) as u64 / 100).max(1);
+            let d_effective_defense =
+                (d_defense * d_defense_pct.max(10) as u64 / 100).max(1);
+
             // Simultaneous damage: each fleet takes damage proportional to the
             // opponent's strength relative to its own effective defense.
             // Formula: damage = (opponent_strength * 100) / own_defense
             // Equal attack and defense → both take 100 damage (destroyed).
             // Use u64 intermediates to avoid overflow when strength is large.
             let damage_to_arrived: u32 =
-                ((d_str as u64 * 100) / a_defense.max(1)).min(u32::MAX as u64) as u32;
+                ((d_attack * 100) / a_effective_defense).min(u32::MAX as u64) as u32;
             let damage_to_enemy: u32 =
-                ((a_str as u64 * 100) / d_defense.max(1)).min(u32::MAX as u64) as u32;
+                ((a_attack * 100) / d_effective_defense).min(u32::MAX as u64) as u32;
 
             let new_a_int = a_int.saturating_sub(damage_to_arrived);
             let new_d_int = d_int.saturating_sub(damage_to_enemy);
@@ -2839,23 +3116,222 @@ impl Engine {
             });
 
             if fleet_a_destroyed {
-                self.state.fleets.remove(&arrived_fleet_id);
-                self.state.fleet_custom_designs.remove(&arrived_fleet_id);
+                self.remove_fleet_and_assignments(arrived_fleet_id);
             } else if let Some(f) = self.state.fleets.get_mut(&arrived_fleet_id) {
                 f.integrity = new_a_int;
             }
 
             if fleet_b_destroyed {
-                self.state.fleets.remove(&enemy_id);
-                self.state.fleet_custom_designs.remove(&enemy_id);
+                self.remove_fleet_and_assignments(enemy_id);
             } else if let Some(f) = self.state.fleets.get_mut(&enemy_id) {
                 f.integrity = new_d_int;
+            }
+
+            if !fleet_a_destroyed
+                && new_a_int <= a_retreat_threshold
+                && self.start_retreat_if_possible(arrived_fleet_id, star_id, events)
+            {
+                break;
+            }
+            if !fleet_b_destroyed
+                && new_d_int <= d_retreat_threshold
+                && self.start_retreat_if_possible(enemy_id, star_id, events)
+            {
+                continue;
             }
 
             if fleet_a_destroyed {
                 break;
             }
         }
+    }
+
+    fn should_avoid_engagement(&self, fleet_id: FleetId, own_strength: u32, enemy_strength: u32) -> bool {
+        let role = self.state.fleet_role_for(fleet_id);
+        matches!(role, FleetRole::ExplorationFleet | FleetRole::SurveyGroup)
+            && enemy_strength > own_strength.saturating_mul(2)
+    }
+
+    fn fleet_combat_profile(&self, fleet_id: FleetId, star_id: StarId) -> (u32, u32, u32) {
+        let fleet = match self.state.fleets.get(&fleet_id) {
+            Some(fleet) => fleet,
+            None => return (100, 100, 40),
+        };
+        let role = self.state.fleet_role_for(fleet_id);
+        let formation = self.state.fleet_formation_for(fleet_id);
+
+        let mut attack_pct: u32 = 100;
+        let mut defense_pct: u32 = 100;
+        let mut retreat_threshold: u32 = 40;
+
+        match role {
+            FleetRole::ExplorationFleet => {
+                attack_pct = attack_pct.saturating_sub(20);
+                defense_pct = defense_pct.saturating_sub(10);
+                retreat_threshold = 75;
+            }
+            FleetRole::SurveyGroup => {
+                attack_pct = attack_pct.saturating_sub(15);
+                retreat_threshold = 70;
+            }
+            FleetRole::ColonyEscort => {
+                defense_pct = defense_pct.saturating_add(10);
+                retreat_threshold = 60;
+            }
+            FleetRole::PatrolFleet => {
+                defense_pct = defense_pct.saturating_add(5);
+            }
+            FleetRole::StrikeFleet => {
+                attack_pct = attack_pct.saturating_add(15);
+                defense_pct = defense_pct.saturating_sub(5);
+                retreat_threshold = 30;
+            }
+            FleetRole::DefenseFleet => {
+                defense_pct = defense_pct.saturating_add(20);
+            }
+            FleetRole::InvasionFleet => {
+                defense_pct = defense_pct.saturating_add(10);
+                retreat_threshold = 60;
+            }
+            FleetRole::BlockadeFleet => {
+                attack_pct = attack_pct.saturating_add(10);
+                retreat_threshold = 35;
+            }
+            FleetRole::RapidResponseFleet => {
+                attack_pct = attack_pct.saturating_add(5);
+                retreat_threshold = 55;
+            }
+            FleetRole::TradeProtectionFleet => {
+                defense_pct = defense_pct.saturating_add(10);
+                retreat_threshold = 60;
+            }
+        }
+
+        match formation {
+            FleetFormation::Balanced => {}
+            FleetFormation::Aggressive => {
+                attack_pct = attack_pct.saturating_add(20);
+                defense_pct = defense_pct.saturating_sub(10);
+                retreat_threshold = retreat_threshold.saturating_sub(10);
+            }
+            FleetFormation::Defensive => {
+                defense_pct = defense_pct.saturating_add(20);
+                attack_pct = attack_pct.saturating_sub(10);
+                retreat_threshold = retreat_threshold.saturating_add(10);
+            }
+            FleetFormation::FastAttack => {
+                attack_pct = attack_pct.saturating_add(15);
+                defense_pct = defense_pct.saturating_sub(15);
+            }
+            FleetFormation::Artillery => {
+                attack_pct = attack_pct.saturating_add(20);
+                defense_pct = defense_pct.saturating_sub(10);
+            }
+            FleetFormation::EscortScreen => {
+                attack_pct = attack_pct.saturating_sub(10);
+                defense_pct = defense_pct.saturating_add(25);
+            }
+        }
+
+        if formation == FleetFormation::EscortScreen {
+            let has_vulnerable_friendly = self.state.fleets.values().any(|other| {
+                other.owner == fleet.owner
+                    && other.location == star_id
+                    && !other.kind.is_combat()
+                    && other.id != fleet_id
+            });
+            if has_vulnerable_friendly {
+                defense_pct = defense_pct.saturating_add(15);
+            }
+        }
+
+        if let Some(def) = self
+            .state
+            .empires
+            .get(&fleet.owner)
+            .and_then(|empire| empire.empire_def)
+            .and_then(empire_definition_by_id)
+        {
+            let aggression = def.doctrine_weight(AiDoctrine::Militarist) as u32
+                + def.doctrine_weight(AiDoctrine::Imperial) as u32;
+            let caution = def.doctrine_weight(AiDoctrine::Isolationist) as u32
+                + def.doctrine_weight(AiDoctrine::Merchant) as u32;
+            attack_pct = attack_pct.saturating_add((aggression / 2).min(20));
+            defense_pct = defense_pct.saturating_add((caution / 2).min(20));
+            if caution > aggression {
+                retreat_threshold = retreat_threshold.saturating_add(((caution - aggression) / 2).min(15));
+            } else {
+                retreat_threshold = retreat_threshold.saturating_sub(((aggression - caution) / 2).min(10));
+            }
+        }
+
+        (
+            attack_pct.clamp(50, 180),
+            defense_pct.clamp(50, 200),
+            retreat_threshold.clamp(15, 85),
+        )
+    }
+
+    fn start_retreat_if_possible(
+        &mut self,
+        fleet_id: FleetId,
+        from_star: StarId,
+        events: &mut Vec<Event>,
+    ) -> bool {
+        if self.state.fleet_missions.contains_key(&fleet_id)
+            || self.state.scout_missions.contains_key(&fleet_id)
+            || self.state.survey_missions.contains_key(&fleet_id)
+        {
+            return false;
+        }
+
+        let Some(fleet) = self.state.fleets.get(&fleet_id).cloned() else {
+            return false;
+        };
+
+        let retreat_star = self
+            .state
+            .colonies
+            .values()
+            .filter(|colony| colony.owner == fleet.owner && colony.star != from_star)
+            .map(|colony| colony.star)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter_map(|candidate| {
+                let from = self.state.stars.get(&from_star)?;
+                let to = self.state.stars.get(&candidate)?;
+                let dx = (to.x - from.x) as i64;
+                let dy = (to.y - from.y) as i64;
+                Some((dx * dx + dy * dy, candidate))
+            })
+            .min_by_key(|(dist, sid)| (*dist, *sid))
+            .map(|(_, sid)| sid);
+
+        let Some(destination) = retreat_star else {
+            return false;
+        };
+
+        let (turns, _) = self.travel_turns_for_fleet(fleet_id, fleet.owner, from_star, destination);
+        self.state.fleet_missions.insert(
+            fleet_id,
+            FleetMission {
+                fleet: fleet_id,
+                destination,
+                turns_remaining: turns,
+                origin: from_star,
+                total_duration: turns,
+            },
+        );
+        self.state
+            .fleet_orders
+            .insert(fleet_id, FleetOrder::MoveToSystem(destination));
+        events.push(Event::FleetRetreatTriggered {
+            fleet: fleet_id,
+            from_star,
+            to_star: destination,
+            remaining_integrity: fleet.integrity,
+        });
+        true
     }
 }
 

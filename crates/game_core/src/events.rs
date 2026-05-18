@@ -1,8 +1,8 @@
 //! Events emitted by the game engine
 
 use crate::state::{
-    BuildItem, ColonyId, ColonyRole, CustomDesignId, EmpireId, FleetId, FleetOrder, HullId, StarId,
-    TechId, VictoryPath,
+    BuildItem, ColonyId, ColonyRole, CustomDesignId, EmpireId, FleetFormation, FleetId, FleetOrder,
+    FleetRole, HullId, StarId, TechId, VictoryPath,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -265,6 +265,15 @@ pub enum Event {
     RallyPointCleared { colony: ColonyId },
     /// A standing fleet order was set
     FleetOrderSet { fleet: FleetId, order: FleetOrder },
+    /// A fleet's strategic role was changed.
+    FleetRoleChanged { fleet: FleetId, role: FleetRole },
+    /// A fleet's formation posture was changed.
+    FleetFormationChanged {
+        fleet: FleetId,
+        formation: FleetFormation,
+    },
+    /// A fleet was renamed.
+    FleetRenamed { fleet: FleetId, name: String },
     /// A newly produced ship was automatically routed toward the colony's rally point
     ShipRoutedToRallyPoint {
         fleet: FleetId,
@@ -280,6 +289,13 @@ pub enum Event {
         /// The star system where the blockade is taking effect
         star: StarId,
         /// The empire imposing the blockade
+        by_empire: EmpireId,
+    },
+    /// A specific fleet established a blockade over an enemy colony.
+    BlockadeFleetEstablished {
+        fleet: FleetId,
+        colony: ColonyId,
+        star: StarId,
         by_empire: EmpireId,
     },
     /// A colony's blockade has been lifted
@@ -325,6 +341,25 @@ pub enum Event {
         colony: ColonyId,
         design_id: CustomDesignId,
         fleet: FleetId,
+    },
+    /// A fleet intentfully assembled as an invasion task force.
+    InvasionFleetAssembled {
+        empire: EmpireId,
+        fleet: FleetId,
+        star: StarId,
+    },
+    /// Combat engagement has started between two fleets.
+    FleetEngagementStarted {
+        star: StarId,
+        fleet_a: FleetId,
+        fleet_b: FleetId,
+    },
+    /// A fleet disengaged from combat and is retreating.
+    FleetRetreatTriggered {
+        fleet: FleetId,
+        from_star: StarId,
+        to_star: StarId,
+        remaining_integrity: u32,
     },
 }
 
@@ -743,6 +778,15 @@ impl Event {
                     format!("Fleet {}: order set — moving to system {}", fleet.0, star.0)
                 }
             },
+            Event::FleetRoleChanged { fleet, role } => {
+                format!("Fleet {}: role set to {}", fleet.0, role.label())
+            }
+            Event::FleetFormationChanged { fleet, formation } => {
+                format!("Fleet {}: formation set to {}", fleet.0, formation.label())
+            }
+            Event::FleetRenamed { fleet, name } => {
+                format!("Fleet {} renamed to '{}'", fleet.0, name)
+            }
             Event::ShipRoutedToRallyPoint {
                 fleet,
                 colony,
@@ -765,6 +809,15 @@ impl Event {
                     colony.0, star.0, by_empire.0
                 )
             }
+            Event::BlockadeFleetEstablished {
+                fleet,
+                colony,
+                star,
+                by_empire,
+            } => format!(
+                "Fleet {} (Empire {}) established blockade on colony {} at system {}",
+                fleet.0, by_empire.0, colony.0, star.0
+            ),
             Event::BlockadeEnded { colony, star } => {
                 format!("Colony {} at system {} blockade lifted", colony.0, star.0)
             }
@@ -823,6 +876,27 @@ impl Event {
                     empire.0, design_id.0, colony.0, fleet.0
                 )
             }
+            Event::InvasionFleetAssembled { empire, fleet, star } => format!(
+                "Empire {} assembled invasion fleet {} at system {}",
+                empire.0, fleet.0, star.0
+            ),
+            Event::FleetEngagementStarted {
+                star,
+                fleet_a,
+                fleet_b,
+            } => format!(
+                "Combat engagement started at system {} between fleets {} and {}",
+                star.0, fleet_a.0, fleet_b.0
+            ),
+            Event::FleetRetreatTriggered {
+                fleet,
+                from_star,
+                to_star,
+                remaining_integrity,
+            } => format!(
+                "Fleet {} retreating from system {} to {} at {}% integrity",
+                fleet.0, from_star.0, to_star.0, remaining_integrity
+            ),
         }
     }
 

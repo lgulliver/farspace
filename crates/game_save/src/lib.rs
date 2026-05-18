@@ -1975,4 +1975,41 @@ mod tests {
             "Terran Concord bonus should survive save/load"
         );
     }
+
+    #[test]
+    fn save_load_preserves_fleet_role_and_formation_assignments() {
+        let mut engine = Engine::new(42);
+        let fleet_id = engine
+            .state
+            .fleets
+            .values()
+            .find(|fleet| fleet.owner == engine.state.player_empire)
+            .map(|fleet| fleet.id)
+            .expect("player fleet required");
+        engine.state.fleet_roles.insert(
+            fleet_id,
+            game_core::FleetRole::RapidResponseFleet,
+        );
+        engine.state.fleet_formations.insert(
+            fleet_id,
+            game_core::FleetFormation::FastAttack,
+        );
+        engine
+            .state
+            .fleet_names
+            .insert(fleet_id, "Task Force Aurora".to_string());
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert_eq!(
+            loaded.fleet_role_for(fleet_id),
+            game_core::FleetRole::RapidResponseFleet
+        );
+        assert_eq!(
+            loaded.fleet_formation_for(fleet_id),
+            game_core::FleetFormation::FastAttack
+        );
+        assert_eq!(loaded.fleet_name_for(fleet_id), "Task Force Aurora");
+    }
 }

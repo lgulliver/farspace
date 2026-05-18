@@ -1,8 +1,8 @@
 //! Commands that can be issued to the game engine
 
 use crate::state::{
-    BuildItem, ColonyId, ColonyRole, ComponentId, CustomDesignId, EmpireId, FleetId, FleetOrder,
-    HullId, StarId, TechId,
+    BuildItem, ColonyId, ColonyRole, ComponentId, CustomDesignId, EmpireId, FleetFormation,
+    FleetId, FleetOrder, FleetRole, HullId, StarId, TechId,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -65,6 +65,15 @@ pub enum Command {
     ClearRallyPoint { colony: ColonyId },
     /// Set a standing order on a fleet
     SetFleetOrder { fleet: FleetId, order: FleetOrder },
+    /// Assign a strategic role to a fleet
+    SetFleetRole { fleet: FleetId, role: FleetRole },
+    /// Change a fleet's formation posture
+    SetFleetFormation {
+        fleet: FleetId,
+        formation: FleetFormation,
+    },
+    /// Rename a fleet
+    RenameFleet { fleet: FleetId, name: String },
     /// Declare war on a known empire, setting the relationship to `War`
     DeclareWar { target: EmpireId },
     /// Create a new custom ship design for the player empire

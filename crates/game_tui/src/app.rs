@@ -246,6 +246,8 @@ impl App {
     }
 
     fn apply_visual_mode_fallback(&self, frame: &mut Frame) {
+        // Global pass is intentional: every widget/path gets guaranteed fallback
+        // coverage without per-component branching. NerdFont mode bypasses this.
         if self.state.visual_mode == VisualMode::NerdFont {
             return;
         }

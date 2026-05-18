@@ -53,6 +53,10 @@ impl VisualMode {
     }
 }
 
+/// Resolve FARSPACE UI config path.
+///
+/// Empty `XDG_CONFIG_HOME` / `HOME` env vars are treated as unset to avoid
+/// producing relative paths like `farspace/ui.conf` in current working directory.
 pub fn user_config_path() -> Option<PathBuf> {
     user_config_path_from_env(
         std::env::var_os("XDG_CONFIG_HOME").as_deref(),
@@ -102,6 +106,8 @@ pub fn map_symbol_for_mode<'a>(mode: VisualMode, symbol: &'a str) -> Cow<'a, str
 }
 
 fn unicode_fallback(ch: char) -> char {
+    // Filter all Unicode private-use ranges so Unicode mode never renders
+    // NerdFont/private glyphs that are font-dependent.
     let is_private_use = ('\u{e000}'..='\u{f8ff}').contains(&ch)
         || ('\u{f0000}'..='\u{ffffd}').contains(&ch)
         || ('\u{100000}'..='\u{10fffd}').contains(&ch);

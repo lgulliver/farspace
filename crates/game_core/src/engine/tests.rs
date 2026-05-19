@@ -9854,7 +9854,7 @@ fn treaty_expiration_emits_event_deterministically() {
         Some(crate::state::TreatyType::NonAggressionPact),
     );
     let _ = engine.apply_turn(vec![Command::AcceptNonAggressionPact { target: ai_id }]);
-    engine.state.turn = engine.state.turn.saturating_add(12);
+    engine.state.turn = engine.state.turn.saturating_add(NAP_DURATION_TURNS);
     let events = engine.apply_turn(vec![Command::EndTurn]);
     assert!(events.iter().any(|event| {
         matches!(

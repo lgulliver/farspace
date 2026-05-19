@@ -47,6 +47,8 @@ const MAX_FLEET_NAME_LENGTH: usize = 32;
 const EXPLORER_AVOID_ENGAGEMENT_MULTIPLIER: u32 = 2;
 const AI_WARNING_FREQUENCY: u32 = 6;
 const AI_TRIBUTE_DEMAND_FREQUENCY: u32 = 9;
+const TRUCE_DURATION_TURNS: u32 = 8;
+const NAP_DURATION_TURNS: u32 = 12;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct YieldBonuses {
@@ -2367,10 +2369,10 @@ impl Engine {
 
     fn apply_accept_peace(&mut self, target: EmpireId, events: &mut Vec<Event>) {
         self.set_relationship_status(target, RelationshipStatus::Neutral, events);
-        self.add_treaty(target, TreatyType::Truce, 8, events);
+        self.add_treaty(target, TreatyType::Truce, TRUCE_DURATION_TURNS, events);
         events.push(Event::PeaceSigned {
             with_empire: target,
-            truce_expires_turn: self.state.turn.saturating_add(8),
+            truce_expires_turn: self.state.turn.saturating_add(TRUCE_DURATION_TURNS),
         });
     }
 
@@ -2472,7 +2474,12 @@ impl Engine {
             to_empire: self.state.player_empire,
             treaty_type: TreatyType::NonAggressionPact,
         });
-        self.add_treaty(target, TreatyType::NonAggressionPact, 12, events);
+        self.add_treaty(
+            target,
+            TreatyType::NonAggressionPact,
+            NAP_DURATION_TURNS,
+            events,
+        );
     }
 
     fn process_reject_non_aggression(&mut self, target: EmpireId, events: &mut Vec<Event>) {
@@ -2644,7 +2651,12 @@ impl Engine {
                     to_empire: self.state.player_empire,
                     treaty_type: TreatyType::NonAggressionPact,
                 });
-                self.add_treaty(other, TreatyType::NonAggressionPact, 12, events);
+                self.add_treaty(
+                    other,
+                    TreatyType::NonAggressionPact,
+                    NAP_DURATION_TURNS,
+                    events,
+                );
             }
             (
                 DiplomaticCommunicationType::TreatyProposal,

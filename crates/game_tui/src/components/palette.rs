@@ -221,6 +221,10 @@ mod tests {
             Some(PaletteCommand::VisualMode)
         );
         assert_eq!(
+            PaletteCommand::parse("visual").unwrap(),
+            Some(PaletteCommand::VisualMode)
+        );
+        assert_eq!(
             PaletteCommand::parse("dispatch").unwrap(),
             Some(PaletteCommand::Dispatch)
         );

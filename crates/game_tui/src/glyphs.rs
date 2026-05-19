@@ -2,6 +2,7 @@ use crate::visual_mode::VisualMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GlyphSet {
+    pub star: char,
     pub star_unexplored: char,
     pub star_selected: char,
     pub fleet_route: char,
@@ -33,11 +34,14 @@ pub struct GlyphSet {
     pub status_progress: char,
     pub status_done: char,
     pub status_save: char,
+    pub severity_historic: char,
+    pub severity_urgent: char,
 }
 
 pub const fn glyphs_for_mode(mode: VisualMode) -> GlyphSet {
     match mode {
         VisualMode::Ascii => GlyphSet {
+            star: '*',
             star_unexplored: 'o',
             star_selected: '@',
             fleet_route: '~',
@@ -69,8 +73,11 @@ pub const fn glyphs_for_mode(mode: VisualMode) -> GlyphSet {
             status_progress: '>',
             status_done: 'v',
             status_save: 's',
+            severity_historic: '*',
+            severity_urgent: '!',
         },
         VisualMode::Unicode => GlyphSet {
+            star: '★',
             star_unexplored: '◌',
             star_selected: '@',
             fleet_route: '~',
@@ -102,8 +109,11 @@ pub const fn glyphs_for_mode(mode: VisualMode) -> GlyphSet {
             status_progress: '▸',
             status_done: '✓',
             status_save: '◈',
+            severity_historic: '★',
+            severity_urgent: '⚠',
         },
         VisualMode::NerdFont => GlyphSet {
+            star: '\u{f005}',
             star_unexplored: '\u{f10c}',
             star_selected: '@',
             fleet_route: '~',
@@ -135,6 +145,8 @@ pub const fn glyphs_for_mode(mode: VisualMode) -> GlyphSet {
             status_progress: '\u{e0b1}',
             status_done: '\u{f00c}',
             status_save: '\u{f0c7}',
+            severity_historic: '\u{f005}',
+            severity_urgent: '\u{f071}',
         },
     }
 }
@@ -147,6 +159,7 @@ mod tests {
     fn ascii_mode_is_ascii_safe() {
         let glyphs = glyphs_for_mode(VisualMode::Ascii);
         let chars = [
+            glyphs.star,
             glyphs.star_unexplored,
             glyphs.transit,
             glyphs.warning,
@@ -159,6 +172,8 @@ mod tests {
             glyphs.status_progress,
             glyphs.status_done,
             glyphs.status_save,
+            glyphs.severity_historic,
+            glyphs.severity_urgent,
         ];
         assert!(chars.iter().all(|ch| ch.is_ascii()));
     }
@@ -167,12 +182,15 @@ mod tests {
     fn unicode_mode_uses_non_private_unicode_symbols() {
         let glyphs = glyphs_for_mode(VisualMode::Unicode);
         let chars = [
+            glyphs.star,
             glyphs.star_unexplored,
             glyphs.transit,
             glyphs.warning,
             glyphs.resource,
             glyphs.separator_dot,
             glyphs.status_done,
+            glyphs.severity_historic,
+            glyphs.severity_urgent,
         ];
         assert!(chars.iter().all(|ch| {
             !('\u{e000}'..='\u{f8ff}').contains(ch)

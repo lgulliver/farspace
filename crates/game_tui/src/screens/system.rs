@@ -118,7 +118,7 @@ fn render_orbital_panel(
     };
 
     let mut lines = vec![Line::from(vec![
-        Span::styled(format!("{} ", glyphs.resource), Theme::title_style()),
+        Span::styled(format!("{} ", glyphs.star), Theme::title_style()),
         Span::styled(star.name.as_str(), Theme::title_style()),
         Span::styled(
             format!(" [{}]", star.spectral_class.as_char()),

@@ -62,11 +62,21 @@ fn visual_mode_invalid_config_falls_back_to_default() {
 fn switching_visual_mode_does_not_mutate_game_core_state() {
     let mut app = App::new();
     app.new_game(42);
+    let before_mode = app.state.visual_mode;
     let before = app.engine.as_ref().unwrap().state.clone();
+    let unique = TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mode_path = std::env::temp_dir().join(format!(
+        "farspace_ui_mode_switch_{}_{}.conf",
+        std::process::id(),
+        unique
+    ));
 
-    app.execute_palette_command(PaletteCommand::VisualMode);
+    app.execute_palette_command_with_path(PaletteCommand::VisualMode, &mode_path);
 
     assert_eq!(app.engine.as_ref().unwrap().state, before);
+    assert_eq!(app.state.visual_mode, before_mode.next());
+    assert!(mode_path.exists());
+    let _ = std::fs::remove_file(mode_path);
 }
 
 #[test]

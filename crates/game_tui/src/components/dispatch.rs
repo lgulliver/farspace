@@ -64,9 +64,21 @@ pub fn render_dispatch(
 
             // Severity marker + category label + headline on one line
             let (severity_prefix, severity_style) = match item.severity {
-                DispatchSeverity::Historic => ("[★★] ".to_string(), Theme::accent_style()),
-                DispatchSeverity::Urgent => ("[!!] ".to_string(), Theme::error_style()),
-                DispatchSeverity::Notable => ("[»] ".to_string(), Theme::title_style()),
+                DispatchSeverity::Historic => (
+                    format!(
+                        "[{}{}] ",
+                        glyphs.severity_historic, glyphs.severity_historic
+                    ),
+                    Theme::accent_style(),
+                ),
+                DispatchSeverity::Urgent => (
+                    format!("[{}{}] ", glyphs.severity_urgent, glyphs.severity_urgent),
+                    Theme::error_style(),
+                ),
+                DispatchSeverity::Notable => (
+                    format!("[{}] ", glyphs.status_progress),
+                    Theme::title_style(),
+                ),
                 DispatchSeverity::Notice => {
                     (format!("[{}] ", glyphs.separator_dot), Theme::muted_style())
                 }
@@ -134,7 +146,7 @@ pub fn render_dispatch(
             Block::default()
                 .title(format!(
                     " {} GALACTIC DISPATCH {} ",
-                    glyphs.status_save, glyphs.status_save
+                    glyphs.bullet, glyphs.bullet
                 ))
                 .borders(Borders::ALL)
                 .border_style(Theme::focused_border_style())

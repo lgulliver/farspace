@@ -240,17 +240,25 @@ impl App {
         Self::persist_visual_mode_to_path(&path, self.state.visual_mode)
     }
 
-    fn cycle_visual_mode(&mut self) {
+    fn cycle_visual_mode_with_path(&mut self, path: Option<&Path>) {
         self.state.visual_mode = self.state.visual_mode.next();
         let message = format!(
             "Visual mode: {} ({})",
             self.state.visual_mode.label(),
             self.state.visual_mode.preview_sample()
         );
-        match self.persist_visual_mode() {
+        let persist_result = match path {
+            Some(path) => Self::persist_visual_mode_to_path(path, self.state.visual_mode),
+            None => self.persist_visual_mode(),
+        };
+        match persist_result {
             Ok(()) => self.push_status(LogEntryKind::Other, message),
             Err(err) => self.push_error_status(format!("{message} — config save failed: {err}")),
         }
+    }
+
+    fn cycle_visual_mode(&mut self) {
+        self.cycle_visual_mode_with_path(None);
     }
 
     fn apply_visual_mode_fallback(&self, frame: &mut Frame) {
@@ -404,7 +412,7 @@ impl App {
                 self.clear_rally_point();
             }
             PaletteCommand::VisualMode => {
-                self.cycle_visual_mode();
+                self.cycle_visual_mode_with_path(Some(path));
             }
             PaletteCommand::Dispatch | PaletteCommand::News => {
                 self.open_latest_dispatch();

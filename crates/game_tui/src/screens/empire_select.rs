@@ -411,6 +411,7 @@ fn render_info_panel(
     )));
     let first_contact_label = match def.diplomacy_profile.first_contact_status {
         game_core::RelationshipStatus::Neutral => "Neutral",
+        game_core::RelationshipStatus::Cooperative => "Cooperative",
         game_core::RelationshipStatus::Tense => "Tense",
         game_core::RelationshipStatus::Hostile => "Hostile",
         game_core::RelationshipStatus::War => "War",
@@ -418,9 +419,9 @@ fn render_info_panel(
         game_core::RelationshipStatus::Unknown => "Unknown",
     };
     let (fc_color, fc_note) = match def.diplomacy_profile.first_contact_status {
-        game_core::RelationshipStatus::Neutral | game_core::RelationshipStatus::Contacted => {
-            (Color::Green, "Opens peacefully")
-        }
+        game_core::RelationshipStatus::Neutral
+        | game_core::RelationshipStatus::Cooperative
+        | game_core::RelationshipStatus::Contacted => (Color::Green, "Opens peacefully"),
         game_core::RelationshipStatus::Tense => (Color::Yellow, "Opens with tension"),
         _ => (Color::LightRed, "Opens as adversary"),
     };

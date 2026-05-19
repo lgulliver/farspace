@@ -84,6 +84,69 @@ impl App {
                     role.name()
                 )
             }
+            CoreEvent::WarDeclared { attacker, defender } => {
+                let attacker_name = self.empire_display_name(*attacker);
+                let defender_name = self.empire_display_name(*defender);
+                format!("WAR DECLARED: {attacker_name} declared war on {defender_name}")
+            }
+            CoreEvent::PeaceSigned {
+                with_empire,
+                truce_expires_turn,
+            } => {
+                let name = self.empire_display_name(*with_empire);
+                format!("Peace signed with {name} (truce until turn {truce_expires_turn})")
+            }
+            CoreEvent::TreatySigned {
+                with_empire,
+                treaty_type,
+                expires_turn,
+            } => {
+                let name = self.empire_display_name(*with_empire);
+                format!(
+                    "{} signed with {} (until turn {})",
+                    treaty_type.label(),
+                    name,
+                    expires_turn
+                )
+            }
+            CoreEvent::TreatyExpired {
+                with_empire,
+                treaty_type,
+            } => {
+                let name = self.empire_display_name(*with_empire);
+                format!("{} with {} expired", treaty_type.label(), name)
+            }
+            CoreEvent::TreatyCancelled {
+                with_empire,
+                treaty_type,
+            } => {
+                let name = self.empire_display_name(*with_empire);
+                format!("{} with {} cancelled", treaty_type.label(), name)
+            }
+            CoreEvent::WarningIssued {
+                from_empire,
+                to_empire,
+            } => {
+                let from_name = self.empire_display_name(*from_empire);
+                let to_name = self.empire_display_name(*to_empire);
+                format!("{from_name} issued warning to {to_name}")
+            }
+            CoreEvent::TributeDemanded {
+                from_empire,
+                to_empire,
+            } => {
+                let from_name = self.empire_display_name(*from_empire);
+                let to_name = self.empire_display_name(*to_empire);
+                format!("{from_name} demanded tribute from {to_name}")
+            }
+            CoreEvent::TributeRefused {
+                from_empire,
+                to_empire,
+            } => {
+                let from_name = self.empire_display_name(*from_empire);
+                let to_name = self.empire_display_name(*to_empire);
+                format!("{to_name} refused tribute demanded by {from_name}")
+            }
             _ => event.to_log_message(),
         }
     }
@@ -156,6 +219,41 @@ impl App {
             | CoreEvent::AiScoutDispatched { empire, .. }
             | CoreEvent::AiColonized { empire, .. }
             | CoreEvent::AiColonyRoleAssigned { empire, .. } => self.empire_is_known(*empire),
+            CoreEvent::TreatyProposed {
+                from_empire,
+                to_empire,
+                ..
+            }
+            | CoreEvent::TreatyAccepted {
+                from_empire,
+                to_empire,
+                ..
+            }
+            | CoreEvent::TreatyRejected {
+                from_empire,
+                to_empire,
+                ..
+            }
+            | CoreEvent::WarningIssued {
+                from_empire,
+                to_empire,
+            }
+            | CoreEvent::TributeDemanded {
+                from_empire,
+                to_empire,
+            }
+            | CoreEvent::TributeRefused {
+                from_empire,
+                to_empire,
+            }
+            | CoreEvent::WarDeclared {
+                attacker: from_empire,
+                defender: to_empire,
+            } => self.empire_is_known(*from_empire) && self.empire_is_known(*to_empire),
+            CoreEvent::TreatySigned { with_empire, .. }
+            | CoreEvent::TreatyExpired { with_empire, .. }
+            | CoreEvent::TreatyCancelled { with_empire, .. }
+            | CoreEvent::PeaceSigned { with_empire, .. } => self.empire_is_known(*with_empire),
             _ => true,
         }
     }
@@ -194,6 +292,9 @@ impl App {
         let mut invasions_failed = 0usize;
         let mut victory_milestones = 0usize;
         let mut victories = 0usize;
+        let mut treaty_events = 0usize;
+        let mut war_events = 0usize;
+        let mut peace_events = 0usize;
 
         for event in events {
             match event {
@@ -212,13 +313,18 @@ impl App {
                 CoreEvent::InvasionFailed { .. } => invasions_failed += 1,
                 CoreEvent::VictoryProgressMilestone { .. } => victory_milestones += 1,
                 CoreEvent::VictoryAchieved { .. } => victories += 1,
+                CoreEvent::TreatySigned { .. }
+                | CoreEvent::TreatyExpired { .. }
+                | CoreEvent::TreatyCancelled { .. } => treaty_events += 1,
+                CoreEvent::WarDeclared { .. } => war_events += 1,
+                CoreEvent::PeaceSigned { .. } => peace_events += 1,
                 CoreEvent::Error { .. } => errors += 1,
                 _ => {}
             }
         }
 
         format!(
-            "Turn {} global summary (all empires): explored {}, surveyed {}, colonized {}, research {}, queued starts {}, arrivals {}, invasions won {}, invasions failed {}, victory milestones {}, victories {}, warnings {}, isolated {}, reconnected {}, errors {}.",
+            "Turn {} global summary (all empires): explored {}, surveyed {}, colonized {}, research {}, queued starts {}, arrivals {}, invasions won {}, invasions failed {}, treaties {}, wars {}, peaces {}, victory milestones {}, victories {}, warnings {}, isolated {}, reconnected {}, errors {}.",
             turn,
             explored,
             surveyed,
@@ -228,6 +334,9 @@ impl App {
             fleets_arrived,
             invasions_won,
             invasions_failed,
+            treaty_events,
+            war_events,
+            peace_events,
             victory_milestones,
             victories,
             warnings,

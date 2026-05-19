@@ -832,7 +832,7 @@ fn end_turn_report_handles_empty_event_list() {
     let report = App::build_end_turn_report(3, &[]);
     assert_eq!(
         report,
-        "Turn 3 global summary (all empires): explored 0, surveyed 0, colonized 0, research 0, queued starts 0, arrivals 0, invasions won 0, invasions failed 0, victory milestones 0, victories 0, warnings 0, isolated 0, reconnected 0, errors 0."
+        "Turn 3 global summary (all empires): explored 0, surveyed 0, colonized 0, research 0, queued starts 0, arrivals 0, invasions won 0, invasions failed 0, treaties 0, wars 0, peaces 0, victory milestones 0, victories 0, warnings 0, isolated 0, reconnected 0, errors 0."
     );
 }
 
@@ -2638,6 +2638,24 @@ fn diplomacy_screen_opens_after_contact() {
     app.state.active = Screen::SectorMap;
     app.handle_key(key(KeyCode::Char('D')));
     assert_eq!(app.state.active, Screen::Diplomacy);
+}
+
+#[test]
+fn diplomacy_modal_closes_with_no_pending_messages() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::Diplomacy;
+    app.state.diplomacy.show_communication_modal = true;
+    app.engine
+        .as_mut()
+        .unwrap()
+        .state
+        .diplomacy_pending_communications
+        .clear();
+
+    app.handle_key(key(KeyCode::Esc));
+
+    assert!(!app.state.diplomacy.show_communication_modal);
 }
 
 #[test]

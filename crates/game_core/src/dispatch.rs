@@ -98,6 +98,7 @@ fn player_knows_empire(state: &crate::state::GameState, empire_id: EmpireId) -> 
         Some(
             RelationshipStatus::Contacted
                 | RelationshipStatus::Neutral
+                | RelationshipStatus::Cooperative
                 | RelationshipStatus::Tense
                 | RelationshipStatus::Hostile
                 | RelationshipStatus::War
@@ -563,6 +564,108 @@ pub fn generate_dispatch(
                     None,
                 ));
             }
+            Event::TreatySigned {
+                with_empire,
+                treaty_type,
+                ..
+            } if player_knows_empire(state, *with_empire) => {
+                let empire_name = empire_name_for_id(state, *with_empire);
+                items.push(item(
+                    DispatchCategory::Diplomacy,
+                    DispatchSeverity::Notable,
+                    format!("{empire_name} Signs {}", treaty_type.label()),
+                    "A new interstellar accord has been ratified through formal diplomatic channels.",
+                    Some(*with_empire),
+                    None,
+                    None,
+                ));
+            }
+            Event::TreatyExpired {
+                with_empire,
+                treaty_type,
+            } if player_knows_empire(state, *with_empire) => {
+                let empire_name = empire_name_for_id(state, *with_empire);
+                items.push(item(
+                    DispatchCategory::Diplomacy,
+                    DispatchSeverity::Notable,
+                    format!("{empire_name} {} Expired", treaty_type.label()),
+                    "A standing diplomatic agreement has reached its scheduled expiry window.",
+                    Some(*with_empire),
+                    None,
+                    None,
+                ));
+            }
+            Event::TreatyCancelled {
+                with_empire,
+                treaty_type,
+            } if player_knows_empire(state, *with_empire) => {
+                let empire_name = empire_name_for_id(state, *with_empire);
+                items.push(item(
+                    DispatchCategory::Diplomacy,
+                    DispatchSeverity::Urgent,
+                    format!("{empire_name} Cancels {}", treaty_type.label()),
+                    "Diplomatic protections have been revoked, increasing regional instability.",
+                    Some(*with_empire),
+                    None,
+                    None,
+                ));
+            }
+            Event::WarningIssued { .. } => {
+                items.push(item(
+                    DispatchCategory::Diplomacy,
+                    DispatchSeverity::Notable,
+                    "Interstellar Warning Issued Across Frontier".to_string(),
+                    "A formal warning has been transmitted between major powers over escalating tension.",
+                    None,
+                    None,
+                    None,
+                ));
+            }
+            Event::TributeDemanded { .. } => {
+                items.push(item(
+                    DispatchCategory::Diplomacy,
+                    DispatchSeverity::Urgent,
+                    "Tribute Demand Escalates Diplomatic Friction".to_string(),
+                    "A coercive economic demand has raised concern among neutral observers.",
+                    None,
+                    None,
+                    None,
+                ));
+            }
+            Event::WarDeclared { attacker, defender } => {
+                let headline = if player_knows_empire(state, *attacker)
+                    && player_knows_empire(state, *defender)
+                {
+                    format!(
+                        "{} Declares War on {}",
+                        empire_name_for_id(state, *attacker),
+                        empire_name_for_id(state, *defender)
+                    )
+                } else {
+                    "War Declared Between Major Powers".to_string()
+                };
+                items.push(item(
+                    DispatchCategory::War,
+                    DispatchSeverity::Urgent,
+                    headline,
+                    "Strategic observers report formal declaration of interstellar war.",
+                    Some(*attacker),
+                    None,
+                    None,
+                ));
+            }
+            Event::PeaceSigned { with_empire, .. } if player_knows_empire(state, *with_empire) => {
+                let empire_name = empire_name_for_id(state, *with_empire);
+                items.push(item(
+                    DispatchCategory::Diplomacy,
+                    DispatchSeverity::Notable,
+                    format!("Peace Signed with {empire_name}"),
+                    "Hostilities have paused under a temporary truce framework.",
+                    Some(*with_empire),
+                    None,
+                    None,
+                ));
+            }
 
             // --- Victory ---
             Event::VictoryProgressMilestone {
@@ -718,6 +821,9 @@ mod tests {
             ai_empire: None,
             ai_explored_stars: Default::default(),
             diplomacy: Default::default(),
+            diplomacy_relationships: Default::default(),
+            diplomacy_pending_communications: VecDeque::new(),
+            diplomacy_next_communication_id: 1,
             hyperspace_lanes: Default::default(),
             known_hyperspace_lanes: Default::default(),
             fleet_orders: Default::default(),

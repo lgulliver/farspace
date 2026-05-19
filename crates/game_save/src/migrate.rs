@@ -5,380 +5,140 @@ use crate::SaveError;
 
 /// Migrate a save file to the current version
 pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
-    match save.version {
-        CURRENT_VERSION => Ok(save),
-        v if v > CURRENT_VERSION => Err(SaveError::UnsupportedVersion {
-            found: v,
-            supported: CURRENT_VERSION,
-        }),
-        0 => {
-            // v0 → v1: schema before explored_stars was tracked.
-            // v1 handles populating explored_stars from each empire's home star — pass through.
-            migrate(SaveFile {
-                version: 1,
-                state: save.state,
-                ..save
-            })
-        }
-        1 => {
-            // v1 → v2: populate explored_stars with each empire's home star.
-            let mut state = save.state;
-            let home_stars: Vec<_> = state.empires.values().map(|e| e.home_star).collect();
-            for star_id in home_stars {
-                state.explored_stars.insert(star_id);
+    let mut save = save;
+    loop {
+        match save.version {
+            CURRENT_VERSION => return Ok(save),
+            v if v > CURRENT_VERSION => {
+                return Err(SaveError::UnsupportedVersion {
+                    found: v,
+                    supported: CURRENT_VERSION,
+                });
             }
-            // Continue migrating v2 → v3
-            migrate(SaveFile {
-                version: 2,
-                state,
-                metadata: save.metadata,
-            })
-        }
-        2 => {
-            // v2 -> v3: fleet_missions field added; defaults to empty via serde(default).
-            // Nothing to populate -- just bump the version and continue.
-            migrate(SaveFile { version: 3, ..save })
-        }
-        3 => {
-            // v3 -> v4: FleetKind added to Fleet (serde default = Scout) and
-            // habitable added to Planet (serde default = true).
-            // Nothing to populate — just bump the version.
-            migrate(SaveFile { version: 4, ..save })
-        }
-        4 => {
-            // v4 -> v5: Empire.food field added (serde default = 0).
-            // Nothing to populate — just bump the version.
-            migrate(SaveFile { version: 5, ..save })
-        }
-        5 => {
-            // v5 -> v6: GameState.ai_empire (Option<EmpireId>, default None) and
-            // GameState.ai_explored_stars (BTreeSet<StarId>, default empty) added.
-            // Both fields rely on serde defaults — nothing to populate explicitly.
-            // Note: saves migrated from v5 will have ai_empire=None until a new game is
-            // started, meaning no AI opponent will be active for existing saves.
-            migrate(SaveFile { version: 6, ..save })
-        }
-        6 => {
-            // v6 -> v7: GameState.diplomacy (BTreeMap<EmpireId, RelationshipStatus>, default empty)
-            // added.  Relies on serde default — nothing to populate explicitly.
-            // Existing saves will have diplomacy=empty (all empires start Unknown).
-            migrate(SaveFile { version: 7, ..save })
-        }
-        7 => {
-            // v7 -> v8: Fleet.strength (u32, default 1) and Fleet.integrity (u32, default 100)
-            // added for combat auto-resolve.  Both rely on serde defaults — nothing to populate
-            // explicitly.  Existing fleets will have full health and base strength on load.
-            migrate(SaveFile { version: 8, ..save })
-        }
-        8 => {
-            // v8 -> v9: Planet.class (PlanetClass, default Terran) and Colony.surface_installations /
-            // orbital_installations (Vec<BuildingType>, default empty) added for infrastructure system.
-            // Both fields rely on serde defaults — nothing to populate explicitly.
-            // Existing planets will default to Terran class; colonies start with no installed infrastructure.
-            migrate(SaveFile { version: 9, ..save })
-        }
-        9 => {
-            // v9 -> v10: OrbitalStructureType enum added; Colony.orbital_installations type changed
-            // from Vec<BuildingType> to Vec<OrbitalStructureType>.
-            // Since orbital_installations was never populated by the engine before v10, all v9 saves
-            // have orbital_installations: [] — an empty array deserialises safely to any Vec<T>.
-            // BuildItem::OrbitalStructure variant added; Shipyard added as OrbitalStructureType::Shipyard.
-            // TechId(7) "Orbital Engineering" added to all_techs().
-            // Nothing to populate explicitly — just bump the version.
-            migrate(SaveFile {
-                version: 10,
-                ..save
-            })
-        }
-        10 => {
-            // v10 -> v11: Colony.stability: u8 added (serde default = 100).
-            // All existing colonies default to neutral stability.
-            // Nothing to populate explicitly — just bump the version.
-            migrate(SaveFile {
-                version: 11,
-                ..save
-            })
-        }
-        11 => {
-            // v11 -> v12: Colony.role: ColonyRole added (serde default = Balanced).
-            // All existing colonies default to Balanced role (no modifiers).
-            // Nothing to populate explicitly — continue to v13 migration.
-            migrate(SaveFile {
-                version: 12,
-                ..save
-            })
-        }
-        12 => {
-            // v12 -> v13: Planet.surveyed: bool added (serde default = false).
-            // Existing planets default to unsurveyed via serde default.
-            migrate(SaveFile {
-                version: 13,
-                ..save
-            })
-        }
-        13 => {
-            // v13 -> v14: Sector and SectorId added; GameState.sectors (BTreeMap<SectorId, Sector>)
-            // and Star.sector (SectorId) added.
-            // Both fields rely on serde defaults — nothing to populate explicitly.
-            // v13 saves will have empty sectors and SectorId(0) on stars until a new game is started.
-            migrate(SaveFile {
-                version: 14,
-                ..save
-            })
-        }
-        14 => {
-            // v14 -> v15: GameState.survey_missions added (serde default = empty).
-            // Science ships are encoded as FleetKind::Science, which old saves can load
-            // as long as the new field defaults to empty.
-            migrate(SaveFile {
-                version: 15,
-                ..save
-            })
-        }
-        15 => {
-            // v15 -> v16: ScoutMission.origin, ScoutMission.total_duration,
-            // FleetMission.origin, and FleetMission.total_duration added.
-            // All four fields carry serde defaults (StarId(0) and 0 respectively)
-            // so existing missions deserialise safely.  Animation will show no
-            // interpolation for old in-flight missions, which is an acceptable
-            // visual-only trade-off.
-            migrate(SaveFile {
-                version: 16,
-                ..save
-            })
-        }
-        16 => {
-            // v16 -> v17: GameState.hyperspace_lanes and
-            // GameState.known_hyperspace_lanes added.
-            //
-            // Populate deterministic lane topology from seed + sectors + stars and
-            // derive player-known lanes from current explored stars.
-            let metadata = save.metadata;
-            let mut state = save.state;
-            let sectors: Vec<_> = state.sectors.values().cloned().collect();
-            let stars: Vec<_> = state.stars.values().cloned().collect();
-            state.hyperspace_lanes =
-                game_core::galaxy::generate_hyperspace_lanes(state.seed, &sectors, &stars)
-                    .into_iter()
-                    .collect();
-            state.known_hyperspace_lanes = state
-                .hyperspace_lanes
-                .iter()
-                .copied()
-                .filter(|lane| {
-                    state.explored_stars.contains(&lane.a())
-                        && state.explored_stars.contains(&lane.b())
-                })
-                .collect();
-
-            migrate(SaveFile {
-                version: 17,
-                state,
-                metadata,
-            })
-        }
-        17 => {
-            // v17 -> v18: Planet.specials (Vec<PlanetSpecial>), Planet.resources
-            // (Vec<StrategicResource>), and Planet.ancient_ruins_collected (bool) added.
-            //
-            // All three fields carry serde defaults (empty Vec / false) so existing saves
-            // deserialise safely.  We repopulate specials and resources deterministically
-            // from the galaxy seed so that old saves gain the new content immediately.
-            // ancient_ruins_collected stays false — already-surveyed ruins will passively
-            // provide the science bonus without re-emitting the discovery event.
-            let metadata = save.metadata;
-            let mut state = save.state;
-            let seed = state.seed;
-            for star in state.stars.values_mut() {
-                let star_id = star.id;
-                for (planet_index, planet) in star.planets.iter_mut().enumerate() {
-                    let (specials, resources) =
-                        game_core::galaxy::generate_planet_specials_and_resources(
-                            seed,
-                            star_id,
-                            planet_index,
-                        );
-                    planet.specials = specials;
-                    planet.resources = resources;
-                    // ancient_ruins_collected stays false (default) — no history available.
+            0 => {
+                save.version = 1;
+            }
+            1 => {
+                let home_stars: Vec<_> = save.state.empires.values().map(|e| e.home_star).collect();
+                for star_id in home_stars {
+                    save.state.explored_stars.insert(star_id);
                 }
+                save.version = 2;
             }
-            migrate(SaveFile {
-                version: 18,
-                state,
-                metadata,
-            })
+            2 => save.version = 3,
+            3 => save.version = 4,
+            4 => save.version = 5,
+            5 => save.version = 6,
+            6 => save.version = 7,
+            7 => save.version = 8,
+            8 => save.version = 9,
+            9 => save.version = 10,
+            10 => save.version = 11,
+            11 => save.version = 12,
+            12 => save.version = 13,
+            13 => save.version = 14,
+            14 => save.version = 15,
+            15 => save.version = 16,
+            16 => {
+                let sectors: Vec<_> = save.state.sectors.values().cloned().collect();
+                let stars: Vec<_> = save.state.stars.values().cloned().collect();
+                save.state.hyperspace_lanes =
+                    game_core::galaxy::generate_hyperspace_lanes(save.state.seed, &sectors, &stars)
+                        .into_iter()
+                        .collect();
+                save.state.known_hyperspace_lanes = save
+                    .state
+                    .hyperspace_lanes
+                    .iter()
+                    .copied()
+                    .filter(|lane| {
+                        save.state.explored_stars.contains(&lane.a())
+                            && save.state.explored_stars.contains(&lane.b())
+                    })
+                    .collect();
+                save.version = 17;
+            }
+            17 => {
+                let seed = save.state.seed;
+                for star in save.state.stars.values_mut() {
+                    let star_id = star.id;
+                    for (planet_index, planet) in star.planets.iter_mut().enumerate() {
+                        let (specials, resources) =
+                            game_core::galaxy::generate_planet_specials_and_resources(
+                                seed,
+                                star_id,
+                                planet_index,
+                            );
+                        planet.specials = specials;
+                        planet.resources = resources;
+                    }
+                }
+                save.version = 18;
+            }
+            18 => save.version = 19,
+            19 => save.version = 20,
+            20 => {
+                save.metadata = crate::schema::SaveMetadata {
+                    schema_version: 21,
+                    game_version: None,
+                    created_turn: save.state.turn,
+                    seed: save.state.seed,
+                };
+                save.version = 21;
+            }
+            21 => {
+                save.metadata.schema_version = 22;
+                save.version = 22;
+            }
+            22 => {
+                save.state.colony_supply = save.state.recompute_colony_supply();
+                save.metadata.schema_version = 23;
+                save.version = 23;
+            }
+            23 => {
+                save.state.colony_blockade = save.state.recompute_colony_blockade();
+                save.metadata.schema_version = 24;
+                save.version = 24;
+            }
+            24 => {
+                save.metadata.schema_version = 25;
+                save.version = 25;
+            }
+            25 => {
+                save.metadata.schema_version = 26;
+                save.version = 26;
+            }
+            26 => {
+                save.metadata.schema_version = 27;
+                save.version = 27;
+            }
+            27 => {
+                save.metadata.schema_version = 28;
+                save.version = 28;
+            }
+            28 => {
+                save.metadata.schema_version = 29;
+                save.version = 29;
+            }
+            29 => {
+                save.metadata.schema_version = 30;
+                save.version = 30;
+            }
+            30 => {
+                save.metadata.schema_version = CURRENT_VERSION;
+                save.version = CURRENT_VERSION;
+            }
+            31 => {
+                save.metadata.schema_version = CURRENT_VERSION;
+                save.version = CURRENT_VERSION;
+            }
+            _ => {
+                return Err(SaveError::UnsupportedVersion {
+                    found: save.version,
+                    supported: CURRENT_VERSION,
+                });
+            }
         }
-        18 => {
-            // v18 -> v19: Colony.rally_point (Option<StarId>, default None) and
-            // GameState.fleet_orders (BTreeMap<FleetId, FleetOrder>, default empty) added.
-            // Both fields carry serde defaults — nothing to populate explicitly.
-            // Existing colonies start without a rally point; existing fleets start with no order.
-            migrate(SaveFile {
-                version: 19,
-                state: save.state,
-                ..save
-            })
-        }
-        19 => {
-            // v19 -> v20: GameState.scenario (Option<ScenarioSetup>, default None) and
-            // GameState.ai_empires (Vec<EmpireId>, default empty) added.
-            //
-            // Both fields carry serde defaults:
-            //   - scenario: None  (setup metadata not available for old saves)
-            //   - ai_empires: []  (empty — the legacy ai_empire field still drives AI turns
-            //     for saves migrated from v19; process_end_turn falls back to it when
-            //     ai_empires is empty)
-            migrate(SaveFile {
-                version: 20,
-                ..save
-            })
-        }
-        20 => {
-            // v20 → v21: SaveMetadata added to SaveFile.
-            // Populate metadata from the current state; game_version is unknown for migrated saves.
-            let metadata = crate::schema::SaveMetadata {
-                schema_version: 21,
-                game_version: None,
-                created_turn: save.state.turn,
-                seed: save.state.seed,
-            };
-            migrate(SaveFile {
-                version: 21,
-                metadata,
-                state: save.state,
-            })
-        }
-        21 => {
-            // v21 → v22: Empire.empire_def (Option<EmpireDefinitionId>, default None) and
-            // ScenarioSetup.player_empire_def (Option<EmpireDefinitionId>, default None) added.
-            // Both fields rely on serde defaults — nothing to populate explicitly.
-            // Existing empires start without an empire identity; their names are preserved.
-            // Also update metadata.schema_version to reflect the new version.
-            let state = save.state;
-            let mut metadata = save.metadata;
-            metadata.schema_version = 22;
-            migrate(SaveFile {
-                version: 22,
-                metadata,
-                state,
-            })
-        }
-        22 => {
-            // v22 → v23: GameState.colony_supply (BTreeMap<ColonyId, ColonySupplyState>) added.
-            // This is derivable from current state; recompute deterministically on load.
-            let mut state = save.state;
-            state.colony_supply = state.recompute_colony_supply();
-            let mut metadata = save.metadata;
-            metadata.schema_version = 23;
-            migrate(SaveFile {
-                version: 23,
-                metadata,
-                state,
-            })
-        }
-        23 => {
-            // v23 → v24: GameState.colony_blockade (BTreeMap<ColonyId, EmpireId>) added.
-            // Fully derivable from current fleet positions and diplomacy state;
-            // recompute deterministically on load.
-            let mut state = save.state;
-            state.colony_blockade = state.recompute_colony_blockade();
-            let mut metadata = save.metadata;
-            metadata.schema_version = 24;
-            migrate(SaveFile {
-                version: 24,
-                metadata,
-                state,
-            })
-        }
-        24 => {
-            // v24 → v25: FleetKind gained `TroopTransport`.
-            // v24 saves cannot contain the new variant, so deserialization remains valid
-            // and no state rewrite is needed.
-            // Keep this explicit version step so post-invasion saves are distinguishable.
-            let mut metadata = save.metadata;
-            metadata.schema_version = 25;
-            migrate(SaveFile {
-                version: 25,
-                metadata,
-                state: save.state,
-            })
-        }
-        25 => {
-            // v25 → v26: FleetKind gained FastScout, SurveyCutter, ColonyArk,
-            // EscortFrigate, MissileFrigate, Destroyer, PatrolCorvette.
-            // v25 saves cannot contain the new variants, so deserialization remains
-            // valid and no state rewrite is needed.
-            let mut metadata = save.metadata;
-            metadata.schema_version = 26;
-            migrate(SaveFile {
-                version: 26,
-                metadata,
-                state: save.state,
-            })
-        }
-        26 => {
-            // v26 → v27: ResearchState gained `queue: Vec<TechId>` with serde default.
-            let mut metadata = save.metadata;
-            metadata.schema_version = 27;
-            migrate(SaveFile {
-                version: 27,
-                metadata,
-                state: save.state,
-            })
-        }
-        27 => {
-            // v27 → v28: ScenarioSetup/GameState gained victory settings and status fields.
-            // All new fields have serde defaults; this is a passthrough version bump.
-            // v27 saves deserialize safely with defaults for victory fields.
-            let mut metadata = save.metadata;
-            metadata.schema_version = 28;
-            migrate(SaveFile {
-                version: 28,
-                metadata,
-                state: save.state,
-            })
-        }
-        28 => {
-            // v28 → v29: GameState gained galactic_dispatches (VecDeque<GalacticDispatch>).
-            // All new fields have serde defaults; this is a passthrough version bump.
-            let mut metadata = save.metadata;
-            metadata.schema_version = 29;
-            migrate(SaveFile {
-                version: 29,
-                metadata,
-                state: save.state,
-            })
-        }
-        29 => {
-            // v29 → v30: GameState gained custom_designs (BTreeMap<CustomDesignId,
-            // CustomShipDesign>) and next_custom_design_id (u32) for Ship Designer Lite v1.
-            // Both fields carry #[serde(default)] so old saves deserialise them as empty
-            // map / 0 respectively.  This is a passthrough version bump.
-            let mut metadata = save.metadata;
-            metadata.schema_version = 30;
-            migrate(SaveFile {
-                version: 30,
-                metadata,
-                state: save.state,
-            })
-        }
-        30 => {
-            // v30 → v31: GameState gained fleet_roles, fleet_formations, and fleet_names
-            // for Fleet Roles and Formations v1. All fields carry serde defaults, so this
-            // remains a passthrough bump preserving existing saves.
-            let mut metadata = save.metadata;
-            metadata.schema_version = CURRENT_VERSION;
-            Ok(SaveFile {
-                version: CURRENT_VERSION,
-                metadata,
-                state: save.state,
-            })
-        }
-        _ => Err(SaveError::UnsupportedVersion {
-            found: save.version,
-            supported: CURRENT_VERSION,
-        }),
     }
 }
 

@@ -1,8 +1,9 @@
 //! Events emitted by the game engine
 
 use crate::state::{
-    BuildItem, ColonyId, ColonyRole, CustomDesignId, EmpireId, FleetFormation, FleetId, FleetOrder,
-    FleetRole, HullId, StarId, TechId, VictoryPath,
+    BuildItem, ColonyId, ColonyRole, CustomDesignId, DiplomaticCommunicationType, EmpireId,
+    FleetFormation, FleetId, FleetOrder, FleetRole, HullId, StarId, TechId, TreatyType,
+    VictoryPath,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -225,6 +226,78 @@ pub enum Event {
     FirstContact {
         /// The empire that the player has made first contact with
         with_empire: EmpireId,
+    },
+    /// A diplomatic communication has been generated.
+    DiplomaticCommunicationCreated {
+        communication_id: u64,
+        from_empire: EmpireId,
+        to_empire: EmpireId,
+        communication_type: DiplomaticCommunicationType,
+    },
+    /// A treaty was formally proposed.
+    TreatyProposed {
+        from_empire: EmpireId,
+        to_empire: EmpireId,
+        treaty_type: TreatyType,
+    },
+    /// A treaty proposal was accepted.
+    TreatyAccepted {
+        from_empire: EmpireId,
+        to_empire: EmpireId,
+        treaty_type: TreatyType,
+    },
+    /// A treaty proposal was rejected.
+    TreatyRejected {
+        from_empire: EmpireId,
+        to_empire: EmpireId,
+        treaty_type: TreatyType,
+    },
+    /// A treaty became active.
+    TreatySigned {
+        with_empire: EmpireId,
+        treaty_type: TreatyType,
+        expires_turn: u32,
+    },
+    /// An active treaty expired.
+    TreatyExpired {
+        with_empire: EmpireId,
+        treaty_type: TreatyType,
+    },
+    /// An active treaty was cancelled.
+    TreatyCancelled {
+        with_empire: EmpireId,
+        treaty_type: TreatyType,
+    },
+    /// A diplomatic warning was issued.
+    WarningIssued {
+        from_empire: EmpireId,
+        to_empire: EmpireId,
+    },
+    /// A tribute demand was issued.
+    TributeDemanded {
+        from_empire: EmpireId,
+        to_empire: EmpireId,
+    },
+    /// A tribute demand was refused.
+    TributeRefused {
+        from_empire: EmpireId,
+        to_empire: EmpireId,
+    },
+    /// War was declared by one empire on another.
+    WarDeclared {
+        attacker: EmpireId,
+        defender: EmpireId,
+    },
+    /// Peace was signed and war ended.
+    PeaceSigned {
+        with_empire: EmpireId,
+        truce_expires_turn: u32,
+    },
+    /// Relationship status changed between player and a foreign empire.
+    RelationshipStateChanged {
+        with_empire: EmpireId,
+        from: crate::state::RelationshipStatus,
+        to: crate::state::RelationshipStatus,
     },
     /// Combat was auto-resolved between two hostile fleets at a star system
     CombatResolved {
@@ -717,6 +790,115 @@ impl Event {
                     with_empire.0
                 )
             }
+            Event::DiplomaticCommunicationCreated {
+                communication_id,
+                from_empire,
+                to_empire,
+                communication_type,
+            } => format!(
+                "Diplomatic communication {}: {:?} from Empire {} to Empire {}",
+                communication_id, communication_type, from_empire.0, to_empire.0
+            ),
+            Event::TreatyProposed {
+                from_empire,
+                to_empire,
+                treaty_type,
+            } => format!(
+                "Empire {} proposed {} to Empire {}",
+                from_empire.0,
+                treaty_type.label(),
+                to_empire.0
+            ),
+            Event::TreatyAccepted {
+                from_empire,
+                to_empire,
+                treaty_type,
+            } => format!(
+                "Empire {} accepted {} with Empire {}",
+                to_empire.0,
+                treaty_type.label(),
+                from_empire.0
+            ),
+            Event::TreatyRejected {
+                from_empire,
+                to_empire,
+                treaty_type,
+            } => format!(
+                "Empire {} rejected {} from Empire {}",
+                to_empire.0,
+                treaty_type.label(),
+                from_empire.0
+            ),
+            Event::TreatySigned {
+                with_empire,
+                treaty_type,
+                expires_turn,
+            } => format!(
+                "{} signed with Empire {} (expires turn {})",
+                treaty_type.label(),
+                with_empire.0,
+                expires_turn
+            ),
+            Event::TreatyExpired {
+                with_empire,
+                treaty_type,
+            } => format!(
+                "{} with Empire {} expired",
+                treaty_type.label(),
+                with_empire.0
+            ),
+            Event::TreatyCancelled {
+                with_empire,
+                treaty_type,
+            } => format!(
+                "{} with Empire {} cancelled",
+                treaty_type.label(),
+                with_empire.0
+            ),
+            Event::WarningIssued {
+                from_empire,
+                to_empire,
+            } => format!(
+                "Empire {} issued warning to Empire {}",
+                from_empire.0, to_empire.0
+            ),
+            Event::TributeDemanded {
+                from_empire,
+                to_empire,
+            } => format!(
+                "Empire {} demanded tribute from Empire {}",
+                from_empire.0, to_empire.0
+            ),
+            Event::TributeRefused {
+                from_empire,
+                to_empire,
+            } => format!(
+                "Empire {} refused tribute demand from Empire {}",
+                to_empire.0, from_empire.0
+            ),
+            Event::WarDeclared { attacker, defender } => {
+                format!(
+                    "WAR DECLARED: Empire {} declared war on Empire {}",
+                    attacker.0, defender.0
+                )
+            }
+            Event::PeaceSigned {
+                with_empire,
+                truce_expires_turn,
+            } => format!(
+                "Peace signed with Empire {} (truce until turn {})",
+                with_empire.0, truce_expires_turn
+            ),
+            Event::RelationshipStateChanged {
+                with_empire,
+                from,
+                to,
+            } => format!(
+                "Diplomatic status with Empire {} changed: {} → {}",
+                with_empire.0,
+                from.label(),
+                to.label()
+            ),
             Event::CombatResolved {
                 star,
                 fleet_a,

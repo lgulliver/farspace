@@ -1,15 +1,19 @@
 //! Diplomacy screen — shows known empires and their relationship status
 
 use crate::components::{derive_header_data, render_footer, render_header};
+use crate::layout::centered_rect;
 use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{empire_definition_by_id, GameState, RelationshipStatus};
+use game_core::{
+    empire_definition_by_id, DiplomaticCommunicationType, DiplomaticResponse, GameState,
+    RelationshipStatus,
+};
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
 
@@ -25,7 +29,8 @@ pub fn render_diplomacy(
     let header_data = derive_header_data(game_state);
     render_header(frame, header_area, &header_data);
 
-    render_empire_list(frame, main_area, game_state);
+    render_empire_list(frame, main_area, app_state, game_state);
+    render_communication_modal(frame, main_area, app_state, game_state);
 
     let hint = app_state
         .status_message
@@ -35,7 +40,7 @@ pub fn render_diplomacy(
 }
 
 /// Render the list of known (contacted) empires and hidden placeholders for unknown ones.
-fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
+fn render_empire_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let block = Block::default()
         .title(" Diplomacy ")
         .borders(Borders::ALL)
@@ -48,21 +53,40 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
         Line::from(""),
     ];
 
+    let foreign_ids: Vec<_> = game_state
+        .empires
+        .keys()
+        .copied()
+        .filter(|empire_id| *empire_id != game_state.player_empire)
+        .collect();
+    let selected_empire = if foreign_ids.is_empty() {
+        None
+    } else {
+        let selected_idx = app_state.diplomacy.selected_empire_index % foreign_ids.len();
+        Some(foreign_ids[selected_idx])
+    };
+
     // Iterate all empires except the player empire, in BTreeMap order (deterministic).
-    for (empire_id, empire) in &game_state.empires {
-        if *empire_id == game_state.player_empire {
+    for empire_id in foreign_ids {
+        let Some(empire) = game_state.empires.get(&empire_id) else {
             continue;
-        }
+        };
 
         let status = game_state
             .diplomacy
-            .get(empire_id)
+            .get(&empire_id)
             .copied()
             .unwrap_or(RelationshipStatus::Unknown);
+        let selected_marker = if Some(empire_id) == selected_empire {
+            "▶ "
+        } else {
+            "  "
+        };
 
         match status {
             RelationshipStatus::Contacted => {
                 lines.push(Line::from(vec![
+                    Span::styled(selected_marker, Theme::accent_style()),
                     Span::styled("● ", Theme::accent_style()),
                     Span::styled(empire.name.as_str(), Theme::title_style()),
                     Span::raw("  "),
@@ -73,6 +97,7 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
             }
             RelationshipStatus::Neutral => {
                 lines.push(Line::from(vec![
+                    Span::styled(selected_marker, Theme::accent_style()),
                     Span::styled("◎ ", Theme::accent_style()),
                     Span::styled(empire.name.as_str(), Theme::title_style()),
                     Span::raw("  "),
@@ -81,8 +106,20 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
                 push_identity_lines(&mut lines, empire);
                 lines.push(Line::from(""));
             }
+            RelationshipStatus::Cooperative => {
+                lines.push(Line::from(vec![
+                    Span::styled(selected_marker, Theme::accent_style()),
+                    Span::styled("✶ ", Theme::success_style()),
+                    Span::styled(empire.name.as_str(), Theme::title_style()),
+                    Span::raw("  "),
+                    Span::styled("Cooperative", Theme::success_style()),
+                ]));
+                push_identity_lines(&mut lines, empire);
+                lines.push(Line::from(""));
+            }
             RelationshipStatus::Tense => {
                 lines.push(Line::from(vec![
+                    Span::styled(selected_marker, Theme::accent_style()),
                     Span::styled("◈ ", Theme::warning_style()),
                     Span::styled(empire.name.as_str(), Theme::title_style()),
                     Span::raw("  "),
@@ -93,6 +130,7 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
             }
             RelationshipStatus::Hostile => {
                 lines.push(Line::from(vec![
+                    Span::styled(selected_marker, Theme::accent_style()),
                     Span::styled("⚠ ", Theme::error_style()),
                     Span::styled(empire.name.as_str(), Theme::title_style()),
                     Span::raw("  "),
@@ -103,6 +141,7 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
             }
             RelationshipStatus::War => {
                 lines.push(Line::from(vec![
+                    Span::styled(selected_marker, Theme::accent_style()),
                     Span::styled("⚔ ", Theme::error_style()),
                     Span::styled(empire.name.as_str(), Theme::title_style()),
                     Span::raw("  "),
@@ -113,10 +152,44 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
             }
             RelationshipStatus::Unknown => {
                 lines.push(Line::from(vec![
+                    Span::styled(selected_marker, Theme::accent_style()),
                     Span::styled("○ ", Theme::muted_style()),
                     Span::styled("[ Unknown Empire ]", Theme::muted_style()),
                     Span::raw("  "),
                     Span::styled("No contact", Theme::muted_style()),
+                ]));
+            }
+        }
+
+        if let Some(relationship) = game_state.diplomacy_relationships.get(&empire_id) {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!(
+                        "Relationship {} · Tension {} · Trust {}",
+                        relationship.relationship_score,
+                        relationship.tension_score,
+                        relationship
+                            .trust_score
+                            .map(|v| v.to_string())
+                            .unwrap_or_else(|| "-".to_string())
+                    ),
+                    Theme::muted_style(),
+                ),
+            ]));
+            let active_treaties: Vec<_> = relationship
+                .active_treaties
+                .iter()
+                .filter(|t| t.is_active(game_state.turn))
+                .map(|t| format!("{} (until T{})", t.treaty_type.label(), t.expires_turn()))
+                .collect();
+            if !active_treaties.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("Treaties: {}", active_treaties.join(", ")),
+                        Theme::success_style(),
+                    ),
                 ]));
             }
         }
@@ -136,13 +209,123 @@ fn render_empire_list(frame: &mut Frame, area: Rect, game_state: &GameState) {
     }
 
     lines.push(Line::from(""));
+    let actions_hint = if app_state.diplomacy.show_communication_modal {
+        "Tab/j/k select empire · w war · p peace · n NAP · x cancel NAP · Enter respond (modal)"
+    } else {
+        "Tab/j/k select empire · w war · p peace · n NAP · x cancel NAP · c communications · Enter/e/t end turn"
+    };
     lines.push(Line::from(vec![Span::styled(
-        "Press Esc to return to the galaxy map.",
+        actions_hint,
         Theme::muted_style(),
     )]));
 
     let paragraph = Paragraph::new(lines).style(Theme::default_style());
     frame.render_widget(paragraph, inner);
+}
+
+fn render_communication_modal(
+    frame: &mut Frame,
+    area: Rect,
+    app_state: &AppState,
+    game_state: &GameState,
+) {
+    if !app_state.diplomacy.show_communication_modal {
+        return;
+    }
+    let player = game_state.player_empire;
+    let mut messages: Vec<_> = game_state
+        .diplomacy_pending_communications
+        .iter()
+        .filter(|msg| msg.receiving_empire == player)
+        .collect();
+    messages.sort_by_key(|msg| msg.communication_id);
+    if messages.is_empty() {
+        return;
+    }
+    let msg_idx = app_state
+        .diplomacy
+        .selected_communication_index
+        .min(messages.len().saturating_sub(1));
+    let msg = messages[msg_idx];
+    let popup = centered_rect(72, 58, area);
+    frame.render_widget(Clear, popup);
+    let block = Block::default()
+        .title(" Diplomatic Communication ")
+        .borders(Borders::ALL)
+        .style(Theme::default_style());
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let from_name = game_state
+        .empires
+        .get(&msg.sending_empire)
+        .map(|empire| empire.name.as_str())
+        .unwrap_or("Unknown Empire");
+    let comm_type = match msg.communication_type {
+        DiplomaticCommunicationType::FirstContact => "First Contact",
+        DiplomaticCommunicationType::TreatyProposal => "Treaty Proposal",
+        DiplomaticCommunicationType::TreatyAccepted => "Treaty Accepted",
+        DiplomaticCommunicationType::TreatyRejected => "Treaty Rejected",
+        DiplomaticCommunicationType::Warning => "Warning",
+        DiplomaticCommunicationType::TributeDemand => "Tribute Demand",
+        DiplomaticCommunicationType::PeaceOffer => "Peace Offer",
+        DiplomaticCommunicationType::WarDeclaration => "War Declaration",
+    };
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(from_name, Theme::title_style()),
+            Span::raw("  "),
+            Span::styled(comm_type, Theme::accent_style()),
+            Span::raw("  "),
+            Span::styled(format!("Tone: {}", msg.tone.label()), Theme::muted_style()),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(msg.title.as_str(), Theme::title_style())),
+        Line::from(""),
+        Line::from(Span::raw(msg.body.as_str())),
+        Line::from(""),
+        Line::from(Span::styled("Responses", Theme::title_style())),
+    ];
+
+    let selected_response_index = app_state
+        .diplomacy
+        .selected_response_index
+        .min(msg.available_responses.len().saturating_sub(1));
+    for (idx, response) in msg.available_responses.iter().copied().enumerate() {
+        let selected = idx == selected_response_index;
+        let marker = if selected { "▶ " } else { "  " };
+        let label = match response {
+            DiplomaticResponse::Acknowledge => "Acknowledge",
+            DiplomaticResponse::Accept => "Accept",
+            DiplomaticResponse::Reject => "Reject",
+            DiplomaticResponse::Comply => "Comply",
+            DiplomaticResponse::Refuse => "Refuse",
+        };
+        lines.push(Line::from(vec![
+            Span::styled(marker, Theme::accent_style()),
+            Span::styled(
+                label,
+                if selected {
+                    Theme::accent_style()
+                } else {
+                    Theme::default_style()
+                },
+            ),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Enter: send response · Tab: next message · Esc: close",
+        Theme::muted_style(),
+    )));
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(Theme::default_style())
+            .wrap(Wrap { trim: true }),
+        inner,
+    );
 }
 
 fn push_identity_lines(lines: &mut Vec<Line>, empire: &game_core::Empire) {

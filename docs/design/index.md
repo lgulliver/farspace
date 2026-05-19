@@ -16,6 +16,7 @@ Use this index as entrypoint for design and direction docs.
 - [AI Doctrines](ai-doctrines.md)
 - [Victory Conditions](victory-conditions.md)
 - [Galactic Dispatch](galactic-dispatch.md)
+- [Diplomacy](diplomacy.md)
 - [Balance and Pacing](balance-and-pacing.md)
 
 ## Additional Design Docs

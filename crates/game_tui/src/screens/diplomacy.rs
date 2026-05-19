@@ -59,12 +59,12 @@ fn render_empire_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_
         .copied()
         .filter(|empire_id| *empire_id != game_state.player_empire)
         .collect();
-    let selected_idx = if foreign_ids.is_empty() {
-        0
+    let selected_empire = if foreign_ids.is_empty() {
+        None
     } else {
-        app_state.diplomacy.selected_empire_index % foreign_ids.len()
+        let selected_idx = app_state.diplomacy.selected_empire_index % foreign_ids.len();
+        Some(foreign_ids[selected_idx])
     };
-    let selected_empire = foreign_ids.get(selected_idx).copied();
 
     // Iterate all empires except the player empire, in BTreeMap order (deterministic).
     for empire_id in foreign_ids {

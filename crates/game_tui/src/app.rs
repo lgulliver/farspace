@@ -1360,12 +1360,10 @@ impl App {
                         .saturating_sub(1);
                 }
                 KeyCode::Tab => {
-                    if player_targeted_messages > 0 {
-                        self.state.diplomacy.selected_communication_index =
-                            (self.state.diplomacy.selected_communication_index + 1)
-                                % player_targeted_messages;
-                        self.state.diplomacy.selected_response_index = 0;
-                    }
+                    self.state.diplomacy.selected_communication_index =
+                        (self.state.diplomacy.selected_communication_index + 1)
+                            % player_targeted_messages;
+                    self.state.diplomacy.selected_response_index = 0;
                 }
                 KeyCode::Enter => {
                     self.respond_to_selected_diplomatic_message();

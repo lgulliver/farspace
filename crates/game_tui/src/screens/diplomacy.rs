@@ -282,9 +282,12 @@ fn render_communication_modal(
         Line::from(Span::styled("Responses", Theme::title_style())),
     ];
 
+    let selected_response_index = app_state
+        .diplomacy
+        .selected_response_index
+        .min(msg.available_responses.len().saturating_sub(1));
     for (idx, response) in msg.available_responses.iter().copied().enumerate() {
-        let selected =
-            idx == (app_state.diplomacy.selected_response_index % msg.available_responses.len());
+        let selected = idx == selected_response_index;
         let marker = if selected { "▶ " } else { "  " };
         let label = match response {
             DiplomaticResponse::Acknowledge => "Acknowledge",

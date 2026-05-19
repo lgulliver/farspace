@@ -45,6 +45,8 @@ pub(crate) const SURVEY_TURNS: u32 = 2;
 const EMPIRE_ASSIGN_SALT: u64 = 0x6172_7473_5f49_5044;
 const MAX_FLEET_NAME_LENGTH: usize = 32;
 const EXPLORER_AVOID_ENGAGEMENT_MULTIPLIER: u32 = 2;
+const AI_WARNING_FREQUENCY: u32 = 6;
+const AI_TRIBUTE_DEMAND_FREQUENCY: u32 = 9;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct YieldBonuses {
@@ -791,7 +793,7 @@ impl Engine {
                 next,
                 RelationshipStatus::Tense | RelationshipStatus::Hostile
             ) && (militarist >= 8 || imperial >= 8 || isolationist >= 9)
-                && self.state.turn.is_multiple_of(6)
+                && self.state.turn.is_multiple_of(AI_WARNING_FREQUENCY)
             {
                 events.push(Event::WarningIssued {
                     from_empire: ai_empire_id,
@@ -824,7 +826,7 @@ impl Engine {
 
             if matches!(next, RelationshipStatus::Hostile)
                 && imperial + militarist >= 14
-                && self.state.turn.is_multiple_of(9)
+                && self.state.turn.is_multiple_of(AI_TRIBUTE_DEMAND_FREQUENCY)
             {
                 events.push(Event::TributeDemanded {
                     from_empire: ai_empire_id,
@@ -854,7 +856,7 @@ impl Engine {
                 continue;
             }
 
-            if matches!(next, RelationshipStatus::Hostile)
+            if matches!(next, RelationshipStatus::Hostile | RelationshipStatus::War)
                 && imperial + militarist >= 15
                 && !has_nap
                 && !has_truce
@@ -2467,12 +2469,11 @@ impl Engine {
             return;
         };
 
-        let Some(communication) = self.state.diplomacy_pending_communications.remove(index) else {
-            events.push(Event::error(
-                "Diplomatic communication could not be removed",
-            ));
-            return;
-        };
+        let communication = self
+            .state
+            .diplomacy_pending_communications
+            .remove(index)
+            .expect("communication index found via position should be valid");
 
         if !communication.available_responses.contains(&response) {
             events.push(Event::error(

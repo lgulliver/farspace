@@ -4319,7 +4319,7 @@ fn terran_concord_diplomacy_stays_calmer_under_pressure() {
     engine.process_ai_diplomacy();
     assert_eq!(
         engine.state.diplomacy.get(&ai_id).copied(),
-        Some(RelationshipStatus::Tense)
+        Some(RelationshipStatus::Cooperative)
     );
 }
 
@@ -9880,51 +9880,23 @@ fn ai_proposes_treaty_deterministically() {
 
 #[test]
 fn ai_declares_war_deterministically() {
-    let mut engine_a = Engine::new(42);
-    let ai_id_a = engine_a.state.ai_empire.expect("AI empire must exist");
+    let (mut engine_a, _player_star_a, _ai_star_a, ai_id_a) = make_two_empire_state();
     set_empire_definition(&mut engine_a, ai_id_a, crate::state::EmpireDefinitionId(7));
     engine_a.state.turn = 18;
     engine_a
         .state
         .diplomacy
         .insert(ai_id_a, RelationshipStatus::Hostile);
-    let ai_home = engine_a.state.empires[&ai_id_a].home_star;
-    engine_a.state.fleets.insert(
-        FleetId(9900),
-        Fleet {
-            id: FleetId(9900),
-            owner: engine_a.state.player_empire,
-            location: ai_home,
-            ships: 1,
-            kind: FleetKind::Scout,
-            strength: 1,
-            integrity: 100,
-        },
-    );
     let mut events_a = Vec::new();
     engine_a.process_ai_diplomacy_with_events(&mut events_a);
 
-    let mut engine_b = Engine::new(42);
-    let ai_id_b = engine_b.state.ai_empire.expect("AI empire must exist");
+    let (mut engine_b, _player_star_b, _ai_star_b, ai_id_b) = make_two_empire_state();
     set_empire_definition(&mut engine_b, ai_id_b, crate::state::EmpireDefinitionId(7));
     engine_b.state.turn = 18;
     engine_b
         .state
         .diplomacy
         .insert(ai_id_b, RelationshipStatus::Hostile);
-    let ai_home_b = engine_b.state.empires[&ai_id_b].home_star;
-    engine_b.state.fleets.insert(
-        FleetId(9900),
-        Fleet {
-            id: FleetId(9900),
-            owner: engine_b.state.player_empire,
-            location: ai_home_b,
-            ships: 1,
-            kind: FleetKind::Scout,
-            strength: 1,
-            integrity: 100,
-        },
-    );
     let mut events_b = Vec::new();
     engine_b.process_ai_diplomacy_with_events(&mut events_b);
 

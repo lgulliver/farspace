@@ -1507,8 +1507,11 @@ impl App {
             self.push_error_status("Selected communication has no valid responses.");
             return;
         }
-        let response = message.available_responses
-            [self.state.diplomacy.selected_response_index % message.available_responses.len()];
+        let response = message.available_responses[self
+            .state
+            .diplomacy
+            .selected_response_index
+            .min(message.available_responses.len().saturating_sub(1))];
         self.dispatch_command(Command::RespondToCommunication {
             communication_id: message.communication_id,
             response,

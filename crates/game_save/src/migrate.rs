@@ -368,6 +368,18 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             // for Fleet Roles and Formations v1. All fields carry serde defaults, so this
             // remains a passthrough bump preserving existing saves.
             let mut metadata = save.metadata;
+            metadata.schema_version = 31;
+            migrate(SaveFile {
+                version: 31,
+                metadata,
+                state: save.state,
+            })
+        }
+        31 => {
+            // v31 → v32: GameState gained diplomacy_relationships,
+            // diplomacy_pending_communications, and diplomacy_next_communication_id.
+            // All fields carry serde defaults; this remains a passthrough bump.
+            let mut metadata = save.metadata;
             metadata.schema_version = CURRENT_VERSION;
             Ok(SaveFile {
                 version: CURRENT_VERSION,

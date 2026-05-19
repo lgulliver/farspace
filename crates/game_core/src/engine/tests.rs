@@ -3873,6 +3873,9 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         ai_empire: Some(ai_id),
         ai_explored_stars: BTreeSet::new(),
         diplomacy: BTreeMap::new(),
+        diplomacy_relationships: BTreeMap::new(),
+        diplomacy_pending_communications: std::collections::VecDeque::new(),
+        diplomacy_next_communication_id: 1,
         hyperspace_lanes: BTreeSet::new(),
         known_hyperspace_lanes: BTreeSet::new(),
         fleet_orders: BTreeMap::new(),
@@ -4084,6 +4087,9 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         ai_empire: Some(ai_id),
         ai_explored_stars: BTreeSet::new(),
         diplomacy: BTreeMap::new(),
+        diplomacy_relationships: BTreeMap::new(),
+        diplomacy_pending_communications: std::collections::VecDeque::new(),
+        diplomacy_next_communication_id: 1,
         hyperspace_lanes: BTreeSet::new(),
         known_hyperspace_lanes: BTreeSet::new(),
         fleet_orders: BTreeMap::new(),
@@ -4454,6 +4460,9 @@ fn contact_detection_is_deterministic() {
         ai_empire: Some(ai1),
         ai_explored_stars: BTreeSet::new(),
         diplomacy: BTreeMap::new(),
+        diplomacy_relationships: BTreeMap::new(),
+        diplomacy_pending_communications: std::collections::VecDeque::new(),
+        diplomacy_next_communication_id: 1,
         hyperspace_lanes: BTreeSet::new(),
         known_hyperspace_lanes: BTreeSet::new(),
         fleet_orders: BTreeMap::new(),
@@ -9000,6 +9009,9 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         ai_empire: None,
         ai_explored_stars: BTreeSet::new(),
         diplomacy: BTreeMap::new(),
+        diplomacy_relationships: BTreeMap::new(),
+        diplomacy_pending_communications: std::collections::VecDeque::new(),
+        diplomacy_next_communication_id: 1,
         hyperspace_lanes: BTreeSet::new(),
         known_hyperspace_lanes: BTreeSet::new(),
         fleet_orders: BTreeMap::new(),
@@ -9696,11 +9708,235 @@ fn declare_war_on_own_empire_is_error() {
 }
 
 #[test]
+fn first_contact_creates_diplomatic_communication() {
+    let (mut engine, _player_star, ai_star, ai_id) = make_two_empire_state();
+    set_empire_definition(&mut engine, ai_id, crate::state::EmpireDefinitionId(6));
+    let mut events = Vec::new();
+    engine.check_contact_at_star(ai_star, &mut events);
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, Event::FirstContact { with_empire } if *with_empire == ai_id)));
+    assert!(engine
+        .state
+        .diplomacy_pending_communications
+        .iter()
+        .any(|message| {
+            message.communication_type == crate::state::DiplomaticCommunicationType::FirstContact
+                && message.sending_empire == ai_id
+                && message.receiving_empire == engine.state.player_empire
+        }));
+}
+
+#[test]
+fn terran_concord_first_contact_tone_differs_from_dominion() {
+    let (mut concord_engine, _player_star, ai_star, ai_id) = make_two_empire_state();
+    set_empire_definition(
+        &mut concord_engine,
+        ai_id,
+        crate::state::EmpireDefinitionId(6),
+    );
+    let mut concord_events = Vec::new();
+    concord_engine.check_contact_at_star(ai_star, &mut concord_events);
+    let concord_tone = concord_engine
+        .state
+        .diplomacy_pending_communications
+        .back()
+        .map(|message| message.tone)
+        .expect("expected first contact communication for concord");
+
+    let (mut dominion_engine, _player_star_d, ai_star_d, ai_id_d) = make_two_empire_state();
+    set_empire_definition(
+        &mut dominion_engine,
+        ai_id_d,
+        crate::state::EmpireDefinitionId(7),
+    );
+    let mut dominion_events = Vec::new();
+    dominion_engine.check_contact_at_star(ai_star_d, &mut dominion_events);
+    let dominion_tone = dominion_engine
+        .state
+        .diplomacy_pending_communications
+        .back()
+        .map(|message| message.tone)
+        .expect("expected first contact communication for dominion");
+    assert_ne!(concord_tone, dominion_tone);
+}
+
+#[test]
+fn non_aggression_pact_blocks_war_declaration() {
+    let mut engine = Engine::new(42);
+    let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+    engine
+        .state
+        .diplomacy
+        .insert(ai_id, RelationshipStatus::Neutral);
+
+    let _ = engine.apply_turn(vec![Command::AcceptNonAggressionPact { target: ai_id }]);
+    let events = engine.apply_turn(vec![Command::DeclareWar { target: ai_id }]);
+    assert!(events.iter().any(|event| event.is_error()));
+}
+
+#[test]
+fn peace_treaty_ends_war_and_starts_truce() {
+    let mut engine = Engine::new(42);
+    let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+    engine
+        .state
+        .diplomacy
+        .insert(ai_id, RelationshipStatus::War);
+
+    let events = engine.apply_turn(vec![Command::AcceptPeace { target: ai_id }]);
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, Event::PeaceSigned { with_empire, .. } if *with_empire == ai_id)));
+    assert!(engine.state.has_active_treaty(ai_id, crate::state::TreatyType::Truce));
+    assert_eq!(
+        engine.state.relationship_status(engine.state.player_empire, ai_id),
+        RelationshipStatus::Neutral
+    );
+}
+
+#[test]
+fn treaty_expiration_emits_event_deterministically() {
+    let mut engine = Engine::new(42);
+    let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+    engine
+        .state
+        .diplomacy
+        .insert(ai_id, RelationshipStatus::Neutral);
+    let _ = engine.apply_turn(vec![Command::AcceptNonAggressionPact { target: ai_id }]);
+    engine.state.turn = engine.state.turn.saturating_add(12);
+    let events = engine.apply_turn(vec![Command::EndTurn]);
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            Event::TreatyExpired {
+                with_empire,
+                treaty_type
+            } if *with_empire == ai_id && *treaty_type == crate::state::TreatyType::NonAggressionPact
+        )
+    }));
+}
+
+#[test]
+fn duplicate_warning_communication_is_prevented() {
+    let mut engine = Engine::new(42);
+    let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+    engine
+        .state
+        .diplomacy
+        .insert(ai_id, RelationshipStatus::Tense);
+    let _ = engine.apply_turn(vec![Command::IssueWarning { target: ai_id }]);
+    let _ = engine.apply_turn(vec![Command::IssueWarning { target: ai_id }]);
+    let warning_count = engine
+        .state
+        .diplomacy_pending_communications
+        .iter()
+        .filter(|message| {
+            message.communication_type == crate::state::DiplomaticCommunicationType::Warning
+        })
+        .count();
+    assert_eq!(warning_count, 1);
+}
+
+#[test]
+fn ai_proposes_treaty_deterministically() {
+    let mut engine_a = Engine::new(42);
+    let ai_id = engine_a.state.ai_empire.expect("AI empire must exist");
+    set_empire_definition(&mut engine_a, ai_id, crate::state::EmpireDefinitionId(6));
+    engine_a.state.turn = 10;
+    engine_a
+        .state
+        .diplomacy
+        .insert(ai_id, RelationshipStatus::Neutral);
+    let mut events_a = Vec::new();
+    engine_a.process_ai_diplomacy_with_events(&mut events_a);
+
+    let mut engine_b = Engine::new(42);
+    let ai_id_b = engine_b.state.ai_empire.expect("AI empire must exist");
+    set_empire_definition(&mut engine_b, ai_id_b, crate::state::EmpireDefinitionId(6));
+    engine_b.state.turn = 10;
+    engine_b
+        .state
+        .diplomacy
+        .insert(ai_id_b, RelationshipStatus::Neutral);
+    let mut events_b = Vec::new();
+    engine_b.process_ai_diplomacy_with_events(&mut events_b);
+
+    assert_eq!(events_a, events_b);
+    assert!(events_a.iter().any(|event| {
+        matches!(
+            event,
+            Event::TreatyProposed {
+                treaty_type,
+                ..
+            } if *treaty_type == crate::state::TreatyType::NonAggressionPact
+        )
+    }));
+}
+
+#[test]
+fn ai_declares_war_deterministically() {
+    let mut engine_a = Engine::new(42);
+    let ai_id_a = engine_a.state.ai_empire.expect("AI empire must exist");
+    set_empire_definition(&mut engine_a, ai_id_a, crate::state::EmpireDefinitionId(7));
+    engine_a.state.turn = 18;
+    engine_a
+        .state
+        .diplomacy
+        .insert(ai_id_a, RelationshipStatus::Hostile);
+    let ai_home = engine_a.state.empires[&ai_id_a].home_star;
+    engine_a.state.fleets.insert(
+        FleetId(9900),
+        Fleet {
+            id: FleetId(9900),
+            owner: engine_a.state.player_empire,
+            location: ai_home,
+            ships: 1,
+            kind: FleetKind::Scout,
+            strength: 1,
+            integrity: 100,
+        },
+    );
+    let mut events_a = Vec::new();
+    engine_a.process_ai_diplomacy_with_events(&mut events_a);
+
+    let mut engine_b = Engine::new(42);
+    let ai_id_b = engine_b.state.ai_empire.expect("AI empire must exist");
+    set_empire_definition(&mut engine_b, ai_id_b, crate::state::EmpireDefinitionId(7));
+    engine_b.state.turn = 18;
+    engine_b
+        .state
+        .diplomacy
+        .insert(ai_id_b, RelationshipStatus::Hostile);
+    let ai_home_b = engine_b.state.empires[&ai_id_b].home_star;
+    engine_b.state.fleets.insert(
+        FleetId(9900),
+        Fleet {
+            id: FleetId(9900),
+            owner: engine_b.state.player_empire,
+            location: ai_home_b,
+            ships: 1,
+            kind: FleetKind::Scout,
+            strength: 1,
+            integrity: 100,
+        },
+    );
+    let mut events_b = Vec::new();
+    engine_b.process_ai_diplomacy_with_events(&mut events_b);
+
+    assert_eq!(events_a, events_b);
+    assert!(events_a
+        .iter()
+        .any(|event| matches!(event, Event::WarDeclared { .. })));
+}
+
+#[test]
 fn relationship_status_is_hostile_or_war() {
     assert!(RelationshipStatus::Hostile.is_hostile_or_war());
     assert!(RelationshipStatus::War.is_hostile_or_war());
     assert!(!RelationshipStatus::Contacted.is_hostile_or_war());
     assert!(!RelationshipStatus::Neutral.is_hostile_or_war());
+    assert!(!RelationshipStatus::Cooperative.is_hostile_or_war());
     assert!(!RelationshipStatus::Tense.is_hostile_or_war());
     assert!(!RelationshipStatus::Unknown.is_hostile_or_war());
 }
@@ -9712,6 +9948,7 @@ fn relationship_status_is_combat_eligible() {
     assert!(RelationshipStatus::Hostile.is_combat_eligible());
     assert!(RelationshipStatus::War.is_combat_eligible());
     assert!(!RelationshipStatus::Neutral.is_combat_eligible());
+    assert!(!RelationshipStatus::Cooperative.is_combat_eligible());
     assert!(!RelationshipStatus::Unknown.is_combat_eligible());
 }
 

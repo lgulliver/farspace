@@ -1123,6 +1123,49 @@ mod tests {
         );
     }
 
+    /// Save/load round-trip preserves pending diplomacy communications and relationship records.
+    #[test]
+    fn save_load_preserves_diplomacy_v3_state() {
+        use game_core::{
+            DiplomaticCommunication, DiplomaticCommunicationType, DiplomaticRelationship,
+            DiplomaticResponse, DiplomaticTone, RelationshipStatus,
+        };
+
+        let mut engine = Engine::new(42);
+        let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Neutral);
+        engine.state.diplomacy_relationships.insert(
+            ai_id,
+            DiplomaticRelationship::from_status(RelationshipStatus::Neutral),
+        );
+        engine.state.diplomacy_pending_communications.push_back(DiplomaticCommunication {
+            communication_id: 77,
+            sending_empire: ai_id,
+            receiving_empire: engine.state.player_empire,
+            turn: engine.state.turn,
+            communication_type: DiplomaticCommunicationType::TreatyProposal,
+            tone: DiplomaticTone::Formal,
+            title: "Proposal: Non-Aggression Pact".to_string(),
+            body: "We propose a fixed-term non-aggression pact.".to_string(),
+            available_responses: vec![DiplomaticResponse::Accept, DiplomaticResponse::Reject],
+            expires_turn: Some(engine.state.turn + 5),
+            treaty_type: Some(game_core::TreatyType::NonAggressionPact),
+        });
+        engine.state.diplomacy_next_communication_id = 78;
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert!(loaded.diplomacy_relationships.contains_key(&ai_id));
+        assert_eq!(loaded.diplomacy_pending_communications.len(), 1);
+        assert_eq!(loaded.diplomacy_pending_communications[0].communication_id, 77);
+        assert_eq!(loaded.diplomacy_next_communication_id, 78);
+    }
+
     /// v6 saves (without diplomacy field) load correctly with diplomacy defaulting to empty.
     #[test]
     fn load_v6_save_defaults_diplomacy_to_empty() {

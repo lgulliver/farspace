@@ -1,8 +1,8 @@
 //! Commands that can be issued to the game engine
 
 use crate::state::{
-    BuildItem, ColonyId, ColonyRole, ComponentId, CustomDesignId, EmpireId, FleetFormation,
-    FleetId, FleetOrder, FleetRole, HullId, StarId, TechId,
+    BuildItem, ColonyId, ColonyRole, ComponentId, CustomDesignId, DiplomaticResponse, EmpireId,
+    FleetFormation, FleetId, FleetOrder, FleetRole, HullId, StarId, TechId, TreatyType,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -76,6 +76,34 @@ pub enum Command {
     RenameFleet { fleet: FleetId, name: String },
     /// Declare war on a known empire, setting the relationship to `War`
     DeclareWar { target: EmpireId },
+    /// Offer peace terms to an empire currently at war
+    OfferPeace { target: EmpireId },
+    /// Accept a peace offer from another empire
+    AcceptPeace { target: EmpireId },
+    /// Reject a peace offer from another empire
+    RejectPeace { target: EmpireId },
+    /// Propose a non-aggression pact
+    ProposeNonAggressionPact { target: EmpireId },
+    /// Accept a non-aggression pact proposal
+    AcceptNonAggressionPact { target: EmpireId },
+    /// Reject a non-aggression pact proposal
+    RejectNonAggressionPact { target: EmpireId },
+    /// Cancel an active treaty with another empire
+    CancelTreaty {
+        target: EmpireId,
+        treaty_type: TreatyType,
+    },
+    /// Issue a diplomatic warning to another empire
+    IssueWarning { target: EmpireId },
+    /// Demand tribute from another empire
+    DemandTribute { target: EmpireId },
+    /// Send introductory greeting to another empire
+    SendGreeting { target: EmpireId },
+    /// Respond to a pending diplomatic communication
+    RespondToCommunication {
+        communication_id: u64,
+        response: DiplomaticResponse,
+    },
     /// Create a new custom ship design for the player empire
     CreateShipDesign {
         hull_id: HullId,

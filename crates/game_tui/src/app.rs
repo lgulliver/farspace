@@ -17,8 +17,8 @@ use crate::visual_mode::{map_symbol_for_mode, user_config_path, VisualMode};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
     empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, ComponentId,
-    Engine, Event as CoreEvent, FleetFormation, FleetId, FleetKind, FleetRole, GalaxySize,
-    OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId,
+    Engine, Event as CoreEvent, FleetFormation, FleetId, FleetKind, FleetRole,
+    GalaxySize, OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId, TreatyType,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -46,6 +46,7 @@ pub struct AppState {
     pub(crate) colony: ColonyScreenState,
     pub(crate) research: ResearchScreenState,
     pub(crate) overview: EmpireOverviewScreenState,
+    pub(crate) diplomacy: DiplomacyScreenState,
     pub(crate) new_game_setup: NewGameSetupState,
     pub(crate) log: EventLog,
     pub(crate) quit: bool,
@@ -159,6 +160,19 @@ pub(crate) struct NewGameSetupState {
     pub(crate) seed_pre_edit: String,
     /// Index into `all_empire_definitions()` for the empire the player has chosen.
     pub(crate) empire_cursor: usize,
+}
+
+/// Diplomacy screen state.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DiplomacyScreenState {
+    /// Cursor index for selected foreign empire.
+    pub(crate) selected_empire_index: usize,
+    /// Cursor index for selected communication response.
+    pub(crate) selected_response_index: usize,
+    /// Whether the communication modal is open.
+    pub(crate) show_communication_modal: bool,
+    /// Selected communication index within player-targeted pending messages.
+    pub(crate) selected_communication_index: usize,
 }
 
 impl Default for NewGameSetupState {
@@ -1307,9 +1321,112 @@ impl App {
     }
 
     fn handle_diplomacy_key(&mut self, key: KeyEvent) {
+        let player_targeted_messages = self
+            .engine
+            .as_ref()
+            .map(|engine| {
+                engine
+                    .state
+                    .diplomacy_pending_communications
+                    .iter()
+                    .filter(|msg| msg.receiving_empire == engine.state.player_empire)
+                    .count()
+            })
+            .unwrap_or(0);
+
+        if self.state.diplomacy.show_communication_modal && player_targeted_messages > 0 {
+            match key.code {
+                KeyCode::Esc => {
+                    self.state.diplomacy.show_communication_modal = false;
+                    self.state.diplomacy.selected_response_index = 0;
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.state.diplomacy.selected_response_index =
+                        self.state.diplomacy.selected_response_index.saturating_add(1);
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.state.diplomacy.selected_response_index =
+                        self.state.diplomacy.selected_response_index.saturating_sub(1);
+                }
+                KeyCode::Tab => {
+                    if player_targeted_messages > 0 {
+                        self.state.diplomacy.selected_communication_index =
+                            (self.state.diplomacy.selected_communication_index + 1)
+                                % player_targeted_messages;
+                        self.state.diplomacy.selected_response_index = 0;
+                    }
+                }
+                KeyCode::Enter => {
+                    self.respond_to_selected_diplomatic_message();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match key.code {
             KeyCode::Esc => {
                 self.state.active = Screen::SectorMap;
+            }
+            KeyCode::Tab => {
+                self.cycle_diplomacy_empire();
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.cycle_diplomacy_empire();
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.cycle_diplomacy_empire_reverse();
+            }
+            KeyCode::Char('c') => {
+                if player_targeted_messages == 0 {
+                    self.push_error_status("No pending diplomatic communications.");
+                } else {
+                    self.state.diplomacy.show_communication_modal = true;
+                    self.state.diplomacy.selected_response_index = 0;
+                    self.state.diplomacy.selected_communication_index = self
+                        .state
+                        .diplomacy
+                        .selected_communication_index
+                        .min(player_targeted_messages.saturating_sub(1));
+                }
+            }
+            KeyCode::Char('w') => {
+                if let Some(target) = self.selected_diplomacy_target() {
+                    self.dispatch_command(Command::DeclareWar { target });
+                }
+            }
+            KeyCode::Char('p') => {
+                if let Some(target) = self.selected_diplomacy_target() {
+                    self.dispatch_command(Command::OfferPeace { target });
+                }
+            }
+            KeyCode::Char('n') => {
+                if let Some(target) = self.selected_diplomacy_target() {
+                    self.dispatch_command(Command::ProposeNonAggressionPact { target });
+                }
+            }
+            KeyCode::Char('x') => {
+                if let Some(target) = self.selected_diplomacy_target() {
+                    self.dispatch_command(Command::CancelTreaty {
+                        target,
+                        treaty_type: TreatyType::NonAggressionPact,
+                    });
+                }
+            }
+            KeyCode::Char('g') => {
+                if let Some(target) = self.selected_diplomacy_target() {
+                    self.dispatch_command(Command::SendGreeting { target });
+                }
+            }
+            KeyCode::Char('u') => {
+                if let Some(target) = self.selected_diplomacy_target() {
+                    self.dispatch_command(Command::IssueWarning { target });
+                }
+            }
+            KeyCode::Char('m') => {
+                if let Some(target) = self.selected_diplomacy_target() {
+                    self.dispatch_command(Command::DemandTribute { target });
+                }
             }
             // End turn from diplomacy screen
             _ => {
@@ -1318,6 +1435,80 @@ impl App {
                 }
             }
         }
+    }
+
+    fn diplomacy_target_list(&self) -> Vec<game_core::EmpireId> {
+        let Some(engine) = &self.engine else {
+            return Vec::new();
+        };
+        engine
+            .state
+            .empires
+            .keys()
+            .copied()
+            .filter(|empire_id| *empire_id != engine.state.player_empire)
+            .collect()
+    }
+
+    fn selected_diplomacy_target(&self) -> Option<game_core::EmpireId> {
+        let targets = self.diplomacy_target_list();
+        if targets.is_empty() {
+            return None;
+        }
+        let idx = self.state.diplomacy.selected_empire_index % targets.len();
+        targets.get(idx).copied()
+    }
+
+    fn cycle_diplomacy_empire(&mut self) {
+        let targets = self.diplomacy_target_list();
+        if !targets.is_empty() {
+            self.state.diplomacy.selected_empire_index =
+                (self.state.diplomacy.selected_empire_index + 1) % targets.len();
+        }
+    }
+
+    fn cycle_diplomacy_empire_reverse(&mut self) {
+        let targets = self.diplomacy_target_list();
+        if !targets.is_empty() {
+            self.state.diplomacy.selected_empire_index =
+                (self.state.diplomacy.selected_empire_index + targets.len() - 1) % targets.len();
+        }
+    }
+
+    fn respond_to_selected_diplomatic_message(&mut self) {
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        let player = engine.state.player_empire;
+        let mut messages: Vec<_> = engine
+            .state
+            .diplomacy_pending_communications
+            .iter()
+            .filter(|msg| msg.receiving_empire == player)
+            .cloned()
+            .collect();
+        messages.sort_by_key(|msg| msg.communication_id);
+        let Some(message) = messages.get(
+            self.state
+                .diplomacy
+                .selected_communication_index
+                .min(messages.len().saturating_sub(1)),
+        ) else {
+            self.push_error_status("No pending diplomatic communication selected.");
+            return;
+        };
+        if message.available_responses.is_empty() {
+            self.push_error_status("Selected communication has no valid responses.");
+            return;
+        }
+        let response = message.available_responses
+            [self.state.diplomacy.selected_response_index % message.available_responses.len()];
+        self.dispatch_command(Command::RespondToCommunication {
+            communication_id: message.communication_id,
+            response,
+        });
+        self.state.diplomacy.selected_response_index = 0;
+        self.state.diplomacy.show_communication_modal = false;
     }
 
     fn handle_ship_designer_key(&mut self, key: KeyEvent) {

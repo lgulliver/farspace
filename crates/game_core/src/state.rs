@@ -1407,6 +1407,8 @@ pub enum RelationshipStatus {
     Contacted,
     /// Relations are stable and peaceful
     Neutral,
+    /// Relations are actively cooperative
+    Cooperative,
     /// Relations are strained; no open hostility yet
     Tense,
     /// Empires are in open conflict; combat and blockades apply
@@ -1443,11 +1445,170 @@ impl RelationshipStatus {
             RelationshipStatus::Unknown => "Unknown",
             RelationshipStatus::Contacted => "Contacted",
             RelationshipStatus::Neutral => "Neutral",
+            RelationshipStatus::Cooperative => "Cooperative",
             RelationshipStatus::Tense => "Tense",
             RelationshipStatus::Hostile => "Hostile",
             RelationshipStatus::War => "At War",
         }
     }
+}
+
+/// Supported treaty types in diplomacy v3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum TreatyType {
+    NonAggressionPact,
+    Truce,
+}
+
+impl TreatyType {
+    pub fn label(self) -> &'static str {
+        match self {
+            TreatyType::NonAggressionPact => "Non-Aggression Pact",
+            TreatyType::Truce => "Truce",
+        }
+    }
+}
+
+/// Tone used when generating diplomatic communications.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum DiplomaticTone {
+    Cooperative,
+    Formal,
+    Suspicious,
+    Threatening,
+    Hostile,
+    Desperate,
+    Triumphant,
+}
+
+impl DiplomaticTone {
+    pub fn label(self) -> &'static str {
+        match self {
+            DiplomaticTone::Cooperative => "Cooperative",
+            DiplomaticTone::Formal => "Formal",
+            DiplomaticTone::Suspicious => "Suspicious",
+            DiplomaticTone::Threatening => "Threatening",
+            DiplomaticTone::Hostile => "Hostile",
+            DiplomaticTone::Desperate => "Desperate",
+            DiplomaticTone::Triumphant => "Triumphant",
+        }
+    }
+}
+
+/// Structured diplomacy communication categories.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum DiplomaticCommunicationType {
+    FirstContact,
+    TreatyProposal,
+    TreatyAccepted,
+    TreatyRejected,
+    Warning,
+    TributeDemand,
+    PeaceOffer,
+    WarDeclaration,
+}
+
+/// Player/AI response options for communications.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum DiplomaticResponse {
+    Acknowledge,
+    Accept,
+    Reject,
+    Comply,
+    Refuse,
+}
+
+impl DiplomaticResponse {
+    pub fn label(self) -> &'static str {
+        match self {
+            DiplomaticResponse::Acknowledge => "Acknowledge",
+            DiplomaticResponse::Accept => "Accept",
+            DiplomaticResponse::Reject => "Reject",
+            DiplomaticResponse::Comply => "Comply",
+            DiplomaticResponse::Refuse => "Refuse",
+        }
+    }
+}
+
+/// Active or historical treaty record for an empire pair.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct DiplomaticTreaty {
+    pub treaty_type: TreatyType,
+    pub with_empire: EmpireId,
+    pub start_turn: u32,
+    pub duration_turns: u32,
+}
+
+impl DiplomaticTreaty {
+    pub fn expires_turn(&self) -> u32 {
+        self.start_turn.saturating_add(self.duration_turns)
+    }
+
+    pub fn is_active(&self, current_turn: u32) -> bool {
+        current_turn < self.expires_turn()
+    }
+}
+
+/// Rich relationship state for diplomacy v3.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct DiplomaticRelationship {
+    pub state: RelationshipStatus,
+    pub relationship_score: i32,
+    pub tension_score: i32,
+    pub trust_score: Option<i32>,
+    pub last_major_diplomatic_event_turn: u32,
+    pub active_treaties: Vec<DiplomaticTreaty>,
+    pub recent_grievances: Vec<String>,
+    pub known_doctrine: Option<String>,
+    pub first_contact_turn: Option<u32>,
+}
+
+impl DiplomaticRelationship {
+    pub fn from_status(state: RelationshipStatus) -> Self {
+        let (relationship_score, tension_score, trust_score) = match state {
+            RelationshipStatus::Unknown => (-40, 0, None),
+            RelationshipStatus::Contacted => (0, 5, Some(50)),
+            RelationshipStatus::Neutral => (15, 10, Some(55)),
+            RelationshipStatus::Cooperative => (35, 5, Some(70)),
+            RelationshipStatus::Tense => (-10, 35, Some(40)),
+            RelationshipStatus::Hostile => (-30, 65, Some(25)),
+            RelationshipStatus::War => (-60, 100, Some(10)),
+        };
+        Self {
+            state,
+            relationship_score,
+            tension_score,
+            trust_score,
+            last_major_diplomatic_event_turn: 0,
+            active_treaties: Vec::new(),
+            recent_grievances: Vec::new(),
+            known_doctrine: None,
+            first_contact_turn: None,
+        }
+    }
+}
+
+/// A single pending diplomatic communication.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct DiplomaticCommunication {
+    pub communication_id: u64,
+    pub sending_empire: EmpireId,
+    pub receiving_empire: EmpireId,
+    pub turn: u32,
+    pub communication_type: DiplomaticCommunicationType,
+    pub tone: DiplomaticTone,
+    pub title: String,
+    pub body: String,
+    pub available_responses: Vec<DiplomaticResponse>,
+    pub expires_turn: Option<u32>,
+    pub treaty_type: Option<TreatyType>,
 }
 
 /// Coarse galaxy size preset used in scenario setup.
@@ -1676,6 +1837,15 @@ pub struct GameState {
     /// Empires not present in this map are implicitly `Unknown`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub diplomacy: BTreeMap<EmpireId, RelationshipStatus>,
+    /// Rich diplomacy relationship data keyed by foreign empire ID.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub diplomacy_relationships: BTreeMap<EmpireId, DiplomaticRelationship>,
+    /// Pending diplomatic communications (processed in queue order).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub diplomacy_pending_communications: VecDeque<DiplomaticCommunication>,
+    /// Monotonic communication id counter.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub diplomacy_next_communication_id: u64,
     /// All generated hyperspace lanes in this galaxy.
     #[cfg_attr(feature = "serde", serde(default))]
     pub hyperspace_lanes: BTreeSet<HyperspaceLane>,
@@ -1992,10 +2162,30 @@ impl GameState {
         } else {
             return RelationshipStatus::Unknown;
         };
+        if let Some(relationship) = self.diplomacy_relationships.get(&other) {
+            return relationship.state;
+        }
         self.diplomacy
             .get(&other)
             .copied()
             .unwrap_or(RelationshipStatus::Unknown)
+    }
+
+    /// Returns relationship data for a foreign empire if present.
+    pub fn relationship_data(&self, other: EmpireId) -> Option<&DiplomaticRelationship> {
+        self.diplomacy_relationships.get(&other)
+    }
+
+    /// Returns true when an active treaty of `treaty_type` exists with `other`.
+    pub fn has_active_treaty(&self, other: EmpireId, treaty_type: TreatyType) -> bool {
+        self.diplomacy_relationships
+            .get(&other)
+            .is_some_and(|relationship| {
+                relationship
+                    .active_treaties
+                    .iter()
+                    .any(|treaty| treaty.treaty_type == treaty_type && treaty.is_active(self.turn))
+            })
     }
 
     /// Recompute which colonies are blockaded based on current idle fleet positions
@@ -2193,6 +2383,9 @@ impl PartialEq for GameState {
             && self.ai_empire == other.ai_empire
             && self.ai_explored_stars == other.ai_explored_stars
             && self.diplomacy == other.diplomacy
+            && self.diplomacy_relationships == other.diplomacy_relationships
+            && self.diplomacy_pending_communications == other.diplomacy_pending_communications
+            && self.diplomacy_next_communication_id == other.diplomacy_next_communication_id
             && self.hyperspace_lanes == other.hyperspace_lanes
             && self.known_hyperspace_lanes == other.known_hyperspace_lanes
             && self.fleet_orders == other.fleet_orders
@@ -2256,6 +2449,9 @@ impl Default for GameState {
             ai_empire: None,
             ai_explored_stars: BTreeSet::new(),
             diplomacy: BTreeMap::new(),
+            diplomacy_relationships: BTreeMap::new(),
+            diplomacy_pending_communications: VecDeque::new(),
+            diplomacy_next_communication_id: 1,
             hyperspace_lanes: BTreeSet::new(),
             known_hyperspace_lanes: BTreeSet::new(),
             fleet_orders: BTreeMap::new(),

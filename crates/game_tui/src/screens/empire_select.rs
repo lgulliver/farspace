@@ -421,9 +421,7 @@ fn render_info_panel(
     let (fc_color, fc_note) = match def.diplomacy_profile.first_contact_status {
         game_core::RelationshipStatus::Neutral
         | game_core::RelationshipStatus::Cooperative
-        | game_core::RelationshipStatus::Contacted => {
-            (Color::Green, "Opens peacefully")
-        }
+        | game_core::RelationshipStatus::Contacted => (Color::Green, "Opens peacefully"),
         game_core::RelationshipStatus::Tense => (Color::Yellow, "Opens with tension"),
         _ => (Color::LightRed, "Opens as adversary"),
     };

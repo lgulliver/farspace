@@ -660,10 +660,7 @@ pub fn generate_dispatch(
                     None,
                 ));
             }
-            Event::PeaceSigned {
-                with_empire,
-                ..
-            } => {
+            Event::PeaceSigned { with_empire, .. } => {
                 if player_knows_empire(state, *with_empire) {
                     let empire_name = empire_name_for_id(state, *with_empire);
                     items.push(item(

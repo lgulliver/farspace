@@ -349,7 +349,9 @@ impl Engine {
         next: RelationshipStatus,
         events: &mut Vec<Event>,
     ) {
-        let previous = self.state.relationship_status(self.state.player_empire, empire_id);
+        let previous = self
+            .state
+            .relationship_status(self.state.player_empire, empire_id);
         self.state.diplomacy.insert(empire_id, next);
         self.ensure_relationship_entry(empire_id);
         if let Some(relationship) = self.state.diplomacy_relationships.get_mut(&empire_id) {
@@ -364,6 +366,7 @@ impl Engine {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn queue_diplomatic_communication(
         &mut self,
         from_empire: EmpireId,
@@ -377,13 +380,18 @@ impl Engine {
         treaty_type: Option<TreatyType>,
         events: &mut Vec<Event>,
     ) -> u64 {
-        if let Some(existing) = self.state.diplomacy_pending_communications.iter().find(|message| {
-            message.sending_empire == from_empire
-                && message.receiving_empire == to_empire
-                && message.communication_type == communication_type
-                && message.treaty_type == treaty_type
-                && message.expires_turn.is_none_or(|t| t >= self.state.turn)
-        }) {
+        if let Some(existing) = self
+            .state
+            .diplomacy_pending_communications
+            .iter()
+            .find(|message| {
+                message.sending_empire == from_empire
+                    && message.receiving_empire == to_empire
+                    && message.communication_type == communication_type
+                    && message.treaty_type == treaty_type
+                    && message.expires_turn.is_none_or(|t| t >= self.state.turn)
+            })
+        {
             return existing.communication_id;
         }
         let id = self.state.diplomacy_next_communication_id.max(1);
@@ -513,9 +521,9 @@ impl Engine {
         let mut cancelled = false;
         if let Some(relationship) = self.state.diplomacy_relationships.get_mut(&with_empire) {
             let before = relationship.active_treaties.len();
-            relationship
-                .active_treaties
-                .retain(|treaty| treaty.treaty_type != treaty_type || !treaty.is_active(self.state.turn));
+            relationship.active_treaties.retain(|treaty| {
+                treaty.treaty_type != treaty_type || !treaty.is_active(self.state.turn)
+            });
             cancelled = relationship.active_treaties.len() != before;
             if cancelled {
                 relationship.last_major_diplomatic_event_turn = self.state.turn;
@@ -550,7 +558,11 @@ impl Engine {
         }
         self.state
             .diplomacy_pending_communications
-            .retain(|message| message.expires_turn.is_none_or(|turn| turn >= self.state.turn));
+            .retain(|message| {
+                message
+                    .expires_turn
+                    .is_none_or(|turn| turn >= self.state.turn)
+            });
     }
 
     /// Compute total fleet maintenance for an empire.
@@ -648,7 +660,9 @@ impl Engine {
                         .map(|fleet| fleet.strength)
                         .sum();
                     if ai_strength < player_strength / 2
-                        && !self.state.has_active_treaty(ai_empire_id, TreatyType::Truce)
+                        && !self
+                            .state
+                            .has_active_treaty(ai_empire_id, TreatyType::Truce)
                     {
                         self.queue_diplomatic_communication(
                             ai_empire_id,
@@ -731,12 +745,17 @@ impl Engine {
             let has_nap = self
                 .state
                 .has_active_treaty(ai_empire_id, TreatyType::NonAggressionPact);
-            let has_truce = self.state.has_active_treaty(ai_empire_id, TreatyType::Truce);
+            let has_truce = self
+                .state
+                .has_active_treaty(ai_empire_id, TreatyType::Truce);
 
             if !has_nap
                 && !has_truce
                 && (merchant >= 8 || technologist >= 8 || explorer >= 8)
-                && matches!(next, RelationshipStatus::Neutral | RelationshipStatus::Cooperative)
+                && matches!(
+                    next,
+                    RelationshipStatus::Neutral | RelationshipStatus::Cooperative
+                )
             {
                 events.push(Event::TreatyProposed {
                     from_empire: ai_empire_id,
@@ -760,16 +779,19 @@ impl Engine {
                     Some(TreatyType::NonAggressionPact),
                     events,
                 );
-                if let Some(relationship) = self.state.diplomacy_relationships.get_mut(&ai_empire_id)
+                if let Some(relationship) =
+                    self.state.diplomacy_relationships.get_mut(&ai_empire_id)
                 {
                     relationship.last_major_diplomatic_event_turn = self.state.turn;
                 }
                 continue;
             }
 
-            if matches!(next, RelationshipStatus::Tense | RelationshipStatus::Hostile)
-                && (militarist >= 8 || imperial >= 8 || isolationist >= 9)
-                && self.state.turn % 6 == 0
+            if matches!(
+                next,
+                RelationshipStatus::Tense | RelationshipStatus::Hostile
+            ) && (militarist >= 8 || imperial >= 8 || isolationist >= 9)
+                && self.state.turn.is_multiple_of(6)
             {
                 events.push(Event::WarningIssued {
                     from_empire: ai_empire_id,
@@ -792,7 +814,8 @@ impl Engine {
                     None,
                     events,
                 );
-                if let Some(relationship) = self.state.diplomacy_relationships.get_mut(&ai_empire_id)
+                if let Some(relationship) =
+                    self.state.diplomacy_relationships.get_mut(&ai_empire_id)
                 {
                     relationship.last_major_diplomatic_event_turn = self.state.turn;
                 }
@@ -801,7 +824,7 @@ impl Engine {
 
             if matches!(next, RelationshipStatus::Hostile)
                 && imperial + militarist >= 14
-                && self.state.turn % 9 == 0
+                && self.state.turn.is_multiple_of(9)
             {
                 events.push(Event::TributeDemanded {
                     from_empire: ai_empire_id,
@@ -817,14 +840,14 @@ impl Engine {
                         DiplomaticCommunicationType::TributeDemand,
                     ),
                     "Tribute Demand".to_string(),
-                    "Transfer tribute this cycle or prepare for escalation."
-                        .to_string(),
+                    "Transfer tribute this cycle or prepare for escalation.".to_string(),
                     vec![DiplomaticResponse::Comply, DiplomaticResponse::Refuse],
                     Some(self.state.turn.saturating_add(3)),
                     None,
                     events,
                 );
-                if let Some(relationship) = self.state.diplomacy_relationships.get_mut(&ai_empire_id)
+                if let Some(relationship) =
+                    self.state.diplomacy_relationships.get_mut(&ai_empire_id)
                 {
                     relationship.last_major_diplomatic_event_turn = self.state.turn;
                 }
@@ -859,7 +882,8 @@ impl Engine {
                     None,
                     events,
                 );
-                if let Some(relationship) = self.state.diplomacy_relationships.get_mut(&ai_empire_id)
+                if let Some(relationship) =
+                    self.state.diplomacy_relationships.get_mut(&ai_empire_id)
                 {
                     relationship.last_major_diplomatic_event_turn = self.state.turn;
                 }
@@ -2264,8 +2288,7 @@ impl Engine {
             DiplomaticCommunicationType::WarDeclaration,
             DiplomaticTone::Hostile,
             "War Declaration".to_string(),
-            "Your hostile posture is unacceptable. We are now in formal war."
-                .to_string(),
+            "Your hostile posture is unacceptable. We are now in formal war.".to_string(),
             vec![DiplomaticResponse::Acknowledge],
             None,
             None,
@@ -2313,8 +2336,14 @@ impl Engine {
     }
 
     fn process_propose_non_aggression(&mut self, target: EmpireId, events: &mut Vec<Event>) {
-        if self.state.relationship_status(self.state.player_empire, target) == RelationshipStatus::War {
-            events.push(Event::error("Cannot propose non-aggression pact while at war"));
+        if self
+            .state
+            .relationship_status(self.state.player_empire, target)
+            == RelationshipStatus::War
+        {
+            events.push(Event::error(
+                "Cannot propose non-aggression pact while at war",
+            ));
             return;
         }
         events.push(Event::TreatyProposed {
@@ -2439,12 +2468,16 @@ impl Engine {
         };
 
         let Some(communication) = self.state.diplomacy_pending_communications.remove(index) else {
-            events.push(Event::error("Diplomatic communication could not be removed"));
+            events.push(Event::error(
+                "Diplomatic communication could not be removed",
+            ));
             return;
         };
 
         if !communication.available_responses.contains(&response) {
-            events.push(Event::error("Invalid response for diplomatic communication"));
+            events.push(Event::error(
+                "Invalid response for diplomatic communication",
+            ));
             return;
         }
 
@@ -2454,17 +2487,37 @@ impl Engine {
             communication.sending_empire
         };
 
-        match (communication.communication_type, response, communication.treaty_type) {
-            (DiplomaticCommunicationType::PeaceOffer, DiplomaticResponse::Accept, Some(TreatyType::Truce)) => {
+        match (
+            communication.communication_type,
+            response,
+            communication.treaty_type,
+        ) {
+            (
+                DiplomaticCommunicationType::PeaceOffer,
+                DiplomaticResponse::Accept,
+                Some(TreatyType::Truce),
+            ) => {
                 self.process_accept_peace(other, events);
             }
-            (DiplomaticCommunicationType::PeaceOffer, DiplomaticResponse::Reject, Some(TreatyType::Truce)) => {
+            (
+                DiplomaticCommunicationType::PeaceOffer,
+                DiplomaticResponse::Reject,
+                Some(TreatyType::Truce),
+            ) => {
                 self.process_reject_peace(other, events);
             }
-            (DiplomaticCommunicationType::TreatyProposal, DiplomaticResponse::Accept, Some(TreatyType::NonAggressionPact)) => {
+            (
+                DiplomaticCommunicationType::TreatyProposal,
+                DiplomaticResponse::Accept,
+                Some(TreatyType::NonAggressionPact),
+            ) => {
                 self.process_accept_non_aggression(other, events);
             }
-            (DiplomaticCommunicationType::TreatyProposal, DiplomaticResponse::Reject, Some(TreatyType::NonAggressionPact)) => {
+            (
+                DiplomaticCommunicationType::TreatyProposal,
+                DiplomaticResponse::Reject,
+                Some(TreatyType::NonAggressionPact),
+            ) => {
                 self.process_reject_non_aggression(other, events);
             }
             (DiplomaticCommunicationType::TributeDemand, DiplomaticResponse::Refuse, _) => {
@@ -3636,7 +3689,9 @@ impl Engine {
                 relationship.known_doctrine = self
                     .empire_definition(empire_id)
                     .map(|def| def.doctrine_short_summary());
-                self.state.diplomacy_relationships.insert(empire_id, relationship);
+                self.state
+                    .diplomacy_relationships
+                    .insert(empire_id, relationship);
                 events.push(Event::FirstContact {
                     with_empire: empire_id,
                 });

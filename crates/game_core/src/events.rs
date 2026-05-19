@@ -842,7 +842,11 @@ impl Event {
             Event::TreatyExpired {
                 with_empire,
                 treaty_type,
-            } => format!("{} with Empire {} expired", treaty_type.label(), with_empire.0),
+            } => format!(
+                "{} with Empire {} expired",
+                treaty_type.label(),
+                with_empire.0
+            ),
             Event::TreatyCancelled {
                 with_empire,
                 treaty_type,
@@ -873,7 +877,10 @@ impl Event {
                 to_empire.0, from_empire.0
             ),
             Event::WarDeclared { attacker, defender } => {
-                format!("WAR DECLARED: Empire {} declared war on Empire {}", attacker.0, defender.0)
+                format!(
+                    "WAR DECLARED: Empire {} declared war on Empire {}",
+                    attacker.0, defender.0
+                )
             }
             Event::PeaceSigned {
                 with_empire,

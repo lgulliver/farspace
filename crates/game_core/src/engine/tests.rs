@@ -9713,9 +9713,9 @@ fn first_contact_creates_diplomatic_communication() {
     set_empire_definition(&mut engine, ai_id, crate::state::EmpireDefinitionId(6));
     let mut events = Vec::new();
     engine.check_contact_at_star(ai_star, &mut events);
-    assert!(events
-        .iter()
-        .any(|event| matches!(event, Event::FirstContact { with_empire } if *with_empire == ai_id)));
+    assert!(events.iter().any(
+        |event| matches!(event, Event::FirstContact { with_empire } if *with_empire == ai_id)
+    ));
     assert!(engine
         .state
         .diplomacy_pending_communications
@@ -9785,12 +9785,16 @@ fn peace_treaty_ends_war_and_starts_truce() {
         .insert(ai_id, RelationshipStatus::War);
 
     let events = engine.apply_turn(vec![Command::AcceptPeace { target: ai_id }]);
-    assert!(events
-        .iter()
-        .any(|event| matches!(event, Event::PeaceSigned { with_empire, .. } if *with_empire == ai_id)));
-    assert!(engine.state.has_active_treaty(ai_id, crate::state::TreatyType::Truce));
+    assert!(events.iter().any(
+        |event| matches!(event, Event::PeaceSigned { with_empire, .. } if *with_empire == ai_id)
+    ));
+    assert!(engine
+        .state
+        .has_active_treaty(ai_id, crate::state::TreatyType::Truce));
     assert_eq!(
-        engine.state.relationship_status(engine.state.player_empire, ai_id),
+        engine
+            .state
+            .relationship_status(engine.state.player_empire, ai_id),
         RelationshipStatus::Neutral
     );
 }

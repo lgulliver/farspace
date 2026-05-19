@@ -17,8 +17,8 @@ use crate::visual_mode::{map_symbol_for_mode, user_config_path, VisualMode};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
     empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, ComponentId,
-    Engine, Event as CoreEvent, FleetFormation, FleetId, FleetKind, FleetRole,
-    GalaxySize, OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId, TreatyType,
+    Engine, Event as CoreEvent, FleetFormation, FleetId, FleetKind, FleetRole, GalaxySize,
+    OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId, TreatyType,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -1341,12 +1341,18 @@ impl App {
                     self.state.diplomacy.selected_response_index = 0;
                 }
                 KeyCode::Char('j') | KeyCode::Down => {
-                    self.state.diplomacy.selected_response_index =
-                        self.state.diplomacy.selected_response_index.saturating_add(1);
+                    self.state.diplomacy.selected_response_index = self
+                        .state
+                        .diplomacy
+                        .selected_response_index
+                        .saturating_add(1);
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
-                    self.state.diplomacy.selected_response_index =
-                        self.state.diplomacy.selected_response_index.saturating_sub(1);
+                    self.state.diplomacy.selected_response_index = self
+                        .state
+                        .diplomacy
+                        .selected_response_index
+                        .saturating_sub(1);
                 }
                 KeyCode::Tab => {
                     if player_targeted_messages > 0 {

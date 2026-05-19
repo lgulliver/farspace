@@ -1,5 +1,6 @@
 //! Event log component
 
+use crate::glyphs::glyphs_for_mode;
 use crate::theme::Theme;
 use crate::visual_mode::VisualMode;
 use ratatui::{
@@ -170,48 +171,22 @@ fn style_for_class(class: LogEntryKind) -> Style {
     }
 }
 
-fn prefix_for_class(class: LogEntryKind, mode: VisualMode) -> &'static str {
-    match mode {
-        VisualMode::Ascii => match class {
-            LogEntryKind::LowSignal => "",
-            LogEntryKind::Error => "x ",
-            LogEntryKind::Warning => "! ",
-            LogEntryKind::TurnReport => "# ",
-            LogEntryKind::TurnFlow => "> ",
-            LogEntryKind::Research => "v ",
-            LogEntryKind::Survey => "o ",
-            LogEntryKind::Colony => "o ",
-            LogEntryKind::Scout | LogEntryKind::Fleet => "> ",
-            LogEntryKind::SaveLoad => "s ",
-            LogEntryKind::Diplomacy | LogEntryKind::Other => ". ",
-        },
-        VisualMode::Unicode => match class {
-            LogEntryKind::LowSignal => "",
-            LogEntryKind::Error => "✖ ",
-            LogEntryKind::Warning => "⚠ ",
-            LogEntryKind::TurnReport => "◆ ",
-            LogEntryKind::TurnFlow => "▸ ",
-            LogEntryKind::Research => "✓ ",
-            LogEntryKind::Survey => "◌ ",
-            LogEntryKind::Colony => "◎ ",
-            LogEntryKind::Scout | LogEntryKind::Fleet => "➤ ",
-            LogEntryKind::SaveLoad => "◈ ",
-            LogEntryKind::Diplomacy | LogEntryKind::Other => "• ",
-        },
-        VisualMode::NerdFont => match class {
-            LogEntryKind::LowSignal => "",
-            LogEntryKind::Error => "\u{f057} ",
-            LogEntryKind::Warning => "\u{f071} ",
-            LogEntryKind::TurnReport => "\u{f080} ",
-            LogEntryKind::TurnFlow => "\u{e0b1} ",
-            LogEntryKind::Research => "\u{f00c} ",
-            LogEntryKind::Survey => "\u{f111} ",
-            LogEntryKind::Colony => "\u{f015} ",
-            LogEntryKind::Scout | LogEntryKind::Fleet => "\u{f0a9} ",
-            LogEntryKind::SaveLoad => "\u{f0c7} ",
-            LogEntryKind::Diplomacy | LogEntryKind::Other => "\u{f111} ",
-        },
-    }
+fn prefix_for_class(class: LogEntryKind, mode: VisualMode) -> Option<char> {
+    let glyphs = glyphs_for_mode(mode);
+    let icon = match class {
+        LogEntryKind::LowSignal => return None,
+        LogEntryKind::Error => glyphs.status_error,
+        LogEntryKind::Warning => glyphs.warning,
+        LogEntryKind::TurnReport => glyphs.resource,
+        LogEntryKind::TurnFlow => glyphs.status_progress,
+        LogEntryKind::Research => glyphs.status_done,
+        LogEntryKind::Survey => glyphs.star_unexplored,
+        LogEntryKind::Colony => glyphs.planet_colonized,
+        LogEntryKind::Scout | LogEntryKind::Fleet => glyphs.transit,
+        LogEntryKind::SaveLoad => glyphs.status_save,
+        LogEntryKind::Diplomacy | LogEntryKind::Other => glyphs.bullet,
+    };
+    Some(icon)
 }
 
 /// Render the event log
@@ -223,10 +198,10 @@ pub fn render_log(frame: &mut Frame, area: Rect, log: &EventLog, mode: VisualMod
             if class == LogEntryKind::LowSignal {
                 None
             } else {
-                Some((
-                    format!("{}{}", prefix_for_class(class, mode), entry),
-                    style_for_class(class),
-                ))
+                let prefix = prefix_for_class(class, mode)
+                    .map(|icon| format!("{icon} "))
+                    .unwrap_or_default();
+                Some((format!("{prefix}{entry}"), style_for_class(class)))
             }
         })
         .collect();
@@ -273,11 +248,10 @@ mod tests {
         if class == LogEntryKind::LowSignal {
             None
         } else {
-            Some(format!(
-                "{}{}",
-                prefix_for_class(class, VisualMode::Unicode),
-                entry
-            ))
+            let prefix = prefix_for_class(class, VisualMode::Unicode)
+                .map(|icon| format!("{icon} "))
+                .unwrap_or_default();
+            Some(format!("{prefix}{entry}"))
         }
     }
 

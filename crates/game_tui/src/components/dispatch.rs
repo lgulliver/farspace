@@ -2,6 +2,7 @@
 
 use crate::layout::centered_rect;
 use crate::theme::Theme;
+use crate::{glyphs::glyphs_for_mode, visual_mode::VisualMode};
 use game_core::{DispatchCategory, DispatchSeverity, GalacticDispatch};
 use ratatui::{
     layout::Rect,
@@ -21,8 +22,10 @@ pub fn render_dispatch(
     dispatch: &GalacticDispatch,
     dispatch_index: usize,
     total_count: usize,
+    mode: VisualMode,
 ) {
     let popup_area = centered_rect(90, 88, area);
+    let glyphs = glyphs_for_mode(mode);
 
     // Clear the background
     frame.render_widget(Clear, popup_area);
@@ -35,8 +38,9 @@ pub fn render_dispatch(
     // Header: turn number and dispatch index
     let display_turn = dispatch.turn + 1;
     let header_text = format!(
-        " Turn {}  ·  Dispatch {}/{} ",
+        " Turn {}  {}  Dispatch {}/{} ",
         display_turn,
+        glyphs.separator_dot,
         dispatch_index + 1,
         total_count
     );
@@ -44,7 +48,7 @@ pub fn render_dispatch(
 
     // Separator
     lines.push(Line::from(Span::styled(
-        "─".repeat(separator_len),
+        glyphs.horizontal_rule.to_string().repeat(separator_len),
         Theme::dim_border_style(),
     )));
 
@@ -60,10 +64,24 @@ pub fn render_dispatch(
 
             // Severity marker + category label + headline on one line
             let (severity_prefix, severity_style) = match item.severity {
-                DispatchSeverity::Historic => ("[★★] ", Theme::accent_style()),
-                DispatchSeverity::Urgent => ("[!!] ", Theme::error_style()),
-                DispatchSeverity::Notable => ("[»] ", Theme::title_style()),
-                DispatchSeverity::Notice => ("[·] ", Theme::muted_style()),
+                DispatchSeverity::Historic => (
+                    format!(
+                        "[{}{}] ",
+                        glyphs.severity_historic, glyphs.severity_historic
+                    ),
+                    Theme::accent_style(),
+                ),
+                DispatchSeverity::Urgent => (
+                    format!("[{}{}] ", glyphs.severity_urgent, glyphs.severity_urgent),
+                    Theme::error_style(),
+                ),
+                DispatchSeverity::Notable => (
+                    format!("[{}] ", glyphs.status_progress),
+                    Theme::title_style(),
+                ),
+                DispatchSeverity::Notice => {
+                    (format!("[{}] ", glyphs.separator_dot), Theme::muted_style())
+                }
             };
 
             let category_label = match item.category {
@@ -100,15 +118,24 @@ pub fn render_dispatch(
     // Separator before footer
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "─".repeat(separator_len),
+        glyphs.horizontal_rule.to_string().repeat(separator_len),
         Theme::dim_border_style(),
     )));
 
     // Footer: navigation hint + close hint
     let mut footer_spans: Vec<Span> = Vec::new();
     if total_count > 1 {
-        footer_spans.push(Span::styled("← prev / → next", Theme::muted_style()));
-        footer_spans.push(Span::styled("  ·  ", Theme::dim_border_style()));
+        footer_spans.push(Span::styled(
+            format!(
+                "{} prev / {} next",
+                glyphs.selector_left, glyphs.selector_right
+            ),
+            Theme::muted_style(),
+        ));
+        footer_spans.push(Span::styled(
+            format!("  {}  ", glyphs.separator_dot),
+            Theme::dim_border_style(),
+        ));
     }
     footer_spans.push(Span::styled("Esc", Theme::title_style()));
     footer_spans.push(Span::styled(" to close", Theme::muted_style()));
@@ -117,7 +144,10 @@ pub fn render_dispatch(
     let paragraph = Paragraph::new(lines)
         .block(
             Block::default()
-                .title(" ◈ GALACTIC DISPATCH ◈ ")
+                .title(format!(
+                    " {} GALACTIC DISPATCH {} ",
+                    glyphs.bullet, glyphs.bullet
+                ))
                 .borders(Borders::ALL)
                 .border_style(Theme::focused_border_style())
                 .style(Theme::default_style()),
@@ -197,7 +227,14 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_dispatch(frame, area, &dispatch, 2, 3);
+                render_dispatch(
+                    frame,
+                    area,
+                    &dispatch,
+                    2,
+                    3,
+                    crate::visual_mode::VisualMode::Unicode,
+                );
             })
             .unwrap();
     }
@@ -211,7 +248,14 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_dispatch(frame, area, &dispatch, 0, 1);
+                render_dispatch(
+                    frame,
+                    area,
+                    &dispatch,
+                    0,
+                    1,
+                    crate::visual_mode::VisualMode::Unicode,
+                );
             })
             .unwrap();
     }
@@ -225,7 +269,14 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_dispatch(frame, area, &dispatch, 0, 1);
+                render_dispatch(
+                    frame,
+                    area,
+                    &dispatch,
+                    0,
+                    1,
+                    crate::visual_mode::VisualMode::Ascii,
+                );
             })
             .unwrap();
     }
@@ -240,7 +291,14 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_dispatch(frame, area, &dispatch, 0, 1);
+                render_dispatch(
+                    frame,
+                    area,
+                    &dispatch,
+                    0,
+                    1,
+                    crate::visual_mode::VisualMode::NerdFont,
+                );
             })
             .unwrap();
     }

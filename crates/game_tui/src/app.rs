@@ -240,17 +240,25 @@ impl App {
         Self::persist_visual_mode_to_path(&path, self.state.visual_mode)
     }
 
-    fn cycle_visual_mode(&mut self) {
+    fn cycle_visual_mode_with_path(&mut self, path: Option<&Path>) {
         self.state.visual_mode = self.state.visual_mode.next();
         let message = format!(
             "Visual mode: {} ({})",
             self.state.visual_mode.label(),
             self.state.visual_mode.preview_sample()
         );
-        match self.persist_visual_mode() {
+        let persist_result = match path {
+            Some(path) => Self::persist_visual_mode_to_path(path, self.state.visual_mode),
+            None => self.persist_visual_mode(),
+        };
+        match persist_result {
             Ok(()) => self.push_status(LogEntryKind::Other, message),
             Err(err) => self.push_error_status(format!("{message} — config save failed: {err}")),
         }
+    }
+
+    fn cycle_visual_mode(&mut self) {
+        self.cycle_visual_mode_with_path(None);
     }
 
     fn apply_visual_mode_fallback(&self, frame: &mut Frame) {
@@ -403,6 +411,9 @@ impl App {
             PaletteCommand::ClearRally => {
                 self.clear_rally_point();
             }
+            PaletteCommand::VisualMode => {
+                self.cycle_visual_mode_with_path(Some(path));
+            }
             PaletteCommand::Dispatch | PaletteCommand::News => {
                 self.open_latest_dispatch();
             }
@@ -444,7 +455,12 @@ impl App {
         }
 
         if self.state.overlay.show_palette {
-            render_palette(frame, area, &self.state.overlay.palette_input);
+            render_palette(
+                frame,
+                area,
+                &self.state.overlay.palette_input,
+                self.state.visual_mode,
+            );
         }
 
         if self.state.overlay.show_dispatch {
@@ -456,7 +472,14 @@ impl App {
                         .overlay
                         .dispatch_history_index
                         .min(dispatches.len().saturating_sub(1));
-                    render_dispatch(frame, area, &dispatches[idx], idx, dispatches.len());
+                    render_dispatch(
+                        frame,
+                        area,
+                        &dispatches[idx],
+                        idx,
+                        dispatches.len(),
+                        self.state.visual_mode,
+                    );
                 }
             }
         }

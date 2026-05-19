@@ -3,6 +3,7 @@
 use std::{borrow::Cow, f32::consts::PI};
 
 use crate::components::{derive_header_data, render_footer, render_header, render_log};
+use crate::glyphs::glyphs_for_mode;
 use crate::layout::{compose_layout, split_horizontal};
 use crate::renderer::{
     palette::ColorToken,
@@ -97,6 +98,7 @@ fn render_orbital_panel(
     app_state: &AppState,
     game_state: &GameState,
 ) {
+    let glyphs = glyphs_for_mode(app_state.visual_mode);
     let block = Block::default()
         .title(" System Orbits ")
         .borders(Borders::ALL)
@@ -116,7 +118,7 @@ fn render_orbital_panel(
     };
 
     let mut lines = vec![Line::from(vec![
-        Span::styled("☉ ", Theme::title_style()),
+        Span::styled(format!("{} ", glyphs.star), Theme::title_style()),
         Span::styled(star.name.as_str(), Theme::title_style()),
         Span::styled(
             format!(" [{}]", star.spectral_class.as_char()),
@@ -140,7 +142,11 @@ fn render_orbital_panel(
         .min(star.planets.len().saturating_sub(1));
     for (index, planet) in star.planets.iter().enumerate() {
         let selected = index == selected_planet;
-        let prefix = if selected { "▶" } else { " " };
+        let prefix = if selected {
+            glyphs.list_selected.to_string()
+        } else {
+            " ".to_string()
+        };
         let survey_state = planet_survey_state(game_state, star.id, index, planet.surveyed);
         let surveyed_mark = match survey_state {
             "Surveyed" => "S",
@@ -152,8 +158,8 @@ fn render_orbital_panel(
         let blockade_mark = planet
             .colony
             .and_then(|cid| game_state.colony_blockade_state(cid))
-            .map(|_| "⚔")
-            .unwrap_or("");
+            .map(|_| glyphs.blockade.to_string())
+            .unwrap_or_default();
         let invasion_mark = planet
             .colony
             .and_then(|cid| game_state.colonies.get(&cid))
@@ -166,9 +172,9 @@ fn render_orbital_panel(
             })
             .unwrap_or("");
         let colony_mark = if planet.colony.is_some() {
-            "◉"
+            glyphs.planet_colonized.to_string()
         } else {
-            "○"
+            glyphs.planet_uncolonized.to_string()
         };
         let label: Cow<'_, str> = if survey_state == "Surveyed" {
             Cow::Borrowed(planet.name.as_str())
@@ -464,11 +470,11 @@ fn render_system_details(
     render_system_detail_facts(
         frame,
         detail_chunks[1],
+        app_state,
         game_state,
         planet,
         survey_state,
         &fleets_here,
-        app_state.navigation.selected_fleet_index,
     );
 }
 
@@ -636,12 +642,14 @@ fn draw_planet_identity_overlay(canvas: &mut Canvas, area: Rect) {
 fn render_system_detail_facts(
     frame: &mut Frame,
     area: Rect,
+    app_state: &AppState,
     game_state: &GameState,
     planet: &game_core::Planet,
     survey_state: &str,
     fleets_here: &[&game_core::Fleet],
-    selected_fleet_index: usize,
 ) {
+    let glyphs = glyphs_for_mode(app_state.visual_mode);
+    let selected_fleet_index = app_state.navigation.selected_fleet_index;
     let mut lines = Vec::new();
     lines.push(Line::from(vec![
         Span::styled("Survey: ", Theme::muted_style()),
@@ -852,9 +860,9 @@ fn render_system_detail_facts(
                 })
                 .unwrap_or_else(|| "off ? def ? inv ? mob ?".to_string());
             let prefix = if idx == selected_fleet_index {
-                "▶"
+                glyphs.list_selected.to_string()
             } else {
-                " "
+                " ".to_string()
             };
             let mut name = game_state.fleet_name_for(fleet.id);
             if matches!(fleet.kind, FleetKind::Science | FleetKind::SurveyCutter) {
@@ -863,12 +871,14 @@ fn render_system_detail_facts(
                 }
             }
             lines.push(Line::from(Span::raw(format!(
-                "{prefix} {} [{} | {} | DOC {}] {} · {}{}",
+                "{} {} [{} | {} | DOC {}] {} {} {}{}",
+                prefix,
                 name,
                 role.label(),
                 formation.label(),
                 doctrine,
                 composition,
+                glyphs.separator_dot,
                 summary,
                 order_label
             ))));

@@ -255,7 +255,10 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("u", "Issue warning"),
             HelpEntry::Binding("m", "Demand tribute"),
             HelpEntry::Binding("c", "Open diplomatic communication modal"),
-            HelpEntry::Binding("Enter", "Respond to selected communication (modal)"),
+            HelpEntry::Binding(
+                "Enter",
+                "End turn (or respond when communication modal is open)",
+            ),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),

@@ -9761,6 +9761,34 @@ fn terran_concord_first_contact_tone_differs_from_dominion() {
     assert_ne!(concord_tone, dominion_tone);
 }
 
+fn queue_inbound_diplomatic_communication(
+    engine: &mut Engine,
+    from_empire: EmpireId,
+    communication_type: crate::state::DiplomaticCommunicationType,
+    treaty_type: Option<crate::state::TreatyType>,
+) {
+    let communication_id = engine.state.diplomacy_next_communication_id;
+    engine.state.diplomacy_next_communication_id = engine
+        .state
+        .diplomacy_next_communication_id
+        .saturating_add(1);
+    engine.state.diplomacy_pending_communications.push_back(
+        crate::state::DiplomaticCommunication {
+            communication_id,
+            sending_empire: from_empire,
+            receiving_empire: engine.state.player_empire,
+            turn: engine.state.turn,
+            communication_type,
+            tone: crate::state::DiplomaticTone::Formal,
+            title: "Test message".to_string(),
+            body: "Test body".to_string(),
+            available_responses: vec![crate::state::DiplomaticResponse::Accept],
+            expires_turn: None,
+            treaty_type,
+        },
+    );
+}
+
 #[test]
 fn non_aggression_pact_blocks_war_declaration() {
     let mut engine = Engine::new(42);
@@ -9770,6 +9798,12 @@ fn non_aggression_pact_blocks_war_declaration() {
         .diplomacy
         .insert(ai_id, RelationshipStatus::Neutral);
 
+    queue_inbound_diplomatic_communication(
+        &mut engine,
+        ai_id,
+        crate::state::DiplomaticCommunicationType::TreatyProposal,
+        Some(crate::state::TreatyType::NonAggressionPact),
+    );
     let _ = engine.apply_turn(vec![Command::AcceptNonAggressionPact { target: ai_id }]);
     let events = engine.apply_turn(vec![Command::DeclareWar { target: ai_id }]);
     assert!(events.iter().any(|event| event.is_error()));
@@ -9784,6 +9818,12 @@ fn peace_treaty_ends_war_and_starts_truce() {
         .diplomacy
         .insert(ai_id, RelationshipStatus::War);
 
+    queue_inbound_diplomatic_communication(
+        &mut engine,
+        ai_id,
+        crate::state::DiplomaticCommunicationType::PeaceOffer,
+        Some(crate::state::TreatyType::Truce),
+    );
     let events = engine.apply_turn(vec![Command::AcceptPeace { target: ai_id }]);
     assert!(events.iter().any(
         |event| matches!(event, Event::PeaceSigned { with_empire, .. } if *with_empire == ai_id)
@@ -9807,6 +9847,12 @@ fn treaty_expiration_emits_event_deterministically() {
         .state
         .diplomacy
         .insert(ai_id, RelationshipStatus::Neutral);
+    queue_inbound_diplomatic_communication(
+        &mut engine,
+        ai_id,
+        crate::state::DiplomaticCommunicationType::TreatyProposal,
+        Some(crate::state::TreatyType::NonAggressionPact),
+    );
     let _ = engine.apply_turn(vec![Command::AcceptNonAggressionPact { target: ai_id }]);
     engine.state.turn = engine.state.turn.saturating_add(12);
     let events = engine.apply_turn(vec![Command::EndTurn]);
@@ -9840,6 +9886,45 @@ fn duplicate_warning_communication_is_prevented() {
         })
         .count();
     assert_eq!(warning_count, 1);
+}
+
+#[test]
+fn accept_peace_requires_pending_offer() {
+    let mut engine = Engine::new(42);
+    let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+    engine
+        .state
+        .diplomacy
+        .insert(ai_id, RelationshipStatus::War);
+
+    let events = engine.apply_turn(vec![Command::AcceptPeace { target: ai_id }]);
+    assert!(events.iter().any(|event| {
+        matches!(event, Event::Error { message } if message.contains("No pending peace offer"))
+    }));
+    assert!(!engine
+        .state
+        .has_active_treaty(ai_id, crate::state::TreatyType::Truce));
+}
+
+#[test]
+fn accept_non_aggression_requires_pending_proposal() {
+    let mut engine = Engine::new(42);
+    let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+    engine
+        .state
+        .diplomacy
+        .insert(ai_id, RelationshipStatus::Neutral);
+
+    let events = engine.apply_turn(vec![Command::AcceptNonAggressionPact { target: ai_id }]);
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            Event::Error { message } if message.contains("No pending non-aggression proposal")
+        )
+    }));
+    assert!(!engine
+        .state
+        .has_active_treaty(ai_id, crate::state::TreatyType::NonAggressionPact));
 }
 
 #[test]

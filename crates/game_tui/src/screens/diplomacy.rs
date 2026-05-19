@@ -13,7 +13,7 @@ use game_core::{
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
 
@@ -59,10 +59,11 @@ fn render_empire_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_
         .copied()
         .filter(|empire_id| *empire_id != game_state.player_empire)
         .collect();
-    let selected_idx = app_state
-        .diplomacy
-        .selected_empire_index
-        .min(foreign_ids.len().saturating_sub(1));
+    let selected_idx = if foreign_ids.is_empty() {
+        0
+    } else {
+        app_state.diplomacy.selected_empire_index % foreign_ids.len()
+    };
     let selected_empire = foreign_ids.get(selected_idx).copied();
 
     // Iterate all empires except the player empire, in BTreeMap order (deterministic).
@@ -208,8 +209,13 @@ fn render_empire_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_
     }
 
     lines.push(Line::from(""));
+    let actions_hint = if app_state.diplomacy.show_communication_modal {
+        "Tab/j/k select empire · w war · p peace · n NAP · x cancel NAP · Enter respond (modal)"
+    } else {
+        "Tab/j/k select empire · w war · p peace · n NAP · x cancel NAP · c communications · Enter/e/t end turn"
+    };
     lines.push(Line::from(vec![Span::styled(
-        "Tab/j/k select empire · w war · p peace · n NAP · x cancel NAP · c communications · Enter respond",
+        actions_hint,
         Theme::muted_style(),
     )]));
 
@@ -314,7 +320,12 @@ fn render_communication_modal(
         Theme::muted_style(),
     )));
 
-    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(Theme::default_style())
+            .wrap(Wrap { trim: true }),
+        inner,
+    );
 }
 
 fn push_identity_lines(lines: &mut Vec<Line>, empire: &game_core::Empire) {

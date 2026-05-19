@@ -1334,7 +1334,12 @@ impl App {
             })
             .unwrap_or(0);
 
-        if self.state.diplomacy.show_communication_modal && player_targeted_messages > 0 {
+        if self.state.diplomacy.show_communication_modal {
+            if player_targeted_messages == 0 {
+                self.state.diplomacy.show_communication_modal = false;
+                self.state.diplomacy.selected_response_index = 0;
+                return;
+            }
             match key.code {
                 KeyCode::Esc => {
                     self.state.diplomacy.show_communication_modal = false;

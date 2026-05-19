@@ -568,53 +568,47 @@ pub fn generate_dispatch(
                 with_empire,
                 treaty_type,
                 ..
-            } => {
-                if player_knows_empire(state, *with_empire) {
-                    let empire_name = empire_name_for_id(state, *with_empire);
-                    items.push(item(
-                        DispatchCategory::Diplomacy,
-                        DispatchSeverity::Notable,
-                        format!("{empire_name} Signs {}", treaty_type.label()),
-                        "A new interstellar accord has been ratified through formal diplomatic channels.",
-                        Some(*with_empire),
-                        None,
-                        None,
-                    ));
-                }
+            } if player_knows_empire(state, *with_empire) => {
+                let empire_name = empire_name_for_id(state, *with_empire);
+                items.push(item(
+                    DispatchCategory::Diplomacy,
+                    DispatchSeverity::Notable,
+                    format!("{empire_name} Signs {}", treaty_type.label()),
+                    "A new interstellar accord has been ratified through formal diplomatic channels.",
+                    Some(*with_empire),
+                    None,
+                    None,
+                ));
             }
             Event::TreatyExpired {
                 with_empire,
                 treaty_type,
-            } => {
-                if player_knows_empire(state, *with_empire) {
-                    let empire_name = empire_name_for_id(state, *with_empire);
-                    items.push(item(
-                        DispatchCategory::Diplomacy,
-                        DispatchSeverity::Notable,
-                        format!("{empire_name} {} Expired", treaty_type.label()),
-                        "A standing diplomatic agreement has reached its scheduled expiry window.",
-                        Some(*with_empire),
-                        None,
-                        None,
-                    ));
-                }
+            } if player_knows_empire(state, *with_empire) => {
+                let empire_name = empire_name_for_id(state, *with_empire);
+                items.push(item(
+                    DispatchCategory::Diplomacy,
+                    DispatchSeverity::Notable,
+                    format!("{empire_name} {} Expired", treaty_type.label()),
+                    "A standing diplomatic agreement has reached its scheduled expiry window.",
+                    Some(*with_empire),
+                    None,
+                    None,
+                ));
             }
             Event::TreatyCancelled {
                 with_empire,
                 treaty_type,
-            } => {
-                if player_knows_empire(state, *with_empire) {
-                    let empire_name = empire_name_for_id(state, *with_empire);
-                    items.push(item(
-                        DispatchCategory::Diplomacy,
-                        DispatchSeverity::Urgent,
-                        format!("{empire_name} Cancels {}", treaty_type.label()),
-                        "Diplomatic protections have been revoked, increasing regional instability.",
-                        Some(*with_empire),
-                        None,
-                        None,
-                    ));
-                }
+            } if player_knows_empire(state, *with_empire) => {
+                let empire_name = empire_name_for_id(state, *with_empire);
+                items.push(item(
+                    DispatchCategory::Diplomacy,
+                    DispatchSeverity::Urgent,
+                    format!("{empire_name} Cancels {}", treaty_type.label()),
+                    "Diplomatic protections have been revoked, increasing regional instability.",
+                    Some(*with_empire),
+                    None,
+                    None,
+                ));
             }
             Event::WarningIssued { .. } => {
                 items.push(item(
@@ -660,19 +654,17 @@ pub fn generate_dispatch(
                     None,
                 ));
             }
-            Event::PeaceSigned { with_empire, .. } => {
-                if player_knows_empire(state, *with_empire) {
-                    let empire_name = empire_name_for_id(state, *with_empire);
-                    items.push(item(
-                        DispatchCategory::Diplomacy,
-                        DispatchSeverity::Notable,
-                        format!("Peace Signed with {empire_name}"),
-                        "Hostilities have paused under a temporary truce framework.",
-                        Some(*with_empire),
-                        None,
-                        None,
-                    ));
-                }
+            Event::PeaceSigned { with_empire, .. } if player_knows_empire(state, *with_empire) => {
+                let empire_name = empire_name_for_id(state, *with_empire);
+                items.push(item(
+                    DispatchCategory::Diplomacy,
+                    DispatchSeverity::Notable,
+                    format!("Peace Signed with {empire_name}"),
+                    "Hostilities have paused under a temporary truce framework.",
+                    Some(*with_empire),
+                    None,
+                    None,
+                ));
             }
 
             // --- Victory ---

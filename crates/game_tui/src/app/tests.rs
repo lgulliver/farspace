@@ -2641,6 +2641,24 @@ fn diplomacy_screen_opens_after_contact() {
 }
 
 #[test]
+fn diplomacy_modal_closes_with_no_pending_messages() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::Diplomacy;
+    app.state.diplomacy.show_communication_modal = true;
+    app.engine
+        .as_mut()
+        .unwrap()
+        .state
+        .diplomacy_pending_communications
+        .clear();
+
+    app.handle_key(key(KeyCode::Esc));
+
+    assert!(!app.state.diplomacy.show_communication_modal);
+}
+
+#[test]
 fn v_key_opens_victory_overview_with_progress_lines() {
     let mut app = App::new();
     app.new_game(42);

@@ -2320,13 +2320,78 @@ impl Engine {
         );
     }
 
-    fn process_accept_peace(&mut self, target: EmpireId, events: &mut Vec<Event>) {
+    fn validate_known_foreign_empire(
+        &self,
+        target: EmpireId,
+        events: &mut Vec<Event>,
+    ) -> Option<RelationshipStatus> {
+        let player = self.state.player_empire;
+        if target == player {
+            events.push(Event::error("Invalid target empire"));
+            return None;
+        }
+        if !self.state.empires.contains_key(&target) {
+            events.push(Event::error(format!("Empire {} not found", target.0)));
+            return None;
+        }
+        let status = self.state.relationship_status(player, target);
+        if status == RelationshipStatus::Unknown {
+            events.push(Event::error(
+                "Cannot accept diplomatic terms before first contact",
+            ));
+            return None;
+        }
+        Some(status)
+    }
+
+    fn has_pending_communication(
+        &self,
+        sender: EmpireId,
+        receiver: EmpireId,
+        communication_type: DiplomaticCommunicationType,
+        treaty_type: Option<TreatyType>,
+    ) -> bool {
+        self.state
+            .diplomacy_pending_communications
+            .iter()
+            .any(|message| {
+                message.sending_empire == sender
+                    && message.receiving_empire == receiver
+                    && message.communication_type == communication_type
+                    && message.treaty_type == treaty_type
+                    && message
+                        .available_responses
+                        .contains(&DiplomaticResponse::Accept)
+            })
+    }
+
+    fn apply_accept_peace(&mut self, target: EmpireId, events: &mut Vec<Event>) {
         self.set_relationship_status(target, RelationshipStatus::Neutral, events);
         self.add_treaty(target, TreatyType::Truce, 8, events);
         events.push(Event::PeaceSigned {
             with_empire: target,
             truce_expires_turn: self.state.turn.saturating_add(8),
         });
+    }
+
+    fn process_accept_peace(&mut self, target: EmpireId, events: &mut Vec<Event>) {
+        let Some(status) = self.validate_known_foreign_empire(target, events) else {
+            return;
+        };
+        if status != RelationshipStatus::War {
+            events.push(Event::error("Peace can only be accepted while at war"));
+            return;
+        }
+        if !self.has_pending_communication(
+            target,
+            self.state.player_empire,
+            DiplomaticCommunicationType::PeaceOffer,
+            Some(TreatyType::Truce),
+        ) {
+            events.push(Event::error("No pending peace offer from this empire"));
+            return;
+        }
+        self.apply_accept_peace(target, events);
     }
 
     fn process_reject_peace(&mut self, target: EmpireId, events: &mut Vec<Event>) {
@@ -2369,6 +2434,39 @@ impl Engine {
     }
 
     fn process_accept_non_aggression(&mut self, target: EmpireId, events: &mut Vec<Event>) {
+        let Some(status) = self.validate_known_foreign_empire(target, events) else {
+            return;
+        };
+        if status == RelationshipStatus::War {
+            events.push(Event::error(
+                "Cannot accept non-aggression pact while at war",
+            ));
+            return;
+        }
+        if self
+            .state
+            .has_active_treaty(target, TreatyType::NonAggressionPact)
+        {
+            events.push(Event::error(
+                "Non-aggression pact already active with this empire",
+            ));
+            return;
+        }
+        if self.state.has_active_treaty(target, TreatyType::Truce) {
+            events.push(Event::error("Cannot accept pact while truce is active"));
+            return;
+        }
+        if !self.has_pending_communication(
+            target,
+            self.state.player_empire,
+            DiplomaticCommunicationType::TreatyProposal,
+            Some(TreatyType::NonAggressionPact),
+        ) {
+            events.push(Event::error(
+                "No pending non-aggression proposal from this empire",
+            ));
+            return;
+        }
         events.push(Event::TreatyAccepted {
             from_empire: target,
             to_empire: self.state.player_empire,
@@ -2498,7 +2596,14 @@ impl Engine {
                 DiplomaticResponse::Accept,
                 Some(TreatyType::Truce),
             ) => {
-                self.process_accept_peace(other, events);
+                let Some(status) = self.validate_known_foreign_empire(other, events) else {
+                    return;
+                };
+                if status != RelationshipStatus::War {
+                    events.push(Event::error("Peace can only be accepted while at war"));
+                    return;
+                }
+                self.apply_accept_peace(other, events);
             }
             (
                 DiplomaticCommunicationType::PeaceOffer,
@@ -2512,7 +2617,34 @@ impl Engine {
                 DiplomaticResponse::Accept,
                 Some(TreatyType::NonAggressionPact),
             ) => {
-                self.process_accept_non_aggression(other, events);
+                let Some(status) = self.validate_known_foreign_empire(other, events) else {
+                    return;
+                };
+                if status == RelationshipStatus::War {
+                    events.push(Event::error(
+                        "Cannot accept non-aggression pact while at war",
+                    ));
+                    return;
+                }
+                if self
+                    .state
+                    .has_active_treaty(other, TreatyType::NonAggressionPact)
+                {
+                    events.push(Event::error(
+                        "Non-aggression pact already active with this empire",
+                    ));
+                    return;
+                }
+                if self.state.has_active_treaty(other, TreatyType::Truce) {
+                    events.push(Event::error("Cannot accept pact while truce is active"));
+                    return;
+                }
+                events.push(Event::TreatyAccepted {
+                    from_empire: other,
+                    to_empire: self.state.player_empire,
+                    treaty_type: TreatyType::NonAggressionPact,
+                });
+                self.add_treaty(other, TreatyType::NonAggressionPact, 12, events);
             }
             (
                 DiplomaticCommunicationType::TreatyProposal,

@@ -28,6 +28,11 @@ jobs:
     name: Generate release notes
     needs: setup
     uses: ./.github/workflows/nightly-notes.lock.yml
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      pull-requests: read
     with:
       nightly_tag: ${{ needs.setup.outputs.nightly_tag }}
 

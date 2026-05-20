@@ -79,6 +79,11 @@ fn build_menu_lines(use_ascii_title: bool, app_state: &AppState) -> Vec<Line<'st
             )),
         ]),
         Line::from(""),
+        Line::from(vec![
+            Span::styled("[S]", Theme::title_style()),
+            Span::raw(" Settings"),
+        ]),
+        Line::from(""),
         Line::from(vec![Span::styled(
             "First Turn Quickstart",
             Theme::title_style(),

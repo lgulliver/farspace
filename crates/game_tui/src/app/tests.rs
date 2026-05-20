@@ -35,11 +35,16 @@ fn visual_mode_config_roundtrip_from_file() {
         unique
     ));
 
-    App::persist_visual_mode_to_path(&path, crate::visual_mode::VisualMode::NerdFont).unwrap();
-    let loaded = App::load_visual_mode_from_path(&path);
+    let mut state = AppState {
+        visual_mode: crate::visual_mode::VisualMode::NerdFont,
+        ..AppState::default()
+    };
+    state.auto_update = true;
+    App::persist_config_to_path(&path, &state).unwrap();
+    let loaded = App::load_config_from_path(&path);
     let _ = std::fs::remove_file(&path);
 
-    assert_eq!(loaded, crate::visual_mode::VisualMode::NerdFont);
+    assert_eq!(loaded.visual_mode, crate::visual_mode::VisualMode::NerdFont);
 }
 
 #[test]
@@ -52,10 +57,32 @@ fn visual_mode_invalid_config_falls_back_to_default() {
     ));
     std::fs::write(&path, "visual_mode=invalid\n").unwrap();
 
-    let loaded = App::load_visual_mode_from_path(&path);
+    let loaded = App::load_config_from_path(&path);
     let _ = std::fs::remove_file(&path);
 
-    assert_eq!(loaded, crate::visual_mode::VisualMode::default());
+    assert_eq!(loaded.visual_mode, crate::visual_mode::VisualMode::default());
+}
+
+#[test]
+fn config_roundtrip_preserves_update_settings() {
+    let unique = TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "farspace_config_update_{}_{}.conf",
+        std::process::id(),
+        unique
+    ));
+
+    let state = AppState {
+        update_channel: crate::update::UpdateChannel::Nightly,
+        auto_update: false,
+        ..AppState::default()
+    };
+    App::persist_config_to_path(&path, &state).unwrap();
+    let loaded = App::load_config_from_path(&path);
+    let _ = std::fs::remove_file(&path);
+
+    assert_eq!(loaded.update_channel, crate::update::UpdateChannel::Nightly);
+    assert!(!loaded.auto_update);
 }
 
 #[test]

@@ -2,6 +2,8 @@
 //!
 //! This is the main binary entrypoint.
 
+mod update;
+
 use anyhow::Result;
 use crossterm::{
     execute,
@@ -127,9 +129,15 @@ impl Drop for TerminalSession {
 }
 
 fn main() -> Result<()> {
+    // Apply any staged update before the TUI starts.
+    update::check_and_apply_staged();
+
     let mut terminal = TerminalSession::enter()?;
     let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        let app = App::new();
+        let mut app = App::new();
+        let (check_rx, download_tx, download_rx) =
+            update::setup_update_system(app.update_channel());
+        app.set_update_channels(check_rx, download_tx, download_rx);
         app.run(terminal.terminal_mut())
     }));
 

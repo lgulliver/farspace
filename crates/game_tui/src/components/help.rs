@@ -39,6 +39,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::Research => " Research Help ",
         Screen::Diplomacy => " Diplomacy Help ",
         Screen::ShipDesigner => " Ship Designer Help ",
+        Screen::Settings => " Settings Help ",
     };
 
     let entries: Vec<HelpEntry> = match screen {
@@ -288,6 +289,13 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding("W", "Open ship designer from any game screen"),
             HelpEntry::Binding("?", "Toggle this help"),
+        ],
+        Screen::Settings => vec![
+            HelpEntry::Section("Navigation"),
+            HelpEntry::Binding("j / ↓", "Next setting"),
+            HelpEntry::Binding("k / ↑", "Previous setting"),
+            HelpEntry::Binding("Enter / Space", "Cycle value"),
+            HelpEntry::Binding("Esc", "Save and return to menu"),
         ],
     };
 

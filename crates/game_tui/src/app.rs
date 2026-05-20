@@ -2,6 +2,7 @@
 
 mod logging;
 
+use crate::update::{UpdateChannel, UpdateInfo, UpdateState};
 use crate::components::{
     render_dispatch, render_help, render_palette, EventLog, LogEntryKind, PaletteCommand,
 };
@@ -32,6 +33,12 @@ const DEFAULT_SAVE_PATH: &str = "farspace.sav";
 pub struct App {
     state: AppState,
     engine: Option<Engine>,
+    /// Receives the result of the background update check (Some = update available, None = up to date).
+    check_rx: Option<std::sync::mpsc::Receiver<Option<UpdateInfo>>>,
+    /// Sends an update request to the background download worker.
+    download_tx: Option<std::sync::mpsc::SyncSender<UpdateInfo>>,
+    /// Receives download completion (Ok(version) = staged, Err = failed).
+    download_rx: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
 }
 
 /// UI state
@@ -60,6 +67,14 @@ pub struct AppState {
     pub(crate) ship_designer: ShipDesignerState,
     /// Terminal glyph mode for rendering text and icons.
     pub(crate) visual_mode: VisualMode,
+    /// Which release channel to track for updates.
+    pub(crate) update_channel: UpdateChannel,
+    /// Whether to automatically download and stage updates when found.
+    pub(crate) auto_update: bool,
+    /// Current state of the update lifecycle.
+    pub(crate) update_state: UpdateState,
+    /// Cursor position on the Settings screen.
+    pub(crate) settings_cursor: usize,
 }
 
 /// UI overlay state shared by all screens.
@@ -212,46 +227,81 @@ fn first_idle_player_fleet(
         .map(|fleet| fleet.id)
 }
 
+/// Parsed contents of the user config file.
+struct AppConfig {
+    visual_mode: VisualMode,
+    update_channel: UpdateChannel,
+    auto_update: bool,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            visual_mode: VisualMode::default(),
+            update_channel: UpdateChannel::default(),
+            auto_update: true,
+        }
+    }
+}
+
 impl App {
-    fn load_visual_mode_from_path(path: &std::path::Path) -> VisualMode {
+    fn load_config_from_path(path: &std::path::Path) -> AppConfig {
         let Ok(contents) = std::fs::read_to_string(path) else {
-            return VisualMode::default();
+            return AppConfig::default();
         };
-        contents
-            .lines()
-            .find_map(|line| {
-                let mut parts = line.splitn(2, '=');
-                let key = parts.next()?.trim();
-                let value = parts.next()?.trim();
-                (key == "visual_mode")
-                    .then_some(value)
-                    .and_then(VisualMode::from_config_value)
-            })
-            .unwrap_or_default()
+        let mut cfg = AppConfig::default();
+        for line in contents.lines() {
+            let mut parts = line.splitn(2, '=');
+            let Some(key) = parts.next().map(str::trim) else { continue };
+            let Some(val) = parts.next().map(str::trim) else { continue };
+            match key {
+                "visual_mode" => {
+                    if let Some(m) = VisualMode::from_config_value(val) {
+                        cfg.visual_mode = m;
+                    }
+                }
+                "update_channel" => {
+                    if let Some(c) = UpdateChannel::from_config_value(val) {
+                        cfg.update_channel = c;
+                    }
+                }
+                "auto_update" => {
+                    cfg.auto_update = val != "false" && val != "0" && val != "off";
+                }
+                _ => {}
+            }
+        }
+        cfg
     }
 
-    fn persist_visual_mode_to_path(
-        path: &std::path::Path,
-        mode: VisualMode,
-    ) -> std::io::Result<()> {
+    fn persist_config_to_path(path: &std::path::Path, state: &AppState) -> std::io::Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(path, format!("visual_mode={}\n", mode.config_value()))
+        let auto_update_str = if state.auto_update { "true" } else { "false" };
+        std::fs::write(
+            path,
+            format!(
+                "visual_mode={}\nupdate_channel={}\nauto_update={}\n",
+                state.visual_mode.config_value(),
+                state.update_channel.config_value(),
+                auto_update_str,
+            ),
+        )
     }
 
-    fn load_visual_mode() -> VisualMode {
+    fn load_config() -> AppConfig {
         let Some(path) = user_config_path() else {
-            return VisualMode::default();
+            return AppConfig::default();
         };
-        Self::load_visual_mode_from_path(&path)
+        Self::load_config_from_path(&path)
     }
 
-    fn persist_visual_mode(&mut self) -> std::io::Result<()> {
+    fn persist_config(&mut self) -> std::io::Result<()> {
         let Some(path) = user_config_path() else {
             return Ok(());
         };
-        Self::persist_visual_mode_to_path(&path, self.state.visual_mode)
+        Self::persist_config_to_path(&path, &self.state)
     }
 
     fn cycle_visual_mode_with_path(&mut self, path: Option<&Path>) {
@@ -262,8 +312,8 @@ impl App {
             self.state.visual_mode.preview_sample()
         );
         let persist_result = match path {
-            Some(path) => Self::persist_visual_mode_to_path(path, self.state.visual_mode),
-            None => self.persist_visual_mode(),
+            Some(path) => Self::persist_config_to_path(path, &self.state),
+            None => self.persist_config(),
         };
         match persist_result {
             Ok(()) => self.push_status(LogEntryKind::Other, message),
@@ -297,13 +347,37 @@ impl App {
 
     /// Create a new application
     pub fn new() -> Self {
+        let cfg = Self::load_config();
         App {
             state: AppState {
-                visual_mode: Self::load_visual_mode(),
+                visual_mode: cfg.visual_mode,
+                update_channel: cfg.update_channel,
+                auto_update: cfg.auto_update,
                 ..AppState::default()
             },
             engine: None,
+            check_rx: None,
+            download_tx: None,
+            download_rx: None,
         }
+    }
+
+    /// Returns the update channel the user has configured, for use by the binary crate.
+    pub fn update_channel(&self) -> UpdateChannel {
+        self.state.update_channel
+    }
+
+    /// Wire in the update channels from the binary crate's update system.
+    pub fn set_update_channels(
+        &mut self,
+        check_rx: std::sync::mpsc::Receiver<Option<UpdateInfo>>,
+        download_tx: std::sync::mpsc::SyncSender<UpdateInfo>,
+        download_rx: std::sync::mpsc::Receiver<Result<String, String>>,
+    ) {
+        self.check_rx = Some(check_rx);
+        self.download_tx = Some(download_tx);
+        self.download_rx = Some(download_rx);
+        self.state.update_state = UpdateState::Checking;
     }
 
     /// Start a new game with the given seed (default setup, 1 AI empire).
@@ -437,8 +511,9 @@ impl App {
     /// Run the main event loop
     pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
         while !self.state.quit {
+            self.poll_update_channels();
+
             terminal.draw(|frame| self.render(frame))?;
-            // Increment animation tick counter each render frame (wraps safely at u64::MAX)
             self.state.tick_count = self.state.tick_count.wrapping_add(1);
 
             if event::poll(Duration::from_millis(100))? {
@@ -451,6 +526,45 @@ impl App {
         }
 
         Ok(())
+    }
+
+    fn poll_update_channels(&mut self) {
+        if let Some(rx) = &self.check_rx {
+            if let Ok(result) = rx.try_recv() {
+                self.check_rx = None;
+                match result {
+                    Some(info) => {
+                        if self.state.auto_update {
+                            if let Some(tx) = &self.download_tx {
+                                let _ = tx.try_send(info);
+                                self.state.update_state = UpdateState::Downloading;
+                            } else {
+                                self.state.update_state = UpdateState::Available(info);
+                            }
+                        } else {
+                            self.state.update_state = UpdateState::Available(info);
+                        }
+                    }
+                    None => {
+                        self.state.update_state = UpdateState::Idle;
+                    }
+                }
+            }
+        }
+
+        if let Some(rx) = &self.download_rx {
+            if let Ok(result) = rx.try_recv() {
+                self.download_rx = None;
+                match result {
+                    Ok(version) => {
+                        self.state.update_state = UpdateState::Staged { version };
+                    }
+                    Err(err) => {
+                        self.state.update_state = UpdateState::Error(err);
+                    }
+                }
+            }
+        }
     }
 
     /// Render the current state
@@ -599,6 +713,7 @@ impl App {
         // Screen-specific handling
         match self.state.active {
             Screen::Menu => self.handle_menu_key(key),
+            Screen::Settings => self.handle_settings_key(key),
             Screen::EmpireSelect => self.handle_empire_select_key(key),
             Screen::NewGameSetup => self.handle_new_game_setup_key(key),
             Screen::SectorOverview => self.handle_sector_overview_key(key),
@@ -614,10 +729,15 @@ impl App {
 
     fn handle_menu_key(&mut self, key: KeyEvent) {
         if KeyMap::is_new_game(key) {
-            // Navigate to empire selection first.
             self.state.active = Screen::EmpireSelect;
         } else if matches!(key.code, KeyCode::Char('v') | KeyCode::Char('V')) {
             self.cycle_visual_mode();
+        } else if matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S')) {
+            self.state.active = Screen::Settings;
+        } else if matches!(key.code, KeyCode::Char('u') | KeyCode::Char('U')) {
+            self.trigger_update_download();
+        } else if matches!(key.code, KeyCode::Char('d') | KeyCode::Char('D')) {
+            self.state.update_state = UpdateState::Dismissed;
         } else if KeyMap::is_load_game(key) {
             let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);
             match self.load_game(&path) {
@@ -631,6 +751,49 @@ impl App {
                     self.state.status_message = Some(e);
                 }
             }
+        }
+    }
+
+    fn trigger_update_download(&mut self) {
+        if let UpdateState::Available(info) = self.state.update_state.clone() {
+            if let Some(tx) = &self.download_tx {
+                let _ = tx.try_send(info);
+                self.state.update_state = UpdateState::Downloading;
+            }
+        }
+    }
+
+    fn handle_settings_key(&mut self, key: KeyEvent) {
+        let count = crate::screens::settings::settings_cursor_count();
+        match key.code {
+            KeyCode::Esc => {
+                let _ = self.persist_config();
+                self.state.active = Screen::Menu;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.state.settings_cursor = (self.state.settings_cursor + 1) % count;
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.state.settings_cursor =
+                    self.state.settings_cursor.saturating_sub(1);
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                self.cycle_settings_item();
+            }
+            _ => {}
+        }
+    }
+
+    fn cycle_settings_item(&mut self) {
+        match self.state.settings_cursor {
+            0 => self.cycle_visual_mode(),
+            1 => {
+                self.state.update_channel = self.state.update_channel.next();
+            }
+            2 => {
+                self.state.auto_update = !self.state.auto_update;
+            }
+            _ => {}
         }
     }
 

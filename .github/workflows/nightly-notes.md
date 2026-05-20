@@ -12,7 +12,7 @@ permissions:
   contents: read
   issues: read
   pull-requests: read
-engine: claude
+engine: copilot
 strict: true
 timeout-minutes: 10
 network:

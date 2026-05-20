@@ -723,7 +723,7 @@ impl App {
             KeyCode::Char('l') | KeyCode::Right | KeyCode::Char('+') => {
                 self.setup_cycle_field(true);
             }
-            KeyCode::Char('S') => {
+            KeyCode::Char('S') | KeyCode::Char('s') => {
                 // Start the game from the setup screen (shortcut).
                 self.start_game_from_setup();
             }

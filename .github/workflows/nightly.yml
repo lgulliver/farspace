@@ -33,6 +33,7 @@ jobs:
       actions: read
       issues: read
       pull-requests: read
+    secrets: inherit
     with:
       nightly_tag: ${{ needs.setup.outputs.nightly_tag }}
 

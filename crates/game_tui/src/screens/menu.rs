@@ -268,8 +268,8 @@ fn render_update_notification(frame: &mut Frame, area: Rect, app_state: &AppStat
             Theme::focused_border_style(),
         ),
         UpdateState::Error(msg) => {
-            let truncated = if msg.len() > 30 {
-                format!("{}...", &msg[..27])
+            let truncated = if msg.chars().count() > 30 {
+                format!("{}...", msg.chars().take(27).collect::<String>())
             } else {
                 msg.clone()
             };

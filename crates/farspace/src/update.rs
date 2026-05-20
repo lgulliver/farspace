@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 
-type UpdateCheckRx = mpsc::Receiver<Option<UpdateInfo>>;
+type UpdateCheckRx = mpsc::Receiver<Result<Option<UpdateInfo>, String>>;
 type DownloadTx = mpsc::SyncSender<UpdateInfo>;
 type DownloadResultRx = mpsc::Receiver<Result<String, String>>;
 
@@ -68,35 +68,64 @@ fn platform_asset_name() -> &'static str {
 /// For stable/preview: compares semver strings (strips leading 'v').
 /// For nightly: compares the date+time suffix lexicographically.
 fn is_newer(channel: UpdateChannel, candidate: &str) -> bool {
+    is_newer_against(
+        channel,
+        candidate,
+        CURRENT_VERSION,
+        option_env!("FARSPACE_BUILD_TAG").unwrap_or(""),
+    )
+}
+
+/// Testable inner implementation of [`is_newer`] with explicit `current_version`
+/// and `build_tag` parameters.
+fn is_newer_against(
+    channel: UpdateChannel,
+    candidate: &str,
+    current_version: &str,
+    build_tag: &str,
+) -> bool {
     let candidate = candidate.trim_start_matches('v');
     match channel {
         UpdateChannel::Nightly => {
             // Tags: nightly-YYYYMMDD-HHMM  →  compare as strings (ISO order)
-            let current_tag = option_env!("FARSPACE_BUILD_TAG").unwrap_or("");
-            if current_tag.is_empty() {
+            if build_tag.is_empty() {
                 return false; // stable binary, ignore nightly updates
             }
-            candidate > current_tag.trim_start_matches('v')
+            candidate > build_tag.trim_start_matches('v')
         }
         UpdateChannel::Stable | UpdateChannel::Preview => {
             // Simple lexicographic semver — good enough for MAJOR.MINOR.PATCH
-            let current = CURRENT_VERSION.trim_start_matches('v');
+            let current = current_version.trim_start_matches('v');
             semver_gt(candidate, current)
         }
     }
 }
 
-/// Naive semver greater-than: compares each numeric component left to right.
+/// Semver greater-than that also considers prerelease suffixes.
+///
+/// Numeric components (MAJOR.MINOR.PATCH) are compared first. When they are
+/// equal the prerelease suffix (the part after the first '-') is compared
+/// lexicographically so that, e.g., `0.2.0-alpha.2 > 0.2.0-alpha.1`.
 fn semver_gt(a: &str, b: &str) -> bool {
-    let parse = |s: &str| -> [u64; 3] {
-        let mut parts = s.split('-').next().unwrap_or("").split('.');
+    fn parse_nums(s: &str) -> [u64; 3] {
+        let ver = s.split_once('-').map_or(s, |(v, _)| v);
+        let mut parts = ver.split('.');
         [
             parts.next().and_then(|x| x.parse().ok()).unwrap_or(0),
             parts.next().and_then(|x| x.parse().ok()).unwrap_or(0),
             parts.next().and_then(|x| x.parse().ok()).unwrap_or(0),
         ]
-    };
-    parse(a) > parse(b)
+    }
+    fn parse_pre(s: &str) -> &str {
+        s.split_once('-').map_or("", |(_, p)| p)
+    }
+    let (na, nb) = (parse_nums(a), parse_nums(b));
+    if na != nb {
+        na > nb
+    } else {
+        // Same numeric version: compare prerelease suffix lexicographically.
+        parse_pre(a) > parse_pre(b)
+    }
 }
 
 fn release_matches_channel(release: &GhRelease, channel: UpdateChannel) -> bool {
@@ -124,13 +153,13 @@ fn release_matches_channel(release: &GhRelease, channel: UpdateChannel) -> bool 
 pub fn setup_update_system(
     channel: UpdateChannel,
 ) -> (UpdateCheckRx, DownloadTx, DownloadResultRx) {
-    let (check_tx, check_rx) = mpsc::channel::<Option<UpdateInfo>>();
+    let (check_tx, check_rx) = mpsc::channel::<Result<Option<UpdateInfo>, String>>();
     let (request_tx, request_rx) = mpsc::sync_channel::<UpdateInfo>(1);
     let (result_tx, result_rx) = mpsc::channel::<Result<String, String>>();
 
     // Background update check
     thread::spawn(move || {
-        let result = check_latest(channel);
+        let result = check_latest(channel).map_err(|e| e.to_string());
         let _ = check_tx.send(result);
     });
 
@@ -150,44 +179,71 @@ pub fn setup_update_system(
 }
 
 /// Check GitHub releases for a newer version on the given channel.
-/// Returns `Some(UpdateInfo)` if an update is available, `None` otherwise.
-fn check_latest(channel: UpdateChannel) -> Option<UpdateInfo> {
+/// Returns `Ok(Some(UpdateInfo))` if an update is available, `Ok(None)` if up-to-date,
+/// or `Err` with a human-readable message if the check could not be completed.
+fn check_latest(channel: UpdateChannel) -> anyhow::Result<Option<UpdateInfo>> {
     let asset_name = platform_asset_name();
     if asset_name.is_empty() {
-        return None; // unsupported platform
+        return Ok(None); // unsupported platform
     }
 
-    let response: Vec<GhRelease> = ureq::get(GITHUB_API)
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout_read(std::time::Duration::from_secs(30))
+        .build();
+
+    let response: Vec<GhRelease> = agent
+        .get(GITHUB_API)
         .set("User-Agent", &format!("farspace/{CURRENT_VERSION}"))
         .set("Accept", "application/vnd.github+json")
         .call()
-        .ok()?
+        .map_err(|e| anyhow::anyhow!("update check request failed: {e}"))?
         .into_json()
-        .ok()?;
+        .map_err(|e| anyhow::anyhow!("update check response parse failed: {e}"))?;
 
-    let release = response
+    let release = match response
         .into_iter()
-        .find(|r| release_matches_channel(r, channel))?;
+        .find(|r| release_matches_channel(r, channel))
+    {
+        Some(r) => r,
+        None => return Ok(None),
+    };
 
     if !is_newer(channel, &release.tag_name) {
-        return None;
+        return Ok(None);
     }
 
-    let asset = release.assets.iter().find(|a| a.name == asset_name)?;
+    let asset = match release.assets.iter().find(|a| a.name == asset_name) {
+        Some(a) => a,
+        None => return Ok(None),
+    };
 
-    Some(UpdateInfo {
+    Ok(Some(UpdateInfo {
         version: release.tag_name.clone(),
         channel,
         download_url: asset.browser_download_url.clone(),
-    })
+    }))
 }
 
 /// Download the update binary to a staging path next to the current executable.
-/// The staged file is `<exe>.update` and is applied on the next launch.
+/// The staged file has the current executable's extension replaced with `.update`
+/// (e.g. `farspace` → `farspace.update`, `farspace.exe` → `farspace.update`).
+/// It is applied on the next launch.
+///
+/// NOTE: Downloads are protected by TLS only. A future improvement should
+/// verify a signed manifest or SHA-256 checksum published alongside the release
+/// asset before staging, to defend against compromised release metadata or a
+/// network man-in-the-middle attack.
 pub fn download_and_stage(info: &UpdateInfo) -> anyhow::Result<PathBuf> {
     let staging = staged_path()?;
 
-    let response = ureq::get(&info.download_url)
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout_read(std::time::Duration::from_secs(300))
+        .build();
+
+    let response = agent
+        .get(&info.download_url)
         .set("User-Agent", &format!("farspace/{CURRENT_VERSION}"))
         .call()?;
 
@@ -264,12 +320,18 @@ fn apply_staged(_current: &std::path::Path, _staged: &std::path::Path) -> bool {
 mod tests {
     use super::*;
 
+    static TEST_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
     #[test]
     fn semver_gt_detects_newer() {
         assert!(semver_gt("0.2.0", "0.1.0"));
         assert!(semver_gt("1.0.0", "0.9.9"));
         assert!(!semver_gt("0.1.0", "0.1.0"));
         assert!(!semver_gt("0.0.9", "0.1.0"));
+        // prerelease comparisons
+        assert!(semver_gt("0.2.0-alpha.2", "0.2.0-alpha.1"));
+        assert!(!semver_gt("0.2.0-alpha.1", "0.2.0-alpha.2"));
+        assert!(!semver_gt("0.2.0-alpha.1", "0.2.0-alpha.1"));
     }
 
     #[test]
@@ -319,23 +381,71 @@ mod tests {
 
     #[test]
     fn is_newer_stable_detects_greater_version() {
-        // CURRENT_VERSION = "0.1.0" at test time
-        assert!(is_newer(UpdateChannel::Stable, "v0.2.0"));
-        assert!(is_newer(UpdateChannel::Stable, "0.2.0"));
-        assert!(!is_newer(UpdateChannel::Stable, "v0.1.0"));
-        assert!(!is_newer(UpdateChannel::Stable, "v0.0.9"));
+        // Use is_newer_against with explicit versions to avoid hardcoding CURRENT_VERSION
+        assert!(is_newer_against(
+            UpdateChannel::Stable,
+            "v0.2.0",
+            "0.1.0",
+            ""
+        ));
+        assert!(is_newer_against(
+            UpdateChannel::Stable,
+            "0.2.0",
+            "0.1.0",
+            ""
+        ));
+        assert!(!is_newer_against(
+            UpdateChannel::Stable,
+            "v0.1.0",
+            "0.1.0",
+            ""
+        ));
+        assert!(!is_newer_against(
+            UpdateChannel::Stable,
+            "v0.0.9",
+            "0.1.0",
+            ""
+        ));
     }
 
     #[test]
     fn is_newer_preview_uses_semver_comparison() {
-        assert!(is_newer(UpdateChannel::Preview, "v0.2.0-alpha.1"));
-        assert!(!is_newer(UpdateChannel::Preview, "v0.1.0-alpha.1"));
+        assert!(is_newer_against(
+            UpdateChannel::Preview,
+            "v0.2.0-alpha.1",
+            "0.1.0",
+            ""
+        ));
+        assert!(!is_newer_against(
+            UpdateChannel::Preview,
+            "v0.1.0-alpha.1",
+            "0.2.0",
+            ""
+        ));
+        // Same base version, later prerelease
+        assert!(is_newer_against(
+            UpdateChannel::Preview,
+            "v0.2.0-alpha.2",
+            "0.2.0-alpha.1",
+            ""
+        ));
+        assert!(!is_newer_against(
+            UpdateChannel::Preview,
+            "v0.2.0-alpha.1",
+            "0.2.0-alpha.2",
+            ""
+        ));
     }
 
     #[test]
     fn is_newer_nightly_returns_false_without_build_tag() {
-        // FARSPACE_BUILD_TAG not set in test env → stable binary ignores nightlies
-        assert!(!is_newer(UpdateChannel::Nightly, "nightly-20260520-1200"));
+        // No build tag → stable binary ignores nightly updates
+        assert!(!is_newer_against(
+            UpdateChannel::Nightly,
+            "nightly-20260520-1200",
+            "0.1.0",
+            ""
+        ));
     }
 
     #[test]
@@ -357,10 +467,10 @@ mod tests {
     #[cfg(unix)]
     fn apply_staged_moves_file_on_unix() {
         let dir = std::env::temp_dir();
-        let counter = std::sync::atomic::AtomicUsize::new(0);
-        let id = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let staged = dir.join(format!("farspace_test_staged_{}.update", id));
-        let target = dir.join(format!("farspace_test_target_{}", id));
+        let id = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let pid = std::process::id();
+        let staged = dir.join(format!("farspace_test_staged_{}_{}.update", pid, id));
+        let target = dir.join(format!("farspace_test_target_{}_{}", pid, id));
 
         std::fs::write(&staged, b"new binary").unwrap();
         std::fs::write(&target, b"old binary").unwrap();
@@ -397,8 +507,10 @@ mod tests {
         // We can't replace the real exe in tests, so we test apply_staged directly
         // with temp paths instead.
         let dir = env::temp_dir();
-        let staged = dir.join("farspace_staged_apply_test.update");
-        let target = dir.join("farspace_staged_apply_target");
+        let id = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let pid = std::process::id();
+        let staged = dir.join(format!("farspace_staged_apply_test_{}_{}.update", pid, id));
+        let target = dir.join(format!("farspace_staged_apply_target_{}_{}", pid, id));
 
         std::fs::write(&staged, b"updated binary").unwrap();
         std::fs::write(&target, b"original binary").unwrap();

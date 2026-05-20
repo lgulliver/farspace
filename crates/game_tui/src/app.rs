@@ -33,8 +33,8 @@ const DEFAULT_SAVE_PATH: &str = "farspace.sav";
 pub struct App {
     state: AppState,
     engine: Option<Engine>,
-    /// Receives the result of the background update check (Some = update available, None = up to date).
-    check_rx: Option<std::sync::mpsc::Receiver<Option<UpdateInfo>>>,
+    /// Receives the result of the background update check (Ok(Some) = update available, Ok(None) = up to date, Err = check failed).
+    check_rx: Option<std::sync::mpsc::Receiver<Result<Option<UpdateInfo>, String>>>,
     /// Sends an update request to the background download worker.
     download_tx: Option<std::sync::mpsc::SyncSender<UpdateInfo>>,
     /// Receives download completion (Ok(version) = staged, Err = failed).
@@ -270,7 +270,8 @@ impl App {
                     }
                 }
                 "auto_update" => {
-                    cfg.auto_update = val != "false" && val != "0" && val != "off";
+                    let v = val.trim().to_ascii_lowercase();
+                    cfg.auto_update = v != "false" && v != "0" && v != "off";
                 }
                 _ => {}
             }
@@ -374,7 +375,7 @@ impl App {
     /// Wire in the update channels from the binary crate's update system.
     pub fn set_update_channels(
         &mut self,
-        check_rx: std::sync::mpsc::Receiver<Option<UpdateInfo>>,
+        check_rx: std::sync::mpsc::Receiver<Result<Option<UpdateInfo>, String>>,
         download_tx: std::sync::mpsc::SyncSender<UpdateInfo>,
         download_rx: std::sync::mpsc::Receiver<Result<String, String>>,
     ) {
@@ -537,11 +538,14 @@ impl App {
             if let Ok(result) = rx.try_recv() {
                 self.check_rx = None;
                 match result {
-                    Some(info) => {
+                    Ok(Some(info)) => {
                         if self.state.auto_update {
                             if let Some(tx) = &self.download_tx {
-                                let _ = tx.try_send(info);
-                                self.state.update_state = UpdateState::Downloading;
+                                if tx.try_send(info.clone()).is_ok() {
+                                    self.state.update_state = UpdateState::Downloading;
+                                } else {
+                                    self.state.update_state = UpdateState::Available(info);
+                                }
                             } else {
                                 self.state.update_state = UpdateState::Available(info);
                             }
@@ -549,8 +553,11 @@ impl App {
                             self.state.update_state = UpdateState::Available(info);
                         }
                     }
-                    None => {
+                    Ok(None) => {
                         self.state.update_state = UpdateState::Idle;
+                    }
+                    Err(e) => {
+                        self.state.update_state = UpdateState::Error(e);
                     }
                 }
             }
@@ -761,8 +768,10 @@ impl App {
     fn trigger_update_download(&mut self) {
         if let UpdateState::Available(info) = self.state.update_state.clone() {
             if let Some(tx) = &self.download_tx {
-                let _ = tx.try_send(info);
-                self.state.update_state = UpdateState::Downloading;
+                if tx.try_send(info).is_ok() {
+                    self.state.update_state = UpdateState::Downloading;
+                }
+                // If send fails (worker exited or queue full), remain in Available state
             }
         }
     }
@@ -778,7 +787,7 @@ impl App {
                 self.state.settings_cursor = (self.state.settings_cursor + 1) % count;
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.state.settings_cursor = self.state.settings_cursor.saturating_sub(1);
+                self.state.settings_cursor = (self.state.settings_cursor + count - 1) % count;
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 self.cycle_settings_item();

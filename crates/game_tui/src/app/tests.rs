@@ -2859,12 +2859,13 @@ fn settings_up_arrow_retreats_cursor() {
 }
 
 #[test]
-fn settings_cursor_clamps_at_zero() {
+fn settings_cursor_wraps_up_at_zero() {
+    let count = crate::screens::settings::settings_cursor_count();
     let mut app = App::new();
     app.state.active = Screen::Settings;
     app.state.settings_cursor = 0;
     app.handle_key(key(KeyCode::Char('k')));
-    assert_eq!(app.state.settings_cursor, 0);
+    assert_eq!(app.state.settings_cursor, count - 1);
 }
 
 #[test]
@@ -2990,11 +2991,11 @@ fn poll_sets_available_when_auto_update_off() {
     app.state.auto_update = false;
 
     check_tx
-        .send(Some(crate::update::UpdateInfo {
+        .send(Ok(Some(crate::update::UpdateInfo {
             version: "v0.2.0".into(),
             channel: crate::update::UpdateChannel::Stable,
             download_url: "https://example.com".into(),
-        }))
+        })))
         .unwrap();
 
     app.poll_update_channels();
@@ -3014,7 +3015,7 @@ fn poll_sets_idle_when_no_update() {
     let mut app = App::new();
     app.set_update_channels(check_rx, download_tx, download_rx);
 
-    check_tx.send(None).unwrap();
+    check_tx.send(Ok(None)).unwrap();
     app.poll_update_channels();
 
     assert!(matches!(
@@ -3025,7 +3026,8 @@ fn poll_sets_idle_when_no_update() {
 
 #[test]
 fn poll_sets_staged_on_successful_download() {
-    let (_, check_rx) = std::sync::mpsc::channel::<Option<crate::update::UpdateInfo>>();
+    let (_, check_rx) =
+        std::sync::mpsc::channel::<Result<Option<crate::update::UpdateInfo>, String>>();
     let (download_tx, _) = std::sync::mpsc::sync_channel::<crate::update::UpdateInfo>(1);
     let (result_tx, download_rx) = std::sync::mpsc::channel::<Result<String, String>>();
 
@@ -3043,7 +3045,8 @@ fn poll_sets_staged_on_successful_download() {
 
 #[test]
 fn poll_sets_error_on_failed_download() {
-    let (_, check_rx) = std::sync::mpsc::channel::<Option<crate::update::UpdateInfo>>();
+    let (_, check_rx) =
+        std::sync::mpsc::channel::<Result<Option<crate::update::UpdateInfo>, String>>();
     let (download_tx, _) = std::sync::mpsc::sync_channel::<crate::update::UpdateInfo>(1);
     let (result_tx, download_rx) = std::sync::mpsc::channel::<Result<String, String>>();
 
@@ -3051,6 +3054,25 @@ fn poll_sets_error_on_failed_download() {
     app.set_update_channels(check_rx, download_tx, download_rx);
 
     result_tx.send(Err("network error".into())).unwrap();
+    app.poll_update_channels();
+
+    assert!(matches!(
+        app.state.update_state,
+        crate::update::UpdateState::Error(_)
+    ));
+}
+
+#[test]
+fn poll_sets_error_on_check_failure() {
+    let (check_tx, check_rx) =
+        std::sync::mpsc::channel::<Result<Option<crate::update::UpdateInfo>, String>>();
+    let (download_tx, _) = std::sync::mpsc::sync_channel::<crate::update::UpdateInfo>(1);
+    let (_, download_rx) = std::sync::mpsc::channel::<Result<String, String>>();
+
+    let mut app = App::new();
+    app.set_update_channels(check_rx, download_tx, download_rx);
+
+    check_tx.send(Err("connection refused".into())).unwrap();
     app.poll_update_channels();
 
     assert!(matches!(

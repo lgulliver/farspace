@@ -109,9 +109,7 @@ fn release_matches_channel(release: &GhRelease, channel: UpdateChannel) -> bool 
             release.prerelease
                 && (release.tag_name.contains("alpha") || release.tag_name.contains("beta"))
         }
-        UpdateChannel::Nightly => {
-            release.prerelease && release.tag_name.starts_with("nightly-")
-        }
+        UpdateChannel::Nightly => release.prerelease && release.tag_name.starts_with("nightly-"),
     }
 }
 
@@ -123,7 +121,9 @@ fn release_matches_channel(release: &GhRelease, channel: UpdateChannel) -> bool 
 ///
 /// Returns `(check_rx, download_tx, download_rx)` to pass to
 /// `App::set_update_channels()`.
-pub fn setup_update_system(channel: UpdateChannel) -> (UpdateCheckRx, DownloadTx, DownloadResultRx) {
+pub fn setup_update_system(
+    channel: UpdateChannel,
+) -> (UpdateCheckRx, DownloadTx, DownloadResultRx) {
     let (check_tx, check_rx) = mpsc::channel::<Option<UpdateInfo>>();
     let (request_tx, request_rx) = mpsc::sync_channel::<UpdateInfo>(1);
     let (result_tx, result_rx) = mpsc::channel::<Result<String, String>>();
@@ -222,7 +222,9 @@ pub fn staged_path() -> anyhow::Result<PathBuf> {
 /// Returns `true` if an update was applied (the caller should note that the
 /// binary on disk has changed, though the running process is the old version).
 pub fn check_and_apply_staged() -> bool {
-    let Ok(staged) = staged_path() else { return false };
+    let Ok(staged) = staged_path() else {
+        return false;
+    };
     if !staged.exists() {
         return false;
     }
@@ -313,5 +315,123 @@ mod tests {
         assert!(!release_matches_channel(&draft, UpdateChannel::Stable));
         assert!(!release_matches_channel(&draft, UpdateChannel::Preview));
         assert!(!release_matches_channel(&draft, UpdateChannel::Nightly));
+    }
+
+    #[test]
+    fn is_newer_stable_detects_greater_version() {
+        // CURRENT_VERSION = "0.1.0" at test time
+        assert!(is_newer(UpdateChannel::Stable, "v0.2.0"));
+        assert!(is_newer(UpdateChannel::Stable, "0.2.0"));
+        assert!(!is_newer(UpdateChannel::Stable, "v0.1.0"));
+        assert!(!is_newer(UpdateChannel::Stable, "v0.0.9"));
+    }
+
+    #[test]
+    fn is_newer_preview_uses_semver_comparison() {
+        assert!(is_newer(UpdateChannel::Preview, "v0.2.0-alpha.1"));
+        assert!(!is_newer(UpdateChannel::Preview, "v0.1.0-alpha.1"));
+    }
+
+    #[test]
+    fn is_newer_nightly_returns_false_without_build_tag() {
+        // FARSPACE_BUILD_TAG not set in test env → stable binary ignores nightlies
+        assert!(!is_newer(
+            UpdateChannel::Nightly,
+            "nightly-20260520-1200"
+        ));
+    }
+
+    #[test]
+    fn staged_path_has_update_extension() {
+        let path = staged_path().expect("staged_path should succeed");
+        assert_eq!(
+            path.extension().and_then(|e| e.to_str()),
+            Some("update")
+        );
+    }
+
+    #[test]
+    fn check_and_apply_staged_returns_false_when_no_file() {
+        let staged = staged_path().unwrap();
+        if staged.exists() {
+            return; // skip if a real staged file is present
+        }
+        assert!(!check_and_apply_staged());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn apply_staged_moves_file_on_unix() {
+        let dir = std::env::temp_dir();
+        let counter = std::sync::atomic::AtomicUsize::new(0);
+        let id = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let staged = dir.join(format!("farspace_test_staged_{}.update", id));
+        let target = dir.join(format!("farspace_test_target_{}", id));
+
+        std::fs::write(&staged, b"new binary").unwrap();
+        std::fs::write(&target, b"old binary").unwrap();
+
+        let result = apply_staged(&target, &staged);
+        assert!(result, "apply_staged should succeed");
+
+        let content = std::fs::read(&target).unwrap_or_default();
+        assert_eq!(content, b"new binary");
+
+        let _ = std::fs::remove_file(&target);
+        let _ = std::fs::remove_file(&staged);
+    }
+
+    #[test]
+    fn preview_tag_without_alpha_beta_does_not_match_preview_channel() {
+        let strange = GhRelease {
+            tag_name: "v0.2.0-rc.1".into(),
+            prerelease: true,
+            draft: false,
+            assets: vec![],
+        };
+        assert!(!release_matches_channel(&strange, UpdateChannel::Preview));
+        assert!(!release_matches_channel(&strange, UpdateChannel::Nightly));
+        assert!(!release_matches_channel(&strange, UpdateChannel::Stable));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn check_and_apply_staged_applies_and_removes_staged_file() {
+        use std::env;
+
+        // Write a dummy staged file next to a fake "current exe" path.
+        // We can't replace the real exe in tests, so we test apply_staged directly
+        // with temp paths instead.
+        let dir = env::temp_dir();
+        let staged = dir.join("farspace_staged_apply_test.update");
+        let target = dir.join("farspace_staged_apply_target");
+
+        std::fs::write(&staged, b"updated binary").unwrap();
+        std::fs::write(&target, b"original binary").unwrap();
+
+        let applied = apply_staged(&target, &staged);
+        assert!(applied);
+
+        let content = std::fs::read_to_string(&target).unwrap();
+        assert_eq!(content, "updated binary");
+
+        // staged should have been moved, not copied
+        assert!(!staged.exists());
+
+        let _ = std::fs::remove_file(&target);
+    }
+
+    #[test]
+    fn platform_asset_name_is_nonempty_on_known_platforms() {
+        let name = platform_asset_name();
+        // On CI / developer machines this runs on a supported platform
+        assert!(
+            !name.is_empty() || cfg!(not(any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "windows"
+            ))),
+            "expected non-empty asset name on supported platform"
+        );
     }
 }

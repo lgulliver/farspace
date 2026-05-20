@@ -101,6 +101,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
             HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),
+            HelpEntry::Binding("B", "Open Battle Reports"),
             HelpEntry::Binding(
                 ":",
                 "Command palette (save · load · visual-mode · dispatch · news)",
@@ -126,6 +127,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
             HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),
+            HelpEntry::Binding("B", "Open Battle Reports"),
             HelpEntry::Binding(
                 ":",
                 "Command palette (save · load · visual-mode · clear-rally · dispatch · news)",
@@ -158,6 +160,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
             HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),
+            HelpEntry::Binding("B", "Open Battle Reports"),
             HelpEntry::Binding(
                 ":",
                 "Command palette (save · load · visual-mode · dispatch · news)",
@@ -187,6 +190,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
             HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),
+            HelpEntry::Binding("B", "Open Battle Reports"),
             HelpEntry::Binding(
                 ":",
                 "Command palette (save · load · visual-mode · clear-rally · dispatch · news)",
@@ -212,6 +216,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
             HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),
+            HelpEntry::Binding("B", "Open Battle Reports"),
             HelpEntry::Binding(
                 ":",
                 "Command palette (save · load · visual-mode · dispatch · news)",
@@ -237,6 +242,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
             HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),
+            HelpEntry::Binding("B", "Open Battle Reports"),
             HelpEntry::Binding(
                 ":",
                 "Command palette (save · load · visual-mode · dispatch · news)",
@@ -264,6 +270,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
             HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),
+            HelpEntry::Binding("B", "Open Battle Reports"),
             HelpEntry::Binding(
                 ":",
                 "Command palette (save · load · visual-mode · dispatch · news)",

@@ -286,6 +286,8 @@ impl Engine {
             custom_designs: std::collections::BTreeMap::new(),
             next_custom_design_id: 0,
             fleet_custom_designs: std::collections::BTreeMap::new(),
+            next_battle_report_id: 1,
+            battle_reports: std::collections::VecDeque::new(),
         };
 
         // Generate initial ship designs for all AI empires

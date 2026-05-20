@@ -3891,6 +3891,8 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         custom_designs: BTreeMap::new(),
         next_custom_design_id: 0,
         fleet_custom_designs: BTreeMap::new(),
+        next_battle_report_id: 1,
+        battle_reports: std::collections::VecDeque::new(),
     };
 
     // Player star
@@ -4105,6 +4107,8 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         custom_designs: BTreeMap::new(),
         next_custom_design_id: 0,
         fleet_custom_designs: BTreeMap::new(),
+        next_battle_report_id: 1,
+        battle_reports: std::collections::VecDeque::new(),
     };
 
     // Populate stars, empires, colonies, fleet
@@ -4478,6 +4482,8 @@ fn contact_detection_is_deterministic() {
         custom_designs: BTreeMap::new(),
         next_custom_design_id: 0,
         fleet_custom_designs: BTreeMap::new(),
+        next_battle_report_id: 1,
+        battle_reports: std::collections::VecDeque::new(),
     };
 
     // Two AI empires each have a colony at target_star
@@ -5012,6 +5018,80 @@ fn combat_events_are_deterministic() {
     assert_eq!(
         events1, events2,
         "Combat events must be identical for same initial state"
+    );
+}
+
+#[test]
+fn combat_generates_structured_battle_report_with_phases() {
+    let (state, star_id, player_fid, _enemy_fid) = make_combat_state(20, 100, 10, 100);
+    let mut engine = Engine::from_state(state);
+    let mut events = Vec::new();
+    engine.check_combat_at_star(star_id, player_fid, &mut events);
+
+    let report = engine
+        .state
+        .battle_reports
+        .back()
+        .expect("battle report should be recorded");
+    assert_eq!(report.star, star_id);
+    assert!(!report.phases.is_empty(), "phase summaries should be present");
+    assert!(report
+        .phases
+        .iter()
+        .any(|phase| matches!(phase.phase, crate::state::CombatPhase::OpeningVolley)));
+    assert!(report
+        .phases
+        .iter()
+        .any(|phase| matches!(phase.phase, crate::state::CombatPhase::Resolution)));
+}
+
+#[test]
+fn battle_reports_are_deterministic_for_same_combat_state() {
+    let (state1, star_id, player_fid, _) = make_combat_state(20, 100, 10, 100);
+    let (state2, _, _, _) = make_combat_state(20, 100, 10, 100);
+
+    let mut engine1 = Engine::from_state(state1);
+    let mut engine2 = Engine::from_state(state2);
+    let mut events1 = Vec::new();
+    let mut events2 = Vec::new();
+    engine1.check_combat_at_star(star_id, player_fid, &mut events1);
+    engine2.check_combat_at_star(star_id, player_fid, &mut events2);
+
+    assert_eq!(engine1.state.battle_reports, engine2.state.battle_reports);
+}
+
+#[test]
+fn artillery_opening_volley_pressure_exceeds_balanced_scout_opening() {
+    let (mut state, star_id, player_fid, enemy_fid) = make_combat_state(12, 100, 12, 100);
+    if let Some(player) = state.fleets.get_mut(&player_fid) {
+        player.kind = FleetKind::MissileFrigate;
+    }
+    if let Some(enemy) = state.fleets.get_mut(&enemy_fid) {
+        enemy.kind = FleetKind::EscortFrigate;
+    }
+    state
+        .fleet_formations
+        .insert(player_fid, crate::state::FleetFormation::Artillery);
+    state
+        .fleet_formations
+        .insert(enemy_fid, crate::state::FleetFormation::Balanced);
+
+    let mut engine = Engine::from_state(state);
+    let mut events = Vec::new();
+    engine.check_combat_at_star(star_id, player_fid, &mut events);
+    let report = engine
+        .state
+        .battle_reports
+        .back()
+        .expect("battle report should be present");
+    let opening = report
+        .phases
+        .iter()
+        .find(|phase| matches!(phase.phase, crate::state::CombatPhase::OpeningVolley))
+        .expect("opening volley phase should exist");
+    assert!(
+        opening.pressure_a > opening.pressure_b,
+        "artillery missile side should have stronger opening pressure"
     );
 }
 
@@ -9027,6 +9107,8 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         custom_designs: BTreeMap::new(),
         next_custom_design_id: 0,
         fleet_custom_designs: BTreeMap::new(),
+        next_battle_report_id: 1,
+        battle_reports: std::collections::VecDeque::new(),
     };
 
     state.stars.insert(

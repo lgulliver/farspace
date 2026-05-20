@@ -836,6 +836,25 @@ fn end_turn_report_counts_key_events() {
             transports_lost: 1,
             reason: "Defenses held".to_string(),
         },
+        CoreEvent::CombatResolved {
+            star: StarId(6),
+            fleet_a: FleetId(10),
+            empire_a: game_core::EmpireId(1),
+            fleet_b: FleetId(11),
+            empire_b: game_core::EmpireId(2),
+            strength_a: 8,
+            strength_b: 6,
+            integrity_a_remaining: 44,
+            integrity_b_remaining: 0,
+            fleet_a_destroyed: false,
+            fleet_b_destroyed: true,
+        },
+        CoreEvent::FleetRetreatTriggered {
+            fleet: FleetId(12),
+            from_star: StarId(6),
+            to_star: StarId(3),
+            remaining_integrity: 21,
+        },
         CoreEvent::Error {
             message: "bad command".to_string(),
         },
@@ -849,6 +868,8 @@ fn end_turn_report_counts_key_events() {
     assert!(report.contains("research 1"));
     assert!(report.contains("queued starts 0"));
     assert!(report.contains("arrivals 1"));
+    assert!(report.contains("combats 1"));
+    assert!(report.contains("retreats 1"));
     assert!(report.contains("invasions won 1"));
     assert!(report.contains("invasions failed 1"));
     assert!(report.contains("warnings 1"));
@@ -862,7 +883,7 @@ fn end_turn_report_handles_empty_event_list() {
     let report = App::build_end_turn_report(3, &[]);
     assert_eq!(
         report,
-        "Turn 3 global summary (all empires): explored 0, surveyed 0, colonized 0, research 0, queued starts 0, arrivals 0, invasions won 0, invasions failed 0, treaties 0, wars 0, peaces 0, victory milestones 0, victories 0, warnings 0, isolated 0, reconnected 0, errors 0."
+        "Turn 3 global summary (all empires): explored 0, surveyed 0, colonized 0, research 0, queued starts 0, arrivals 0, combats 0, retreats 0, invasions won 0, invasions failed 0, treaties 0, wars 0, peaces 0, victory milestones 0, victories 0, warnings 0, isolated 0, reconnected 0, errors 0."
     );
 }
 

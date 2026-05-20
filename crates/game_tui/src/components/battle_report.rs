@@ -11,6 +11,8 @@ use ratatui::{
     Frame,
 };
 
+const MAX_VISIBLE_REPORTS: usize = 8;
+
 pub fn render_battle_reports(
     frame: &mut Frame,
     area: Rect,
@@ -42,7 +44,7 @@ pub fn render_battle_reports(
     } else {
         let idx = selected_index.min(reports.len().saturating_sub(1));
         let selected = &reports[idx];
-        for (i, report) in reports.iter().enumerate().rev().take(8) {
+        for (i, report) in reports.iter().enumerate().rev().take(MAX_VISIBLE_REPORTS) {
             let marker = if i == idx {
                 glyphs.list_selected.to_string()
             } else {
@@ -93,16 +95,8 @@ pub fn render_battle_reports(
                 selected.integrity_a_end,
                 selected.integrity_b_start,
                 selected.integrity_b_end,
-                if selected.fleet_a_retreated {
-                    "A"
-                } else {
-                    "-"
-                },
-                if selected.fleet_b_retreated {
-                    "B"
-                } else {
-                    "-"
-                }
+                if selected.fleet_a_retreated { "A" } else { "-" },
+                if selected.fleet_b_retreated { "B" } else { "-" }
             ),
             Theme::accent_style(),
         )));

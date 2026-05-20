@@ -11,11 +11,11 @@ use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
     AiDoctrine, BattleReport, BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState,
     CombatPhase, CombatPhaseSummary, ComponentId, CustomDesignId, CustomShipDesign,
-    DiplomaticCommunication, DiplomaticCommunicationType, DiplomaticRelationship, DiplomaticResponse,
-    DiplomaticTone, DiplomaticTreaty, Empire, EmpireId, Fleet, FleetFormation, FleetId, FleetKind,
-    FleetMission, FleetOrder, FleetRole, GameState, HullId, HyperspaceLane, OrbitalStructureType,
-    RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission, ShipDesignId, StarId,
-    SurveyMission, TechId, TreatyType, YieldType,
+    DiplomaticCommunication, DiplomaticCommunicationType, DiplomaticRelationship,
+    DiplomaticResponse, DiplomaticTone, DiplomaticTreaty, Empire, EmpireId, Fleet, FleetFormation,
+    FleetId, FleetKind, FleetMission, FleetOrder, FleetRole, GameState, HullId, HyperspaceLane,
+    OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
+    ShipDesignId, StarId, SurveyMission, TechId, TreatyType, YieldType,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
@@ -51,6 +51,8 @@ const AI_TRIBUTE_DEMAND_FREQUENCY: u32 = 9;
 const TRUCE_DURATION_TURNS: u32 = 8;
 const NAP_DURATION_TURNS: u32 = 12;
 const BATTLE_REPORT_MAX_HISTORY: usize = 40;
+const ATTRITION_DIVISOR: u64 = 400;
+const BATTLE_REPORT_ID_PENDING: u64 = 0;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct YieldBonuses {
@@ -4135,8 +4137,8 @@ impl Engine {
                 ((d_attack * 100) / a_effective_defense).min(u32::MAX as u64) as u32;
             let mut damage_to_enemy: u32 =
                 ((a_attack * 100) / d_effective_defense).min(u32::MAX as u64) as u32;
-            damage_to_arrived =
-                damage_to_arrived.saturating_add(opening_damage_to_arrived.min(u32::MAX as u64) as u32);
+            damage_to_arrived = damage_to_arrived
+                .saturating_add(opening_damage_to_arrived.min(u32::MAX as u64) as u32);
             damage_to_enemy =
                 damage_to_enemy.saturating_add(opening_damage_to_enemy.min(u32::MAX as u64) as u32);
             phase_summaries.push(CombatPhaseSummary {
@@ -4146,11 +4148,19 @@ impl Engine {
                 note: "Sustained engagement exchange".to_string(),
             });
 
-            let attrition_to_arrived = ((damage_to_arrived as u64 * (a_retreat_threshold as u64))
-                / 400)
-                .min(12) as u32;
-            let attrition_to_enemy = ((damage_to_enemy as u64 * (d_retreat_threshold as u64)) / 400)
-                .min(12) as u32;
+            let attrition_to_arrived = if kind_b.is_combat() || kind_b == FleetKind::TroopTransport
+            {
+                ((damage_to_arrived as u64 * (a_retreat_threshold as u64)) / ATTRITION_DIVISOR)
+                    .min(12) as u32
+            } else {
+                0
+            };
+            let attrition_to_enemy = if kind_a.is_combat() || kind_a == FleetKind::TroopTransport {
+                ((damage_to_enemy as u64 * (d_retreat_threshold as u64)) / ATTRITION_DIVISOR)
+                    .min(12) as u32
+            } else {
+                0
+            };
             damage_to_arrived = damage_to_arrived.saturating_add(attrition_to_arrived);
             damage_to_enemy = damage_to_enemy.saturating_add(attrition_to_enemy);
             phase_summaries.push(CombatPhaseSummary {
@@ -4192,12 +4202,10 @@ impl Engine {
                 f.integrity = new_d_int;
             }
 
-            let mut a_retreated = false;
             if !fleet_a_destroyed
                 && new_a_int <= a_retreat_threshold
                 && self.start_retreat_if_possible(arrived_fleet_id, star_id, events)
             {
-                a_retreated = true;
                 phase_summaries.push(CombatPhaseSummary {
                     phase: CombatPhase::RetreatOrCollapse,
                     pressure_a: a_retreat_threshold,
@@ -4211,7 +4219,7 @@ impl Engine {
                     note: "Engagement resolved with withdrawal".to_string(),
                 });
                 self.push_battle_report(BattleReport {
-                    report_id: self.state.next_battle_report_id,
+                    report_id: BATTLE_REPORT_ID_PENDING,
                     turn: self.state.turn,
                     star: star_id,
                     fleet_a: arrived_fleet_id,
@@ -4234,19 +4242,17 @@ impl Engine {
                     integrity_b_end: new_d_int,
                     fleet_a_destroyed,
                     fleet_b_destroyed,
-                    fleet_a_retreated: a_retreated,
+                    fleet_a_retreated: true,
                     fleet_b_retreated: false,
                     phases: phase_summaries,
                     system_outcome: "Fleet A retreat; system contested".to_string(),
                 });
                 break;
             }
-            let mut b_retreated = false;
             if !fleet_b_destroyed
                 && new_d_int <= d_retreat_threshold
                 && self.start_retreat_if_possible(enemy_id, star_id, events)
             {
-                b_retreated = true;
                 phase_summaries.push(CombatPhaseSummary {
                     phase: CombatPhase::RetreatOrCollapse,
                     pressure_a: a_retreat_threshold,
@@ -4260,7 +4266,7 @@ impl Engine {
                     note: "Engagement resolved with withdrawal".to_string(),
                 });
                 self.push_battle_report(BattleReport {
-                    report_id: self.state.next_battle_report_id,
+                    report_id: BATTLE_REPORT_ID_PENDING,
                     turn: self.state.turn,
                     star: star_id,
                     fleet_a: arrived_fleet_id,
@@ -4284,7 +4290,7 @@ impl Engine {
                     fleet_a_destroyed,
                     fleet_b_destroyed,
                     fleet_a_retreated: false,
-                    fleet_b_retreated: b_retreated,
+                    fleet_b_retreated: true,
                     phases: phase_summaries,
                     system_outcome: "Fleet B retreat; system contested".to_string(),
                 });
@@ -4310,7 +4316,7 @@ impl Engine {
                 note: system_outcome.clone(),
             });
             self.push_battle_report(BattleReport {
-                report_id: self.state.next_battle_report_id,
+                report_id: BATTLE_REPORT_ID_PENDING,
                 turn: self.state.turn,
                 star: star_id,
                 fleet_a: arrived_fleet_id,
@@ -4505,7 +4511,7 @@ impl Engine {
         formation: FleetFormation,
         role: FleetRole,
     ) -> u32 {
-        let mut bonus = match kind {
+        let mut bonus: u32 = match kind {
             FleetKind::MissileFrigate => 25,
             FleetKind::Destroyer => 14,
             FleetKind::EscortFrigate => 6,

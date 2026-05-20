@@ -5034,7 +5034,10 @@ fn combat_generates_structured_battle_report_with_phases() {
         .back()
         .expect("battle report should be recorded");
     assert_eq!(report.star, star_id);
-    assert!(!report.phases.is_empty(), "phase summaries should be present");
+    assert!(
+        !report.phases.is_empty(),
+        "phase summaries should be present"
+    );
     assert!(report
         .phases
         .iter()

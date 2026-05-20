@@ -656,9 +656,7 @@ impl App {
                     self.state.overlay.show_battle_reports = false;
                     self.state.overlay.battle_report_inspect = false;
                 }
-                KeyCode::Up | KeyCode::Char('k')
-                    if self.state.overlay.battle_report_index > 0 =>
-                {
+                KeyCode::Up | KeyCode::Char('k') if self.state.overlay.battle_report_index > 0 => {
                     self.state.overlay.battle_report_index -= 1;
                 }
                 KeyCode::Down | KeyCode::Char('j') => {

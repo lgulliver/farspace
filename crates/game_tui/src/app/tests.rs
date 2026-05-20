@@ -2937,13 +2937,11 @@ fn settings_enter_cycles_visual_mode_on_first_row() {
 fn menu_d_key_dismisses_available_update() {
     let mut app = App::new();
     app.state.active = Screen::Menu;
-    app.state.update_state = crate::update::UpdateState::Available(
-        crate::update::UpdateInfo {
-            version: "v0.2.0".into(),
-            channel: crate::update::UpdateChannel::Stable,
-            download_url: "https://example.com".into(),
-        },
-    );
+    app.state.update_state = crate::update::UpdateState::Available(crate::update::UpdateInfo {
+        version: "v0.2.0".into(),
+        channel: crate::update::UpdateChannel::Stable,
+        download_url: "https://example.com".into(),
+    });
     app.handle_key(key(KeyCode::Char('d')));
     assert!(matches!(
         app.state.update_state,
@@ -2983,7 +2981,8 @@ fn menu_u_key_does_nothing_when_no_update_available() {
 #[test]
 fn poll_sets_available_when_auto_update_off() {
     let (check_tx, check_rx) = std::sync::mpsc::channel();
-    let (download_tx, _download_rx_dummy) = std::sync::mpsc::sync_channel::<crate::update::UpdateInfo>(1);
+    let (download_tx, _download_rx_dummy) =
+        std::sync::mpsc::sync_channel::<crate::update::UpdateInfo>(1);
     let (_result_tx, download_rx) = std::sync::mpsc::channel::<Result<String, String>>();
 
     let mut app = App::new();

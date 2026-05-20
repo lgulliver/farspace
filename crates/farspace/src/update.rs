@@ -335,19 +335,13 @@ mod tests {
     #[test]
     fn is_newer_nightly_returns_false_without_build_tag() {
         // FARSPACE_BUILD_TAG not set in test env → stable binary ignores nightlies
-        assert!(!is_newer(
-            UpdateChannel::Nightly,
-            "nightly-20260520-1200"
-        ));
+        assert!(!is_newer(UpdateChannel::Nightly, "nightly-20260520-1200"));
     }
 
     #[test]
     fn staged_path_has_update_extension() {
         let path = staged_path().expect("staged_path should succeed");
-        assert_eq!(
-            path.extension().and_then(|e| e.to_str()),
-            Some("update")
-        );
+        assert_eq!(path.extension().and_then(|e| e.to_str()), Some("update"));
     }
 
     #[test]
@@ -426,11 +420,12 @@ mod tests {
         let name = platform_asset_name();
         // On CI / developer machines this runs on a supported platform
         assert!(
-            !name.is_empty() || cfg!(not(any(
-                target_os = "linux",
-                target_os = "macos",
-                target_os = "windows"
-            ))),
+            !name.is_empty()
+                || cfg!(not(any(
+                    target_os = "linux",
+                    target_os = "macos",
+                    target_os = "windows"
+                ))),
             "expected non-empty asset name on supported platform"
         );
     }

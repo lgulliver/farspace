@@ -54,20 +54,25 @@ pub fn render_settings(frame: &mut Frame, area: Rect, app_state: &AppState) {
 
 fn settings_lines(app_state: &AppState) -> Vec<Line<'static>> {
     let cursor = app_state.settings_cursor;
-    let mut lines = vec![Line::from(""), Line::from("  Use j/k to navigate, Enter to cycle, Esc to save."), Line::from("")];
+    let mut lines = vec![
+        Line::from(""),
+        Line::from("  Use j/k to navigate, Enter to cycle, Esc to save."),
+        Line::from(""),
+    ];
 
     let entries: &[(&str, String)] = &[
-        (
-            "Visual Mode",
-            app_state.visual_mode.label().to_string(),
-        ),
+        ("Visual Mode", app_state.visual_mode.label().to_string()),
         (
             "Update Channel",
             app_state.update_channel.label().to_string(),
         ),
         (
             "Auto-update",
-            if app_state.auto_update { "On".to_string() } else { "Off".to_string() },
+            if app_state.auto_update {
+                "On".to_string()
+            } else {
+                "Off".to_string()
+            },
         ),
     ];
 

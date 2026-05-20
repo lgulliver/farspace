@@ -245,10 +245,7 @@ fn render_update_notification(frame: &mut Frame, area: Rect, app_state: &AppStat
         UpdateState::Downloading => (
             " Update ",
             vec![
-                Line::from(Span::styled(
-                    "  Downloading...",
-                    Theme::muted_style(),
-                )),
+                Line::from(Span::styled("  Downloading...", Theme::muted_style())),
                 Line::from(""),
                 Line::from(""),
             ],
@@ -261,10 +258,7 @@ fn render_update_notification(frame: &mut Frame, area: Rect, app_state: &AppStat
                     format!("  {} staged", version),
                     Theme::success_style(),
                 )),
-                Line::from(Span::styled(
-                    "  Restart to apply.",
-                    Theme::muted_style(),
-                )),
+                Line::from(Span::styled("  Restart to apply.", Theme::muted_style())),
                 Line::from(vec![
                     Span::raw("  "),
                     Span::styled("[D]", Theme::highlight_style()),
@@ -282,10 +276,7 @@ fn render_update_notification(frame: &mut Frame, area: Rect, app_state: &AppStat
             (
                 " Update Error ",
                 vec![
-                    Line::from(Span::styled(
-                        format!("  {truncated}"),
-                        Theme::error_style(),
-                    )),
+                    Line::from(Span::styled(format!("  {truncated}"), Theme::error_style())),
                     Line::from(""),
                     Line::from(vec![
                         Span::raw("  "),

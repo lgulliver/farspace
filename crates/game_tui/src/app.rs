@@ -2,7 +2,6 @@
 
 mod logging;
 
-use crate::update::{UpdateChannel, UpdateInfo, UpdateState};
 use crate::components::{
     render_dispatch, render_help, render_palette, EventLog, LogEntryKind, PaletteCommand,
 };
@@ -14,6 +13,7 @@ use crate::screens::research::{
 };
 use crate::screens::ship_designer::{DesignerMode, DesignerPanel, ShipDesignerState};
 use crate::screens::Screen;
+use crate::update::{UpdateChannel, UpdateInfo, UpdateState};
 use crate::visual_mode::{map_symbol_for_mode, user_config_path, VisualMode};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
@@ -252,8 +252,12 @@ impl App {
         let mut cfg = AppConfig::default();
         for line in contents.lines() {
             let mut parts = line.splitn(2, '=');
-            let Some(key) = parts.next().map(str::trim) else { continue };
-            let Some(val) = parts.next().map(str::trim) else { continue };
+            let Some(key) = parts.next().map(str::trim) else {
+                continue;
+            };
+            let Some(val) = parts.next().map(str::trim) else {
+                continue;
+            };
             match key {
                 "visual_mode" => {
                     if let Some(m) = VisualMode::from_config_value(val) {
@@ -774,8 +778,7 @@ impl App {
                 self.state.settings_cursor = (self.state.settings_cursor + 1) % count;
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.state.settings_cursor =
-                    self.state.settings_cursor.saturating_sub(1);
+                self.state.settings_cursor = self.state.settings_cursor.saturating_sub(1);
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 self.cycle_settings_item();

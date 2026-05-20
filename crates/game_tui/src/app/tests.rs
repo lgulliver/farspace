@@ -2613,6 +2613,20 @@ fn setup_flow_starts_game_from_new_game_setup_screen() {
 }
 
 #[test]
+fn setup_flow_starts_game_from_new_game_setup_screen_with_lowercase_s() {
+    let mut app = App::new();
+    app.handle_key(key(KeyCode::Char('n')));
+    assert_eq!(app.state.active, Screen::EmpireSelect);
+
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.state.active, Screen::NewGameSetup);
+
+    app.handle_key(key(KeyCode::Char('s')));
+    assert!(app.engine.is_some());
+    assert_eq!(app.state.active, Screen::SectorOverview);
+}
+
+#[test]
 fn research_era_filter_cycles_with_left_bracket() {
     let mut app = App::new();
     app.new_game(42);

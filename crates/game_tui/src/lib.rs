@@ -12,7 +12,9 @@ pub mod map_render;
 pub mod renderer;
 pub mod screens;
 pub mod theme;
+pub mod update;
 pub mod viewport;
 pub mod visual_mode;
 
 pub use app::{App, AppState};
+pub use update::{UpdateChannel, UpdateInfo, UpdateState};

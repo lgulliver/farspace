@@ -9,6 +9,7 @@ pub mod new_game_setup;
 pub mod research;
 pub mod sector_map;
 pub mod sector_overview;
+pub mod settings;
 pub mod ship_designer;
 pub mod system;
 
@@ -38,6 +39,7 @@ pub enum Screen {
     Research,
     Diplomacy,
     ShipDesigner,
+    Settings,
 }
 
 impl Screen {
@@ -109,6 +111,7 @@ impl Screen {
                     render_unavailable_screen(frame, area, "Ship Designer");
                 }
             }
+            Screen::Settings => settings::render_settings(frame, area, app_state),
         }
     }
 }

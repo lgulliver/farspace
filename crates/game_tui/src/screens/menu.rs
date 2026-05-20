@@ -9,12 +9,13 @@ use crate::renderer::{
 };
 use crate::screens::Screen;
 use crate::theme::Theme;
+use crate::update::UpdateState;
 use crate::AppState;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
 
@@ -76,6 +77,11 @@ fn build_menu_lines(use_ascii_title: bool, app_state: &AppState) -> Vec<Line<'st
                 app_state.visual_mode.label(),
                 app_state.visual_mode.preview_sample()
             )),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("[S]", Theme::title_style()),
+            Span::raw(" Settings"),
         ]),
         Line::from(""),
         Line::from(vec![Span::styled(
@@ -199,6 +205,105 @@ pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
         .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, menu_area);
+
+    if app_state.update_state.is_notifiable() {
+        render_update_notification(frame, main_area, app_state);
+    }
+}
+
+/// Render a small update notification in the bottom-right corner of the menu area.
+fn render_update_notification(frame: &mut Frame, area: Rect, app_state: &AppState) {
+    const BOX_WIDTH: u16 = 38;
+    const BOX_HEIGHT: u16 = 5;
+
+    if area.width < BOX_WIDTH + 2 || area.height < BOX_HEIGHT + 2 {
+        return;
+    }
+
+    let x = area.right().saturating_sub(BOX_WIDTH + 1);
+    let y = area.bottom().saturating_sub(BOX_HEIGHT + 1);
+    let notif_area = Rect::new(x, y, BOX_WIDTH, BOX_HEIGHT);
+
+    let (title, lines, border_style) = match &app_state.update_state {
+        UpdateState::Available(info) => (
+            " Update Available ",
+            vec![
+                Line::from(Span::styled(
+                    format!("  {} ready", info.version),
+                    Theme::accent_style(),
+                )),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("  [U]", Theme::highlight_style()),
+                    Span::raw(" Download   "),
+                    Span::styled("[D]", Theme::highlight_style()),
+                    Span::raw(" Dismiss"),
+                ]),
+            ],
+            Theme::focused_border_style(),
+        ),
+        UpdateState::Downloading => (
+            " Update ",
+            vec![
+                Line::from(Span::styled("  Downloading...", Theme::muted_style())),
+                Line::from(""),
+                Line::from(""),
+            ],
+            Theme::dim_border_style(),
+        ),
+        UpdateState::Staged { version } => (
+            " Update Ready ",
+            vec![
+                Line::from(Span::styled(
+                    format!("  {} staged", version),
+                    Theme::success_style(),
+                )),
+                Line::from(Span::styled("  Restart to apply.", Theme::muted_style())),
+                Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled("[D]", Theme::highlight_style()),
+                    Span::raw(" Dismiss"),
+                ]),
+            ],
+            Theme::focused_border_style(),
+        ),
+        UpdateState::Error(msg) => {
+            let truncated = if msg.chars().count() > 30 {
+                format!("{}...", msg.chars().take(27).collect::<String>())
+            } else {
+                msg.clone()
+            };
+            (
+                " Update Error ",
+                vec![
+                    Line::from(Span::styled(format!("  {truncated}"), Theme::error_style())),
+                    Line::from(""),
+                    Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled("[D]", Theme::highlight_style()),
+                        Span::raw(" Dismiss"),
+                    ]),
+                ],
+                Theme::error_style(),
+            )
+        }
+        _ => return,
+    };
+
+    frame.render_widget(Clear, notif_area);
+    let paragraph = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .title(Span::styled(
+                    title,
+                    Theme::default_style().add_modifier(Modifier::BOLD),
+                ))
+                .borders(Borders::ALL)
+                .border_style(border_style)
+                .style(Theme::default_style()),
+        )
+        .style(Theme::default_style());
+    frame.render_widget(paragraph, notif_area);
 }
 
 #[cfg(test)]

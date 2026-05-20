@@ -35,11 +35,16 @@ fn visual_mode_config_roundtrip_from_file() {
         unique
     ));
 
-    App::persist_visual_mode_to_path(&path, crate::visual_mode::VisualMode::NerdFont).unwrap();
-    let loaded = App::load_visual_mode_from_path(&path);
+    let mut state = AppState {
+        visual_mode: crate::visual_mode::VisualMode::NerdFont,
+        ..AppState::default()
+    };
+    state.auto_update = true;
+    App::persist_config_to_path(&path, &state).unwrap();
+    let loaded = App::load_config_from_path(&path);
     let _ = std::fs::remove_file(&path);
 
-    assert_eq!(loaded, crate::visual_mode::VisualMode::NerdFont);
+    assert_eq!(loaded.visual_mode, crate::visual_mode::VisualMode::NerdFont);
 }
 
 #[test]
@@ -52,10 +57,35 @@ fn visual_mode_invalid_config_falls_back_to_default() {
     ));
     std::fs::write(&path, "visual_mode=invalid\n").unwrap();
 
-    let loaded = App::load_visual_mode_from_path(&path);
+    let loaded = App::load_config_from_path(&path);
     let _ = std::fs::remove_file(&path);
 
-    assert_eq!(loaded, crate::visual_mode::VisualMode::default());
+    assert_eq!(
+        loaded.visual_mode,
+        crate::visual_mode::VisualMode::default()
+    );
+}
+
+#[test]
+fn config_roundtrip_preserves_update_settings() {
+    let unique = TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "farspace_config_update_{}_{}.conf",
+        std::process::id(),
+        unique
+    ));
+
+    let state = AppState {
+        update_channel: crate::update::UpdateChannel::Nightly,
+        auto_update: false,
+        ..AppState::default()
+    };
+    App::persist_config_to_path(&path, &state).unwrap();
+    let loaded = App::load_config_from_path(&path);
+    let _ = std::fs::remove_file(&path);
+
+    assert_eq!(loaded.update_channel, crate::update::UpdateChannel::Nightly);
+    assert!(!loaded.auto_update);
 }
 
 #[test]
@@ -2762,4 +2792,298 @@ fn command_palette_clear_rally_clears_active_colony_rally_point() {
             .rally_point,
         None
     );
+}
+
+// ---------------------------------------------------------------------------
+// Settings screen navigation & key handling
+// ---------------------------------------------------------------------------
+
+#[test]
+fn menu_s_key_opens_settings_screen() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.handle_key(key(KeyCode::Char('s')));
+    assert_eq!(app.state.active, Screen::Settings);
+}
+
+#[test]
+fn menu_s_key_uppercase_also_opens_settings() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.handle_key(key(KeyCode::Char('S')));
+    assert_eq!(app.state.active, Screen::Settings);
+}
+
+#[test]
+fn settings_esc_returns_to_menu() {
+    let mut app = App::new();
+    app.state.active = Screen::Settings;
+    app.handle_key(key(KeyCode::Esc));
+    assert_eq!(app.state.active, Screen::Menu);
+}
+
+#[test]
+fn settings_j_advances_cursor() {
+    let mut app = App::new();
+    app.state.active = Screen::Settings;
+    app.state.settings_cursor = 0;
+    app.handle_key(key(KeyCode::Char('j')));
+    assert_eq!(app.state.settings_cursor, 1);
+}
+
+#[test]
+fn settings_down_arrow_advances_cursor() {
+    let mut app = App::new();
+    app.state.active = Screen::Settings;
+    app.state.settings_cursor = 0;
+    app.handle_key(key(KeyCode::Down));
+    assert_eq!(app.state.settings_cursor, 1);
+}
+
+#[test]
+fn settings_k_retreats_cursor() {
+    let mut app = App::new();
+    app.state.active = Screen::Settings;
+    app.state.settings_cursor = 2;
+    app.handle_key(key(KeyCode::Char('k')));
+    assert_eq!(app.state.settings_cursor, 1);
+}
+
+#[test]
+fn settings_up_arrow_retreats_cursor() {
+    let mut app = App::new();
+    app.state.active = Screen::Settings;
+    app.state.settings_cursor = 1;
+    app.handle_key(key(KeyCode::Up));
+    assert_eq!(app.state.settings_cursor, 0);
+}
+
+#[test]
+fn settings_cursor_wraps_up_at_zero() {
+    let count = crate::screens::settings::settings_cursor_count();
+    let mut app = App::new();
+    app.state.active = Screen::Settings;
+    app.state.settings_cursor = 0;
+    app.handle_key(key(KeyCode::Char('k')));
+    assert_eq!(app.state.settings_cursor, count - 1);
+}
+
+#[test]
+fn settings_cursor_wraps_within_count() {
+    let count = crate::screens::settings::settings_cursor_count();
+    let mut app = App::new();
+    app.state.active = Screen::Settings;
+    // Drive j past the end many times
+    for _ in 0..count * 2 {
+        app.handle_key(key(KeyCode::Char('j')));
+    }
+    assert!(app.state.settings_cursor < count);
+}
+
+#[test]
+fn settings_enter_cycles_update_channel() {
+    let mut app = App::new();
+    app.state.active = Screen::Settings;
+    app.state.settings_cursor = 1; // Update Channel row
+    let before = app.state.update_channel;
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.state.update_channel, before.next());
+}
+
+#[test]
+fn settings_space_cycles_update_channel() {
+    let mut app = App::new();
+    app.state.active = Screen::Settings;
+    app.state.settings_cursor = 1;
+    let before = app.state.update_channel;
+    app.handle_key(key(KeyCode::Char(' ')));
+    assert_eq!(app.state.update_channel, before.next());
+}
+
+#[test]
+fn settings_enter_toggles_auto_update_on_to_off() {
+    let mut app = App::new();
+    app.state.active = Screen::Settings;
+    app.state.settings_cursor = 2; // Auto-update row
+    app.state.auto_update = true;
+    app.handle_key(key(KeyCode::Enter));
+    assert!(!app.state.auto_update);
+}
+
+#[test]
+fn settings_enter_toggles_auto_update_off_to_on() {
+    let mut app = App::new();
+    app.state.active = Screen::Settings;
+    app.state.settings_cursor = 2;
+    app.state.auto_update = false;
+    app.handle_key(key(KeyCode::Enter));
+    assert!(app.state.auto_update);
+}
+
+#[test]
+fn settings_enter_cycles_visual_mode_on_first_row() {
+    let mut app = App::new();
+    app.state.active = Screen::Settings;
+    app.state.settings_cursor = 0; // Visual Mode row
+    let before = app.state.visual_mode;
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.state.visual_mode, before.next());
+}
+
+// ---------------------------------------------------------------------------
+// Update state — menu key handling
+// ---------------------------------------------------------------------------
+
+#[test]
+fn menu_d_key_dismisses_available_update() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.state.update_state = crate::update::UpdateState::Available(crate::update::UpdateInfo {
+        version: "v0.2.0".into(),
+        channel: crate::update::UpdateChannel::Stable,
+        download_url: "https://example.com".into(),
+    });
+    app.handle_key(key(KeyCode::Char('d')));
+    assert!(matches!(
+        app.state.update_state,
+        crate::update::UpdateState::Dismissed
+    ));
+}
+
+#[test]
+fn menu_d_key_uppercase_also_dismisses() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.state.update_state = crate::update::UpdateState::Error("oops".into());
+    app.handle_key(key(KeyCode::Char('D')));
+    assert!(matches!(
+        app.state.update_state,
+        crate::update::UpdateState::Dismissed
+    ));
+}
+
+#[test]
+fn menu_u_key_does_nothing_when_no_update_available() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.state.update_state = crate::update::UpdateState::Idle;
+    app.handle_key(key(KeyCode::Char('u')));
+    // State unchanged — no channel wired
+    assert!(matches!(
+        app.state.update_state,
+        crate::update::UpdateState::Idle
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// poll_update_channels
+// ---------------------------------------------------------------------------
+
+#[test]
+fn poll_sets_available_when_auto_update_off() {
+    let (check_tx, check_rx) = std::sync::mpsc::channel();
+    let (download_tx, _download_rx_dummy) =
+        std::sync::mpsc::sync_channel::<crate::update::UpdateInfo>(1);
+    let (_result_tx, download_rx) = std::sync::mpsc::channel::<Result<String, String>>();
+
+    let mut app = App::new();
+    app.set_update_channels(check_rx, download_tx, download_rx);
+    app.state.auto_update = false;
+
+    check_tx
+        .send(Ok(Some(crate::update::UpdateInfo {
+            version: "v0.2.0".into(),
+            channel: crate::update::UpdateChannel::Stable,
+            download_url: "https://example.com".into(),
+        })))
+        .unwrap();
+
+    app.poll_update_channels();
+
+    assert!(matches!(
+        app.state.update_state,
+        crate::update::UpdateState::Available(_)
+    ));
+}
+
+#[test]
+fn poll_sets_idle_when_no_update() {
+    let (check_tx, check_rx) = std::sync::mpsc::channel();
+    let (download_tx, _) = std::sync::mpsc::sync_channel::<crate::update::UpdateInfo>(1);
+    let (_, download_rx) = std::sync::mpsc::channel::<Result<String, String>>();
+
+    let mut app = App::new();
+    app.set_update_channels(check_rx, download_tx, download_rx);
+
+    check_tx.send(Ok(None)).unwrap();
+    app.poll_update_channels();
+
+    assert!(matches!(
+        app.state.update_state,
+        crate::update::UpdateState::Idle
+    ));
+}
+
+#[test]
+fn poll_sets_staged_on_successful_download() {
+    let (_, check_rx) =
+        std::sync::mpsc::channel::<Result<Option<crate::update::UpdateInfo>, String>>();
+    let (download_tx, _) = std::sync::mpsc::sync_channel::<crate::update::UpdateInfo>(1);
+    let (result_tx, download_rx) = std::sync::mpsc::channel::<Result<String, String>>();
+
+    let mut app = App::new();
+    app.set_update_channels(check_rx, download_tx, download_rx);
+
+    result_tx.send(Ok("v0.2.0".into())).unwrap();
+    app.poll_update_channels();
+
+    assert!(matches!(
+        app.state.update_state,
+        crate::update::UpdateState::Staged { .. }
+    ));
+}
+
+#[test]
+fn poll_sets_error_on_failed_download() {
+    let (_, check_rx) =
+        std::sync::mpsc::channel::<Result<Option<crate::update::UpdateInfo>, String>>();
+    let (download_tx, _) = std::sync::mpsc::sync_channel::<crate::update::UpdateInfo>(1);
+    let (result_tx, download_rx) = std::sync::mpsc::channel::<Result<String, String>>();
+
+    let mut app = App::new();
+    app.set_update_channels(check_rx, download_tx, download_rx);
+
+    result_tx.send(Err("network error".into())).unwrap();
+    app.poll_update_channels();
+
+    assert!(matches!(
+        app.state.update_state,
+        crate::update::UpdateState::Error(_)
+    ));
+}
+
+#[test]
+fn poll_sets_error_on_check_failure() {
+    let (check_tx, check_rx) =
+        std::sync::mpsc::channel::<Result<Option<crate::update::UpdateInfo>, String>>();
+    let (download_tx, _) = std::sync::mpsc::sync_channel::<crate::update::UpdateInfo>(1);
+    let (_, download_rx) = std::sync::mpsc::channel::<Result<String, String>>();
+
+    let mut app = App::new();
+    app.set_update_channels(check_rx, download_tx, download_rx);
+
+    check_tx.send(Err("connection refused".into())).unwrap();
+    app.poll_update_channels();
+
+    assert!(matches!(
+        app.state.update_state,
+        crate::update::UpdateState::Error(_)
+    ));
+}
+
+#[test]
+fn update_channel_getter_reflects_configured_channel() {
+    let mut app = App::new();
+    app.state.update_channel = crate::update::UpdateChannel::Nightly;
+    assert_eq!(app.update_channel(), crate::update::UpdateChannel::Nightly);
 }

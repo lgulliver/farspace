@@ -4143,6 +4143,8 @@ impl Engine {
                 .saturating_add(opening_damage_to_arrived.min(u32::MAX as u64) as u32);
             damage_to_enemy =
                 damage_to_enemy.saturating_add(opening_damage_to_enemy.min(u32::MAX as u64) as u32);
+            // Main engagement captures only sustained-exchange deltas.
+            // Opening volley and attrition are reported in their own phases.
             phase_summaries.push(CombatPhaseSummary {
                 phase: CombatPhase::MainEngagement,
                 pressure_a: main_damage_to_enemy,

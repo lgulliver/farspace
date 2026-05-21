@@ -10,13 +10,14 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
+use std::{collections::VecDeque, ops::Range};
 
 const MAX_VISIBLE_REPORTS: usize = 8;
 
 pub fn render_battle_reports(
     frame: &mut Frame,
     area: Rect,
-    reports: &[BattleReport],
+    reports: &VecDeque<BattleReport>,
     selected_index: usize,
     inspect_mode: bool,
     mode: VisualMode,
@@ -44,7 +45,8 @@ pub fn render_battle_reports(
     } else {
         let idx = selected_index.min(reports.len().saturating_sub(1));
         let selected = &reports[idx];
-        for (i, report) in reports.iter().enumerate().rev().take(MAX_VISIBLE_REPORTS) {
+        for i in visible_report_window(reports.len(), idx) {
+            let report = &reports[i];
             let marker = if i == idx {
                 glyphs.list_selected.to_string()
             } else {
@@ -147,4 +149,36 @@ pub fn render_battle_reports(
         .wrap(Wrap { trim: false });
 
     frame.render_widget(widget, popup_area);
+}
+
+fn visible_report_window(report_count: usize, selected_index: usize) -> Range<usize> {
+    if report_count <= MAX_VISIBLE_REPORTS {
+        return 0..report_count;
+    }
+
+    let selected = selected_index.min(report_count.saturating_sub(1));
+    let mut start = selected.saturating_sub(MAX_VISIBLE_REPORTS / 2);
+    if start + MAX_VISIBLE_REPORTS > report_count {
+        start = report_count - MAX_VISIBLE_REPORTS;
+    }
+    start..(start + MAX_VISIBLE_REPORTS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visible_report_window_keeps_older_selected_report_visible() {
+        let window = visible_report_window(20, 2);
+        assert_eq!(window, 0..MAX_VISIBLE_REPORTS);
+        assert!(window.contains(&2));
+    }
+
+    #[test]
+    fn visible_report_window_tracks_newest_selection_at_tail() {
+        let window = visible_report_window(20, 19);
+        assert_eq!(window, 12..20);
+        assert!(window.contains(&19));
+    }
 }

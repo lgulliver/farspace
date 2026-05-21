@@ -632,11 +632,10 @@ impl App {
 
         if self.state.overlay.show_battle_reports {
             if let Some(engine) = &self.engine {
-                let reports: Vec<_> = engine.state.battle_reports.iter().cloned().collect();
                 render_battle_reports(
                     frame,
                     area,
-                    &reports,
+                    &engine.state.battle_reports,
                     self.state.overlay.battle_report_index,
                     self.state.overlay.battle_report_inspect,
                     self.state.visual_mode,

@@ -1405,6 +1405,11 @@ fn default_stability() -> u8 {
     100
 }
 
+#[cfg(feature = "serde")]
+fn default_next_battle_report_id() -> u64 {
+    1
+}
+
 /// An in-flight scout mission heading toward an unexplored system
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -1979,7 +1984,7 @@ pub struct GameState {
     #[cfg_attr(feature = "serde", serde(default))]
     pub fleet_custom_designs: BTreeMap<FleetId, CustomDesignId>,
     /// Monotonic identifier for generated battle reports.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[cfg_attr(feature = "serde", serde(default = "default_next_battle_report_id"))]
     pub next_battle_report_id: u64,
     /// Recent deterministic combat battle reports (oldest at front).
     #[cfg_attr(feature = "serde", serde(default))]

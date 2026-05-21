@@ -4133,18 +4133,20 @@ impl Engine {
             // Formula: damage = (opponent_strength * 100) / own_defense
             // Equal attack and defense → both take 100 damage (destroyed).
             // Use u64 intermediates to avoid overflow when strength is large.
-            let mut damage_to_arrived: u32 =
+            let main_damage_to_arrived: u32 =
                 ((d_attack * 100) / a_effective_defense).min(u32::MAX as u64) as u32;
-            let mut damage_to_enemy: u32 =
+            let main_damage_to_enemy: u32 =
                 ((a_attack * 100) / d_effective_defense).min(u32::MAX as u64) as u32;
+            let mut damage_to_arrived = main_damage_to_arrived;
+            let mut damage_to_enemy = main_damage_to_enemy;
             damage_to_arrived = damage_to_arrived
                 .saturating_add(opening_damage_to_arrived.min(u32::MAX as u64) as u32);
             damage_to_enemy =
                 damage_to_enemy.saturating_add(opening_damage_to_enemy.min(u32::MAX as u64) as u32);
             phase_summaries.push(CombatPhaseSummary {
                 phase: CombatPhase::MainEngagement,
-                pressure_a: damage_to_enemy,
-                pressure_b: damage_to_arrived,
+                pressure_a: main_damage_to_enemy,
+                pressure_b: main_damage_to_arrived,
                 note: "Sustained engagement exchange".to_string(),
             });
 

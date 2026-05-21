@@ -923,6 +923,14 @@ jobs:
           if [ ! -f /tmp/gh-aw/agent_output.json ]; then
             echo '{"items":[]}' > /tmp/gh-aw/agent_output.json
           fi
+      - name: Stage release notes for safe outputs
+        if: always()
+        run: |
+          STAGING_DIR="${RUNNER_TEMP}/gh-aw/safeoutputs/upload-artifacts"
+          mkdir -p "${STAGING_DIR}"
+          if [ -f "${GITHUB_WORKSPACE}/release-notes.md" ]; then
+            cp "${GITHUB_WORKSPACE}/release-notes.md" "${STAGING_DIR}/release-notes.md"
+          fi
       # Upload safe-outputs upload-artifact staging for the upload_artifact job
       - name: Upload upload-artifact staging
         if: always()
@@ -1440,4 +1448,3 @@ jobs:
             /tmp/gh-aw/safe-output-items.jsonl
             /tmp/gh-aw/temporary-id-map.json
           if-no-files-found: ignore
-

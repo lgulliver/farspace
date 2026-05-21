@@ -132,6 +132,10 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                 save.metadata.schema_version = CURRENT_VERSION;
                 save.version = CURRENT_VERSION;
             }
+            32 => {
+                save.metadata.schema_version = CURRENT_VERSION;
+                save.version = CURRENT_VERSION;
+            }
             _ => {
                 return Err(SaveError::UnsupportedVersion {
                     found: save.version,

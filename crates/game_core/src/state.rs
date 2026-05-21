@@ -1320,6 +1320,76 @@ pub struct FleetEvaluation {
     pub escort_quality: u32,
 }
 
+/// Deterministic auto-resolve phase identifiers used by Combat v2 reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum CombatPhase {
+    Detection,
+    Positioning,
+    OpeningVolley,
+    MainEngagement,
+    Attrition,
+    RetreatOrCollapse,
+    Resolution,
+}
+
+impl CombatPhase {
+    pub fn label(self) -> &'static str {
+        match self {
+            CombatPhase::Detection => "Detection",
+            CombatPhase::Positioning => "Positioning",
+            CombatPhase::OpeningVolley => "Opening Volley",
+            CombatPhase::MainEngagement => "Main Engagement",
+            CombatPhase::Attrition => "Attrition",
+            CombatPhase::RetreatOrCollapse => "Retreat/Collapse",
+            CombatPhase::Resolution => "Resolution",
+        }
+    }
+}
+
+/// Per-phase deterministic summary values captured in a battle report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct CombatPhaseSummary {
+    pub phase: CombatPhase,
+    pub pressure_a: u32,
+    pub pressure_b: u32,
+    pub note: String,
+}
+
+/// Structured tactical auto-resolve report for one fleet-vs-fleet engagement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct BattleReport {
+    pub report_id: u64,
+    pub turn: u32,
+    pub star: StarId,
+    pub fleet_a: FleetId,
+    pub fleet_b: FleetId,
+    pub empire_a: EmpireId,
+    pub empire_b: EmpireId,
+    pub role_a: FleetRole,
+    pub role_b: FleetRole,
+    pub formation_a: FleetFormation,
+    pub formation_b: FleetFormation,
+    pub doctrine_a: String,
+    pub doctrine_b: String,
+    pub kind_a: FleetKind,
+    pub kind_b: FleetKind,
+    pub ships_a: u32,
+    pub ships_b: u32,
+    pub integrity_a_start: u32,
+    pub integrity_b_start: u32,
+    pub integrity_a_end: u32,
+    pub integrity_b_end: u32,
+    pub fleet_a_destroyed: bool,
+    pub fleet_b_destroyed: bool,
+    pub fleet_a_retreated: bool,
+    pub fleet_b_retreated: bool,
+    pub phases: Vec<CombatPhaseSummary>,
+    pub system_outcome: String,
+}
+
 #[cfg(feature = "serde")]
 fn default_fleet_strength() -> u32 {
     1
@@ -1333,6 +1403,11 @@ fn default_fleet_integrity() -> u32 {
 #[cfg(feature = "serde")]
 fn default_stability() -> u8 {
     100
+}
+
+#[cfg(feature = "serde")]
+fn default_next_battle_report_id() -> u64 {
+    1
 }
 
 /// An in-flight scout mission heading toward an unexplored system
@@ -1908,6 +1983,12 @@ pub struct GameState {
     /// Used to apply derived stats (maintenance, defense) for custom-built fleets.
     #[cfg_attr(feature = "serde", serde(default))]
     pub fleet_custom_designs: BTreeMap<FleetId, CustomDesignId>,
+    /// Monotonic identifier for generated battle reports.
+    #[cfg_attr(feature = "serde", serde(default = "default_next_battle_report_id"))]
+    pub next_battle_report_id: u64,
+    /// Recent deterministic combat battle reports (oldest at front).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub battle_reports: VecDeque<BattleReport>,
 }
 
 impl GameState {
@@ -2401,6 +2482,8 @@ impl PartialEq for GameState {
             && self.next_custom_design_id == other.next_custom_design_id
             && self.fleet_custom_designs == other.fleet_custom_designs
             && self.galactic_dispatches == other.galactic_dispatches
+            && self.next_battle_report_id == other.next_battle_report_id
+            && self.battle_reports == other.battle_reports
     }
 }
 
@@ -2467,6 +2550,8 @@ impl Default for GameState {
             custom_designs: BTreeMap::new(),
             next_custom_design_id: 0,
             fleet_custom_designs: BTreeMap::new(),
+            next_battle_report_id: 1,
+            battle_reports: VecDeque::new(),
         }
     }
 }

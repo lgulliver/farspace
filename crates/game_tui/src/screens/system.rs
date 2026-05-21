@@ -884,7 +884,7 @@ fn render_system_detail_facts(
             ))));
         }
         lines.push(Line::from(Span::styled(
-            "  [f] focus fleet  [R] next role  [F] next formation",
+            "  [f] focus fleet  [R] next role  [F] next formation  [B] battle reports",
             Theme::muted_style(),
         )));
     }

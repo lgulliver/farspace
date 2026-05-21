@@ -13,6 +13,8 @@ pub const DISPATCH_CADENCE: u32 = 5;
 
 /// Maximum number of dispatch bulletins retained in `GameState::galactic_dispatches`.
 pub const DISPATCH_MAX_HISTORY: usize = 10;
+const MAJOR_BATTLE_COMBINED_STRENGTH_THRESHOLD: u32 = 24;
+const MAJOR_BATTLE_SINGLE_FLEET_STRENGTH_THRESHOLD: u32 = 12;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -116,6 +118,21 @@ fn star_name_if_known(state: &crate::state::GameState, star_id: StarId) -> Optio
     } else {
         None
     }
+}
+
+fn is_major_battle(
+    strength_a: u32,
+    strength_b: u32,
+    fleet_a_destroyed: bool,
+    fleet_b_destroyed: bool,
+) -> bool {
+    let high_combined_strength =
+        strength_a + strength_b >= MAJOR_BATTLE_COMBINED_STRENGTH_THRESHOLD;
+    let mutual_destruction = fleet_a_destroyed && fleet_b_destroyed;
+    let decisive_kill = fleet_a_destroyed ^ fleet_b_destroyed
+        && (strength_a >= MAJOR_BATTLE_SINGLE_FLEET_STRENGTH_THRESHOLD
+            || strength_b >= MAJOR_BATTLE_SINGLE_FLEET_STRENGTH_THRESHOLD);
+    high_combined_strength || mutual_destruction || decisive_kill
 }
 
 /// Returns the empire's display name, or `"Unknown Empire"` if not found.
@@ -309,6 +326,10 @@ pub fn generate_dispatch(
                 star,
                 empire_a,
                 empire_b,
+                strength_a,
+                strength_b,
+                fleet_a_destroyed,
+                fleet_b_destroyed,
                 ..
             } => {
                 let player = state.player_empire;
@@ -320,27 +341,54 @@ pub fn generate_dispatch(
                     // Both completely unknown — skip
                 } else {
                     let known_star = star_name_if_known(state, *star);
+                    let major_battle = is_major_battle(
+                        *strength_a,
+                        *strength_b,
+                        *fleet_a_destroyed,
+                        *fleet_b_destroyed,
+                    );
                     let (headline, severity) = if player_involved {
                         let h = if let Some(star_name) = known_star {
                             format!("Combat Reported in {star_name} Sector")
                         } else {
                             "Combat Reported in Contested Space".to_string()
                         };
-                        (h, DispatchSeverity::Urgent)
+                        (
+                            h,
+                            if major_battle {
+                                DispatchSeverity::Historic
+                            } else {
+                                DispatchSeverity::Urgent
+                            },
+                        )
                     } else if a_known && b_known {
                         let h = if let Some(star_name) = known_star {
                             format!("Combat Reported in {star_name} Sector")
                         } else {
                             "Combat Reported in Distant Space".to_string()
                         };
-                        (h, DispatchSeverity::Notable)
+                        (
+                            h,
+                            if major_battle {
+                                DispatchSeverity::Urgent
+                            } else {
+                                DispatchSeverity::Notable
+                            },
+                        )
                     } else {
                         let h = if let Some(star_name) = known_star {
                             format!("Unidentified Fleet Engages Forces Near {star_name}")
                         } else {
                             "Unidentified Fleet Engages Forces in Unknown Space".to_string()
                         };
-                        (h, DispatchSeverity::Notable)
+                        (
+                            h,
+                            if major_battle {
+                                DispatchSeverity::Urgent
+                            } else {
+                                DispatchSeverity::Notable
+                            },
+                        )
                     };
                     // Only expose the star if it is known to the player
                     let related_star = if known_star.is_some() {
@@ -839,6 +887,8 @@ mod tests {
             custom_designs: Default::default(),
             next_custom_design_id: 0,
             fleet_custom_designs: Default::default(),
+            next_battle_report_id: 1,
+            battle_reports: Default::default(),
         }
     }
     // Cadence behaviour

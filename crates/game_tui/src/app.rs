@@ -3,7 +3,8 @@
 mod logging;
 
 use crate::components::{
-    render_dispatch, render_help, render_palette, EventLog, LogEntryKind, PaletteCommand,
+    render_battle_reports, render_dispatch, render_help, render_palette, EventLog, LogEntryKind,
+    PaletteCommand,
 };
 use crate::keys::KeyMap;
 use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData, OverviewSort};
@@ -87,6 +88,12 @@ pub(crate) struct OverlayState {
     pub(crate) show_dispatch: bool,
     /// Index into the dispatch history (0 = oldest shown)
     pub(crate) dispatch_history_index: usize,
+    /// Whether the battle report modal is open.
+    pub(crate) show_battle_reports: bool,
+    /// Selected battle report index in history.
+    pub(crate) battle_report_index: usize,
+    /// Toggle between list and detailed inspect mode.
+    pub(crate) battle_report_inspect: bool,
 }
 
 /// Cross-screen map/system selection state.
@@ -623,12 +630,51 @@ impl App {
             }
         }
 
+        if self.state.overlay.show_battle_reports {
+            if let Some(engine) = &self.engine {
+                render_battle_reports(
+                    frame,
+                    area,
+                    &engine.state.battle_reports,
+                    self.state.overlay.battle_report_index,
+                    self.state.overlay.battle_report_inspect,
+                    self.state.visual_mode,
+                );
+            }
+        }
+
         self.apply_visual_mode_fallback(frame);
     }
 
     /// Handle a key event
     fn handle_key(&mut self, key: KeyEvent) {
         // Handle overlays first
+        if self.state.overlay.show_battle_reports {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('B') | KeyCode::Char('b') => {
+                    self.state.overlay.show_battle_reports = false;
+                    self.state.overlay.battle_report_inspect = false;
+                }
+                KeyCode::Up | KeyCode::Char('k') if self.state.overlay.battle_report_index > 0 => {
+                    self.state.overlay.battle_report_index -= 1;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Some(engine) = &self.engine {
+                        let max = engine.state.battle_reports.len().saturating_sub(1);
+                        if self.state.overlay.battle_report_index < max {
+                            self.state.overlay.battle_report_index += 1;
+                        }
+                    }
+                }
+                KeyCode::Enter => {
+                    self.state.overlay.battle_report_inspect =
+                        !self.state.overlay.battle_report_inspect;
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.state.overlay.show_dispatch {
             match key.code {
                 KeyCode::Esc | KeyCode::Char('N') | KeyCode::Char('n') => {
@@ -700,6 +746,10 @@ impl App {
 
         if key.code == KeyCode::Char('N') && self.engine.is_some() {
             self.open_latest_dispatch();
+            return;
+        }
+        if matches!(key.code, KeyCode::Char('B') | KeyCode::Char('b')) && self.engine.is_some() {
+            self.open_latest_battle_report();
             return;
         }
 
@@ -2439,6 +2489,22 @@ impl App {
                 self.state.overlay.show_dispatch = true;
             } else {
                 let msg = "No dispatches available yet.";
+                self.state.status_message = Some(msg.to_string());
+            }
+        }
+    }
+
+    /// Open Battle Reports modal at the newest report.
+    fn open_latest_battle_report(&mut self) {
+        if let Some(engine) = &self.engine {
+            if !engine.state.battle_reports.is_empty() {
+                self.state.overlay.battle_report_index =
+                    engine.state.battle_reports.len().saturating_sub(1);
+                self.state.overlay.battle_report_inspect = false;
+                self.state.overlay.show_battle_reports = true;
+            } else {
+                let msg = "No battle reports available yet.";
+                self.state.log.push(msg.to_string());
                 self.state.status_message = Some(msg.to_string());
             }
         }

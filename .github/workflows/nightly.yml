@@ -122,7 +122,7 @@ jobs:
       - name: Download release notes
         uses: actions/download-artifact@v4
         with:
-          name: release-notes
+          name: release-notes.md
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4.1.3

@@ -1339,6 +1339,141 @@ fn make_supply_test_state() -> GameState {
 }
 
 #[test]
+fn visible_resources_require_survey_and_discovery_tech() {
+    let mut planet = Planet {
+        name: "Probe I".to_string(),
+        class: PlanetClass::Frozen,
+        size: PlanetSize::Medium,
+        colony: None,
+        habitable: true,
+        surveyed: false,
+        specials: vec![],
+        resources: vec![
+            StrategicResource::Helium3,
+            StrategicResource::DarkMatter,
+            StrategicResource::PrecursorDatacores,
+        ],
+        ancient_ruins_collected: false,
+    };
+
+    let none_visible = visible_resources_for_empire(&planet, &[]);
+    assert!(
+        none_visible.is_empty(),
+        "unsurveyed planets must not reveal resources"
+    );
+
+    planet.surveyed = true;
+    let early_visible = visible_resources_for_empire(&planet, &[TechId::ADVANCED_SURVEY]);
+    assert!(early_visible.contains(&StrategicResource::Helium3));
+    assert!(
+        !early_visible.contains(&StrategicResource::DarkMatter),
+        "dark matter should stay hidden before advanced sensor net"
+    );
+
+    let late_visible = visible_resources_for_empire(
+        &planet,
+        &[TechId::ADVANCED_SURVEY, TechId::PAN_GALACTIC_SENSOR_NET],
+    );
+    assert!(late_visible.contains(&StrategicResource::DarkMatter));
+    assert!(late_visible.contains(&StrategicResource::PrecursorDatacores));
+}
+
+#[test]
+fn resource_extraction_requires_control_supply_and_is_blockade_sensitive() {
+    let mut state = GameState::default();
+    let owner = EmpireId(1);
+    let star_id = StarId(1);
+    let colony_id = ColonyId(1);
+
+    state.player_empire = owner;
+    state.empires.insert(
+        owner,
+        Empire {
+            id: owner,
+            name: "Owner".to_string(),
+            credits: 0,
+            research_points: 0,
+            home_star: star_id,
+            research: ResearchState {
+                completed: vec![TechId::ADVANCED_SURVEY, TechId(14)],
+                ..ResearchState::default()
+            },
+            food: 0,
+            empire_def: None,
+        },
+    );
+
+    state.stars.insert(
+        star_id,
+        Star {
+            id: star_id,
+            sector: SectorId(0),
+            name: "Anchor".to_string(),
+            x: 0,
+            y: 0,
+            spectral_class: SpectralClass::F,
+            planets: vec![Planet {
+                name: "Anchor I".to_string(),
+                class: PlanetClass::Frozen,
+                size: PlanetSize::Medium,
+                colony: Some(colony_id),
+                habitable: true,
+                surveyed: true,
+                specials: vec![],
+                resources: vec![StrategicResource::QuantumCrystals],
+                ancient_ruins_collected: false,
+            }],
+        },
+    );
+    state.colonies.insert(
+        colony_id,
+        Colony {
+            id: colony_id,
+            star: star_id,
+            planet_index: 0,
+            owner,
+            population: 3,
+            production: 5,
+            prod_pct: 50,
+            research_pct: 50,
+            build_queue: vec![],
+            accumulated_production: 0,
+            buildings: vec![BuildingType::ScienceNexus],
+            surface_installations: vec![],
+            orbital_installations: vec![],
+            stability: 100,
+            role: ColonyRole::Balanced,
+            rally_point: None,
+        },
+    );
+
+    state
+        .colony_supply
+        .insert(colony_id, ColonySupplyState::Connected);
+    assert!(
+        state.colony_can_extract_resource(colony_id, StrategicResource::QuantumCrystals),
+        "connected colony with required building should extract"
+    );
+
+    state
+        .colony_supply
+        .insert(colony_id, ColonySupplyState::Isolated);
+    assert!(
+        !state.colony_can_extract_resource(colony_id, StrategicResource::QuantumCrystals),
+        "isolated colony should lose strategic extraction access"
+    );
+
+    state
+        .colony_supply
+        .insert(colony_id, ColonySupplyState::Connected);
+    state.colony_blockade.insert(colony_id, EmpireId(2));
+    assert!(
+        !state.colony_can_extract_resource(colony_id, StrategicResource::QuantumCrystals),
+        "blockaded colony should have extraction disrupted"
+    );
+}
+
+#[test]
 fn supply_connectivity_marks_capital_connected() {
     let state = make_supply_test_state();
     let supply = state.recompute_colony_supply();

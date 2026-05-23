@@ -213,6 +213,32 @@ pub fn generate_dispatch(
                 ));
             }
 
+            Event::StrategicResourceDiscovered {
+                star,
+                planet_index,
+                resource,
+            } if state.explored_stars.contains(star) => {
+                let severity = match resource.rarity() {
+                    crate::state::StrategicResourceRarity::Common => DispatchSeverity::Notice,
+                    crate::state::StrategicResourceRarity::Uncommon => DispatchSeverity::Notable,
+                    crate::state::StrategicResourceRarity::Rare => DispatchSeverity::Urgent,
+                    crate::state::StrategicResourceRarity::Legendary => DispatchSeverity::Historic,
+                };
+                items.push(item(
+                    DispatchCategory::Exploration,
+                    severity,
+                    format!("Strategic Resource Identified: {}", resource.name()),
+                    format!(
+                        "{} deposits confirmed at surveyed orbit {}.",
+                        resource.name(),
+                        planet_index + 1
+                    ),
+                    None,
+                    Some(*star),
+                    Some(*planet_index),
+                ));
+            }
+
             Event::AncientRuinsDiscovered { star, .. } if state.explored_stars.contains(star) => {
                 items.push(item(
                     DispatchCategory::Research,
@@ -882,6 +908,7 @@ mod tests {
             ai_empires: Vec::new(),
             colony_supply: Default::default(),
             colony_blockade: Default::default(),
+            empire_resource_access: Default::default(),
             victory_status: Default::default(),
             galactic_dispatches: VecDeque::new(),
             custom_designs: Default::default(),
@@ -903,6 +930,25 @@ mod tests {
         let d = result.unwrap();
         assert_eq!(d.turn, 0);
         assert_eq!(d.title, "Galactic Dispatch — Turn 1");
+    }
+
+    #[test]
+    fn strategic_resource_discovery_emits_dispatch_item() {
+        let mut state = minimal_state();
+        let star = StarId(10);
+        state.explored_stars.insert(star);
+        let events = vec![Event::StrategicResourceDiscovered {
+            star,
+            planet_index: 0,
+            resource: crate::state::StrategicResource::DarkMatter,
+        }];
+
+        let dispatch =
+            generate_dispatch(1, &events, &state).expect("resource discovery should dispatch");
+        assert!(dispatch.items.iter().any(|item| {
+            item.headline.contains("Dark Matter")
+                && matches!(item.severity, DispatchSeverity::Historic)
+        }));
     }
 
     #[test]

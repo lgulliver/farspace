@@ -64,10 +64,17 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                     let star_id = star.id;
                     for (planet_index, planet) in star.planets.iter_mut().enumerate() {
                         let (specials, resources) =
-                            game_core::galaxy::generate_planet_specials_and_resources(
+                            game_core::galaxy::generate_planet_specials_and_resources_for_context(
                                 seed,
                                 star_id,
                                 planet_index,
+                                game_core::galaxy::ResourceGenerationContext {
+                                    planet_class: planet.class,
+                                    spectral_class: star.spectral_class,
+                                    sector_id: star.sector,
+                                    star_x: star.x,
+                                    star_y: star.y,
+                                },
                             );
                         planet.specials = specials;
                         planet.resources = resources;
@@ -124,15 +131,10 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                 save.metadata.schema_version = 30;
                 save.version = 30;
             }
-            30 => {
-                save.metadata.schema_version = CURRENT_VERSION;
-                save.version = CURRENT_VERSION;
-            }
-            31 => {
-                save.metadata.schema_version = CURRENT_VERSION;
-                save.version = CURRENT_VERSION;
-            }
-            32 => {
+            30..=33 => {
+                save.state.colony_supply = save.state.recompute_colony_supply();
+                save.state.colony_blockade = save.state.recompute_colony_blockade();
+                save.state.empire_resource_access = save.state.recompute_empire_resource_access();
                 save.metadata.schema_version = CURRENT_VERSION;
                 save.version = CURRENT_VERSION;
             }

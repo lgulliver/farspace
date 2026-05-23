@@ -19,14 +19,108 @@ use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, AiDoctrine, BuildItem, BuildingType,
     Colony, ColonyId, ColonyRole, ComponentId, CustomDesignId, CustomShipDesign, EmpireId,
     FleetFormation, FleetId, FleetKind, FleetRole, GameState, OrbitalStructureType, PlanetClass,
-    PlaystyleTag, ScoutMission, ShipDesignId, SlotCategory, StarId, TechDomain, TechId, TechTag,
-    VictoryPath,
+    PlaystyleTag, ScoutMission, ShipDesignId, SlotCategory, StarId, StrategicResource,
+    StrategicResourceCategory, TechDomain, TechId, TechTag, VictoryPath,
 };
 use crate::yield_model::{calculate_yield_with_context, YieldContext};
 
 const FUTURE_PENALTY_MULTIPLIER: i32 = 12;
 const FOOD_CRISIS_SCORE_BONUS: i32 = 18;
 const MAX_SAFE_SCOUT_HOSTILE_STRENGTH: u32 = 4;
+const SCOUT_FRONTIER_DISTANCE_DIVISOR: i32 = 240;
+
+fn resource_value_for_doctrine(resource: StrategicResource, doctrine: AiDoctrine) -> i32 {
+    let base = i32::from(resource.trade_value());
+    let cat_bonus = match (doctrine, resource.category()) {
+        (AiDoctrine::Industrialist, StrategicResourceCategory::Industrial) => 28,
+        (AiDoctrine::Militarist, StrategicResourceCategory::Military) => 28,
+        (AiDoctrine::Technologist, StrategicResourceCategory::Exotic) => 24,
+        (AiDoctrine::Technologist, StrategicResourceCategory::Precursor) => 30,
+        (AiDoctrine::Merchant, _) => 18,
+        (AiDoctrine::Biologist, StrategicResourceCategory::Biological) => 22,
+        (AiDoctrine::Expansionist, StrategicResourceCategory::Energy) => 18,
+        _ => 0,
+    };
+    base + cat_bonus
+}
+
+fn ai_primary_doctrine(state: &GameState, empire_id: EmpireId) -> AiDoctrine {
+    state
+        .empires
+        .get(&empire_id)
+        .and_then(|e| e.empire_def)
+        .and_then(empire_definition_by_id)
+        .map(|def| {
+            [
+                AiDoctrine::Explorer,
+                AiDoctrine::Technologist,
+                AiDoctrine::Merchant,
+                AiDoctrine::Imperial,
+                AiDoctrine::Militarist,
+                AiDoctrine::Industrialist,
+                AiDoctrine::Expansionist,
+                AiDoctrine::Isolationist,
+                AiDoctrine::Biologist,
+            ]
+            .iter()
+            .copied()
+            .max_by_key(|&d| def.doctrine_weight(d))
+            .unwrap_or(AiDoctrine::Explorer)
+        })
+        .unwrap_or(AiDoctrine::Explorer)
+}
+
+fn scout_resource_prospect_score(state: &GameState, star_id: StarId) -> i32 {
+    let Some(star) = state.stars.get(&star_id) else {
+        return 0;
+    };
+    let spectral_bias = match star.spectral_class {
+        crate::state::SpectralClass::O | crate::state::SpectralClass::B => 6,
+        crate::state::SpectralClass::A | crate::state::SpectralClass::F => 4,
+        crate::state::SpectralClass::G | crate::state::SpectralClass::K => 3,
+        crate::state::SpectralClass::M => 2,
+    };
+    let planet_bias: i32 = star
+        .planets
+        .iter()
+        .map(|planet| match planet.class {
+            PlanetClass::Volcanic | PlanetClass::Barren => 3,
+            PlanetClass::Frozen | PlanetClass::Desert => 2,
+            PlanetClass::Terran | PlanetClass::Oceanic => 1,
+        })
+        .sum();
+    let frontier_bonus =
+        ((star.x.abs() + star.y.abs()) / SCOUT_FRONTIER_DISTANCE_DIVISOR).clamp(0, 6);
+    spectral_bias + planet_bias + frontier_bonus
+}
+
+fn contested_star_resource_score(state: &GameState, attacker: EmpireId, star_id: StarId) -> i32 {
+    let doctrine = ai_primary_doctrine(state, attacker);
+    let mut score = 0;
+    let player = state.player_empire;
+    for colony in state
+        .colonies
+        .values()
+        .filter(|colony| colony.owner == player && colony.star == star_id)
+    {
+        let Some(planet) = state
+            .stars
+            .get(&colony.star)
+            .and_then(|s| s.planets.get(colony.planet_index))
+        else {
+            continue;
+        };
+        if !planet.surveyed {
+            continue;
+        }
+        for resource in &planet.resources {
+            if state.colony_can_extract_resource(colony.id, *resource) {
+                score += resource_value_for_doctrine(*resource, doctrine);
+            }
+        }
+    }
+    score
+}
 
 /// Run one AI decision pass for the given empire.
 ///
@@ -993,21 +1087,22 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
             preferred_targets.into_iter().collect()
         };
 
-        let mut candidates: Vec<(i64, StarId)> = target_pool
+        let mut candidates: Vec<(i32, i64, StarId)> = target_pool
             .iter()
             .filter_map(|&sid| {
                 let s = state.stars.get(&sid)?;
                 let dx = (s.x - fleet_x) as i64;
                 let dy = (s.y - fleet_y) as i64;
-                Some((dx * dx + dy * dy, sid))
+                let strategic = contested_star_resource_score(state, empire_id, sid);
+                Some((strategic, dx * dx + dy * dy, sid))
             })
             .collect();
 
-        // Sort deterministically: closest first, then ascending StarId
-        candidates.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+        // Sort deterministically: highest strategic value, then closest, then ascending StarId.
+        candidates.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
 
         let destination = match candidates.first() {
-            Some(&(_, sid)) => sid,
+            Some(&(_, _, sid)) => sid,
             None => continue,
         };
 
@@ -1078,7 +1173,7 @@ fn pick_scout_target(state: &GameState, empire_id: EmpireId) -> Option<(FleetId,
         .map(|m| m.destination)
         .collect();
 
-    let mut candidates: Vec<(i64, StarId)> = state
+    let mut candidates: Vec<(i32, i64, StarId)> = state
         .stars
         .keys()
         .filter(|&sid| !state.ai_explored_stars.contains(sid) && !already_targeted.contains(sid))
@@ -1101,13 +1196,14 @@ fn pick_scout_target(state: &GameState, empire_id: EmpireId) -> Option<(FleetId,
             let s = state.stars.get(&sid)?;
             let dx = (s.x - fleet_star.x) as i64;
             let dy = (s.y - fleet_star.y) as i64;
-            Some((dx * dx + dy * dy, sid))
+            let prospect = scout_resource_prospect_score(state, sid);
+            Some((prospect, dx * dx + dy * dy, sid))
         })
         .collect();
 
-    // Nearest first; tie-break by ascending StarId for full determinism
-    candidates.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-    candidates.first().map(|&(_, sid)| (fleet_id, sid))
+    // Highest prospect first; tie-break by nearest then ascending StarId.
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+    candidates.first().map(|&(_, _, sid)| (fleet_id, sid))
 }
 
 // ---------------------------------------------------------------------------
@@ -1190,12 +1286,38 @@ fn pick_colonize_target(
     }
 
     let star = state.stars.get(&fleet_loc)?;
-    let planet_index = star
+    let doctrine = ai_primary_doctrine(state, empire_id);
+    let completed_techs: Vec<TechId> = state
+        .empires
+        .get(&empire_id)
+        .map(|e| e.research.completed.clone())
+        .unwrap_or_default();
+    let mut candidates: Vec<(i32, usize)> = star
         .planets
         .iter()
         .enumerate()
-        .find(|(_, p)| p.habitable && p.colony.is_none())
-        .map(|(i, _)| i)?;
+        .filter(|(_, p)| p.habitable && p.colony.is_none())
+        .map(|(i, p)| {
+            let mut score = match p.class {
+                PlanetClass::Terran => 12,
+                PlanetClass::Oceanic => 10,
+                PlanetClass::Desert => 8,
+                PlanetClass::Frozen => 7,
+                PlanetClass::Volcanic => 6,
+                PlanetClass::Barren => 5,
+            };
+            if p.surveyed {
+                for resource in &p.resources {
+                    if crate::state::is_resource_discoverable(*resource, &completed_techs) {
+                        score += resource_value_for_doctrine(*resource, doctrine) / 20;
+                    }
+                }
+            }
+            (score, i)
+        })
+        .collect();
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    let planet_index = candidates.first().map(|(_, i)| *i)?;
 
     Some((fleet_id, fleet_loc, planet_index))
 }
@@ -1329,6 +1451,15 @@ pub fn ai_generate_designs(state: &mut GameState, empire_id: EmpireId) {
         .get(&empire_id)
         .map(|e| e.research.completed.to_vec())
         .unwrap_or_default();
+    let available_resources: Vec<crate::state::StrategicResource> = state
+        .empire_resource_access
+        .get(&empire_id)
+        .map(|m| {
+            m.iter()
+                .filter_map(|(resource, count)| (*count > 0).then_some(*resource))
+                .collect()
+        })
+        .unwrap_or_default();
 
     let doctrine = state
         .empires
@@ -1387,9 +1518,14 @@ pub fn ai_generate_designs(state: &mut GameState, empire_id: EmpireId) {
         // Pick one component per slot in hull slot order (never sort — order must match hull.slots)
         let mut components: Vec<ComponentId> = Vec::new();
         for &slot in hull.slots {
-            if let Some(best) =
-                pick_best_component(all_comps, slot, &completed_techs, doctrine, &components)
-            {
+            if let Some(best) = pick_best_component(
+                all_comps,
+                slot,
+                &completed_techs,
+                &available_resources,
+                doctrine,
+                &components,
+            ) {
                 components.push(best);
             } else {
                 // No valid component available for this slot — skip this hull
@@ -1414,7 +1550,10 @@ pub fn ai_generate_designs(state: &mut GameState, empire_id: EmpireId) {
         };
 
         // Only insert if valid
-        if design.validate(&completed_techs).is_ok() {
+        if design
+            .validate_with_resources(&completed_techs, &available_resources)
+            .is_ok()
+        {
             state.custom_designs.insert(design_id, design);
             state.next_custom_design_id += 1;
         }
@@ -1428,13 +1567,21 @@ fn pick_best_component(
     all_comps: &[crate::state::ComponentDef],
     slot: SlotCategory,
     completed_techs: &[TechId],
+    available_resources: &[crate::state::StrategicResource],
     doctrine: AiDoctrine,
     _already_chosen: &[ComponentId],
 ) -> Option<ComponentId> {
     let mut candidates: Vec<_> = all_comps
         .iter()
         .filter(|c| c.category == slot)
-        .filter(|c| c.required_tech.is_none_or(|t| completed_techs.contains(&t)))
+        .filter(|c| match c.required_tech {
+            Some(tech) => completed_techs.contains(&tech),
+            None => true,
+        })
+        .filter(|c| match c.required_resource {
+            Some(resource) => available_resources.contains(&resource),
+            None => true,
+        })
         .collect();
 
     if candidates.is_empty() {
@@ -1510,7 +1657,8 @@ mod tests {
     use super::*;
     use crate::engine::Engine;
     use crate::state::{
-        all_empire_definitions, BuildingType, EmpireDefinitionId, EmpireId, FleetKind, TechId,
+        all_empire_definitions, BuildingType, EmpireDefinitionId, EmpireId, FleetKind, PlanetClass,
+        TechId,
     };
 
     /// Helper: get the AI empire ID from an engine, panicking if absent.
@@ -1962,6 +2110,68 @@ mod tests {
                 .any(|e| matches!(e, Event::AiScoutDispatched { empire, .. } if *empire == ai)),
             "AiScoutDispatched event must be emitted"
         );
+    }
+
+    #[test]
+    fn scout_targeting_prefers_high_value_prospect_deterministically() {
+        let mut engine = Engine::new(77);
+        let ai = ai_id(&engine);
+        let Some((fleet_id, _)) = engine
+            .state
+            .fleets
+            .iter()
+            .find(|(_, f)| f.owner == ai && f.kind.is_scout())
+            .map(|(id, f)| (*id, f.location))
+        else {
+            panic!("AI scout required for targeting test");
+        };
+
+        let unexplored: Vec<StarId> = engine
+            .state
+            .stars
+            .keys()
+            .copied()
+            .filter(|sid| !engine.state.ai_explored_stars.contains(sid))
+            .collect();
+        assert!(
+            unexplored.len() >= 2,
+            "test requires at least two unexplored stars"
+        );
+        let low_star = unexplored[0];
+        let high_star = unexplored[1];
+
+        for sid in &unexplored {
+            if let Some(star) = engine.state.stars.get_mut(sid) {
+                star.spectral_class = crate::state::SpectralClass::M;
+                for planet in &mut star.planets {
+                    planet.class = PlanetClass::Terran;
+                }
+            }
+        }
+        if let Some(star) = engine.state.stars.get_mut(&high_star) {
+            star.spectral_class = crate::state::SpectralClass::O;
+            for planet in &mut star.planets {
+                planet.class = PlanetClass::Volcanic;
+            }
+        }
+        if let Some(star) = engine.state.stars.get_mut(&low_star) {
+            star.spectral_class = crate::state::SpectralClass::M;
+            for planet in &mut star.planets {
+                planet.class = PlanetClass::Terran;
+            }
+        }
+
+        let (_, destination) = pick_scout_target(&engine.state, ai).expect("expected scout target");
+        assert_eq!(
+            destination, high_star,
+            "AI should prioritize higher strategic prospect target"
+        );
+
+        // Stability check: selection must be deterministic across repeated calls.
+        let (_, destination_repeat) =
+            pick_scout_target(&engine.state, ai).expect("expected scout target on repeat");
+        assert_eq!(destination_repeat, destination);
+        assert!(engine.state.fleets.contains_key(&fleet_id));
     }
 
     #[test]

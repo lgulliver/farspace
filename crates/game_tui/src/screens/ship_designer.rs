@@ -6,7 +6,7 @@ use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
 use game_core::{
-    all_hull_templates, components_for_slot, is_component_unlocked, ComponentDef, ComponentId,
+    all_hull_templates, components_for_slot, is_component_available, ComponentDef, ComponentId,
     CustomShipDesign, DerivedShipStats, FleetKind, GameState, HullTemplate, SlotCategory, TechId,
 };
 use ratatui::{
@@ -208,6 +208,15 @@ fn render_slot_config(frame: &mut Frame, area: Rect, app_state: &AppState, game_
         .get(&game_state.player_empire)
         .map(|e| e.research.completed.clone())
         .unwrap_or_default();
+    let available_resources: Vec<game_core::StrategicResource> = game_state
+        .empire_resource_access
+        .get(&game_state.player_empire)
+        .map(|m| {
+            m.iter()
+                .filter_map(|(resource, count)| (*count > 0).then_some(*resource))
+                .collect()
+        })
+        .unwrap_or_default();
 
     let mut lines: Vec<Line> = Vec::new();
 
@@ -312,7 +321,11 @@ fn render_slot_config(frame: &mut Frame, area: Rect, app_state: &AppState, game_
                             .unwrap_or(ComponentId(0));
                         let is_chosen = chosen_id == comp.component_id;
                         let is_cursor = is_active_slot && ds.component_cursor == ci;
-                        let locked = !is_component_unlocked(comp.component_id, &completed);
+                        let locked = !is_component_available(
+                            comp.component_id,
+                            &completed,
+                            &available_resources,
+                        );
                         let bullet = if is_chosen { "●" } else { "○" };
                         let lock_suffix = if locked { " [locked]" } else { "" };
                         let stat_tag = build_stat_tag(comp);

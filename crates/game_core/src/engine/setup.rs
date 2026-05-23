@@ -281,6 +281,7 @@ impl Engine {
             ai_empires: ai_empire_ids,
             colony_supply: BTreeMap::new(),
             colony_blockade: BTreeMap::new(),
+            empire_resource_access: BTreeMap::new(),
             victory_status: crate::state::VictoryStatus::default(),
             galactic_dispatches: std::collections::VecDeque::new(),
             custom_designs: std::collections::BTreeMap::new(),
@@ -302,6 +303,7 @@ impl Engine {
             last_turn_colony_blockade: BTreeMap::new(),
         };
         engine.refresh_colony_supply_statuses();
+        engine.state.empire_resource_access = engine.state.recompute_empire_resource_access();
         engine.last_turn_colony_supply = engine.state.colony_supply.clone();
         let completed_turn = engine.state.turn;
         let _ = evaluate_victory_end_turn(&mut engine.state, completed_turn);
@@ -316,6 +318,7 @@ impl Engine {
             last_turn_colony_blockade: BTreeMap::new(),
         };
         engine.refresh_colony_supply_statuses();
+        engine.state.empire_resource_access = engine.state.recompute_empire_resource_access();
         engine.last_turn_colony_supply = engine.state.colony_supply.clone();
         engine.last_turn_colony_blockade = engine.state.colony_blockade.clone();
         let completed_turn = engine.state.turn;

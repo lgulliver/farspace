@@ -1618,12 +1618,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn save_load_preserves_empire_resource_access_state() {
+        use game_core::{EmpireId, StrategicResource};
+
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        engine.state.empire_resource_access.insert(
+            player,
+            std::collections::BTreeMap::from([
+                (StrategicResource::Helium3, 2),
+                (StrategicResource::QuantumCrystals, 1),
+            ]),
+        );
+        engine
+            .state
+            .empire_resource_access
+            .insert(EmpireId(99), std::collections::BTreeMap::new());
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+        assert_eq!(
+            loaded.empire_resource_access, engine.state.empire_resource_access,
+            "resource access map must round-trip through save/load"
+        );
+    }
+
     /// v17 → v18 migration populates specials and resources from seed.
     #[test]
     fn migration_v17_to_v18_populates_specials_and_resources() {
         use crate::migrate::migrate;
         use crate::schema::SaveFile;
-        use game_core::galaxy::generate_planet_specials_and_resources;
+        use game_core::galaxy::generate_planet_specials_and_resources_for_context;
 
         // Build a v17 state using Engine::new so the galaxy is fully populated.
         let engine = Engine::new(42);
@@ -1647,12 +1673,23 @@ mod tests {
         assert_eq!(migrated.version, crate::schema::CURRENT_VERSION);
 
         // Assert that every planet has exactly the specials and resources that
-        // generate_planet_specials_and_resources produces for (seed, star_id, planet_index).
+        // context-aware generation produces for this star/planet.
         // This is a deterministic assertion that does not depend on probability.
         for (star_id, star) in &migrated.state.stars {
             for (planet_index, planet) in star.planets.iter().enumerate() {
                 let (expected_specials, expected_resources) =
-                    generate_planet_specials_and_resources(seed, *star_id, planet_index);
+                    generate_planet_specials_and_resources_for_context(
+                        seed,
+                        *star_id,
+                        planet_index,
+                        game_core::galaxy::ResourceGenerationContext {
+                            planet_class: planet.class,
+                            spectral_class: star.spectral_class,
+                            sector_id: star.sector,
+                            star_x: star.x,
+                            star_y: star.y,
+                        },
+                    );
                 assert_eq!(
                     planet.specials, expected_specials,
                     "star {} planet {}: migrated specials must equal generate_planet_specials_and_resources output",

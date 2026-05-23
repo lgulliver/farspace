@@ -698,16 +698,46 @@ fn render_system_detail_facts(
                     Span::styled(specials_text.join(", "), Theme::accent_style()),
                 ]));
             }
-            if !planet.resources.is_empty() {
-                let resources_text: Vec<String> = planet
-                    .resources
+            let completed_techs = game_state
+                .empires
+                .get(&game_state.player_empire)
+                .map(|e| e.research.completed.as_slice())
+                .unwrap_or(&[]);
+            let visible_resources =
+                game_core::visible_resources_for_empire(planet, completed_techs);
+            if !visible_resources.is_empty() {
+                let resources_text: Vec<String> = visible_resources
                     .iter()
-                    .map(|r| format!("{} ({})", r.name(), r.description()))
+                    .map(|r| {
+                        format!(
+                            "{} ({}, {}, tv {})",
+                            r.name(),
+                            r.rarity().label(),
+                            r.category().label(),
+                            r.trade_value()
+                        )
+                    })
                     .collect();
                 lines.push(Line::from(vec![
                     Span::styled("Resources: ", Theme::muted_style()),
                     Span::styled(resources_text.join(", "), Theme::accent_style()),
                 ]));
+                if let Some(colony_id) = planet.colony {
+                    let extracted: Vec<String> = visible_resources
+                        .iter()
+                        .map(|resource| {
+                            if game_state.colony_can_extract_resource(colony_id, *resource) {
+                                format!("{}: active", resource.name())
+                            } else {
+                                format!("{}: offline", resource.name())
+                            }
+                        })
+                        .collect();
+                    lines.push(Line::from(vec![
+                        Span::styled("Extraction: ", Theme::muted_style()),
+                        Span::styled(extracted.join(", "), Theme::default_style()),
+                    ]));
+                }
             }
         }
     } else {

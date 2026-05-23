@@ -4,6 +4,7 @@ use crate::state::{
     HyperspaceLane, Planet, PlanetClass, PlanetSize, PlanetSpecial, Sector, SectorId,
     SpectralClass, Star, StarId, StrategicResource,
 };
+use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,6 +33,17 @@ const STAR_NAME_SUFFIXES: &[&str] = &[
 
 /// Roman numerals for planet naming
 const ROMAN_NUMERALS: &[&str] = &["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+const FRONTIER_DISTANCE_DIVISOR: i32 = 240;
+const SYNTHETIC_CLASS_STRIDE: usize = 7;
+const SYNTHETIC_SPECTRAL_STRIDE: usize = 3;
+const SYNTHETIC_SECTOR_DIVISOR: u64 = 5;
+const SYNTHETIC_SECTOR_MODULUS: u64 = 8;
+const SYNTHETIC_COORD_MODULUS: i32 = 1001;
+const SYNTHETIC_COORD_OFFSET: i32 = 500;
+const SYNTHETIC_X_STAR_MULT: i32 = 97;
+const SYNTHETIC_X_PLANET_MULT: i32 = 31;
+const SYNTHETIC_Y_STAR_MULT: i32 = 53;
+const SYNTHETIC_Y_PLANET_MULT: i32 = 17;
 
 /// Result of galaxy generation containing sectors and stars
 pub struct GeneratedGalaxy {
@@ -39,48 +51,200 @@ pub struct GeneratedGalaxy {
     pub stars: Vec<Star>,
 }
 
-/// Deterministically generate planet specials and strategic resources for a single planet.
+/// Deterministic environment context for one planet resource roll.
+#[derive(Debug, Clone, Copy)]
+pub struct ResourceGenerationContext {
+    pub planet_class: PlanetClass,
+    pub spectral_class: SpectralClass,
+    pub sector_id: SectorId,
+    pub star_x: i32,
+    pub star_y: i32,
+}
+
+fn strategic_resource_weight(
+    resource: StrategicResource,
+    context: ResourceGenerationContext,
+    is_hazardous: bool,
+    has_precursor_signature: bool,
+    in_nebula_band: bool,
+) -> u32 {
+    let base = match resource.rarity() {
+        crate::state::StrategicResourceRarity::Common => 22,
+        crate::state::StrategicResourceRarity::Uncommon => 12,
+        crate::state::StrategicResourceRarity::Rare => 6,
+        crate::state::StrategicResourceRarity::Legendary => 2,
+    };
+    let class_bias = match (resource, context.planet_class) {
+        (StrategicResource::Helium3, PlanetClass::Barren | PlanetClass::Frozen) => 14,
+        (StrategicResource::ReactiveIsotopes, PlanetClass::Volcanic) => 10,
+        (StrategicResource::NeutroniumDeposits, PlanetClass::Barren | PlanetClass::Volcanic) => 9,
+        (StrategicResource::HyperfiberOrganics, PlanetClass::Oceanic | PlanetClass::Terran) => 10,
+        (StrategicResource::PsionicSpores, PlanetClass::Oceanic | PlanetClass::Frozen) => 8,
+        (StrategicResource::QuantumCrystals, PlanetClass::Frozen | PlanetClass::Desert) => 8,
+        (StrategicResource::DarkMatter, PlanetClass::Barren | PlanetClass::Frozen) => 8,
+        (StrategicResource::LivingAlloy, PlanetClass::Volcanic | PlanetClass::Terran) => 8,
+        (StrategicResource::AntimatterResidue, PlanetClass::Volcanic) => 8,
+        (StrategicResource::PrecursorDatacores, PlanetClass::Barren | PlanetClass::Desert) => 8,
+        _ => 0,
+    };
+    let spectral_bias = match (resource, context.spectral_class) {
+        (StrategicResource::Helium3, SpectralClass::O | SpectralClass::B) => 10,
+        (StrategicResource::DarkMatter, SpectralClass::O | SpectralClass::A) => 8,
+        (StrategicResource::QuantumCrystals, SpectralClass::F | SpectralClass::A) => 6,
+        (StrategicResource::AntimatterResidue, SpectralClass::B) => 8,
+        _ => 0,
+    };
+    let frontier_bonus = ((context.star_x.abs() + context.star_y.abs()) / FRONTIER_DISTANCE_DIVISOR)
+        .clamp(0, 4) as u32;
+    let sector_wave = ((context.sector_id.0 as i32 % 5) - 2).unsigned_abs();
+    let sector_bias = (4u32).saturating_sub(sector_wave);
+    let hazard_bias = if is_hazardous {
+        match resource {
+            StrategicResource::AntimatterResidue | StrategicResource::DarkMatter => 10,
+            _ => 2,
+        }
+    } else {
+        0
+    };
+    let precursor_bias = if has_precursor_signature {
+        match resource {
+            StrategicResource::PrecursorDatacores => 18,
+            StrategicResource::LivingAlloy | StrategicResource::QuantumCrystals => 5,
+            _ => 0,
+        }
+    } else {
+        0
+    };
+    let nebula_bias = if in_nebula_band {
+        match resource {
+            StrategicResource::DarkMatter | StrategicResource::PsionicSpores => 6,
+            _ => 0,
+        }
+    } else {
+        0
+    };
+    base + class_bias
+        + spectral_bias
+        + frontier_bonus
+        + sector_bias
+        + hazard_bias
+        + precursor_bias
+        + nebula_bias
+}
+
+/// Context-aware deterministic resource generation.
+pub fn generate_planet_specials_and_resources_for_context(
+    galaxy_seed: u64,
+    star_id: StarId,
+    planet_index: usize,
+    context: ResourceGenerationContext,
+) -> (Vec<PlanetSpecial>, Vec<StrategicResource>) {
+    let planet_seed = galaxy_seed
+        .wrapping_add(star_id.0.wrapping_mul(1_000_003))
+        .wrapping_add(planet_index as u64 * 999_983)
+        .wrapping_add(context.sector_id.0.wrapping_mul(17_719))
+        .wrapping_add(
+            ((context.star_x as i64).unsigned_abs() + (context.star_y as i64).unsigned_abs()) * 131,
+        );
+    let mut planet_rng = ChaCha8Rng::seed_from_u64(planet_seed);
+
+    let is_hazardous = planet_rng.gen::<u8>() < 28;
+    let has_precursor_signature = planet_rng.gen::<u8>() < 10;
+    let in_nebula_band = planet_rng.gen::<u8>() < 22;
+    let hotspot_bias = planet_rng.gen::<u8>() < 12;
+    let poor_bias = !hotspot_bias && planet_rng.gen::<u8>() < 16;
+
+    let mut specials = Vec::new();
+    let special_roll_threshold = if has_precursor_signature {
+        148u8
+    } else if is_hazardous {
+        128u8
+    } else {
+        102u8
+    };
+    if planet_rng.gen::<u8>() < special_roll_threshold {
+        let mut valid: Vec<PlanetSpecial> = PlanetSpecial::all().to_vec();
+        if has_precursor_signature {
+            // Intentional weighting boost: ruins stay in `all()`, and precursor signatures
+            // add one extra ruins entry to increase discovery probability.
+            valid.push(PlanetSpecial::AncientRuins);
+        }
+        let idx = planet_rng.gen_range(0..valid.len());
+        specials.push(valid[idx]);
+    }
+
+    let base_resource_roll = if hotspot_bias {
+        140u8
+    } else if poor_bias {
+        42u8
+    } else {
+        88u8
+    };
+    let mut resources = Vec::new();
+    if planet_rng.gen::<u8>() < base_resource_roll {
+        let all = StrategicResource::all();
+        let weights: Vec<u32> = all
+            .iter()
+            .map(|resource| {
+                strategic_resource_weight(
+                    *resource,
+                    context,
+                    is_hazardous,
+                    has_precursor_signature,
+                    in_nebula_band,
+                )
+            })
+            .collect();
+        if let Ok(dist) = WeightedIndex::new(&weights) {
+            let selected = all[dist.sample(&mut planet_rng)];
+            resources.push(selected);
+            if hotspot_bias && planet_rng.gen::<u8>() < 20 {
+                let alt = all[dist.sample(&mut planet_rng)];
+                if !resources.contains(&alt) {
+                    resources.push(alt);
+                }
+            }
+        }
+    }
+
+    (specials, resources)
+}
+
+/// Backward-compatible API used by older migration/tests.
 ///
-/// Uses a dedicated sub-RNG seeded from the galaxy seed, star ID, and planet index so that
-/// the existing galaxy RNG sequence is not disturbed.  The same seed always produces the same
-/// specials and resources for every planet.
-///
-/// Seed mixing uses `wrapping_add` with prime multipliers:
-/// `planet_seed = galaxy_seed + star_id * 1_000_003 + planet_index * 999_983`
-/// (all operations wrapping).  This gives a unique seed per (galaxy, star, planet) triple
-/// without any external state or wall-clock input.
-///
-/// Probability model (v1):
-/// - ~40% chance a planet has one special  (102/256 ≈ 0.398)
-/// - ~30% chance a planet has one strategic resource  (77/256 ≈ 0.301)
+/// Uses deterministic synthetic context derived from inputs only.
 pub fn generate_planet_specials_and_resources(
     galaxy_seed: u64,
     star_id: StarId,
     planet_index: usize,
 ) -> (Vec<PlanetSpecial>, Vec<StrategicResource>) {
-    // Derive a unique seed per planet without disturbing the main RNG.
-    let planet_seed = galaxy_seed
-        .wrapping_add(star_id.0.wrapping_mul(1_000_003))
-        .wrapping_add(planet_index as u64 * 999_983);
-    let mut planet_rng = ChaCha8Rng::seed_from_u64(planet_seed);
-
-    // ~40% chance of a special (102 / 256 ≈ 0.398)
-    let specials = if planet_rng.gen::<u8>() < 102 {
-        let idx = planet_rng.gen_range(0..PlanetSpecial::all().len());
-        vec![PlanetSpecial::all()[idx]]
-    } else {
-        vec![]
-    };
-
-    // ~30% chance of a strategic resource (77 / 256 ≈ 0.301)
-    let resources = if planet_rng.gen::<u8>() < 77 {
-        let idx = planet_rng.gen_range(0..StrategicResource::all().len());
-        vec![StrategicResource::all()[idx]]
-    } else {
-        vec![]
-    };
-
-    (specials, resources)
+    // Synthetic context uses fixed coprime strides for deterministic compatibility generation.
+    let class = PlanetClass::all()
+        [(star_id.0 as usize + planet_index * SYNTHETIC_CLASS_STRIDE) % PlanetClass::all().len()];
+    let spectral = SpectralClass::all()[(star_id.0 as usize
+        + planet_index * SYNTHETIC_SPECTRAL_STRIDE)
+        % SpectralClass::all().len()];
+    let sector = SectorId((star_id.0 / SYNTHETIC_SECTOR_DIVISOR) % SYNTHETIC_SECTOR_MODULUS);
+    let x = ((star_id.0 as i32 * SYNTHETIC_X_STAR_MULT
+        + planet_index as i32 * SYNTHETIC_X_PLANET_MULT)
+        % SYNTHETIC_COORD_MODULUS)
+        - SYNTHETIC_COORD_OFFSET;
+    let y = ((star_id.0 as i32 * SYNTHETIC_Y_STAR_MULT
+        + planet_index as i32 * SYNTHETIC_Y_PLANET_MULT)
+        % SYNTHETIC_COORD_MODULUS)
+        - SYNTHETIC_COORD_OFFSET;
+    generate_planet_specials_and_resources_for_context(
+        galaxy_seed,
+        star_id,
+        planet_index,
+        ResourceGenerationContext {
+            planet_class: class,
+            spectral_class: spectral,
+            sector_id: sector,
+            star_x: x,
+            star_y: y,
+        },
+    )
 }
 
 /// Generate a galaxy with the given seed and star count
@@ -163,8 +327,18 @@ pub fn generate_galaxy_with_config(
                 // to avoid consuming extra RNG calls that would break fixed-seed tests
                 let class_idx = (id * 37 + i * 11) % PlanetClass::all().len();
                 let class = PlanetClass::all()[class_idx];
-                let (specials, resources) =
-                    generate_planet_specials_and_resources(seed, StarId(id as u64), i);
+                let (specials, resources) = generate_planet_specials_and_resources_for_context(
+                    seed,
+                    StarId(id as u64),
+                    i,
+                    ResourceGenerationContext {
+                        planet_class: class,
+                        spectral_class,
+                        sector_id: SectorId(sector_id as u64),
+                        star_x: x,
+                        star_y: y,
+                    },
+                );
                 Planet {
                     name: planet_name,
                     size,
@@ -712,6 +886,35 @@ mod tests {
         assert!(any_specials, "at least some planets should have specials");
         // With a 30% resource rate over many planets, at least some should appear.
         assert!(any_resources, "at least some planets should have resources");
+    }
+
+    #[test]
+    fn common_resources_are_more_frequent_than_rare_tiers() {
+        let gal = generate_galaxy(4242, 80);
+        let mut common = 0usize;
+        let mut legendary = 0usize;
+
+        for star in &gal.stars {
+            for planet in &star.planets {
+                for resource in &planet.resources {
+                    match resource.rarity() {
+                        crate::state::StrategicResourceRarity::Common => common += 1,
+                        crate::state::StrategicResourceRarity::Uncommon => {}
+                        crate::state::StrategicResourceRarity::Rare => {}
+                        crate::state::StrategicResourceRarity::Legendary => legendary += 1,
+                    }
+                }
+            }
+        }
+
+        assert!(
+            common > 0,
+            "common resources should appear in generated galaxies"
+        );
+        assert!(
+            common > legendary,
+            "common resources should appear more often than legendary resources"
+        );
     }
 
     #[test]

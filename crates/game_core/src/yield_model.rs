@@ -845,67 +845,72 @@ mod tests {
     }
 
     #[test]
-    fn surveyed_planet_applies_helium3_maintenance_reduction() {
+    fn surveyed_planet_does_not_apply_helium3_maintenance_reduction() {
         use crate::state::{BuildingType, StrategicResource};
         let mut colony = base_colony();
         // Add a building so maintenance > 0 before the reduction
         colony.buildings = vec![BuildingType::FabricationYard]; // maintenance = 1
         let surveyed = planet_with_specials(vec![], vec![StrategicResource::Helium3], true);
         let y = calculate_yield(&colony, Some(&surveyed));
-        // maintenance = 1 (FabricationYard) - 1 (Helium3) = 0 (clamped at 0)
+        // Strategic resources no longer apply direct planet yield modifiers.
         assert_eq!(
-            y.maintenance, 0,
-            "Helium3 should reduce maintenance by 1 (clamped at 0)"
+            y.maintenance, 1,
+            "Helium3 should not directly alter colony maintenance yield"
         );
     }
 
     #[test]
-    fn surveyed_planet_applies_rare_metals_industry_bonus() {
+    fn surveyed_planet_does_not_apply_reactive_isotopes_industry_bonus() {
         use crate::state::StrategicResource;
         let colony = base_colony();
-        let surveyed = planet_with_specials(vec![], vec![StrategicResource::RareMetals], true);
+        let surveyed =
+            planet_with_specials(vec![], vec![StrategicResource::ReactiveIsotopes], true);
         let y = calculate_yield(&colony, Some(&surveyed));
         assert_eq!(
-            y.industry, 11,
-            "RareMetals should add +1 industry when surveyed"
+            y.industry, 10,
+            "strategic resources should not directly alter industry yield"
         );
     }
 
     #[test]
-    fn surveyed_planet_applies_bio_cultures_food_bonus() {
+    fn surveyed_planet_does_not_apply_hyperfiber_food_bonus() {
         use crate::state::StrategicResource;
         let colony = base_colony();
-        let surveyed = planet_with_specials(vec![], vec![StrategicResource::BioCultures], true);
+        let surveyed =
+            planet_with_specials(vec![], vec![StrategicResource::HyperfiberOrganics], true);
         let y = calculate_yield(&colony, Some(&surveyed));
-        assert_eq!(y.food, 12, "BioCultures should add +2 food when surveyed");
+        assert_eq!(
+            y.food, 10,
+            "strategic resources should not directly alter food yield"
+        );
     }
 
     #[test]
-    fn surveyed_planet_applies_quantum_crystals_science_bonus() {
+    fn surveyed_planet_does_not_apply_quantum_crystals_science_bonus() {
         use crate::state::StrategicResource;
         let colony = base_colony();
         let surveyed = planet_with_specials(vec![], vec![StrategicResource::QuantumCrystals], true);
         let y = calculate_yield(&colony, Some(&surveyed));
         assert_eq!(
-            y.science, 7,
-            "QuantumCrystals should add +2 science when surveyed"
+            y.science, 5,
+            "strategic resources should not directly alter science yield"
         );
     }
 
     #[test]
-    fn special_and_resource_effects_stack() {
+    fn special_effects_apply_without_direct_resource_yield_stacking() {
         use crate::state::{PlanetSpecial, StrategicResource};
         let colony = base_colony();
         let surveyed = planet_with_specials(
             vec![PlanetSpecial::MineralRich],
-            vec![StrategicResource::RareMetals],
+            vec![StrategicResource::ReactiveIsotopes],
             true,
         );
         let y = calculate_yield(&colony, Some(&surveyed));
-        // industry = 10 + 2 (MineralRich) + 1 (RareMetals) = 13
+        // industry = 10 + 2 (MineralRich), resources no longer add direct yield.
         assert_eq!(
-            y.industry, 13,
-            "specials and resources should stack additively"
+            y.industry, 12,
+            "planet special should still apply while strategic resource stays indirect"
         );
     }
 

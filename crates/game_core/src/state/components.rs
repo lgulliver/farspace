@@ -51,6 +51,7 @@ pub struct ComponentDef {
     pub movement_modifier: i32,
     pub special_tags: &'static [ComponentTag],
     pub required_tech: Option<TechId>,
+    pub required_resource: Option<StrategicResource>,
 }
 
 /// Static definition of a ship hull template.
@@ -265,6 +266,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: 0,
         special_tags: &[],
         required_tech: Some(TechId(4)),
+        required_resource: None,
     },
     ComponentDef {
         component_id: ComponentId(2),
@@ -278,6 +280,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: -1,
         special_tags: &[],
         required_tech: Some(TechId(17)),
+        required_resource: Some(StrategicResource::ReactiveIsotopes),
     },
     // Defense
     ComponentDef {
@@ -292,6 +295,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: 0,
         special_tags: &[],
         required_tech: Some(TechId(4)),
+        required_resource: Some(StrategicResource::LivingAlloy),
     },
     ComponentDef {
         component_id: ComponentId(11),
@@ -305,6 +309,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: 0,
         special_tags: &[],
         required_tech: Some(TechId(16)),
+        required_resource: Some(StrategicResource::QuantumCrystals),
     },
     ComponentDef {
         component_id: ComponentId(12),
@@ -318,6 +323,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: 0,
         special_tags: &[],
         required_tech: Some(TechId(16)),
+        required_resource: None,
     },
     // Engine
     ComponentDef {
@@ -332,6 +338,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: 0,
         special_tags: &[],
         required_tech: None,
+        required_resource: None,
     },
     ComponentDef {
         component_id: ComponentId(21),
@@ -345,6 +352,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: 1,
         special_tags: &[],
         required_tech: Some(TechId(13)),
+        required_resource: Some(StrategicResource::DarkMatter),
     },
     // Utility
     ComponentDef {
@@ -359,6 +367,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: 0,
         special_tags: &[],
         required_tech: None,
+        required_resource: None,
     },
     ComponentDef {
         component_id: ComponentId(31),
@@ -372,6 +381,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: 1,
         special_tags: &[ComponentTag::Sensors, ComponentTag::LongRange],
         required_tech: Some(TechId(3)),
+        required_resource: None,
     },
     ComponentDef {
         component_id: ComponentId(32),
@@ -385,6 +395,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: 0,
         special_tags: &[],
         required_tech: None,
+        required_resource: None,
     },
     // MissionModule
     ComponentDef {
@@ -399,6 +410,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: 0,
         special_tags: &[ComponentTag::Colony],
         required_tech: Some(TechId(2)),
+        required_resource: None,
     },
     ComponentDef {
         component_id: ComponentId(41),
@@ -412,6 +424,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: 0,
         special_tags: &[ComponentTag::Survey],
         required_tech: Some(TechId(12)),
+        required_resource: None,
     },
     ComponentDef {
         component_id: ComponentId(42),
@@ -425,6 +438,7 @@ static COMPONENT_DEFS: [ComponentDef; 13] = [
         movement_modifier: 0,
         special_tags: &[ComponentTag::Invasion],
         required_tech: Some(TechId(11)),
+        required_resource: None,
     },
 ];
 
@@ -454,8 +468,27 @@ pub fn components_for_slot(category: SlotCategory) -> Vec<&'static ComponentDef>
 pub fn is_component_unlocked(component_id: ComponentId, completed_techs: &[TechId]) -> bool {
     match component_id.def() {
         Some(def) => match def.required_tech {
-            None => true,
             Some(tech) => completed_techs.contains(&tech),
+            None => true,
+        },
+        None => false,
+    }
+}
+
+/// Returns `true` when a component's tech and strategic-resource requirements are met.
+pub fn is_component_available(
+    component_id: ComponentId,
+    completed_techs: &[TechId],
+    available_resources: &[StrategicResource],
+) -> bool {
+    match component_id.def() {
+        Some(def) => match (def.required_tech, def.required_resource) {
+            (Some(tech), Some(resource)) => {
+                completed_techs.contains(&tech) && available_resources.contains(&resource)
+            }
+            (Some(tech), None) => completed_techs.contains(&tech),
+            (None, Some(resource)) => available_resources.contains(&resource),
+            (None, None) => true,
         },
         None => false,
     }

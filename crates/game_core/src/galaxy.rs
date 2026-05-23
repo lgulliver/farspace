@@ -284,6 +284,7 @@ pub fn generate_planet_discoveries_for_context(
             ((context.star_x as i64).unsigned_abs() + (context.star_y as i64).unsigned_abs()) * 131,
         );
     let mut planet_rng = ChaCha8Rng::seed_from_u64(planet_seed);
+    let mut anomaly_rng = ChaCha8Rng::seed_from_u64(planet_seed ^ 0xA11A_D15C_0FFE_51E5);
 
     let is_hazardous = planet_rng.gen::<u8>() < 28;
     let has_precursor_signature = planet_rng.gen::<u8>() < 10;
@@ -326,7 +327,7 @@ pub fn generate_planet_discoveries_for_context(
     } else {
         34u8
     };
-    if planet_rng.gen::<u8>() < anomaly_roll_threshold {
+    if anomaly_rng.gen::<u8>() < anomaly_roll_threshold {
         let all = PlanetAnomaly::all();
         let weights: Vec<u32> = all
             .iter()
@@ -341,7 +342,7 @@ pub fn generate_planet_discoveries_for_context(
             })
             .collect();
         if let Ok(dist) = WeightedIndex::new(&weights) {
-            anomalies.push(all[dist.sample(&mut planet_rng)]);
+                anomalies.push(all[dist.sample(&mut anomaly_rng)]);
         }
     }
 
@@ -1008,6 +1009,31 @@ mod tests {
         let (specials_b, resources_b) = generate_planet_specials_and_resources(42, StarId(3), 0);
         assert_eq!(specials_a, specials_b, "specials must be deterministic");
         assert_eq!(resources_a, resources_b, "resources must be deterministic");
+        let discoveries_a = generate_planet_discoveries_for_context(
+            42,
+            StarId(3),
+            0,
+            ResourceGenerationContext {
+                planet_class: PlanetClass::Frozen,
+                spectral_class: SpectralClass::A,
+                sector_id: SectorId(1),
+                star_x: 200,
+                star_y: -160,
+            },
+        );
+        let discoveries_b = generate_planet_discoveries_for_context(
+            42,
+            StarId(3),
+            0,
+            ResourceGenerationContext {
+                planet_class: PlanetClass::Frozen,
+                spectral_class: SpectralClass::A,
+                sector_id: SectorId(1),
+                star_x: 200,
+                star_y: -160,
+            },
+        );
+        assert_eq!(discoveries_a, discoveries_b, "discoveries must be deterministic");
     }
 
     #[test]
@@ -1058,11 +1084,15 @@ mod tests {
         // All generated planets must have specials/resources fields (even if empty).
         let gal = generate_galaxy(42, 20);
         let mut any_specials = false;
+        let mut any_anomalies = false;
         let mut any_resources = false;
         for star in &gal.stars {
             for planet in &star.planets {
                 if !planet.specials.is_empty() {
                     any_specials = true;
+                }
+                if !planet.anomalies.is_empty() {
+                    any_anomalies = true;
                 }
                 if !planet.resources.is_empty() {
                     any_resources = true;
@@ -1073,8 +1103,40 @@ mod tests {
         }
         // With a 40% special rate over many planets, at least some should appear.
         assert!(any_specials, "at least some planets should have specials");
+        assert!(any_anomalies, "at least some planets should have anomalies");
         // With a 30% resource rate over many planets, at least some should appear.
         assert!(any_resources, "at least some planets should have resources");
+    }
+
+    #[test]
+    fn common_specials_and_uncommon_anomalies_outnumber_legendary_findings() {
+        let gal = generate_galaxy(1337, 100);
+        let mut common_specials = 0usize;
+        let mut legendary_specials = 0usize;
+        let mut uncommon_anomalies = 0usize;
+        let mut legendary_anomalies = 0usize;
+
+        for star in &gal.stars {
+            for planet in &star.planets {
+                for special in &planet.specials {
+                    match special.rarity() {
+                        DiscoveryRarity::Common => common_specials += 1,
+                        DiscoveryRarity::Legendary => legendary_specials += 1,
+                        _ => {}
+                    }
+                }
+                for anomaly in &planet.anomalies {
+                    match anomaly.rarity() {
+                        DiscoveryRarity::Uncommon => uncommon_anomalies += 1,
+                        DiscoveryRarity::Legendary => legendary_anomalies += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        assert!(common_specials > legendary_specials);
+        assert!(uncommon_anomalies >= legendary_anomalies);
     }
 
     #[test]

@@ -2493,6 +2493,81 @@ mod tests {
     }
 
     #[test]
+    fn ai_colonization_prefers_high_value_discovery_world_deterministically() {
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+        let ai_home = engine.state.empires[&ai].home_star;
+        let target = engine
+            .state
+            .ai_explored_stars
+            .iter()
+            .copied()
+            .find(|&sid| sid != ai_home)
+            .expect("AI needs an explored frontier star");
+
+        engine
+            .state
+            .empires
+            .get_mut(&ai)
+            .unwrap()
+            .research
+            .completed
+            .extend([TechId::ADVANCED_SURVEY, TechId::PAN_GALACTIC_SENSOR_NET]);
+
+        let star = engine.state.stars.get_mut(&target).unwrap();
+        while star.planets.len() < 2 {
+            let mut clone = star.planets[0].clone();
+            clone.name = format!("{} Annex", clone.name);
+            clone.colony = None;
+            clone.surveyed = true;
+            clone.specials.clear();
+            clone.resources.clear();
+            clone.anomalies.clear();
+            star.planets.push(clone);
+        }
+        for (idx, planet) in star.planets.iter_mut().enumerate() {
+            planet.colony = None;
+            planet.habitable = idx < 2;
+            planet.surveyed = idx < 2;
+            planet.specials.clear();
+            planet.resources.clear();
+            planet.anomalies.clear();
+        }
+        star.planets[0].specials = vec![PlanetSpecial::MineralRich];
+        star.planets[1].anomalies = vec![PlanetAnomaly::VoidSignalArray];
+
+        let colonizer_id = crate::state::FleetId(77);
+        engine.state.fleets.insert(
+            colonizer_id,
+            crate::state::Fleet {
+                id: colonizer_id,
+                owner: ai,
+                location: target,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        let events = engine.apply_turn(vec![crate::commands::Command::EndTurn]);
+        assert!(
+            events.iter().any(
+                |event| matches!(
+                    event,
+                    Event::AiColonized {
+                        empire,
+                        star,
+                        planet_index,
+                        ..
+                    } if *empire == ai && *star == target && *planet_index == 1
+                )
+            ),
+            "AI should choose the higher-value anomaly world"
+        );
+    }
+
+    #[test]
     fn ai_does_not_colonize_already_colonized_planet() {
         let mut engine = Engine::new(42);
         let ai = ai_id(&engine);

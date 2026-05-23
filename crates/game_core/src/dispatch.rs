@@ -1005,6 +1005,25 @@ mod tests {
     }
 
     #[test]
+    fn anomaly_detection_emits_dispatch_item() {
+        let mut state = minimal_state();
+        let star = StarId(10);
+        state.explored_stars.insert(star);
+        let events = vec![Event::AnomalyDetected {
+            star,
+            planet_index: 0,
+            anomaly: crate::state::PlanetAnomaly::VoidSignalArray,
+        }];
+
+        let dispatch =
+            generate_dispatch(1, &events, &state).expect("anomaly discovery should dispatch");
+        assert!(dispatch.items.iter().any(|item| {
+            item.headline.contains("Void Signal Array")
+                && matches!(item.severity, DispatchSeverity::Historic)
+        }));
+    }
+
+    #[test]
     fn dispatch_not_generated_on_non_cadence_turn_without_urgent_events() {
         let state = minimal_state();
         // turn=2 (0-indexed), no events → None

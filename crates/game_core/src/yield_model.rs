@@ -850,6 +850,18 @@ mod tests {
     }
 
     #[test]
+    fn surveyed_planet_applies_anomaly_effects() {
+        use crate::state::PlanetAnomaly;
+        let colony = base_colony();
+        let planet = Planet {
+            anomalies: vec![PlanetAnomaly::TemporalEchoField],
+            ..planet_with_specials(vec![], vec![], true)
+        };
+        let y = calculate_yield(&colony, Some(&planet));
+        assert_eq!(y.science, 7, "TemporalEchoField should add +2 science when surveyed");
+    }
+
+    #[test]
     fn surveyed_planet_does_not_apply_helium3_maintenance_reduction() {
         use crate::state::{BuildingType, StrategicResource};
         let mut colony = base_colony();

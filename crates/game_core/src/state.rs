@@ -305,7 +305,7 @@ impl DiscoveryRarity {
         }
     }
 
-    pub const fn weight(self) -> i32 {
+    pub const fn valuation_weight(self) -> i32 {
         match self {
             DiscoveryRarity::Common => 1,
             DiscoveryRarity::Uncommon => 2,
@@ -595,6 +595,28 @@ impl PlanetSpecial {
         }
     }
 
+    pub fn effect_summary(self) -> &'static str {
+        match self {
+            PlanetSpecial::MineralRich => "+2 industry",
+            PlanetSpecial::FertileBiosphere => "+2 food",
+            PlanetSpecial::AncientRuins => "+2 science, one-time discovery event",
+            PlanetSpecial::CrystalFormations => "+1 credits, +1 science",
+            PlanetSpecial::HostileWeather => "-1 food, -1 industry",
+            PlanetSpecial::LowGravity => "+2 industry",
+            PlanetSpecial::CrystalForests => "+1 food, +1 science",
+            PlanetSpecial::SubterraneanMegacaverns => "+2 industry, +1 credits",
+            PlanetSpecial::HyperconductiveOceans => "+2 credits, +1 science",
+            PlanetSpecial::VolatileCoreInstability => "+3 industry, -1 food",
+            PlanetSpecial::PrecursorBeacon => "+3 science, +1 credits",
+            PlanetSpecial::BioluminescentJungles => "+1 food, +2 science",
+            PlanetSpecial::AncientDefenseGrid => "+1 industry, +2 science",
+            PlanetSpecial::FrozenDataVault => "+3 science",
+            PlanetSpecial::NaniteScarfields => "+2 industry, +1 credits",
+            PlanetSpecial::GravitationalFractureZone => "+2 science, -1 food",
+            PlanetSpecial::OrbitalGraveyard => "+1 credits, +1 science",
+        }
+    }
+
     pub fn rarity(self) -> DiscoveryRarity {
         match self {
             PlanetSpecial::MineralRich
@@ -683,6 +705,11 @@ impl PlanetSpecial {
         }
     }
 
+    /// Major discoveries emit dedicated discovery events on survey completion.
+    ///
+    /// Rare and Legendary specials always qualify. Precursor and Strategic specials
+    /// also qualify regardless of rarity so that uniquely valuable worlds surface in
+    /// reports and Dispatch.
     pub fn is_major_discovery(self) -> bool {
         self.rarity() >= DiscoveryRarity::Rare
             || matches!(
@@ -1024,6 +1051,16 @@ impl PlanetAnomaly {
                 credits: 1,
                 ..YieldEffect::default()
             },
+        }
+    }
+
+    pub fn formatted_risk(self) -> &'static str {
+        match self.risk_level() {
+            Some(AnomalyRiskLevel::Low) => "Low risk",
+            Some(AnomalyRiskLevel::Moderate) => "Moderate risk",
+            Some(AnomalyRiskLevel::High) => "High risk",
+            Some(AnomalyRiskLevel::Severe) => "Severe risk",
+            None => "No recorded risk",
         }
     }
 }

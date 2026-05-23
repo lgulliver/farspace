@@ -68,6 +68,10 @@ pub struct PlanetDiscoveries {
     pub resources: Vec<StrategicResource>,
 }
 
+fn frontier_distance_bonus(x: i32, y: i32, max: i32) -> u32 {
+    ((x.abs() + y.abs()) / FRONTIER_DISTANCE_DIVISOR).clamp(0, max) as u32
+}
+
 fn planet_special_weight(
     special: PlanetSpecial,
     context: ResourceGenerationContext,
@@ -111,8 +115,7 @@ fn planet_special_weight(
         (PlanetSpecial::OrbitalGraveyard, SpectralClass::G | SpectralClass::K) => 4,
         _ => 0,
     };
-    let frontier_bonus = ((context.star_x.abs() + context.star_y.abs()) / FRONTIER_DISTANCE_DIVISOR)
-        .clamp(0, 5) as u32;
+    let frontier_bonus = frontier_distance_bonus(context.star_x, context.star_y, 5);
     let hazard_bias = if is_hazardous {
         match special {
             PlanetSpecial::HostileWeather
@@ -175,8 +178,7 @@ fn anomaly_weight(
         (PlanetAnomaly::QuantumReflectionZone, SpectralClass::B | SpectralClass::A) => 8,
         _ => 0,
     };
-    let frontier_bonus = ((context.star_x.abs() + context.star_y.abs()) / FRONTIER_DISTANCE_DIVISOR)
-        .clamp(0, 6) as u32;
+    let frontier_bonus = frontier_distance_bonus(context.star_x, context.star_y, 6);
     let hazard_bias = if is_hazardous {
         match anomaly {
             PlanetAnomaly::RogueNaniteSwarm
@@ -296,6 +298,8 @@ pub fn generate_planet_discoveries_for_context(
             ((context.star_x as i64).unsigned_abs() + (context.star_y as i64).unsigned_abs()) * 131,
         );
     let mut planet_rng = ChaCha8Rng::seed_from_u64(planet_seed);
+    // Separate anomaly RNG stream keeps anomaly rolls independent from legacy
+    // special/resource RNG consumption while preserving deterministic placement.
     let mut anomaly_rng = ChaCha8Rng::seed_from_u64(planet_seed ^ 0xA11A_D15C_0FFE_51E5);
 
     let is_hazardous = planet_rng.gen::<u8>() < 28;

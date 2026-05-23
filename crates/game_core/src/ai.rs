@@ -47,7 +47,7 @@ fn resource_value_for_doctrine(resource: StrategicResource, doctrine: AiDoctrine
 
 fn special_value_for_doctrine(special: PlanetSpecial, doctrine: AiDoctrine) -> i32 {
     let effect = special.yield_effect();
-    let base = (i64::from(special.rarity().weight()) * 8
+    let base = (i64::from(special.rarity().valuation_weight()) * 8
         + effect.industry
         + effect.science
         + effect.credits
@@ -71,7 +71,7 @@ fn special_value_for_doctrine(special: PlanetSpecial, doctrine: AiDoctrine) -> i
 
 fn anomaly_value_for_doctrine(anomaly: PlanetAnomaly, doctrine: AiDoctrine) -> i32 {
     let effect = anomaly.yield_effect();
-    let base = (i64::from(anomaly.rarity().weight()) * 10
+    let base = (i64::from(anomaly.rarity().valuation_weight()) * 10
         + effect.industry
         + effect.science
         + effect.credits

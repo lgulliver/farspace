@@ -490,26 +490,22 @@ fn render_colony_stats(
                             " ({}, {}, {})",
                             special.rarity().label(),
                             special.category().label(),
-                            special.description()
+                            special.effect_summary()
                         ),
                         Theme::muted_style(),
                     ),
                 ]));
             }
             for anomaly in &visible_anomalies {
-                let risk = anomaly
-                    .risk_level()
-                    .map(|level| format!(", {} risk", level.label()))
-                    .unwrap_or_default();
                 lines.push(Line::from(vec![
                     Span::styled(format!("  {} ", glyphs.anomaly), Theme::warning_style()),
                     Span::styled(anomaly.name(), Theme::default_style()),
                     Span::styled(
                         format!(
-                            " ({}, {}{})",
+                            " ({}, {}, {})",
                             anomaly.rarity().label(),
                             anomaly.category().label(),
-                            risk
+                            anomaly.formatted_risk()
                         ),
                         Theme::muted_style(),
                     ),

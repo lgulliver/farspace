@@ -707,7 +707,7 @@ fn render_system_detail_facts(
                             s.name(),
                             s.rarity().label(),
                             s.category().label(),
-                            s.description()
+                            s.effect_summary()
                         )
                     })
                     .collect();
@@ -720,17 +720,13 @@ fn render_system_detail_facts(
                 let anomalies_text: Vec<String> = visible_anomalies
                     .iter()
                     .map(|a| {
-                        let risk = a
-                            .risk_level()
-                            .map(|level| format!(", {} risk", level.label()))
-                            .unwrap_or_default();
                         format!(
-                            "{}{} ({}, {}{})",
+                            "{}{} ({}, {}, {})",
                             glyphs.anomaly,
                             a.name(),
                             a.rarity().label(),
                             a.category().label(),
-                            risk
+                            a.formatted_risk()
                         )
                     })
                     .collect();

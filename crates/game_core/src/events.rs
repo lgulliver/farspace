@@ -619,7 +619,7 @@ impl Event {
                     special.name(),
                     star.0,
                     planet_index + 1,
-                    special.description()
+                    special.effect_summary()
                 )
             }
             Event::AnomalyDetected {
@@ -627,16 +627,12 @@ impl Event {
                 planet_index,
                 anomaly,
             } => {
-                let risk = anomaly
-                    .risk_level()
-                    .map(|level| format!(" [{} risk]", level.label()))
-                    .unwrap_or_default();
                 format!(
-                    "ANOMALY: {} detected at system {} orbit {}{} — {}",
+                    "ANOMALY: {} detected at system {} orbit {} [{}] — {}",
                     anomaly.name(),
                     star.0,
                     planet_index + 1,
-                    risk,
+                    anomaly.formatted_risk(),
                     anomaly.description()
                 )
             }

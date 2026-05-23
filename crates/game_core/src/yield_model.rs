@@ -858,7 +858,10 @@ mod tests {
             ..planet_with_specials(vec![], vec![], true)
         };
         let y = calculate_yield(&colony, Some(&planet));
-        assert_eq!(y.science, 7, "TemporalEchoField should add +2 science when surveyed");
+        assert_eq!(
+            y.science, 7,
+            "TemporalEchoField should add +2 science when surveyed"
+        );
     }
 
     #[test]

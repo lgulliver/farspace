@@ -17,11 +17,11 @@ use crate::engine::travel_turns_with_lanes;
 use crate::events::Event;
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, visible_anomalies_for_empire,
-    visible_specials_for_empire, AiDoctrine, BuildItem, BuildingType, Colony, ColonyId,
-    ColonyRole, ComponentId, CustomDesignId, CustomShipDesign, EmpireId, FleetFormation, FleetId,
-    FleetKind, FleetRole, GameState, OrbitalStructureType, PlanetAnomaly, PlanetClass,
-    PlanetSpecial, PlaystyleTag, ScoutMission, ShipDesignId, SlotCategory, StarId,
-    StrategicResource, StrategicResourceCategory, TechDomain, TechId, TechTag, VictoryPath,
+    visible_specials_for_empire, AiDoctrine, BuildItem, BuildingType, Colony, ColonyId, ColonyRole,
+    ComponentId, CustomDesignId, CustomShipDesign, EmpireId, FleetFormation, FleetId, FleetKind,
+    FleetRole, GameState, OrbitalStructureType, PlanetAnomaly, PlanetClass, PlanetSpecial,
+    PlaystyleTag, ScoutMission, ShipDesignId, SlotCategory, StarId, StrategicResource,
+    StrategicResourceCategory, TechDomain, TechId, TechTag, VictoryPath,
 };
 use crate::yield_model::{calculate_yield_with_context, YieldContext};
 
@@ -157,7 +157,9 @@ fn scout_resource_prospect_score(state: &GameState, empire_id: EmpireId, star_id
         AiDoctrine::Militarist => {
             star.planets
                 .iter()
-                .filter(|planet| matches!(planet.class, PlanetClass::Volcanic | PlanetClass::Barren))
+                .filter(|planet| {
+                    matches!(planet.class, PlanetClass::Volcanic | PlanetClass::Barren)
+                })
                 .count() as i32
                 * 3
         }
@@ -2552,17 +2554,15 @@ mod tests {
 
         let events = engine.apply_turn(vec![crate::commands::Command::EndTurn]);
         assert!(
-            events.iter().any(
-                |event| matches!(
-                    event,
-                    Event::AiColonized {
-                        empire,
-                        star,
-                        planet_index,
-                        ..
-                    } if *empire == ai && *star == target && *planet_index == 1
-                )
-            ),
+            events.iter().any(|event| matches!(
+                event,
+                Event::AiColonized {
+                    empire,
+                    star,
+                    planet_index,
+                    ..
+                } if *empire == ai && *star == target && *planet_index == 1
+            )),
             "AI should choose the higher-value anomaly world"
         );
     }

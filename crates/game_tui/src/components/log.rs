@@ -132,7 +132,8 @@ fn classify_log_entry(lower: &str) -> LogEntryKind {
     } else if lower.contains("research") || lower.contains("technology") || lower.contains("tech ")
     {
         LogEntryKind::Research
-    } else if lower.contains("survey") || lower.contains("anomaly") || lower.contains("discovery:") {
+    } else if lower.contains("survey") || lower.contains("anomaly") || lower.contains("discovery:")
+    {
         LogEntryKind::Survey
     } else if lower.contains("colony") || lower.contains("coloniz") {
         LogEntryKind::Colony

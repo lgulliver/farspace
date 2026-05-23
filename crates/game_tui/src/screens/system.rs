@@ -688,7 +688,10 @@ fn render_system_detail_facts(
             .unwrap_or(&[]);
         let visible_specials = game_core::visible_specials_for_empire(planet, completed_techs);
         let visible_anomalies = game_core::visible_anomalies_for_empire(planet, completed_techs);
-        if visible_specials.is_empty() && visible_anomalies.is_empty() && planet.resources.is_empty() {
+        if visible_specials.is_empty()
+            && visible_anomalies.is_empty()
+            && planet.resources.is_empty()
+        {
             lines.push(Line::from(vec![
                 Span::styled("Specials: ", Theme::muted_style()),
                 Span::styled("None", Theme::muted_style()),

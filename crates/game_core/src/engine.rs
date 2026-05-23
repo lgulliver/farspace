@@ -3879,7 +3879,9 @@ impl Engine {
                         });
                     }
 
-                    for special in crate::state::visible_specials_for_empire(planet, &completed_techs) {
+                    for special in
+                        crate::state::visible_specials_for_empire(planet, &completed_techs)
+                    {
                         if special != crate::state::PlanetSpecial::AncientRuins
                             && special.is_major_discovery()
                         {
@@ -3891,7 +3893,8 @@ impl Engine {
                         }
                     }
 
-                    for anomaly in crate::state::visible_anomalies_for_empire(planet, &completed_techs)
+                    for anomaly in
+                        crate::state::visible_anomalies_for_empire(planet, &completed_techs)
                     {
                         events.push(Event::AnomalyDetected {
                             star: star_id,

@@ -465,7 +465,9 @@ fn render_colony_stats(
 
     // Show active specials/resources/anomalies for this colonized, surveyed planet.
     if let Some(p) = planet {
-        if p.surveyed && (!p.specials.is_empty() || !p.resources.is_empty() || !p.anomalies.is_empty()) {
+        if p.surveyed
+            && (!p.specials.is_empty() || !p.resources.is_empty() || !p.anomalies.is_empty())
+        {
             let completed_techs = game_state
                 .empires
                 .get(&colony.owner)

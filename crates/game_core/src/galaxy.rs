@@ -1,8 +1,8 @@
 //! Galaxy generation
 
 use crate::state::{
-    DiscoveryRarity, HyperspaceLane, Planet, PlanetAnomaly, PlanetClass, PlanetSize,
-    PlanetSpecial, Sector, SectorId, SpectralClass, Star, StarId, StrategicResource,
+    DiscoveryRarity, HyperspaceLane, Planet, PlanetAnomaly, PlanetClass, PlanetSize, PlanetSpecial,
+    Sector, SectorId, SpectralClass, Star, StarId, StrategicResource,
 };
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
@@ -82,9 +82,18 @@ fn planet_special_weight(
         DiscoveryRarity::Legendary => 2,
     };
     let class_bias = match (special, context.planet_class) {
-        (PlanetSpecial::MineralRich | PlanetSpecial::SubterraneanMegacaverns, PlanetClass::Barren | PlanetClass::Volcanic) => 14,
-        (PlanetSpecial::FertileBiosphere | PlanetSpecial::BioluminescentJungles, PlanetClass::Terran | PlanetClass::Oceanic) => 12,
-        (PlanetSpecial::CrystalFormations | PlanetSpecial::CrystalForests, PlanetClass::Frozen | PlanetClass::Desert) => 10,
+        (
+            PlanetSpecial::MineralRich | PlanetSpecial::SubterraneanMegacaverns,
+            PlanetClass::Barren | PlanetClass::Volcanic,
+        ) => 14,
+        (
+            PlanetSpecial::FertileBiosphere | PlanetSpecial::BioluminescentJungles,
+            PlanetClass::Terran | PlanetClass::Oceanic,
+        ) => 12,
+        (
+            PlanetSpecial::CrystalFormations | PlanetSpecial::CrystalForests,
+            PlanetClass::Frozen | PlanetClass::Desert,
+        ) => 10,
         (PlanetSpecial::HyperconductiveOceans, PlanetClass::Oceanic) => 16,
         (PlanetSpecial::VolatileCoreInstability, PlanetClass::Volcanic) => 15,
         (PlanetSpecial::FrozenDataVault, PlanetClass::Frozen) => 12,
@@ -95,7 +104,10 @@ fn planet_special_weight(
     let spectral_bias = match (special, context.spectral_class) {
         (PlanetSpecial::HyperconductiveOceans, SpectralClass::A | SpectralClass::F) => 7,
         (PlanetSpecial::GravitationalFractureZone, SpectralClass::O | SpectralClass::B) => 8,
-        (PlanetSpecial::CrystalFormations | PlanetSpecial::CrystalForests, SpectralClass::A | SpectralClass::F) => 6,
+        (
+            PlanetSpecial::CrystalFormations | PlanetSpecial::CrystalForests,
+            SpectralClass::A | SpectralClass::F,
+        ) => 6,
         (PlanetSpecial::OrbitalGraveyard, SpectralClass::G | SpectralClass::K) => 4,
         _ => 0,
     };
@@ -342,7 +354,7 @@ pub fn generate_planet_discoveries_for_context(
             })
             .collect();
         if let Ok(dist) = WeightedIndex::new(&weights) {
-                anomalies.push(all[dist.sample(&mut anomaly_rng)]);
+            anomalies.push(all[dist.sample(&mut anomaly_rng)]);
         }
     }
 
@@ -394,7 +406,8 @@ pub fn generate_planet_specials_and_resources_for_context(
     planet_index: usize,
     context: ResourceGenerationContext,
 ) -> (Vec<PlanetSpecial>, Vec<StrategicResource>) {
-    let discoveries = generate_planet_discoveries_for_context(galaxy_seed, star_id, planet_index, context);
+    let discoveries =
+        generate_planet_discoveries_for_context(galaxy_seed, star_id, planet_index, context);
     (discoveries.specials, discoveries.resources)
 }
 
@@ -1033,7 +1046,10 @@ mod tests {
                 star_y: -160,
             },
         );
-        assert_eq!(discoveries_a, discoveries_b, "discoveries must be deterministic");
+        assert_eq!(
+            discoveries_a, discoveries_b,
+            "discoveries must be deterministic"
+        );
     }
 
     #[test]

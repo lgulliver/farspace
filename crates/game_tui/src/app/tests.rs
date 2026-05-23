@@ -864,6 +864,7 @@ fn end_turn_report_counts_key_events() {
     assert!(report.contains("Turn 12 global summary (all empires)"));
     assert!(report.contains("explored 1"));
     assert!(report.contains("surveyed 1"));
+    assert!(report.contains("discoveries 0"));
     assert!(report.contains("colonized 1"));
     assert!(report.contains("research 1"));
     assert!(report.contains("queued starts 0"));
@@ -883,7 +884,7 @@ fn end_turn_report_handles_empty_event_list() {
     let report = App::build_end_turn_report(3, &[]);
     assert_eq!(
         report,
-        "Turn 3 global summary (all empires): explored 0, surveyed 0, colonized 0, research 0, queued starts 0, arrivals 0, combats 0, retreats 0, invasions won 0, invasions failed 0, treaties 0, wars 0, peaces 0, victory milestones 0, victories 0, warnings 0, isolated 0, reconnected 0, errors 0."
+        "Turn 3 global summary (all empires): explored 0, surveyed 0, discoveries 0, colonized 0, research 0, queued starts 0, arrivals 0, combats 0, retreats 0, invasions won 0, invasions failed 0, treaties 0, wars 0, peaces 0, victory milestones 0, victories 0, warnings 0, isolated 0, reconnected 0, errors 0."
     );
 }
 

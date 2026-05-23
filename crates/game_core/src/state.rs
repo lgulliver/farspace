@@ -415,7 +415,11 @@ impl DiscoveryRequirements {
     }
 }
 
-fn requirements_met(requirements: DiscoveryRequirements, surveyed: bool, completed_techs: &[TechId]) -> bool {
+fn requirements_met(
+    requirements: DiscoveryRequirements,
+    surveyed: bool,
+    completed_techs: &[TechId],
+) -> bool {
     (!requirements.surveyed || surveyed)
         && requirements
             .required_techs
@@ -537,23 +541,57 @@ impl PlanetSpecial {
 
     pub fn description(self) -> &'static str {
         match self {
-            PlanetSpecial::MineralRich => "Dense lithic seams support efficient industrial extraction.",
-            PlanetSpecial::FertileBiosphere => "Robust native ecologies enrich local harvest cycles.",
-            PlanetSpecial::AncientRuins => "Collapsed vault-cities preserve scientific fragments from a vanished age.",
-            PlanetSpecial::CrystalFormations => "Resonant crystal growths amplify commerce and laboratory output.",
-            PlanetSpecial::HostileWeather => "Unstable storms make long-term development expensive and slow.",
-            PlanetSpecial::LowGravity => "Reduced gravity eases heavy construction and orbital logistics.",
-            PlanetSpecial::CrystalForests => "Shardwood canopies refract starlight into a persistent bioelectric haze.",
-            PlanetSpecial::SubterraneanMegacaverns => "Planet-deep caverns create immense room for industry and storage.",
-            PlanetSpecial::HyperconductiveOceans => "Electroactive oceans turn storms into usable planetary energy.",
-            PlanetSpecial::VolatileCoreInstability => "The world burns hot beneath its crust, promising power and danger.",
-            PlanetSpecial::PrecursorBeacon => "A dormant beacon still sweeps the void with old coordinate pulses.",
-            PlanetSpecial::BioluminescentJungles => "Luminous jungles support rich habitats and unusual field research.",
-            PlanetSpecial::AncientDefenseGrid => "Automated gun-emplacements still ring the world in broken silence.",
-            PlanetSpecial::FrozenDataVault => "Cryo-sealed archives keep knowledge intact beneath ancient ice.",
-            PlanetSpecial::NaniteScarfields => "Dead nanite clouds still restructure the surface in slow metallic tides.",
-            PlanetSpecial::GravitationalFractureZone => "Localized gravitic shears make transport difficult but physics rich.",
-            PlanetSpecial::OrbitalGraveyard => "Decayed hulls and memorial debris encircle the world in silent layers.",
+            PlanetSpecial::MineralRich => {
+                "Dense lithic seams support efficient industrial extraction."
+            }
+            PlanetSpecial::FertileBiosphere => {
+                "Robust native ecologies enrich local harvest cycles."
+            }
+            PlanetSpecial::AncientRuins => {
+                "Collapsed vault-cities preserve scientific fragments from a vanished age."
+            }
+            PlanetSpecial::CrystalFormations => {
+                "Resonant crystal growths amplify commerce and laboratory output."
+            }
+            PlanetSpecial::HostileWeather => {
+                "Unstable storms make long-term development expensive and slow."
+            }
+            PlanetSpecial::LowGravity => {
+                "Reduced gravity eases heavy construction and orbital logistics."
+            }
+            PlanetSpecial::CrystalForests => {
+                "Shardwood canopies refract starlight into a persistent bioelectric haze."
+            }
+            PlanetSpecial::SubterraneanMegacaverns => {
+                "Planet-deep caverns create immense room for industry and storage."
+            }
+            PlanetSpecial::HyperconductiveOceans => {
+                "Electroactive oceans turn storms into usable planetary energy."
+            }
+            PlanetSpecial::VolatileCoreInstability => {
+                "The world burns hot beneath its crust, promising power and danger."
+            }
+            PlanetSpecial::PrecursorBeacon => {
+                "A dormant beacon still sweeps the void with old coordinate pulses."
+            }
+            PlanetSpecial::BioluminescentJungles => {
+                "Luminous jungles support rich habitats and unusual field research."
+            }
+            PlanetSpecial::AncientDefenseGrid => {
+                "Automated gun-emplacements still ring the world in broken silence."
+            }
+            PlanetSpecial::FrozenDataVault => {
+                "Cryo-sealed archives keep knowledge intact beneath ancient ice."
+            }
+            PlanetSpecial::NaniteScarfields => {
+                "Dead nanite clouds still restructure the surface in slow metallic tides."
+            }
+            PlanetSpecial::GravitationalFractureZone => {
+                "Localized gravitic shears make transport difficult but physics rich."
+            }
+            PlanetSpecial::OrbitalGraveyard => {
+                "Decayed hulls and memorial debris encircle the world in silent layers."
+            }
         }
     }
 
@@ -1430,13 +1468,20 @@ pub fn visible_resources_for_empire(
 }
 
 /// Returns planet specials visible to an empire on this planet.
-pub fn visible_specials_for_empire(planet: &Planet, completed_techs: &[TechId]) -> Vec<PlanetSpecial> {
+pub fn visible_specials_for_empire(
+    planet: &Planet,
+    completed_techs: &[TechId],
+) -> Vec<PlanetSpecial> {
     planet
         .specials
         .iter()
         .copied()
         .filter(|special| {
-            requirements_met(special.visibility_requirements(), planet.surveyed, completed_techs)
+            requirements_met(
+                special.visibility_requirements(),
+                planet.surveyed,
+                completed_techs,
+            )
         })
         .collect()
 }
@@ -1451,7 +1496,11 @@ pub fn visible_anomalies_for_empire(
         .iter()
         .copied()
         .filter(|anomaly| {
-            requirements_met(anomaly.detection_requirements(), planet.surveyed, completed_techs)
+            requirements_met(
+                anomaly.detection_requirements(),
+                planet.surveyed,
+                completed_techs,
+            )
         })
         .collect()
 }

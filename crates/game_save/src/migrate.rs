@@ -143,18 +143,19 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                 for star in save.state.stars.values_mut() {
                     let star_id = star.id;
                     for (planet_index, planet) in star.planets.iter_mut().enumerate() {
-                        let discoveries = game_core::galaxy::generate_planet_discoveries_for_context(
-                            seed,
-                            star_id,
-                            planet_index,
-                            game_core::galaxy::ResourceGenerationContext {
-                                planet_class: planet.class,
-                                spectral_class: star.spectral_class,
-                                sector_id: star.sector,
-                                star_x: star.x,
-                                star_y: star.y,
-                            },
-                        );
+                        let discoveries =
+                            game_core::galaxy::generate_planet_discoveries_for_context(
+                                seed,
+                                star_id,
+                                planet_index,
+                                game_core::galaxy::ResourceGenerationContext {
+                                    planet_class: planet.class,
+                                    spectral_class: star.spectral_class,
+                                    sector_id: star.sector,
+                                    star_x: star.x,
+                                    star_y: star.y,
+                                },
+                            );
                         planet.anomalies = discoveries.anomalies;
                     }
                 }

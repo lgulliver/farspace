@@ -381,6 +381,7 @@ mod tests {
             surveyed: true,
             specials: vec![],
             resources: vec![],
+            anomalies: vec![],
             ancient_ruins_collected: false,
         }
     }
@@ -468,6 +469,7 @@ mod tests {
             surveyed: true,
             specials: vec![],
             resources: vec![],
+            anomalies: vec![],
             ancient_ruins_collected: false,
         };
         let y = calculate_yield(&colony, Some(&planet));
@@ -487,6 +489,7 @@ mod tests {
             surveyed: true,
             specials: vec![],
             resources: vec![],
+            anomalies: vec![],
             ancient_ruins_collected: false,
         };
         let y = calculate_yield(&colony, Some(&planet));
@@ -559,6 +562,7 @@ mod tests {
             surveyed: true,
             specials: vec![],
             resources: vec![],
+            anomalies: vec![],
             ancient_ruins_collected: false,
         };
         let y = calculate_yield(&colony, Some(&planet));
@@ -744,6 +748,7 @@ mod tests {
             surveyed,
             specials,
             resources,
+            anomalies: vec![],
             ancient_ruins_collected: false,
         }
     }
@@ -841,6 +846,21 @@ mod tests {
         assert_eq!(
             y.industry, 12,
             "LowGravity should add +2 industry when surveyed"
+        );
+    }
+
+    #[test]
+    fn surveyed_planet_applies_anomaly_effects() {
+        use crate::state::PlanetAnomaly;
+        let colony = base_colony();
+        let planet = Planet {
+            anomalies: vec![PlanetAnomaly::TemporalEchoField],
+            ..planet_with_specials(vec![], vec![], true)
+        };
+        let y = calculate_yield(&colony, Some(&planet));
+        assert_eq!(
+            y.science, 7,
+            "TemporalEchoField should add +2 science when surveyed"
         );
     }
 
@@ -946,6 +966,7 @@ mod tests {
             surveyed: true,
             specials: vec![],
             resources: vec![],
+            anomalies: vec![],
             ancient_ruins_collected: false,
         };
         let y = calculate_yield(&colony, Some(&cramped));

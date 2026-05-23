@@ -1353,6 +1353,7 @@ fn visible_resources_require_survey_and_discovery_tech() {
             StrategicResource::DarkMatter,
             StrategicResource::PrecursorDatacores,
         ],
+        anomalies: vec![],
         ancient_ruins_collected: false,
     };
 
@@ -1376,6 +1377,52 @@ fn visible_resources_require_survey_and_discovery_tech() {
     );
     assert!(late_visible.contains(&StrategicResource::DarkMatter));
     assert!(late_visible.contains(&StrategicResource::PrecursorDatacores));
+}
+
+#[test]
+fn visible_anomalies_require_survey_and_detection_tech() {
+    let mut planet = Planet {
+        name: "Signal I".to_string(),
+        class: PlanetClass::Frozen,
+        size: PlanetSize::Medium,
+        colony: None,
+        habitable: true,
+        surveyed: false,
+        specials: vec![],
+        resources: vec![],
+        anomalies: vec![
+            PlanetAnomaly::FrozenColonyVessel,
+            PlanetAnomaly::TemporalEchoField,
+            PlanetAnomaly::VoidSignalArray,
+        ],
+        ancient_ruins_collected: false,
+    };
+
+    assert!(
+        visible_anomalies_for_empire(&planet, &[]).is_empty(),
+        "unsurveyed planets must not reveal anomalies"
+    );
+
+    planet.surveyed = true;
+    let basic = visible_anomalies_for_empire(&planet, &[]);
+    assert!(basic.contains(&PlanetAnomaly::FrozenColonyVessel));
+    assert!(
+        !basic.contains(&PlanetAnomaly::TemporalEchoField),
+        "advanced anomalies should stay hidden before advanced survey"
+    );
+
+    let advanced = visible_anomalies_for_empire(&planet, &[TechId::ADVANCED_SURVEY]);
+    assert!(advanced.contains(&PlanetAnomaly::TemporalEchoField));
+    assert!(
+        !advanced.contains(&PlanetAnomaly::VoidSignalArray),
+        "legendary signal arrays should stay hidden before sensor-net tech"
+    );
+
+    let late = visible_anomalies_for_empire(
+        &planet,
+        &[TechId::ADVANCED_SURVEY, TechId::PAN_GALACTIC_SENSOR_NET],
+    );
+    assert!(late.contains(&PlanetAnomaly::VoidSignalArray));
 }
 
 #[test]
@@ -1421,6 +1468,7 @@ fn resource_extraction_requires_control_supply_and_is_blockade_sensitive() {
                 surveyed: true,
                 specials: vec![],
                 resources: vec![StrategicResource::QuantumCrystals],
+                anomalies: vec![],
                 ancient_ruins_collected: false,
             }],
         },

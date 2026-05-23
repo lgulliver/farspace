@@ -213,7 +213,9 @@ impl App {
             | CoreEvent::ColonyReconnected { colony } => self.colony_is_player_owned(*colony),
             CoreEvent::SystemExplored { star }
             | CoreEvent::PlanetSurveyCompleted { star, .. }
-            | CoreEvent::AncientRuinsDiscovered { star, .. } => self.star_is_player_explored(*star),
+            | CoreEvent::AncientRuinsDiscovered { star, .. }
+            | CoreEvent::PlanetSpecialDiscovered { star, .. }
+            | CoreEvent::AnomalyDetected { star, .. } => self.star_is_player_explored(*star),
             CoreEvent::AiResearchSelected { empire, .. }
             | CoreEvent::AiBuildQueued { empire, .. }
             | CoreEvent::AiScoutDispatched { empire, .. }
@@ -284,6 +286,7 @@ impl App {
         let mut research_completed = 0usize;
         let mut queue_transitions_started = 0usize;
         let mut fleets_arrived = 0usize;
+        let mut discoveries = 0usize;
         let mut warnings = 0usize;
         let mut errors = 0usize;
         let mut newly_isolated = 0usize;
@@ -304,6 +307,10 @@ impl App {
                 CoreEvent::PlanetSurveyCompleted { .. } => surveyed += 1,
                 CoreEvent::ColonizationCompleted { .. } => colonized += 1,
                 CoreEvent::ResearchCompleted { .. } => research_completed += 1,
+                CoreEvent::AncientRuinsDiscovered { .. }
+                | CoreEvent::PlanetSpecialDiscovered { .. }
+                | CoreEvent::AnomalyDetected { .. }
+                | CoreEvent::StrategicResourceDiscovered { .. } => discoveries += 1,
                 CoreEvent::ResearchCompletedWithQueueTransition {
                     started: Some(_), ..
                 } => queue_transitions_started += 1,
@@ -328,10 +335,11 @@ impl App {
         }
 
         format!(
-            "Turn {} global summary (all empires): explored {}, surveyed {}, colonized {}, research {}, queued starts {}, arrivals {}, combats {}, retreats {}, invasions won {}, invasions failed {}, treaties {}, wars {}, peaces {}, victory milestones {}, victories {}, warnings {}, isolated {}, reconnected {}, errors {}.",
+            "Turn {} global summary (all empires): explored {}, surveyed {}, discoveries {}, colonized {}, research {}, queued starts {}, arrivals {}, combats {}, retreats {}, invasions won {}, invasions failed {}, treaties {}, wars {}, peaces {}, victory milestones {}, victories {}, warnings {}, isolated {}, reconnected {}, errors {}.",
             turn,
             explored,
             surveyed,
+            discoveries,
             colonized,
             research_completed,
             queue_transitions_started,

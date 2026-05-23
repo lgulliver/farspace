@@ -1,8 +1,8 @@
 //! Galaxy generation
 
 use crate::state::{
-    HyperspaceLane, Planet, PlanetClass, PlanetSize, PlanetSpecial, Sector, SectorId,
-    SpectralClass, Star, StarId, StrategicResource,
+    DiscoveryRarity, HyperspaceLane, Planet, PlanetAnomaly, PlanetClass, PlanetSize, PlanetSpecial,
+    Sector, SectorId, SpectralClass, Star, StarId, StrategicResource,
 };
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
@@ -59,6 +59,157 @@ pub struct ResourceGenerationContext {
     pub sector_id: SectorId,
     pub star_x: i32,
     pub star_y: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanetDiscoveries {
+    pub specials: Vec<PlanetSpecial>,
+    pub anomalies: Vec<PlanetAnomaly>,
+    pub resources: Vec<StrategicResource>,
+}
+
+fn frontier_distance_bonus(x: i32, y: i32, max: i32) -> u32 {
+    ((x.abs() + y.abs()) / FRONTIER_DISTANCE_DIVISOR).clamp(0, max) as u32
+}
+
+fn planet_special_weight(
+    special: PlanetSpecial,
+    context: ResourceGenerationContext,
+    is_hazardous: bool,
+    has_precursor_signature: bool,
+    in_nebula_band: bool,
+) -> u32 {
+    let base = match special.rarity() {
+        DiscoveryRarity::Common => 26,
+        DiscoveryRarity::Uncommon => 14,
+        DiscoveryRarity::Rare => 6,
+        DiscoveryRarity::Legendary => 2,
+    };
+    let class_bias = match (special, context.planet_class) {
+        (
+            PlanetSpecial::MineralRich | PlanetSpecial::SubterraneanMegacaverns,
+            PlanetClass::Barren | PlanetClass::Volcanic,
+        ) => 14,
+        (
+            PlanetSpecial::FertileBiosphere | PlanetSpecial::BioluminescentJungles,
+            PlanetClass::Terran | PlanetClass::Oceanic,
+        ) => 12,
+        (
+            PlanetSpecial::CrystalFormations | PlanetSpecial::CrystalForests,
+            PlanetClass::Frozen | PlanetClass::Desert,
+        ) => 10,
+        (PlanetSpecial::HyperconductiveOceans, PlanetClass::Oceanic) => 16,
+        (PlanetSpecial::VolatileCoreInstability, PlanetClass::Volcanic) => 15,
+        (PlanetSpecial::FrozenDataVault, PlanetClass::Frozen) => 12,
+        (PlanetSpecial::LowGravity, PlanetClass::Barren | PlanetClass::Desert) => 8,
+        (PlanetSpecial::NaniteScarfields, PlanetClass::Volcanic | PlanetClass::Barren) => 9,
+        _ => 0,
+    };
+    let spectral_bias = match (special, context.spectral_class) {
+        (PlanetSpecial::HyperconductiveOceans, SpectralClass::A | SpectralClass::F) => 7,
+        (PlanetSpecial::GravitationalFractureZone, SpectralClass::O | SpectralClass::B) => 8,
+        (
+            PlanetSpecial::CrystalFormations | PlanetSpecial::CrystalForests,
+            SpectralClass::A | SpectralClass::F,
+        ) => 6,
+        (PlanetSpecial::OrbitalGraveyard, SpectralClass::G | SpectralClass::K) => 4,
+        _ => 0,
+    };
+    let frontier_bonus = frontier_distance_bonus(context.star_x, context.star_y, 5);
+    let hazard_bias = if is_hazardous {
+        match special {
+            PlanetSpecial::HostileWeather
+            | PlanetSpecial::VolatileCoreInstability
+            | PlanetSpecial::GravitationalFractureZone
+            | PlanetSpecial::NaniteScarfields => 12,
+            _ => 2,
+        }
+    } else {
+        0
+    };
+    let precursor_bias = if has_precursor_signature {
+        match special {
+            PlanetSpecial::AncientRuins
+            | PlanetSpecial::PrecursorBeacon
+            | PlanetSpecial::AncientDefenseGrid
+            | PlanetSpecial::FrozenDataVault
+            | PlanetSpecial::OrbitalGraveyard => 15,
+            _ => 0,
+        }
+    } else {
+        0
+    };
+    let nebula_bias = if in_nebula_band {
+        match special {
+            PlanetSpecial::BioluminescentJungles
+            | PlanetSpecial::CrystalForests
+            | PlanetSpecial::GravitationalFractureZone => 5,
+            _ => 0,
+        }
+    } else {
+        0
+    };
+    base + class_bias + spectral_bias + frontier_bonus + hazard_bias + precursor_bias + nebula_bias
+}
+
+fn anomaly_weight(
+    anomaly: PlanetAnomaly,
+    context: ResourceGenerationContext,
+    is_hazardous: bool,
+    has_precursor_signature: bool,
+    in_nebula_band: bool,
+) -> u32 {
+    let base = match anomaly.rarity() {
+        DiscoveryRarity::Common => 0,
+        DiscoveryRarity::Uncommon => 15,
+        DiscoveryRarity::Rare => 8,
+        DiscoveryRarity::Legendary => 3,
+    };
+    let class_bias = match (anomaly, context.planet_class) {
+        (PlanetAnomaly::FrozenColonyVessel, PlanetClass::Frozen | PlanetClass::Terran) => 10,
+        (PlanetAnomaly::RogueNaniteSwarm, PlanetClass::Volcanic | PlanetClass::Barren) => 12,
+        (PlanetAnomaly::GraviticStormFront, PlanetClass::Volcanic | PlanetClass::Frozen) => 10,
+        (PlanetAnomaly::CollapsedJumpCorridor, PlanetClass::Barren | PlanetClass::Desert) => 8,
+        _ => 0,
+    };
+    let spectral_bias = match (anomaly, context.spectral_class) {
+        (PlanetAnomaly::TemporalEchoField, SpectralClass::A | SpectralClass::F) => 8,
+        (PlanetAnomaly::GraviticStormFront, SpectralClass::O | SpectralClass::B) => 10,
+        (PlanetAnomaly::QuantumReflectionZone, SpectralClass::B | SpectralClass::A) => 8,
+        _ => 0,
+    };
+    let frontier_bonus = frontier_distance_bonus(context.star_x, context.star_y, 6);
+    let hazard_bias = if is_hazardous {
+        match anomaly {
+            PlanetAnomaly::RogueNaniteSwarm
+            | PlanetAnomaly::GraviticStormFront
+            | PlanetAnomaly::DerelictBattleSphere => 14,
+            _ => 3,
+        }
+    } else {
+        0
+    };
+    let precursor_bias = if has_precursor_signature {
+        match anomaly {
+            PlanetAnomaly::SilentRelayNetwork
+            | PlanetAnomaly::PrecursorListeningPost
+            | PlanetAnomaly::VoidSignalArray => 18,
+            _ => 2,
+        }
+    } else {
+        0
+    };
+    let nebula_bias = if in_nebula_band {
+        match anomaly {
+            PlanetAnomaly::QuantumReflectionZone
+            | PlanetAnomaly::TemporalEchoField
+            | PlanetAnomaly::SilentRelayNetwork => 6,
+            _ => 0,
+        }
+    } else {
+        0
+    };
+    base + class_bias + spectral_bias + frontier_bonus + hazard_bias + precursor_bias + nebula_bias
 }
 
 fn strategic_resource_weight(
@@ -132,13 +283,13 @@ fn strategic_resource_weight(
         + nebula_bias
 }
 
-/// Context-aware deterministic resource generation.
-pub fn generate_planet_specials_and_resources_for_context(
+/// Context-aware deterministic discovery generation.
+pub fn generate_planet_discoveries_for_context(
     galaxy_seed: u64,
     star_id: StarId,
     planet_index: usize,
     context: ResourceGenerationContext,
-) -> (Vec<PlanetSpecial>, Vec<StrategicResource>) {
+) -> PlanetDiscoveries {
     let planet_seed = galaxy_seed
         .wrapping_add(star_id.0.wrapping_mul(1_000_003))
         .wrapping_add(planet_index as u64 * 999_983)
@@ -147,6 +298,9 @@ pub fn generate_planet_specials_and_resources_for_context(
             ((context.star_x as i64).unsigned_abs() + (context.star_y as i64).unsigned_abs()) * 131,
         );
     let mut planet_rng = ChaCha8Rng::seed_from_u64(planet_seed);
+    // Separate anomaly RNG stream keeps anomaly rolls independent from legacy
+    // special/resource RNG consumption while preserving deterministic placement.
+    let mut anomaly_rng = ChaCha8Rng::seed_from_u64(planet_seed ^ 0xA11A_D15C_0FFE_51E5);
 
     let is_hazardous = planet_rng.gen::<u8>() < 28;
     let has_precursor_signature = planet_rng.gen::<u8>() < 10;
@@ -156,21 +310,56 @@ pub fn generate_planet_specials_and_resources_for_context(
 
     let mut specials = Vec::new();
     let special_roll_threshold = if has_precursor_signature {
-        148u8
+        146u8
     } else if is_hazardous {
-        128u8
+        124u8
     } else {
-        102u8
+        92u8
     };
     if planet_rng.gen::<u8>() < special_roll_threshold {
-        let mut valid: Vec<PlanetSpecial> = PlanetSpecial::all().to_vec();
-        if has_precursor_signature {
-            // Intentional weighting boost: ruins stay in `all()`, and precursor signatures
-            // add one extra ruins entry to increase discovery probability.
-            valid.push(PlanetSpecial::AncientRuins);
+        let all = PlanetSpecial::all();
+        let weights: Vec<u32> = all
+            .iter()
+            .map(|special| {
+                planet_special_weight(
+                    *special,
+                    context,
+                    is_hazardous,
+                    has_precursor_signature,
+                    in_nebula_band,
+                )
+            })
+            .collect();
+        if let Ok(dist) = WeightedIndex::new(&weights) {
+            specials.push(all[dist.sample(&mut planet_rng)]);
         }
-        let idx = planet_rng.gen_range(0..valid.len());
-        specials.push(valid[idx]);
+    }
+
+    let mut anomalies = Vec::new();
+    let anomaly_roll_threshold = if has_precursor_signature {
+        68u8
+    } else if is_hazardous || hotspot_bias {
+        54u8
+    } else {
+        34u8
+    };
+    if anomaly_rng.gen::<u8>() < anomaly_roll_threshold {
+        let all = PlanetAnomaly::all();
+        let weights: Vec<u32> = all
+            .iter()
+            .map(|anomaly| {
+                anomaly_weight(
+                    *anomaly,
+                    context,
+                    is_hazardous,
+                    has_precursor_signature,
+                    in_nebula_band,
+                )
+            })
+            .collect();
+        if let Ok(dist) = WeightedIndex::new(&weights) {
+            anomalies.push(all[dist.sample(&mut anomaly_rng)]);
+        }
     }
 
     let base_resource_roll = if hotspot_bias {
@@ -207,7 +396,23 @@ pub fn generate_planet_specials_and_resources_for_context(
         }
     }
 
-    (specials, resources)
+    PlanetDiscoveries {
+        specials,
+        anomalies,
+        resources,
+    }
+}
+
+/// Context-aware deterministic resource generation.
+pub fn generate_planet_specials_and_resources_for_context(
+    galaxy_seed: u64,
+    star_id: StarId,
+    planet_index: usize,
+    context: ResourceGenerationContext,
+) -> (Vec<PlanetSpecial>, Vec<StrategicResource>) {
+    let discoveries =
+        generate_planet_discoveries_for_context(galaxy_seed, star_id, planet_index, context);
+    (discoveries.specials, discoveries.resources)
 }
 
 /// Backward-compatible API used by older migration/tests.
@@ -233,7 +438,7 @@ pub fn generate_planet_specials_and_resources(
         + planet_index as i32 * SYNTHETIC_Y_PLANET_MULT)
         % SYNTHETIC_COORD_MODULUS)
         - SYNTHETIC_COORD_OFFSET;
-    generate_planet_specials_and_resources_for_context(
+    let discoveries = generate_planet_discoveries_for_context(
         galaxy_seed,
         star_id,
         planet_index,
@@ -244,7 +449,8 @@ pub fn generate_planet_specials_and_resources(
             star_x: x,
             star_y: y,
         },
-    )
+    );
+    (discoveries.specials, discoveries.resources)
 }
 
 /// Generate a galaxy with the given seed and star count
@@ -327,7 +533,7 @@ pub fn generate_galaxy_with_config(
                 // to avoid consuming extra RNG calls that would break fixed-seed tests
                 let class_idx = (id * 37 + i * 11) % PlanetClass::all().len();
                 let class = PlanetClass::all()[class_idx];
-                let (specials, resources) = generate_planet_specials_and_resources_for_context(
+                let discoveries = generate_planet_discoveries_for_context(
                     seed,
                     StarId(id as u64),
                     i,
@@ -346,8 +552,9 @@ pub fn generate_galaxy_with_config(
                     colony: None,
                     habitable: true,
                     surveyed: false,
-                    specials,
-                    resources,
+                    specials: discoveries.specials,
+                    resources: discoveries.resources,
+                    anomalies: discoveries.anomalies,
                     ancient_ruins_collected: false,
                 }
             })
@@ -819,6 +1026,34 @@ mod tests {
         let (specials_b, resources_b) = generate_planet_specials_and_resources(42, StarId(3), 0);
         assert_eq!(specials_a, specials_b, "specials must be deterministic");
         assert_eq!(resources_a, resources_b, "resources must be deterministic");
+        let discoveries_a = generate_planet_discoveries_for_context(
+            42,
+            StarId(3),
+            0,
+            ResourceGenerationContext {
+                planet_class: PlanetClass::Frozen,
+                spectral_class: SpectralClass::A,
+                sector_id: SectorId(1),
+                star_x: 200,
+                star_y: -160,
+            },
+        );
+        let discoveries_b = generate_planet_discoveries_for_context(
+            42,
+            StarId(3),
+            0,
+            ResourceGenerationContext {
+                planet_class: PlanetClass::Frozen,
+                spectral_class: SpectralClass::A,
+                sector_id: SectorId(1),
+                star_x: 200,
+                star_y: -160,
+            },
+        );
+        assert_eq!(
+            discoveries_a, discoveries_b,
+            "discoveries must be deterministic"
+        );
     }
 
     #[test]
@@ -869,11 +1104,15 @@ mod tests {
         // All generated planets must have specials/resources fields (even if empty).
         let gal = generate_galaxy(42, 20);
         let mut any_specials = false;
+        let mut any_anomalies = false;
         let mut any_resources = false;
         for star in &gal.stars {
             for planet in &star.planets {
                 if !planet.specials.is_empty() {
                     any_specials = true;
+                }
+                if !planet.anomalies.is_empty() {
+                    any_anomalies = true;
                 }
                 if !planet.resources.is_empty() {
                     any_resources = true;
@@ -884,8 +1123,40 @@ mod tests {
         }
         // With a 40% special rate over many planets, at least some should appear.
         assert!(any_specials, "at least some planets should have specials");
+        assert!(any_anomalies, "at least some planets should have anomalies");
         // With a 30% resource rate over many planets, at least some should appear.
         assert!(any_resources, "at least some planets should have resources");
+    }
+
+    #[test]
+    fn common_specials_and_uncommon_anomalies_outnumber_legendary_findings() {
+        let gal = generate_galaxy(1337, 100);
+        let mut common_specials = 0usize;
+        let mut legendary_specials = 0usize;
+        let mut uncommon_anomalies = 0usize;
+        let mut legendary_anomalies = 0usize;
+
+        for star in &gal.stars {
+            for planet in &star.planets {
+                for special in &planet.specials {
+                    match special.rarity() {
+                        DiscoveryRarity::Common => common_specials += 1,
+                        DiscoveryRarity::Legendary => legendary_specials += 1,
+                        _ => {}
+                    }
+                }
+                for anomaly in &planet.anomalies {
+                    match anomaly.rarity() {
+                        DiscoveryRarity::Uncommon => uncommon_anomalies += 1,
+                        DiscoveryRarity::Legendary => legendary_anomalies += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        assert!(common_specials > legendary_specials);
+        assert!(uncommon_anomalies >= legendary_anomalies);
     }
 
     #[test]

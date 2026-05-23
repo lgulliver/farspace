@@ -16,9 +16,10 @@
 use crate::engine::travel_turns_with_lanes;
 use crate::events::Event;
 use crate::state::{
-    all_techs, empire_definition_by_id, is_tech_available, AiDoctrine, BuildItem, BuildingType,
-    Colony, ColonyId, ColonyRole, ComponentId, CustomDesignId, CustomShipDesign, EmpireId,
-    FleetFormation, FleetId, FleetKind, FleetRole, GameState, OrbitalStructureType, PlanetClass,
+    all_techs, empire_definition_by_id, is_tech_available, visible_anomalies_for_empire,
+    visible_specials_for_empire, AiDoctrine, BuildItem, BuildingType, Colony, ColonyId, ColonyRole,
+    ComponentId, CustomDesignId, CustomShipDesign, EmpireId, FleetFormation, FleetId, FleetKind,
+    FleetRole, GameState, OrbitalStructureType, PlanetAnomaly, PlanetClass, PlanetSpecial,
     PlaystyleTag, ScoutMission, ShipDesignId, SlotCategory, StarId, StrategicResource,
     StrategicResourceCategory, TechDomain, TechId, TechTag, VictoryPath,
 };
@@ -42,6 +43,64 @@ fn resource_value_for_doctrine(resource: StrategicResource, doctrine: AiDoctrine
         _ => 0,
     };
     base + cat_bonus
+}
+
+fn special_value_for_doctrine(special: PlanetSpecial, doctrine: AiDoctrine) -> i32 {
+    let effect = special.yield_effect();
+    let base = (i64::from(special.rarity().valuation_weight()) * 8
+        + effect.industry
+        + effect.science
+        + effect.credits
+        + effect.food) as i32;
+    let cat_bonus = match (doctrine, special.category()) {
+        (AiDoctrine::Industrialist, crate::state::PlanetSpecialCategory::Industrial)
+        | (AiDoctrine::Industrialist, crate::state::PlanetSpecialCategory::Resource) => 16,
+        (AiDoctrine::Technologist, crate::state::PlanetSpecialCategory::Scientific)
+        | (AiDoctrine::Technologist, crate::state::PlanetSpecialCategory::Precursor) => 20,
+        (AiDoctrine::Explorer, crate::state::PlanetSpecialCategory::Environmental)
+        | (AiDoctrine::Explorer, crate::state::PlanetSpecialCategory::Strategic) => 14,
+        (AiDoctrine::Expansionist, crate::state::PlanetSpecialCategory::Biological) => 16,
+        (AiDoctrine::Militarist, crate::state::PlanetSpecialCategory::Hazard)
+        | (AiDoctrine::Militarist, crate::state::PlanetSpecialCategory::Strategic) => 14,
+        (AiDoctrine::Merchant, crate::state::PlanetSpecialCategory::Cultural)
+        | (AiDoctrine::Merchant, crate::state::PlanetSpecialCategory::Resource) => 12,
+        _ => 0,
+    };
+    base + cat_bonus
+}
+
+fn anomaly_value_for_doctrine(anomaly: PlanetAnomaly, doctrine: AiDoctrine) -> i32 {
+    let effect = anomaly.yield_effect();
+    let base = (i64::from(anomaly.rarity().valuation_weight()) * 10
+        + effect.industry
+        + effect.science
+        + effect.credits
+        + effect.food) as i32;
+    let cat_bonus = match (doctrine, anomaly.category()) {
+        (AiDoctrine::Explorer, crate::state::AnomalyCategory::Stellar)
+        | (AiDoctrine::Explorer, crate::state::AnomalyCategory::Temporal)
+        | (AiDoctrine::Explorer, crate::state::AnomalyCategory::Gravitational) => 18,
+        (AiDoctrine::Technologist, crate::state::AnomalyCategory::ExoticPhysics)
+        | (AiDoctrine::Technologist, crate::state::AnomalyCategory::Precursor)
+        | (AiDoctrine::Technologist, crate::state::AnomalyCategory::Archaeological) => 20,
+        (AiDoctrine::Militarist, crate::state::AnomalyCategory::Military) => 16,
+        (AiDoctrine::Expansionist, crate::state::AnomalyCategory::Stellar) => 12,
+        _ => 0,
+    };
+    let risk_bonus = match anomaly.risk_level() {
+        Some(crate::state::AnomalyRiskLevel::Low) => 0,
+        Some(crate::state::AnomalyRiskLevel::Moderate) => 3,
+        Some(crate::state::AnomalyRiskLevel::High) => 5,
+        Some(crate::state::AnomalyRiskLevel::Severe) => {
+            if doctrine == AiDoctrine::Isolationist {
+                -4
+            } else {
+                6
+            }
+        }
+        None => 0,
+    };
+    base + cat_bonus + risk_bonus
 }
 
 fn ai_primary_doctrine(state: &GameState, empire_id: EmpireId) -> AiDoctrine {
@@ -70,10 +129,11 @@ fn ai_primary_doctrine(state: &GameState, empire_id: EmpireId) -> AiDoctrine {
         .unwrap_or(AiDoctrine::Explorer)
 }
 
-fn scout_resource_prospect_score(state: &GameState, star_id: StarId) -> i32 {
+fn scout_resource_prospect_score(state: &GameState, empire_id: EmpireId, star_id: StarId) -> i32 {
     let Some(star) = state.stars.get(&star_id) else {
         return 0;
     };
+    let doctrine = ai_primary_doctrine(state, empire_id);
     let spectral_bias = match star.spectral_class {
         crate::state::SpectralClass::O | crate::state::SpectralClass::B => 6,
         crate::state::SpectralClass::A | crate::state::SpectralClass::F => 4,
@@ -84,14 +144,35 @@ fn scout_resource_prospect_score(state: &GameState, star_id: StarId) -> i32 {
         .planets
         .iter()
         .map(|planet| match planet.class {
-            PlanetClass::Volcanic | PlanetClass::Barren => 3,
-            PlanetClass::Frozen | PlanetClass::Desert => 2,
-            PlanetClass::Terran | PlanetClass::Oceanic => 1,
+            PlanetClass::Volcanic | PlanetClass::Barren => 4,
+            PlanetClass::Frozen | PlanetClass::Desert => 3,
+            PlanetClass::Terran | PlanetClass::Oceanic => 2,
         })
         .sum();
     let frontier_bonus =
         ((star.x.abs() + star.y.abs()) / SCOUT_FRONTIER_DISTANCE_DIVISOR).clamp(0, 6);
-    spectral_bias + planet_bias + frontier_bonus
+    let doctrine_bonus = match doctrine {
+        AiDoctrine::Explorer => frontier_bonus + 4,
+        AiDoctrine::Technologist => spectral_bias + 4,
+        AiDoctrine::Militarist => {
+            star.planets
+                .iter()
+                .filter(|planet| {
+                    matches!(planet.class, PlanetClass::Volcanic | PlanetClass::Barren)
+                })
+                .count() as i32
+                * 3
+        }
+        AiDoctrine::Expansionist => {
+            star.planets
+                .iter()
+                .filter(|planet| planet.habitable)
+                .count() as i32
+                * 2
+        }
+        _ => 0,
+    };
+    spectral_bias + planet_bias + frontier_bonus + doctrine_bonus
 }
 
 fn contested_star_resource_score(state: &GameState, attacker: EmpireId, star_id: StarId) -> i32 {
@@ -112,6 +193,17 @@ fn contested_star_resource_score(state: &GameState, attacker: EmpireId, star_id:
         };
         if !planet.surveyed {
             continue;
+        }
+        let completed_techs = state
+            .empires
+            .get(&attacker)
+            .map(|empire| empire.research.completed.as_slice())
+            .unwrap_or(&[]);
+        for special in visible_specials_for_empire(planet, completed_techs) {
+            score += special_value_for_doctrine(special, doctrine) / 5;
+        }
+        for anomaly in visible_anomalies_for_empire(planet, completed_techs) {
+            score += anomaly_value_for_doctrine(anomaly, doctrine) / 5;
         }
         for resource in &planet.resources {
             if state.colony_can_extract_resource(colony.id, *resource) {
@@ -1196,7 +1288,7 @@ fn pick_scout_target(state: &GameState, empire_id: EmpireId) -> Option<(FleetId,
             let s = state.stars.get(&sid)?;
             let dx = (s.x - fleet_star.x) as i64;
             let dy = (s.y - fleet_star.y) as i64;
-            let prospect = scout_resource_prospect_score(state, sid);
+            let prospect = scout_resource_prospect_score(state, empire_id, sid);
             Some((prospect, dx * dx + dy * dy, sid))
         })
         .collect();
@@ -1307,6 +1399,12 @@ fn pick_colonize_target(
                 PlanetClass::Barren => 5,
             };
             if p.surveyed {
+                for special in visible_specials_for_empire(p, &completed_techs) {
+                    score += special_value_for_doctrine(special, doctrine) / 10;
+                }
+                for anomaly in visible_anomalies_for_empire(p, &completed_techs) {
+                    score += anomaly_value_for_doctrine(anomaly, doctrine) / 10;
+                }
                 for resource in &p.resources {
                     if crate::state::is_resource_discoverable(*resource, &completed_techs) {
                         score += resource_value_for_doctrine(*resource, doctrine) / 20;
@@ -2393,6 +2491,79 @@ mod tests {
         assert!(
             !engine.state.fleets.contains_key(&colonizer_id),
             "Colonizer must be consumed after colonization"
+        );
+    }
+
+    #[test]
+    fn ai_colonization_prefers_high_value_discovery_world_deterministically() {
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+        let ai_home = engine.state.empires[&ai].home_star;
+        let target = engine
+            .state
+            .ai_explored_stars
+            .iter()
+            .copied()
+            .find(|&sid| sid != ai_home)
+            .expect("AI needs an explored frontier star");
+
+        engine
+            .state
+            .empires
+            .get_mut(&ai)
+            .unwrap()
+            .research
+            .completed
+            .extend([TechId::ADVANCED_SURVEY, TechId::PAN_GALACTIC_SENSOR_NET]);
+
+        let star = engine.state.stars.get_mut(&target).unwrap();
+        while star.planets.len() < 2 {
+            let mut clone = star.planets[0].clone();
+            clone.name = format!("{} Annex", clone.name);
+            clone.colony = None;
+            clone.surveyed = true;
+            clone.specials.clear();
+            clone.resources.clear();
+            clone.anomalies.clear();
+            star.planets.push(clone);
+        }
+        for (idx, planet) in star.planets.iter_mut().enumerate() {
+            planet.colony = None;
+            planet.habitable = idx < 2;
+            planet.surveyed = idx < 2;
+            planet.specials.clear();
+            planet.resources.clear();
+            planet.anomalies.clear();
+        }
+        star.planets[0].specials = vec![PlanetSpecial::MineralRich];
+        star.planets[1].anomalies = vec![PlanetAnomaly::VoidSignalArray];
+
+        let colonizer_id = crate::state::FleetId(77);
+        engine.state.fleets.insert(
+            colonizer_id,
+            crate::state::Fleet {
+                id: colonizer_id,
+                owner: ai,
+                location: target,
+                ships: 1,
+                kind: FleetKind::Colonizer,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+
+        let events = engine.apply_turn(vec![crate::commands::Command::EndTurn]);
+        assert!(
+            events.iter().any(|event| matches!(
+                event,
+                Event::AiColonized {
+                    empire,
+                    star,
+                    planet_index,
+                    ..
+                } if *empire == ai && *star == target && *planet_index == 1
+            )),
+            "AI should choose the higher-value anomaly world"
         );
     }
 

@@ -681,28 +681,61 @@ fn render_system_detail_facts(
                 planet.class.science_bonus()
             )),
         ]));
-        if planet.specials.is_empty() && planet.resources.is_empty() {
+        let completed_techs = game_state
+            .empires
+            .get(&game_state.player_empire)
+            .map(|e| e.research.completed.as_slice())
+            .unwrap_or(&[]);
+        let visible_specials = game_core::visible_specials_for_empire(planet, completed_techs);
+        let visible_anomalies = game_core::visible_anomalies_for_empire(planet, completed_techs);
+        if visible_specials.is_empty() && visible_anomalies.is_empty() && planet.resources.is_empty() {
             lines.push(Line::from(vec![
                 Span::styled("Specials: ", Theme::muted_style()),
                 Span::styled("None", Theme::muted_style()),
             ]));
         } else {
-            if !planet.specials.is_empty() {
-                let specials_text: Vec<String> = planet
-                    .specials
+            if !visible_specials.is_empty() {
+                let specials_text: Vec<String> = visible_specials
                     .iter()
-                    .map(|s| format!("{} ({})", s.name(), s.description()))
+                    .map(|s| {
+                        format!(
+                            "{}{} ({}, {}, {})",
+                            glyphs.special,
+                            s.name(),
+                            s.rarity().label(),
+                            s.category().label(),
+                            s.description()
+                        )
+                    })
                     .collect();
                 lines.push(Line::from(vec![
                     Span::styled("Specials: ", Theme::muted_style()),
                     Span::styled(specials_text.join(", "), Theme::accent_style()),
                 ]));
             }
-            let completed_techs = game_state
-                .empires
-                .get(&game_state.player_empire)
-                .map(|e| e.research.completed.as_slice())
-                .unwrap_or(&[]);
+            if !visible_anomalies.is_empty() {
+                let anomalies_text: Vec<String> = visible_anomalies
+                    .iter()
+                    .map(|a| {
+                        let risk = a
+                            .risk_level()
+                            .map(|level| format!(", {} risk", level.label()))
+                            .unwrap_or_default();
+                        format!(
+                            "{}{} ({}, {}{})",
+                            glyphs.anomaly,
+                            a.name(),
+                            a.rarity().label(),
+                            a.category().label(),
+                            risk
+                        )
+                    })
+                    .collect();
+                lines.push(Line::from(vec![
+                    Span::styled("Anomalies: ", Theme::muted_style()),
+                    Span::styled(anomalies_text.join(", "), Theme::warning_style()),
+                ]));
+            }
             let visible_resources =
                 game_core::visible_resources_for_empire(planet, completed_techs);
             if !visible_resources.is_empty() {

@@ -463,26 +463,52 @@ fn render_colony_stats(
         },
     ];
 
-    // Show active specials/resources for this colonized, surveyed planet.
+    // Show active specials/resources/anomalies for this colonized, surveyed planet.
     if let Some(p) = planet {
-        if p.surveyed && (!p.specials.is_empty() || !p.resources.is_empty()) {
+        if p.surveyed && (!p.specials.is_empty() || !p.resources.is_empty() || !p.anomalies.is_empty()) {
             let completed_techs = game_state
                 .empires
                 .get(&colony.owner)
                 .map(|e| e.research.completed.as_slice())
                 .unwrap_or(&[]);
+            let visible_specials = game_core::visible_specials_for_empire(p, completed_techs);
+            let visible_anomalies = game_core::visible_anomalies_for_empire(p, completed_techs);
             let visible_resources = game_core::visible_resources_for_empire(p, completed_techs);
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 "Active Effects:",
                 Theme::title_style(),
             )));
-            for special in &p.specials {
+            for special in &visible_specials {
                 lines.push(Line::from(vec![
-                    Span::styled("  ★ ", Theme::accent_style()),
+                    Span::styled(format!("  {} ", glyphs.special), Theme::accent_style()),
                     Span::styled(special.name(), Theme::default_style()),
                     Span::styled(
-                        format!(" ({})", special.description()),
+                        format!(
+                            " ({}, {}, {})",
+                            special.rarity().label(),
+                            special.category().label(),
+                            special.description()
+                        ),
+                        Theme::muted_style(),
+                    ),
+                ]));
+            }
+            for anomaly in &visible_anomalies {
+                let risk = anomaly
+                    .risk_level()
+                    .map(|level| format!(", {} risk", level.label()))
+                    .unwrap_or_default();
+                lines.push(Line::from(vec![
+                    Span::styled(format!("  {} ", glyphs.anomaly), Theme::warning_style()),
+                    Span::styled(anomaly.name(), Theme::default_style()),
+                    Span::styled(
+                        format!(
+                            " ({}, {}{})",
+                            anomaly.rarity().label(),
+                            anomaly.category().label(),
+                            risk
+                        ),
                         Theme::muted_style(),
                     ),
                 ]));

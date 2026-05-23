@@ -13,6 +13,7 @@ Use this index as entrypoint for design and direction docs.
 ## System Design
 
 - [Technology Tree](tech-tree.md)
+- [Planet Specials and Anomalies](planet-specials-and-anomalies.md)
 - [AI Doctrines](ai-doctrines.md)
 - [Victory Conditions](victory-conditions.md)
 - [Galactic Dispatch](galactic-dispatch.md)

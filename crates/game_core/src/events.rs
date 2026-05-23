@@ -2,8 +2,8 @@
 
 use crate::state::{
     BuildItem, ColonyId, ColonyRole, CustomDesignId, DiplomaticCommunicationType, EmpireId,
-    FleetFormation, FleetId, FleetOrder, FleetRole, HullId, StarId, StrategicResource, TechId,
-    TreatyType, VictoryPath,
+    FleetFormation, FleetId, FleetOrder, FleetRole, HullId, PlanetAnomaly, PlanetSpecial, StarId,
+    StrategicResource, TechId, TreatyType, VictoryPath,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -99,6 +99,18 @@ pub enum Event {
     PlanetSurveyCompleted { star: StarId, planet_index: usize },
     /// Ancient Ruins were discovered during a planetary survey (one-time per planet).
     AncientRuinsDiscovered { star: StarId, planet_index: usize },
+    /// A significant planet special was identified during survey.
+    PlanetSpecialDiscovered {
+        star: StarId,
+        planet_index: usize,
+        special: PlanetSpecial,
+    },
+    /// An anomaly was detected during survey and analysis.
+    AnomalyDetected {
+        star: StarId,
+        planet_index: usize,
+        anomaly: PlanetAnomaly,
+    },
     /// Strategic resource was identified during survey (if discovery prerequisites are met).
     StrategicResourceDiscovered {
         star: StarId,
@@ -595,6 +607,37 @@ impl Event {
                     "DISCOVERY: Ancient Ruins found at system {} orbit {} — +2 science per turn",
                     star.0,
                     planet_index + 1
+                )
+            }
+            Event::PlanetSpecialDiscovered {
+                star,
+                planet_index,
+                special,
+            } => {
+                format!(
+                    "DISCOVERY: {} identified at system {} orbit {} — {}",
+                    special.name(),
+                    star.0,
+                    planet_index + 1,
+                    special.description()
+                )
+            }
+            Event::AnomalyDetected {
+                star,
+                planet_index,
+                anomaly,
+            } => {
+                let risk = anomaly
+                    .risk_level()
+                    .map(|level| format!(" [{} risk]", level.label()))
+                    .unwrap_or_default();
+                format!(
+                    "ANOMALY: {} detected at system {} orbit {}{} — {}",
+                    anomaly.name(),
+                    star.0,
+                    planet_index + 1,
+                    risk,
+                    anomaly.description()
                 )
             }
             Event::StrategicResourceDiscovered {

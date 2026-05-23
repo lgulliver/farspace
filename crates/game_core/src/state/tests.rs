@@ -1353,6 +1353,7 @@ fn visible_resources_require_survey_and_discovery_tech() {
             StrategicResource::DarkMatter,
             StrategicResource::PrecursorDatacores,
         ],
+        anomalies: vec![],
         ancient_ruins_collected: false,
     };
 
@@ -1421,6 +1422,7 @@ fn resource_extraction_requires_control_supply_and_is_blockade_sensitive() {
                 surveyed: true,
                 specials: vec![],
                 resources: vec![StrategicResource::QuantumCrystals],
+                anomalies: vec![],
                 ancient_ruins_collected: false,
             }],
         },

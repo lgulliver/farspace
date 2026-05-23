@@ -381,6 +381,7 @@ mod tests {
             surveyed: true,
             specials: vec![],
             resources: vec![],
+            anomalies: vec![],
             ancient_ruins_collected: false,
         }
     }
@@ -468,6 +469,7 @@ mod tests {
             surveyed: true,
             specials: vec![],
             resources: vec![],
+            anomalies: vec![],
             ancient_ruins_collected: false,
         };
         let y = calculate_yield(&colony, Some(&planet));
@@ -487,6 +489,7 @@ mod tests {
             surveyed: true,
             specials: vec![],
             resources: vec![],
+            anomalies: vec![],
             ancient_ruins_collected: false,
         };
         let y = calculate_yield(&colony, Some(&planet));
@@ -559,6 +562,7 @@ mod tests {
             surveyed: true,
             specials: vec![],
             resources: vec![],
+            anomalies: vec![],
             ancient_ruins_collected: false,
         };
         let y = calculate_yield(&colony, Some(&planet));
@@ -744,6 +748,7 @@ mod tests {
             surveyed,
             specials,
             resources,
+            anomalies: vec![],
             ancient_ruins_collected: false,
         }
     }
@@ -946,6 +951,7 @@ mod tests {
             surveyed: true,
             specials: vec![],
             resources: vec![],
+            anomalies: vec![],
             ancient_ruins_collected: false,
         };
         let y = calculate_yield(&colony, Some(&cramped));

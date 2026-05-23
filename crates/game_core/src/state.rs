@@ -286,26 +286,184 @@ impl YieldEffect {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum DiscoveryRarity {
+    Common,
+    Uncommon,
+    Rare,
+    Legendary,
+}
+
+impl DiscoveryRarity {
+    pub fn label(self) -> &'static str {
+        match self {
+            DiscoveryRarity::Common => "Common",
+            DiscoveryRarity::Uncommon => "Uncommon",
+            DiscoveryRarity::Rare => "Rare",
+            DiscoveryRarity::Legendary => "Legendary",
+        }
+    }
+
+    pub const fn weight(self) -> i32 {
+        match self {
+            DiscoveryRarity::Common => 1,
+            DiscoveryRarity::Uncommon => 2,
+            DiscoveryRarity::Rare => 4,
+            DiscoveryRarity::Legendary => 7,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum PlanetSpecialCategory {
+    Resource,
+    Scientific,
+    Biological,
+    Industrial,
+    Environmental,
+    Precursor,
+    Hazard,
+    Strategic,
+    Cultural,
+}
+
+impl PlanetSpecialCategory {
+    pub fn label(self) -> &'static str {
+        match self {
+            PlanetSpecialCategory::Resource => "Resource",
+            PlanetSpecialCategory::Scientific => "Scientific",
+            PlanetSpecialCategory::Biological => "Biological",
+            PlanetSpecialCategory::Industrial => "Industrial",
+            PlanetSpecialCategory::Environmental => "Environmental",
+            PlanetSpecialCategory::Precursor => "Precursor",
+            PlanetSpecialCategory::Hazard => "Hazard",
+            PlanetSpecialCategory::Strategic => "Strategic",
+            PlanetSpecialCategory::Cultural => "Cultural",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum AnomalyCategory {
+    Stellar,
+    Precursor,
+    Biological,
+    Temporal,
+    Gravitational,
+    Military,
+    Archaeological,
+    ExoticPhysics,
+}
+
+impl AnomalyCategory {
+    pub fn label(self) -> &'static str {
+        match self {
+            AnomalyCategory::Stellar => "Stellar",
+            AnomalyCategory::Precursor => "Precursor",
+            AnomalyCategory::Biological => "Biological",
+            AnomalyCategory::Temporal => "Temporal",
+            AnomalyCategory::Gravitational => "Gravitational",
+            AnomalyCategory::Military => "Military",
+            AnomalyCategory::Archaeological => "Archaeological",
+            AnomalyCategory::ExoticPhysics => "Exotic Physics",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum AnomalyRiskLevel {
+    Low,
+    Moderate,
+    High,
+    Severe,
+}
+
+impl AnomalyRiskLevel {
+    pub fn label(self) -> &'static str {
+        match self {
+            AnomalyRiskLevel::Low => "Low",
+            AnomalyRiskLevel::Moderate => "Moderate",
+            AnomalyRiskLevel::High => "High",
+            AnomalyRiskLevel::Severe => "Severe",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiscoveryRequirements {
+    pub surveyed: bool,
+    pub required_techs: &'static [TechId],
+}
+
+impl DiscoveryRequirements {
+    pub const fn surveyed() -> Self {
+        Self {
+            surveyed: true,
+            required_techs: &[],
+        }
+    }
+
+    pub const fn surveyed_with(required_techs: &'static [TechId]) -> Self {
+        Self {
+            surveyed: true,
+            required_techs,
+        }
+    }
+}
+
+fn requirements_met(requirements: DiscoveryRequirements, surveyed: bool, completed_techs: &[TechId]) -> bool {
+    (!requirements.surveyed || surveyed)
+        && requirements
+            .required_techs
+            .iter()
+            .all(|tech| completed_techs.contains(tech))
+}
+
 /// Discoverable planet special that modifies colony yield or triggers one-time events.
 ///
 /// Specials are generated deterministically from the galaxy seed and hidden until
-/// survey is complete.  A colonized planet automatically benefits from its revealed
+/// survey is complete. A colonized planet automatically benefits from its revealed
 /// specials.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum PlanetSpecial {
-    /// Rich mineral deposits boost industrial output.
     MineralRich,
-    /// Abundant native life accelerates food production and population growth.
     FertileBiosphere,
-    /// Remnants of a vanished civilisation — yields a science bonus and a one-time discovery event.
     AncientRuins,
-    /// Resonant crystal lattices generate energy, boosting credits and science.
     CrystalFormations,
-    /// Perpetual storm systems hamper agriculture and destabilise industry.
     HostileWeather,
-    /// Reduced gravitational load makes orbital construction easier — industry bonus.
     LowGravity,
+    CrystalForests,
+    SubterraneanMegacaverns,
+    HyperconductiveOceans,
+    VolatileCoreInstability,
+    PrecursorBeacon,
+    BioluminescentJungles,
+    AncientDefenseGrid,
+    FrozenDataVault,
+    NaniteScarfields,
+    GravitationalFractureZone,
+    OrbitalGraveyard,
+}
+
+/// Survey-revealed anomaly anchored to a planetary orbit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum PlanetAnomaly {
+    SilentRelayNetwork,
+    TemporalEchoField,
+    CollapsedJumpCorridor,
+    PrecursorListeningPost,
+    RogueNaniteSwarm,
+    QuantumReflectionZone,
+    FrozenColonyVessel,
+    GraviticStormFront,
+    DerelictBattleSphere,
+    VoidSignalArray,
 }
 
 impl PlanetSpecial {
@@ -318,11 +476,44 @@ impl PlanetSpecial {
             PlanetSpecial::CrystalFormations,
             PlanetSpecial::HostileWeather,
             PlanetSpecial::LowGravity,
+            PlanetSpecial::CrystalForests,
+            PlanetSpecial::SubterraneanMegacaverns,
+            PlanetSpecial::HyperconductiveOceans,
+            PlanetSpecial::VolatileCoreInstability,
+            PlanetSpecial::PrecursorBeacon,
+            PlanetSpecial::BioluminescentJungles,
+            PlanetSpecial::AncientDefenseGrid,
+            PlanetSpecial::FrozenDataVault,
+            PlanetSpecial::NaniteScarfields,
+            PlanetSpecial::GravitationalFractureZone,
+            PlanetSpecial::OrbitalGraveyard,
         ]
     }
 
+    pub fn id(self) -> &'static str {
+        match self {
+            PlanetSpecial::MineralRich => "mineral_rich",
+            PlanetSpecial::FertileBiosphere => "fertile_biosphere",
+            PlanetSpecial::AncientRuins => "ancient_ruins",
+            PlanetSpecial::CrystalFormations => "crystal_formations",
+            PlanetSpecial::HostileWeather => "hostile_weather",
+            PlanetSpecial::LowGravity => "low_gravity",
+            PlanetSpecial::CrystalForests => "crystal_forests",
+            PlanetSpecial::SubterraneanMegacaverns => "subterranean_megacaverns",
+            PlanetSpecial::HyperconductiveOceans => "hyperconductive_oceans",
+            PlanetSpecial::VolatileCoreInstability => "volatile_core_instability",
+            PlanetSpecial::PrecursorBeacon => "precursor_beacon",
+            PlanetSpecial::BioluminescentJungles => "bioluminescent_jungles",
+            PlanetSpecial::AncientDefenseGrid => "ancient_defense_grid",
+            PlanetSpecial::FrozenDataVault => "frozen_data_vault",
+            PlanetSpecial::NaniteScarfields => "nanite_scarfields",
+            PlanetSpecial::GravitationalFractureZone => "gravitational_fracture_zone",
+            PlanetSpecial::OrbitalGraveyard => "orbital_graveyard",
+        }
+    }
+
     /// Short display name for this special.
-    pub fn name(&self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             PlanetSpecial::MineralRich => "Mineral Rich",
             PlanetSpecial::FertileBiosphere => "Fertile Biosphere",
@@ -330,23 +521,140 @@ impl PlanetSpecial {
             PlanetSpecial::CrystalFormations => "Crystal Formations",
             PlanetSpecial::HostileWeather => "Hostile Weather",
             PlanetSpecial::LowGravity => "Low Gravity",
+            PlanetSpecial::CrystalForests => "Crystal Forests",
+            PlanetSpecial::SubterraneanMegacaverns => "Subterranean Megacaverns",
+            PlanetSpecial::HyperconductiveOceans => "Hyperconductive Oceans",
+            PlanetSpecial::VolatileCoreInstability => "Volatile Core Instability",
+            PlanetSpecial::PrecursorBeacon => "Precursor Beacon",
+            PlanetSpecial::BioluminescentJungles => "Bioluminescent Jungles",
+            PlanetSpecial::AncientDefenseGrid => "Ancient Defense Grid",
+            PlanetSpecial::FrozenDataVault => "Frozen Data Vault",
+            PlanetSpecial::NaniteScarfields => "Nanite Scarfields",
+            PlanetSpecial::GravitationalFractureZone => "Gravitational Fracture Zone",
+            PlanetSpecial::OrbitalGraveyard => "Orbital Graveyard",
         }
     }
 
-    /// One-line description of this special's effect.
-    pub fn description(&self) -> &'static str {
+    pub fn description(self) -> &'static str {
         match self {
-            PlanetSpecial::MineralRich => "+2 industry",
-            PlanetSpecial::FertileBiosphere => "+2 food",
-            PlanetSpecial::AncientRuins => "+2 science, one-time discovery event",
-            PlanetSpecial::CrystalFormations => "+1 credits, +1 science",
-            PlanetSpecial::HostileWeather => "-1 food, -1 industry",
-            PlanetSpecial::LowGravity => "+2 industry",
+            PlanetSpecial::MineralRich => "Dense lithic seams support efficient industrial extraction.",
+            PlanetSpecial::FertileBiosphere => "Robust native ecologies enrich local harvest cycles.",
+            PlanetSpecial::AncientRuins => "Collapsed vault-cities preserve scientific fragments from a vanished age.",
+            PlanetSpecial::CrystalFormations => "Resonant crystal growths amplify commerce and laboratory output.",
+            PlanetSpecial::HostileWeather => "Unstable storms make long-term development expensive and slow.",
+            PlanetSpecial::LowGravity => "Reduced gravity eases heavy construction and orbital logistics.",
+            PlanetSpecial::CrystalForests => "Shardwood canopies refract starlight into a persistent bioelectric haze.",
+            PlanetSpecial::SubterraneanMegacaverns => "Planet-deep caverns create immense room for industry and storage.",
+            PlanetSpecial::HyperconductiveOceans => "Electroactive oceans turn storms into usable planetary energy.",
+            PlanetSpecial::VolatileCoreInstability => "The world burns hot beneath its crust, promising power and danger.",
+            PlanetSpecial::PrecursorBeacon => "A dormant beacon still sweeps the void with old coordinate pulses.",
+            PlanetSpecial::BioluminescentJungles => "Luminous jungles support rich habitats and unusual field research.",
+            PlanetSpecial::AncientDefenseGrid => "Automated gun-emplacements still ring the world in broken silence.",
+            PlanetSpecial::FrozenDataVault => "Cryo-sealed archives keep knowledge intact beneath ancient ice.",
+            PlanetSpecial::NaniteScarfields => "Dead nanite clouds still restructure the surface in slow metallic tides.",
+            PlanetSpecial::GravitationalFractureZone => "Localized gravitic shears make transport difficult but physics rich.",
+            PlanetSpecial::OrbitalGraveyard => "Decayed hulls and memorial debris encircle the world in silent layers.",
         }
+    }
+
+    pub fn rarity(self) -> DiscoveryRarity {
+        match self {
+            PlanetSpecial::MineralRich
+            | PlanetSpecial::FertileBiosphere
+            | PlanetSpecial::LowGravity => DiscoveryRarity::Common,
+            PlanetSpecial::CrystalFormations
+            | PlanetSpecial::HostileWeather
+            | PlanetSpecial::CrystalForests
+            | PlanetSpecial::SubterraneanMegacaverns
+            | PlanetSpecial::BioluminescentJungles
+            | PlanetSpecial::OrbitalGraveyard => DiscoveryRarity::Uncommon,
+            PlanetSpecial::AncientRuins
+            | PlanetSpecial::HyperconductiveOceans
+            | PlanetSpecial::VolatileCoreInstability
+            | PlanetSpecial::AncientDefenseGrid
+            | PlanetSpecial::FrozenDataVault
+            | PlanetSpecial::NaniteScarfields
+            | PlanetSpecial::GravitationalFractureZone => DiscoveryRarity::Rare,
+            PlanetSpecial::PrecursorBeacon => DiscoveryRarity::Legendary,
+        }
+    }
+
+    pub fn category(self) -> PlanetSpecialCategory {
+        match self {
+            PlanetSpecial::MineralRich
+            | PlanetSpecial::CrystalFormations
+            | PlanetSpecial::HyperconductiveOceans => PlanetSpecialCategory::Resource,
+            PlanetSpecial::AncientRuins | PlanetSpecial::FrozenDataVault => {
+                PlanetSpecialCategory::Scientific
+            }
+            PlanetSpecial::FertileBiosphere
+            | PlanetSpecial::CrystalForests
+            | PlanetSpecial::BioluminescentJungles => PlanetSpecialCategory::Biological,
+            PlanetSpecial::LowGravity
+            | PlanetSpecial::SubterraneanMegacaverns
+            | PlanetSpecial::NaniteScarfields => PlanetSpecialCategory::Industrial,
+            PlanetSpecial::GravitationalFractureZone => PlanetSpecialCategory::Environmental,
+            PlanetSpecial::PrecursorBeacon => PlanetSpecialCategory::Precursor,
+            PlanetSpecial::HostileWeather | PlanetSpecial::VolatileCoreInstability => {
+                PlanetSpecialCategory::Hazard
+            }
+            PlanetSpecial::AncientDefenseGrid => PlanetSpecialCategory::Strategic,
+            PlanetSpecial::OrbitalGraveyard => PlanetSpecialCategory::Cultural,
+        }
+    }
+
+    pub fn visibility_requirements(self) -> DiscoveryRequirements {
+        DiscoveryRequirements::surveyed()
+    }
+
+    pub fn survey_requirements(self) -> DiscoveryRequirements {
+        DiscoveryRequirements::surveyed_with(&[TechId::SURVEY_DRONES])
+    }
+
+    pub fn tags(self) -> &'static [&'static str] {
+        match self {
+            PlanetSpecial::MineralRich => &["mining", "industry"],
+            PlanetSpecial::FertileBiosphere => &["food", "biosphere"],
+            PlanetSpecial::AncientRuins => &["ruins", "archaeology"],
+            PlanetSpecial::CrystalFormations => &["crystal", "trade"],
+            PlanetSpecial::HostileWeather => &["hazard", "storm"],
+            PlanetSpecial::LowGravity => &["orbital", "construction"],
+            PlanetSpecial::CrystalForests => &["biological", "crystal"],
+            PlanetSpecial::SubterraneanMegacaverns => &["infrastructure", "subsurface"],
+            PlanetSpecial::HyperconductiveOceans => &["energy", "oceanic"],
+            PlanetSpecial::VolatileCoreInstability => &["hazard", "core"],
+            PlanetSpecial::PrecursorBeacon => &["precursor", "navigation"],
+            PlanetSpecial::BioluminescentJungles => &["biology", "science"],
+            PlanetSpecial::AncientDefenseGrid => &["defense", "precursor"],
+            PlanetSpecial::FrozenDataVault => &["archive", "precursor"],
+            PlanetSpecial::NaniteScarfields => &["nanites", "industry"],
+            PlanetSpecial::GravitationalFractureZone => &["gravity", "physics"],
+            PlanetSpecial::OrbitalGraveyard => &["history", "salvage"],
+        }
+    }
+
+    pub fn future_hook(self) -> Option<&'static str> {
+        match self {
+            PlanetSpecial::AncientRuins => Some("archaeology_site"),
+            PlanetSpecial::PrecursorBeacon => Some("precursor_signal_chain"),
+            PlanetSpecial::AncientDefenseGrid => Some("reactivate_defenses"),
+            PlanetSpecial::FrozenDataVault => Some("vault_decryption"),
+            PlanetSpecial::VolatileCoreInstability => Some("catastrophe_containment"),
+            PlanetSpecial::OrbitalGraveyard => Some("salvage_operation"),
+            _ => None,
+        }
+    }
+
+    pub fn is_major_discovery(self) -> bool {
+        self.rarity() >= DiscoveryRarity::Rare
+            || matches!(
+                self.category(),
+                PlanetSpecialCategory::Precursor | PlanetSpecialCategory::Strategic
+            )
     }
 
     /// Flat yield modifiers applied each turn to a colonized, surveyed planet.
-    pub fn yield_effect(&self) -> YieldEffect {
+    pub fn yield_effect(self) -> YieldEffect {
         match self {
             PlanetSpecial::MineralRich => YieldEffect {
                 industry: 2,
@@ -372,6 +680,310 @@ impl PlanetSpecial {
             },
             PlanetSpecial::LowGravity => YieldEffect {
                 industry: 2,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::CrystalForests => YieldEffect {
+                food: 1,
+                science: 1,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::SubterraneanMegacaverns => YieldEffect {
+                industry: 2,
+                credits: 1,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::HyperconductiveOceans => YieldEffect {
+                credits: 2,
+                science: 1,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::VolatileCoreInstability => YieldEffect {
+                industry: 3,
+                food: -1,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::PrecursorBeacon => YieldEffect {
+                science: 3,
+                credits: 1,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::BioluminescentJungles => YieldEffect {
+                food: 1,
+                science: 2,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::AncientDefenseGrid => YieldEffect {
+                industry: 1,
+                science: 2,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::FrozenDataVault => YieldEffect {
+                science: 3,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::NaniteScarfields => YieldEffect {
+                industry: 2,
+                credits: 1,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::GravitationalFractureZone => YieldEffect {
+                science: 2,
+                food: -1,
+                ..YieldEffect::default()
+            },
+            PlanetSpecial::OrbitalGraveyard => YieldEffect {
+                credits: 1,
+                science: 1,
+                ..YieldEffect::default()
+            },
+        }
+    }
+}
+
+impl PlanetAnomaly {
+    pub fn all() -> &'static [PlanetAnomaly] {
+        &[
+            PlanetAnomaly::SilentRelayNetwork,
+            PlanetAnomaly::TemporalEchoField,
+            PlanetAnomaly::CollapsedJumpCorridor,
+            PlanetAnomaly::PrecursorListeningPost,
+            PlanetAnomaly::RogueNaniteSwarm,
+            PlanetAnomaly::QuantumReflectionZone,
+            PlanetAnomaly::FrozenColonyVessel,
+            PlanetAnomaly::GraviticStormFront,
+            PlanetAnomaly::DerelictBattleSphere,
+            PlanetAnomaly::VoidSignalArray,
+        ]
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            PlanetAnomaly::SilentRelayNetwork => "silent_relay_network",
+            PlanetAnomaly::TemporalEchoField => "temporal_echo_field",
+            PlanetAnomaly::CollapsedJumpCorridor => "collapsed_jump_corridor",
+            PlanetAnomaly::PrecursorListeningPost => "precursor_listening_post",
+            PlanetAnomaly::RogueNaniteSwarm => "rogue_nanite_swarm",
+            PlanetAnomaly::QuantumReflectionZone => "quantum_reflection_zone",
+            PlanetAnomaly::FrozenColonyVessel => "frozen_colony_vessel",
+            PlanetAnomaly::GraviticStormFront => "gravitic_storm_front",
+            PlanetAnomaly::DerelictBattleSphere => "derelict_battle_sphere",
+            PlanetAnomaly::VoidSignalArray => "void_signal_array",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            PlanetAnomaly::SilentRelayNetwork => "Silent Relay Network",
+            PlanetAnomaly::TemporalEchoField => "Temporal Echo Field",
+            PlanetAnomaly::CollapsedJumpCorridor => "Collapsed Jump Corridor",
+            PlanetAnomaly::PrecursorListeningPost => "Precursor Listening Post",
+            PlanetAnomaly::RogueNaniteSwarm => "Rogue Nanite Swarm",
+            PlanetAnomaly::QuantumReflectionZone => "Quantum Reflection Zone",
+            PlanetAnomaly::FrozenColonyVessel => "Frozen Colony Vessel",
+            PlanetAnomaly::GraviticStormFront => "Gravitic Storm Front",
+            PlanetAnomaly::DerelictBattleSphere => "Derelict Battle Sphere",
+            PlanetAnomaly::VoidSignalArray => "Void Signal Array",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            PlanetAnomaly::SilentRelayNetwork => {
+                "Dormant relays still hand off ghost traffic across the local void."
+            }
+            PlanetAnomaly::TemporalEchoField => {
+                "Fragments of prior motion remain measurable as delayed temporal returns."
+            }
+            PlanetAnomaly::CollapsedJumpCorridor => {
+                "Residual lane stresses mark a once-stable transit corridor now bent shut."
+            }
+            PlanetAnomaly::PrecursorListeningPost => {
+                "A hardened sensor keep watches the dark with forgotten protocols."
+            }
+            PlanetAnomaly::RogueNaniteSwarm => {
+                "Autonomous repair clouds keep rebuilding whatever they can still reach."
+            }
+            PlanetAnomaly::QuantumReflectionZone => {
+                "Matter and signal patterns rebound with impossible precision."
+            }
+            PlanetAnomaly::FrozenColonyVessel => {
+                "An intact colony ark drifts in cold stasis above the world."
+            }
+            PlanetAnomaly::GraviticStormFront => {
+                "Localized gravity shear rolls through orbit like weather."
+            }
+            PlanetAnomaly::DerelictBattleSphere => {
+                "A shattered war-orbital remains armed in places and valuable in all."
+            }
+            PlanetAnomaly::VoidSignalArray => {
+                "A deep-space lattice emits structured pulses with no active operator."
+            }
+        }
+    }
+
+    pub fn category(self) -> AnomalyCategory {
+        match self {
+            PlanetAnomaly::SilentRelayNetwork | PlanetAnomaly::VoidSignalArray => {
+                AnomalyCategory::Precursor
+            }
+            PlanetAnomaly::TemporalEchoField => AnomalyCategory::Temporal,
+            PlanetAnomaly::CollapsedJumpCorridor => AnomalyCategory::Stellar,
+            PlanetAnomaly::PrecursorListeningPost | PlanetAnomaly::FrozenColonyVessel => {
+                AnomalyCategory::Archaeological
+            }
+            PlanetAnomaly::RogueNaniteSwarm | PlanetAnomaly::DerelictBattleSphere => {
+                AnomalyCategory::Military
+            }
+            PlanetAnomaly::QuantumReflectionZone => AnomalyCategory::ExoticPhysics,
+            PlanetAnomaly::GraviticStormFront => AnomalyCategory::Gravitational,
+        }
+    }
+
+    pub fn rarity(self) -> DiscoveryRarity {
+        match self {
+            PlanetAnomaly::CollapsedJumpCorridor | PlanetAnomaly::FrozenColonyVessel => {
+                DiscoveryRarity::Uncommon
+            }
+            PlanetAnomaly::SilentRelayNetwork
+            | PlanetAnomaly::TemporalEchoField
+            | PlanetAnomaly::RogueNaniteSwarm
+            | PlanetAnomaly::QuantumReflectionZone
+            | PlanetAnomaly::GraviticStormFront
+            | PlanetAnomaly::DerelictBattleSphere => DiscoveryRarity::Rare,
+            PlanetAnomaly::PrecursorListeningPost | PlanetAnomaly::VoidSignalArray => {
+                DiscoveryRarity::Legendary
+            }
+        }
+    }
+
+    pub fn detection_requirements(self) -> DiscoveryRequirements {
+        match self {
+            PlanetAnomaly::CollapsedJumpCorridor | PlanetAnomaly::FrozenColonyVessel => {
+                DiscoveryRequirements::surveyed()
+            }
+            PlanetAnomaly::SilentRelayNetwork
+            | PlanetAnomaly::TemporalEchoField
+            | PlanetAnomaly::RogueNaniteSwarm
+            | PlanetAnomaly::QuantumReflectionZone
+            | PlanetAnomaly::GraviticStormFront => {
+                DiscoveryRequirements::surveyed_with(&[TechId::ADVANCED_SURVEY])
+            }
+            PlanetAnomaly::DerelictBattleSphere | PlanetAnomaly::PrecursorListeningPost => {
+                DiscoveryRequirements::surveyed_with(&[TechId::SECTOR_CARTOGRAPHY])
+            }
+            PlanetAnomaly::VoidSignalArray => {
+                DiscoveryRequirements::surveyed_with(&[TechId::PAN_GALACTIC_SENSOR_NET])
+            }
+        }
+    }
+
+    pub fn resolution_requirements(self) -> DiscoveryRequirements {
+        match self {
+            PlanetAnomaly::VoidSignalArray => {
+                DiscoveryRequirements::surveyed_with(&[TechId::PAN_GALACTIC_SENSOR_NET])
+            }
+            PlanetAnomaly::PrecursorListeningPost
+            | PlanetAnomaly::DerelictBattleSphere
+            | PlanetAnomaly::SilentRelayNetwork => {
+                DiscoveryRequirements::surveyed_with(&[TechId::SECTOR_CARTOGRAPHY])
+            }
+            _ => DiscoveryRequirements::surveyed_with(&[TechId::ADVANCED_SURVEY]),
+        }
+    }
+
+    pub fn risk_level(self) -> Option<AnomalyRiskLevel> {
+        match self {
+            PlanetAnomaly::FrozenColonyVessel | PlanetAnomaly::CollapsedJumpCorridor => {
+                Some(AnomalyRiskLevel::Low)
+            }
+            PlanetAnomaly::SilentRelayNetwork
+            | PlanetAnomaly::TemporalEchoField
+            | PlanetAnomaly::QuantumReflectionZone => Some(AnomalyRiskLevel::Moderate),
+            PlanetAnomaly::GraviticStormFront | PlanetAnomaly::DerelictBattleSphere => {
+                Some(AnomalyRiskLevel::High)
+            }
+            PlanetAnomaly::RogueNaniteSwarm | PlanetAnomaly::VoidSignalArray => {
+                Some(AnomalyRiskLevel::Severe)
+            }
+            PlanetAnomaly::PrecursorListeningPost => Some(AnomalyRiskLevel::High),
+        }
+    }
+
+    pub fn tags(self) -> &'static [&'static str] {
+        match self {
+            PlanetAnomaly::SilentRelayNetwork => &["signal", "precursor"],
+            PlanetAnomaly::TemporalEchoField => &["temporal", "science"],
+            PlanetAnomaly::CollapsedJumpCorridor => &["lane", "frontier"],
+            PlanetAnomaly::PrecursorListeningPost => &["precursor", "sensor"],
+            PlanetAnomaly::RogueNaniteSwarm => &["nanites", "hazard"],
+            PlanetAnomaly::QuantumReflectionZone => &["quantum", "research"],
+            PlanetAnomaly::FrozenColonyVessel => &["salvage", "ark"],
+            PlanetAnomaly::GraviticStormFront => &["gravity", "hazard"],
+            PlanetAnomaly::DerelictBattleSphere => &["military", "salvage"],
+            PlanetAnomaly::VoidSignalArray => &["precursor", "signal", "mystery"],
+        }
+    }
+
+    pub fn future_hook(self) -> Option<&'static str> {
+        match self {
+            PlanetAnomaly::SilentRelayNetwork => Some("reactivate_relay_network"),
+            PlanetAnomaly::PrecursorListeningPost => Some("precursor_archive_chain"),
+            PlanetAnomaly::RogueNaniteSwarm => Some("contain_nanites"),
+            PlanetAnomaly::FrozenColonyVessel => Some("stasis_revival"),
+            PlanetAnomaly::VoidSignalArray => Some("void_signal_chain"),
+            _ => None,
+        }
+    }
+
+    pub fn yield_effect(self) -> YieldEffect {
+        match self {
+            PlanetAnomaly::SilentRelayNetwork => YieldEffect {
+                science: 2,
+                credits: 1,
+                ..YieldEffect::default()
+            },
+            PlanetAnomaly::TemporalEchoField => YieldEffect {
+                science: 2,
+                ..YieldEffect::default()
+            },
+            PlanetAnomaly::CollapsedJumpCorridor => YieldEffect {
+                credits: 1,
+                science: 1,
+                ..YieldEffect::default()
+            },
+            PlanetAnomaly::PrecursorListeningPost => YieldEffect {
+                science: 3,
+                credits: 1,
+                ..YieldEffect::default()
+            },
+            PlanetAnomaly::RogueNaniteSwarm => YieldEffect {
+                industry: 2,
+                food: -1,
+                ..YieldEffect::default()
+            },
+            PlanetAnomaly::QuantumReflectionZone => YieldEffect {
+                science: 2,
+                credits: 1,
+                ..YieldEffect::default()
+            },
+            PlanetAnomaly::FrozenColonyVessel => YieldEffect {
+                food: 1,
+                credits: 1,
+                ..YieldEffect::default()
+            },
+            PlanetAnomaly::GraviticStormFront => YieldEffect {
+                industry: 2,
+                credits: -1,
+                ..YieldEffect::default()
+            },
+            PlanetAnomaly::DerelictBattleSphere => YieldEffect {
+                industry: 2,
+                science: 1,
+                ..YieldEffect::default()
+            },
+            PlanetAnomaly::VoidSignalArray => YieldEffect {
+                science: 3,
+                credits: 1,
                 ..YieldEffect::default()
             },
         }
@@ -817,6 +1429,33 @@ pub fn visible_resources_for_empire(
         .collect()
 }
 
+/// Returns planet specials visible to an empire on this planet.
+pub fn visible_specials_for_empire(planet: &Planet, completed_techs: &[TechId]) -> Vec<PlanetSpecial> {
+    planet
+        .specials
+        .iter()
+        .copied()
+        .filter(|special| {
+            requirements_met(special.visibility_requirements(), planet.surveyed, completed_techs)
+        })
+        .collect()
+}
+
+/// Returns anomalies visible to an empire on this planet.
+pub fn visible_anomalies_for_empire(
+    planet: &Planet,
+    completed_techs: &[TechId],
+) -> Vec<PlanetAnomaly> {
+    planet
+        .anomalies
+        .iter()
+        .copied()
+        .filter(|anomaly| {
+            requirements_met(anomaly.detection_requirements(), planet.surveyed, completed_techs)
+        })
+        .collect()
+}
+
 /// A planet within a star system
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -839,6 +1478,9 @@ pub struct Planet {
     /// Strategic resources present on this planet — hidden until surveyed.
     #[cfg_attr(feature = "serde", serde(default))]
     pub resources: Vec<StrategicResource>,
+    /// Persistent anomalies anchored to the world or its orbital envelope.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub anomalies: Vec<PlanetAnomaly>,
     /// Whether the one-time Ancient Ruins discovery event has already been emitted.
     #[cfg_attr(feature = "serde", serde(default))]
     pub ancient_ruins_collected: bool,
@@ -857,6 +1499,9 @@ pub fn planet_yield_effect(planet: &Planet) -> YieldEffect {
     }
     for resource in &planet.resources {
         total = total.combine(resource.yield_effect());
+    }
+    for anomaly in &planet.anomalies {
+        total = total.combine(anomaly.yield_effect());
     }
     total
 }

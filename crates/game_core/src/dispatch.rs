@@ -239,6 +239,58 @@ pub fn generate_dispatch(
                 ));
             }
 
+            Event::PlanetSpecialDiscovered {
+                star,
+                planet_index,
+                special,
+            } if state.explored_stars.contains(star) => {
+                let severity = match special.rarity() {
+                    crate::state::DiscoveryRarity::Common => DispatchSeverity::Notice,
+                    crate::state::DiscoveryRarity::Uncommon => DispatchSeverity::Notable,
+                    crate::state::DiscoveryRarity::Rare => DispatchSeverity::Urgent,
+                    crate::state::DiscoveryRarity::Legendary => DispatchSeverity::Historic,
+                };
+                items.push(item(
+                    DispatchCategory::Exploration,
+                    severity,
+                    format!("Planet Special Catalogued: {}", special.name()),
+                    format!(
+                        "{} logged at surveyed orbit {}.",
+                        special.name(),
+                        planet_index + 1
+                    ),
+                    None,
+                    Some(*star),
+                    Some(*planet_index),
+                ));
+            }
+
+            Event::AnomalyDetected {
+                star,
+                planet_index,
+                anomaly,
+            } if state.explored_stars.contains(star) => {
+                let severity = match anomaly.rarity() {
+                    crate::state::DiscoveryRarity::Common => DispatchSeverity::Notice,
+                    crate::state::DiscoveryRarity::Uncommon => DispatchSeverity::Notable,
+                    crate::state::DiscoveryRarity::Rare => DispatchSeverity::Urgent,
+                    crate::state::DiscoveryRarity::Legendary => DispatchSeverity::Historic,
+                };
+                items.push(item(
+                    DispatchCategory::Exploration,
+                    severity,
+                    format!("Anomaly Tracked: {}", anomaly.name()),
+                    format!(
+                        "{} registered at surveyed orbit {}.",
+                        anomaly.name(),
+                        planet_index + 1
+                    ),
+                    None,
+                    Some(*star),
+                    Some(*planet_index),
+                ));
+            }
+
             Event::AncientRuinsDiscovered { star, .. } if state.explored_stars.contains(star) => {
                 items.push(item(
                     DispatchCategory::Research,
@@ -857,6 +909,7 @@ mod tests {
                     surveyed: false,
                     specials: Vec::new(),
                     resources: Vec::new(),
+                    anomalies: vec![],
                     ancient_ruins_collected: false,
                 }],
             },

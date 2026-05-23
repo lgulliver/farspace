@@ -3879,6 +3879,27 @@ impl Engine {
                         });
                     }
 
+                    for special in crate::state::visible_specials_for_empire(planet, &completed_techs) {
+                        if special != crate::state::PlanetSpecial::AncientRuins
+                            && special.is_major_discovery()
+                        {
+                            events.push(Event::PlanetSpecialDiscovered {
+                                star: star_id,
+                                planet_index,
+                                special,
+                            });
+                        }
+                    }
+
+                    for anomaly in crate::state::visible_anomalies_for_empire(planet, &completed_techs)
+                    {
+                        events.push(Event::AnomalyDetected {
+                            star: star_id,
+                            planet_index,
+                            anomaly,
+                        });
+                    }
+
                     for resource in
                         crate::state::visible_resources_for_empire(planet, &completed_techs)
                     {

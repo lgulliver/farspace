@@ -466,12 +466,12 @@ fn render_colony_stats(
     // Show active specials/resources for this colonized, surveyed planet.
     if let Some(p) = planet {
         if p.surveyed && (!p.specials.is_empty() || !p.resources.is_empty()) {
-            let completed_techs: Vec<game_core::TechId> = game_state
+            let completed_techs = game_state
                 .empires
                 .get(&colony.owner)
-                .map(|e| e.research.completed.clone())
-                .unwrap_or_default();
-            let visible_resources = game_core::visible_resources_for_empire(p, &completed_techs);
+                .map(|e| e.research.completed.as_slice())
+                .unwrap_or(&[]);
+            let visible_resources = game_core::visible_resources_for_empire(p, completed_techs);
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 "Active Effects:",

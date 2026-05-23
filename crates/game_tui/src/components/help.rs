@@ -157,7 +157,9 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Note("Planet detail shows colony trade/supply status"),
             HelpEntry::Note("⚔ marker indicates a blockaded colony (hostile fleet present)"),
             HelpEntry::Note("Resources show rarity/category once discovered by survey + tech"),
-            HelpEntry::Note("Extraction status: active/offline depends on slots, supply, blockade"),
+            HelpEntry::Note(
+                "Extraction status depends on buildings/orbitals, tech, supply, and blockade",
+            ),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),

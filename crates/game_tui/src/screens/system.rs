@@ -698,13 +698,13 @@ fn render_system_detail_facts(
                     Span::styled(specials_text.join(", "), Theme::accent_style()),
                 ]));
             }
-            let completed_techs: Vec<game_core::TechId> = game_state
+            let completed_techs = game_state
                 .empires
                 .get(&game_state.player_empire)
-                .map(|e| e.research.completed.clone())
-                .unwrap_or_default();
+                .map(|e| e.research.completed.as_slice())
+                .unwrap_or(&[]);
             let visible_resources =
-                game_core::visible_resources_for_empire(planet, &completed_techs);
+                game_core::visible_resources_for_empire(planet, completed_techs);
             if !visible_resources.is_empty() {
                 let resources_text: Vec<String> = visible_resources
                     .iter()
@@ -723,13 +723,13 @@ fn render_system_detail_facts(
                     Span::styled(resources_text.join(", "), Theme::accent_style()),
                 ]));
                 if let Some(colony_id) = planet.colony {
-                    let extracted: Vec<&str> = visible_resources
+                    let extracted: Vec<String> = visible_resources
                         .iter()
                         .map(|resource| {
                             if game_state.colony_can_extract_resource(colony_id, *resource) {
-                                "active"
+                                format!("{}: active", resource.name())
                             } else {
-                                "offline"
+                                format!("{}: offline", resource.name())
                             }
                         })
                         .collect();

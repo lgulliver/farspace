@@ -165,6 +165,8 @@ pub fn generate_planet_specials_and_resources_for_context(
     if planet_rng.gen::<u8>() < special_roll_threshold {
         let mut valid: Vec<PlanetSpecial> = PlanetSpecial::all().to_vec();
         if has_precursor_signature {
+            // Intentional weighting boost: ruins stay in `all()`, and precursor signatures
+            // add one extra ruins entry to increase discovery probability.
             valid.push(PlanetSpecial::AncientRuins);
         }
         let idx = planet_rng.gen_range(0..valid.len());

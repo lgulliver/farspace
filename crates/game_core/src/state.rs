@@ -805,14 +805,15 @@ pub fn visible_resources_for_empire(
     planet: &Planet,
     completed_techs: &[TechId],
 ) -> Vec<StrategicResource> {
-    if !planet.surveyed {
-        return Vec::new();
-    }
     planet
         .resources
         .iter()
         .copied()
-        .filter(|resource| is_resource_discoverable(*resource, completed_techs))
+        .filter(|resource| {
+            let req = resource.record().discovery_requirements;
+            (!req.surveyed || planet.surveyed)
+                && is_resource_discoverable(*resource, completed_techs)
+        })
         .collect()
 }
 

@@ -131,28 +131,7 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                 save.metadata.schema_version = 30;
                 save.version = 30;
             }
-            30 => {
-                save.state.colony_supply = save.state.recompute_colony_supply();
-                save.state.colony_blockade = save.state.recompute_colony_blockade();
-                save.state.empire_resource_access = save.state.recompute_empire_resource_access();
-                save.metadata.schema_version = CURRENT_VERSION;
-                save.version = CURRENT_VERSION;
-            }
-            31 => {
-                save.state.colony_supply = save.state.recompute_colony_supply();
-                save.state.colony_blockade = save.state.recompute_colony_blockade();
-                save.state.empire_resource_access = save.state.recompute_empire_resource_access();
-                save.metadata.schema_version = CURRENT_VERSION;
-                save.version = CURRENT_VERSION;
-            }
-            32 => {
-                save.state.colony_supply = save.state.recompute_colony_supply();
-                save.state.colony_blockade = save.state.recompute_colony_blockade();
-                save.state.empire_resource_access = save.state.recompute_empire_resource_access();
-                save.metadata.schema_version = CURRENT_VERSION;
-                save.version = CURRENT_VERSION;
-            }
-            33 => {
+            30..=33 => {
                 save.state.colony_supply = save.state.recompute_colony_supply();
                 save.state.colony_blockade = save.state.recompute_colony_blockade();
                 save.state.empire_resource_access = save.state.recompute_empire_resource_access();

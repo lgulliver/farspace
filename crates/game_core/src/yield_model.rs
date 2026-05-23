@@ -845,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn surveyed_planet_applies_helium3_maintenance_reduction() {
+    fn surveyed_planet_does_not_apply_helium3_maintenance_reduction() {
         use crate::state::{BuildingType, StrategicResource};
         let mut colony = base_colony();
         // Add a building so maintenance > 0 before the reduction
@@ -860,7 +860,7 @@ mod tests {
     }
 
     #[test]
-    fn surveyed_planet_applies_reactive_isotopes_industry_bonus() {
+    fn surveyed_planet_does_not_apply_reactive_isotopes_industry_bonus() {
         use crate::state::StrategicResource;
         let colony = base_colony();
         let surveyed =
@@ -873,7 +873,7 @@ mod tests {
     }
 
     #[test]
-    fn surveyed_planet_applies_hyperfiber_food_bonus() {
+    fn surveyed_planet_does_not_apply_hyperfiber_food_bonus() {
         use crate::state::StrategicResource;
         let colony = base_colony();
         let surveyed =
@@ -886,7 +886,7 @@ mod tests {
     }
 
     #[test]
-    fn surveyed_planet_applies_quantum_crystals_science_bonus() {
+    fn surveyed_planet_does_not_apply_quantum_crystals_science_bonus() {
         use crate::state::StrategicResource;
         let colony = base_colony();
         let surveyed = planet_with_specials(vec![], vec![StrategicResource::QuantumCrystals], true);
@@ -898,7 +898,7 @@ mod tests {
     }
 
     #[test]
-    fn special_and_resource_effects_stack() {
+    fn special_effects_apply_without_direct_resource_yield_stacking() {
         use crate::state::{PlanetSpecial, StrategicResource};
         let colony = base_colony();
         let surveyed = planet_with_specials(

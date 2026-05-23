@@ -280,6 +280,7 @@ impl Engine {
             scenario: Some(setup),
             ai_empires: ai_empire_ids,
             colony_supply: BTreeMap::new(),
+            fleet_supply: BTreeMap::new(),
             colony_blockade: BTreeMap::new(),
             empire_resource_access: BTreeMap::new(),
             victory_status: crate::state::VictoryStatus::default(),

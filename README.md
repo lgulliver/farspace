@@ -19,6 +19,8 @@ FARSPACE is playable alpha with multi-screen TUI and deterministic core loop.
 - Terminal fonts and visual modes: [`docs/user/terminal-fonts.md`](docs/user/terminal-fonts.md)
 - 90s-style game manual (GitHub Pages source): [`docs/manual/index.html`](docs/manual/index.html)
 - Recently completed:
+  - ✅ Planet Specials & Anomalies v1
+  - ✅ Strategic Resources v1
   - ✅ Large-Scale Tech Tree v2
   - ✅ Research Queue v1
 

@@ -29,6 +29,30 @@ Status labels:
 - Survey command and mission lifecycle implemented
 - Survey completion events and surveyed-planet gating present
 
+## Planet Specials & Anomalies
+
+- **Status:** **Done**
+- 17 planet specials across 9 categories (Resource, Scientific, Biological, Industrial, Environmental, Precursor, Hazard, Strategic, Cultural)
+- 10 planet anomalies across 8 categories with rarity from Uncommon to Legendary
+- Deterministic generation from galaxy seed and planet context (class, star spectral class, sector, frontier distance)
+- Visibility gated by survey and tech tiers (basic survey reveals specials; advanced tech reveals anomalies)
+- Discovery events (`PlanetSpecialDiscovered`, `AnomalyDetected`) emitted on survey completion
+- Colony yield modifiers and AI valuation weights implemented
+- Empire-aware visibility helpers (`visible_specials_for_empire`, `visible_anomalies_for_empire`)
+- TUI renders specials with rarity/category/effect; anomalies with rarity/category/risk level
+- Precursor hooks stored for future archaeology/translation/restoration systems
+
+## Strategic Resources
+
+- **Status:** **Done**
+- 10 strategic resources with discovery, extraction, and tech requirements
+- Empire resource access tracking (`empire_resource_access` field on `GameState`)
+- Extraction requires colony control, buildings, supply connectivity, and tech
+- Strategic resource discovery events on survey completion
+- AI resource-weighted scoring for scout, colonize, and military targeting
+- TUI rendering on system, colony, and diplomacy screens
+- Resource glyphs in all visual modes (ASCII, Unicode, Nerd Font)
+
 ## Colonization
 
 - **Status:** **Done**
@@ -57,15 +81,15 @@ Status labels:
 - Large tech record set and unlock metadata present
 - Active research + queue operations implemented (queue/reorder/remove/clear)
 - Research progress/completion events and queued transition events implemented
-- Unlock integration and future-hook signaling are still being expanded
-- AI research weighting remains in progress
+- Unlock integration for ships, buildings, resources, and components is active
+- AI research weighting is implemented with doctrine-aligned profiles
 
 ## Fleets / Ships
 
 - **Status:** **In Progress**
 - Multi-archetype ship design records present (including scout/science/colonizer/combat variants)
 - Fleet missions, movement timing, standing orders, and rally routing implemented
-- No dedicated ship designer UI; archetypes are predefined
+- Custom ship designer with hull selection, component allocation, and validation present in TUI
 
 ## Combat
 
@@ -88,17 +112,26 @@ Status labels:
 - Empire identity profiles influence AI weighting
 - AI doctrine weighting is implemented for research, production, expansion, and diplomacy drift
 
+## Galactic Dispatch
+
+- **Status:** **Done**
+- Turn-based news system with periodic cadence (every 5 turns)
+- Categories: Exploration, Economy, Military, Diplomacy, Research, Discovery
+- Severity levels: Notice, Notable, Urgent, Historic
+- Major discoveries (Rare+ specials, Precursor/Strategic categories) flagged for Dispatch
+- Dispatch items generated deterministically from game events and state
+
 ## TUI Screens
 
 - **Status:** **Done**
-- Screen modules: Menu, New Game Setup, Sector Overview, Sector Map, System, Colony, Empire Overview, Research, Diplomacy
+- Screen modules: Menu, New Game Setup, Sector Overview, Sector Map, System, Colony, Empire Overview, Research, Diplomacy, Ship Designer
 - Global help overlay and command palette implemented
 - Keyboard-first navigation and resize-safe layouts in active use
 
 ## Save / Load
 
 - **Status:** **Done**
-- Versioned schema with migration support (`CURRENT_VERSION = 27`)
+- Versioned schema with migration support (`CURRENT_VERSION = 35`)
 - Save/load file and metadata APIs implemented
 - TUI menu + command palette integration for save/load
 

@@ -4,6 +4,8 @@ Immediate implementation queue for focused agent sessions.
 
 Recently completed:
 
+- ✅ Planet Specials & Anomalies v1
+- ✅ Strategic Resources v1
 - ✅ Large-Scale Technology Tree v2
 - ✅ Research Queue v1
 

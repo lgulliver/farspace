@@ -156,6 +156,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("F", "Assign next formation to focused fleet"),
             HelpEntry::Note("Planet detail shows colony trade/supply status"),
             HelpEntry::Note("⚔ marker indicates a blockaded colony (hostile fleet present)"),
+            HelpEntry::Note("Resources show rarity/category once discovered by survey + tech"),
+            HelpEntry::Note("Extraction status: active/offline depends on slots, supply, blockade"),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
@@ -186,6 +188,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Note(
                 "Blockade: ⚔ means hostile fleet holds orbit — no food, -50% yield, -stability",
             ),
+            HelpEntry::Note("Resource lines show rarity/category and extraction status"),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),

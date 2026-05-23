@@ -2,8 +2,8 @@
 
 use crate::state::{
     BuildItem, ColonyId, ColonyRole, CustomDesignId, DiplomaticCommunicationType, EmpireId,
-    FleetFormation, FleetId, FleetOrder, FleetRole, HullId, StarId, TechId, TreatyType,
-    VictoryPath,
+    FleetFormation, FleetId, FleetOrder, FleetRole, HullId, StarId, StrategicResource, TechId,
+    TreatyType, VictoryPath,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -99,6 +99,12 @@ pub enum Event {
     PlanetSurveyCompleted { star: StarId, planet_index: usize },
     /// Ancient Ruins were discovered during a planetary survey (one-time per planet).
     AncientRuinsDiscovered { star: StarId, planet_index: usize },
+    /// Strategic resource was identified during survey (if discovery prerequisites are met).
+    StrategicResourceDiscovered {
+        star: StarId,
+        planet_index: usize,
+        resource: StrategicResource,
+    },
     /// A fleet has departed toward an explored system (multi-turn movement)
     FleetDeparted {
         fleet: FleetId,
@@ -587,6 +593,18 @@ impl Event {
             Event::AncientRuinsDiscovered { star, planet_index } => {
                 format!(
                     "DISCOVERY: Ancient Ruins found at system {} orbit {} — +2 science per turn",
+                    star.0,
+                    planet_index + 1
+                )
+            }
+            Event::StrategicResourceDiscovered {
+                star,
+                planet_index,
+                resource,
+            } => {
+                format!(
+                    "DISCOVERY: {} identified at system {} orbit {}",
+                    resource.name(),
                     star.0,
                     planet_index + 1
                 )

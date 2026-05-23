@@ -15,7 +15,7 @@ use crate::state::{
     DiplomaticResponse, DiplomaticTone, DiplomaticTreaty, Empire, EmpireId, Fleet, FleetFormation,
     FleetId, FleetKind, FleetMission, FleetOrder, FleetRole, GameState, HullId, HyperspaceLane,
     OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
-    ShipDesignId, StarId, SurveyMission, TechId, TreatyType, YieldType,
+    ShipDesignId, StarId, StrategicResource, SurveyMission, TechId, TreatyType, YieldType,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
@@ -59,6 +59,55 @@ struct YieldBonuses {
     credits: i64,
     science: i64,
     food: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct StrategicResourceBonuses {
+    industry_per_colony: i64,
+    credits_per_colony: i64,
+    science_per_colony: i64,
+    food_per_colony: i64,
+    research_percent_bonus: i64,
+}
+
+fn strategic_resource_bonuses_for_empire(
+    state: &GameState,
+    empire_id: EmpireId,
+) -> StrategicResourceBonuses {
+    let count = |resource| state.empire_resource_count(empire_id, resource);
+    let has = |resource| count(resource) > 0;
+    let scaled = |resource| i64::from(count(resource).min(2));
+
+    let mut bonuses = StrategicResourceBonuses::default();
+    if has(StrategicResource::ReactiveIsotopes) {
+        bonuses.industry_per_colony += scaled(StrategicResource::ReactiveIsotopes);
+    }
+    if has(StrategicResource::QuantumCrystals) {
+        bonuses.science_per_colony += scaled(StrategicResource::QuantumCrystals);
+    }
+    if has(StrategicResource::HyperfiberOrganics) {
+        bonuses.food_per_colony += scaled(StrategicResource::HyperfiberOrganics);
+    }
+    if has(StrategicResource::AntimatterResidue) {
+        bonuses.industry_per_colony += 1;
+        bonuses.science_per_colony += 1;
+    }
+    if has(StrategicResource::DarkMatter) {
+        bonuses.credits_per_colony += 1;
+    }
+    if has(StrategicResource::PsionicSpores) {
+        bonuses.science_per_colony += 1;
+    }
+    if has(StrategicResource::NeutroniumDeposits) {
+        bonuses.industry_per_colony += 1;
+    }
+    if has(StrategicResource::LivingAlloy) {
+        bonuses.credits_per_colony += 1;
+    }
+    if has(StrategicResource::PrecursorDatacores) {
+        bonuses.research_percent_bonus += 15;
+    }
+    bonuses
 }
 
 /// Return the number of travel turns for a fleet moving the given squared Euclidean distance.
@@ -236,6 +285,13 @@ pub fn fleet_maintenance_for_empire(state: &GameState, empire_id: EmpireId) -> i
         .map(|def| def.military_modifiers.fleet_maintenance_modifier_per_fleet)
         .unwrap_or(0);
 
+    let helium_discount = if state.empire_resource_count(empire_id, StrategicResource::Helium3) > 0
+    {
+        1
+    } else {
+        0
+    };
+
     state
         .fleets
         .values()
@@ -249,7 +305,7 @@ pub fn fleet_maintenance_for_empire(state: &GameState, empire_id: EmpireId) -> i
                 .and_then(|did| state.custom_designs.get(did))
                 .map(|d| d.derived_stats().maintenance as i64)
                 .unwrap_or_else(|| f.kind.maintenance_cost() as i64);
-            (base + modifier).max(0)
+            (base + modifier - helium_discount).max(0)
         })
         .sum()
 }
@@ -1066,6 +1122,7 @@ impl Engine {
 
         if !processed_end_turn {
             self.refresh_colony_supply_statuses();
+            self.state.empire_resource_access = self.state.recompute_empire_resource_access();
         }
 
         // Add events to log
@@ -1090,6 +1147,8 @@ impl Engine {
         let current_turn_supply = self.state.colony_supply.clone();
         // Blockade state from last turn (persisted in GameState): use for economy penalties.
         let current_turn_blockade = self.state.colony_blockade.clone();
+        // Strategic resource access snapshot for this turn's economy pass.
+        self.state.empire_resource_access = self.state.recompute_empire_resource_access();
 
         // Track per-empire aggregates for this turn.
         // Keys are EmpireId; BTreeMap ensures deterministic iteration order.
@@ -1185,6 +1244,7 @@ impl Engine {
                 .get(&owner)
                 .copied()
                 .unwrap_or_default();
+            let resource_bonuses = strategic_resource_bonuses_for_empire(&self.state, owner);
 
             // Apply empire identity trait modifiers on top of tech bonuses.
             let empire_def_mods = self
@@ -1196,15 +1256,28 @@ impl Engine {
                 .map(|d| d.trait_modifiers)
                 .unwrap_or_default();
 
-            let mut credits =
-                colony_yield.credits + bonuses.credits + empire_def_mods.credits_per_colony;
-            let mut research =
-                colony_yield.science + bonuses.science + empire_def_mods.science_per_colony;
-            let mut food = colony_yield.food + bonuses.food + empire_def_mods.food_per_colony;
+            let mut credits = colony_yield.credits
+                + bonuses.credits
+                + empire_def_mods.credits_per_colony
+                + resource_bonuses.credits_per_colony;
+            let mut research = colony_yield.science
+                + bonuses.science
+                + empire_def_mods.science_per_colony
+                + resource_bonuses.science_per_colony;
+            let mut food = colony_yield.food
+                + bonuses.food
+                + empire_def_mods.food_per_colony
+                + resource_bonuses.food_per_colony;
             // Industry modifier from empire def is already informational here; the
             // yield model computed the base industry.  We expose the bonus via
             // the ColonyProduced event so the UI can show "empire bonus" detail.
-            let industry = colony_yield.industry + empire_def_mods.industry_per_colony;
+            let industry = colony_yield.industry
+                + empire_def_mods.industry_per_colony
+                + resource_bonuses.industry_per_colony;
+            if resource_bonuses.research_percent_bonus > 0 {
+                // Intentional compounding: percent applies after flat colony modifiers.
+                research += research * resource_bonuses.research_percent_bonus / 100;
+            }
             // Blockade takes effect first; if blockaded, treat as effectively isolated
             // (same yield penalty + stability hit). If already isolated but not blockaded
             // the normal isolation path below handles it — no double penalty.
@@ -1630,8 +1703,9 @@ impl Engine {
             };
 
             if new_remaining == 0 {
+                let surveying_empire = self.state.fleets.get(&fleet_id).map(|f| f.owner);
                 self.state.survey_missions.remove(&fleet_id);
-                self.complete_survey_at_star(star, planet_index, events);
+                self.complete_survey_at_star(star, planet_index, surveying_empire, events);
             }
         }
 
@@ -1787,6 +1861,7 @@ impl Engine {
         }
         self.state.colony_blockade = updated_blockade.clone();
         self.last_turn_colony_blockade = updated_blockade;
+        self.state.empire_resource_access = self.state.recompute_empire_resource_access();
 
         // Deterministic population growth tick (lite v1):
         // - requires available housing
@@ -2676,6 +2751,16 @@ impl Engine {
             .get(&player)
             .map(|e| e.research.completed.to_vec())
             .unwrap_or_default();
+        let available_resources: Vec<StrategicResource> = self
+            .state
+            .empire_resource_access
+            .get(&player)
+            .map(|m| {
+                m.iter()
+                    .filter_map(|(resource, count)| (*count > 0).then_some(*resource))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let design_name =
             name.unwrap_or_else(|| format!("Design {}", self.state.next_custom_design_id));
@@ -2688,7 +2773,8 @@ impl Engine {
             obsolete: false,
         };
 
-        if let Err(reason) = design.validate(&completed_techs) {
+        if let Err(reason) = design.validate_with_resources(&completed_techs, &available_resources)
+        {
             events.push(Event::ShipDesignInvalid {
                 empire: player,
                 hull_id,
@@ -2982,6 +3068,16 @@ impl Engine {
                 }
             };
             let completed_techs: Vec<_> = empire.research.completed.to_vec();
+            let available_resources: Vec<StrategicResource> = self
+                .state
+                .empire_resource_access
+                .get(&self.state.player_empire)
+                .map(|m| {
+                    m.iter()
+                        .filter_map(|(resource, count)| (*count > 0).then_some(*resource))
+                        .collect()
+                })
+                .unwrap_or_default();
             match self.state.custom_designs.get(&design_id) {
                 None => {
                     events.push(Event::error(format!(
@@ -3002,7 +3098,9 @@ impl Engine {
                         events.push(Event::error("Custom design not owned by player"));
                         return;
                     }
-                    if let Err(reason) = design.validate(&completed_techs) {
+                    if let Err(reason) =
+                        design.validate_with_resources(&completed_techs, &available_resources)
+                    {
                         events.push(Event::error(format!(
                             "Custom design {} invalid: {}",
                             design_id.0, reason
@@ -3755,8 +3853,14 @@ impl Engine {
         &mut self,
         star_id: StarId,
         planet_index: usize,
+        surveying_empire: Option<EmpireId>,
         events: &mut Vec<Event>,
     ) {
+        let completed_techs: Vec<TechId> = surveying_empire
+            .and_then(|empire_id| self.state.empires.get(&empire_id))
+            .map(|empire| empire.research.completed.clone())
+            .unwrap_or_default();
+
         if let Some(star) = self.state.stars.get_mut(&star_id) {
             if let Some(planet) = star.planets.get_mut(planet_index) {
                 if !planet.surveyed {
@@ -3772,6 +3876,16 @@ impl Engine {
                         events.push(Event::AncientRuinsDiscovered {
                             star: star_id,
                             planet_index,
+                        });
+                    }
+
+                    for resource in
+                        crate::state::visible_resources_for_empire(planet, &completed_techs)
+                    {
+                        events.push(Event::StrategicResourceDiscovered {
+                            star: star_id,
+                            planet_index,
+                            resource,
                         });
                     }
 

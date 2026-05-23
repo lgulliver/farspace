@@ -378,76 +378,442 @@ impl PlanetSpecial {
     }
 }
 
-/// Strategic resource presence on a planet — a capability modifier, not an inventory.
-///
-/// Resources are generated deterministically from the galaxy seed and hidden until
-/// survey is complete.  A colonized planet automatically benefits from its revealed
-/// resources.
+/// Strategic resource category for AI valuation and UI grouping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum StrategicResourceCategory {
+    Industrial,
+    Energy,
+    Military,
+    Exotic,
+    Biological,
+    Precursor,
+}
+
+impl StrategicResourceCategory {
+    pub fn label(self) -> &'static str {
+        match self {
+            StrategicResourceCategory::Industrial => "Industrial",
+            StrategicResourceCategory::Energy => "Energy",
+            StrategicResourceCategory::Military => "Military",
+            StrategicResourceCategory::Exotic => "Exotic",
+            StrategicResourceCategory::Biological => "Biological",
+            StrategicResourceCategory::Precursor => "Precursor",
+        }
+    }
+}
+
+/// Strategic-resource rarity tier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum StrategicResourceRarity {
+    Common,
+    Uncommon,
+    Rare,
+    Legendary,
+}
+
+impl StrategicResourceRarity {
+    pub fn label(self) -> &'static str {
+        match self {
+            StrategicResourceRarity::Common => "Common",
+            StrategicResourceRarity::Uncommon => "Uncommon",
+            StrategicResourceRarity::Rare => "Rare",
+            StrategicResourceRarity::Legendary => "Legendary",
+        }
+    }
+}
+
+/// Discovery gate for revealing a resource after survey.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourceDiscoveryRequirements {
+    pub surveyed: bool,
+    pub required_tech: Option<TechId>,
+}
+
+/// Extraction gate for empire-wide access.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourceExtractionRequirements {
+    pub requires_colony_control: bool,
+    pub requires_supply: bool,
+    pub blocked_by_blockade: bool,
+    pub required_surface_building: Option<BuildingType>,
+    pub required_orbital_structure: Option<OrbitalStructureType>,
+    pub required_tech: Option<TechId>,
+}
+
+/// Static record defining one strategic resource.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StrategicResourceRecord {
+    pub resource_id: u16,
+    pub name: &'static str,
+    pub description: &'static str,
+    pub rarity: StrategicResourceRarity,
+    pub category: StrategicResourceCategory,
+    pub discovery_requirements: ResourceDiscoveryRequirements,
+    pub extraction_requirements: ResourceExtractionRequirements,
+    pub tech_requirements: Option<TechId>,
+    pub strategic_effects: &'static [&'static str],
+    pub trade_value: u16,
+    pub future_hook_megaproject: bool,
+}
+
+/// Strategic resource presence on a planet — a capability modifier, not an inventory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum StrategicResource {
-    /// Lightweight fusion fuel reduces fleet maintenance costs.
-    Helium3,
-    /// Exotic alloys enhance ship and industrial production.
-    RareMetals,
-    /// Dense nutrient cultures support rapid population growth.
-    BioCultures,
-    /// Hyper-ordered crystals amplify computational and hyperspace research.
     QuantumCrystals,
+    ReactiveIsotopes,
+    DarkMatter,
+    LivingAlloy,
+    HyperfiberOrganics,
+    Helium3,
+    PsionicSpores,
+    NeutroniumDeposits,
+    AntimatterResidue,
+    PrecursorDatacores,
 }
 
 impl StrategicResource {
-    /// All strategic resources in deterministic order (used for random selection).
+    /// All strategic resources in deterministic `resource_id` order.
+    ///
+    /// Keep this aligned with `record().resource_id` for stable generation and save diffs.
     pub fn all() -> &'static [StrategicResource] {
         &[
-            StrategicResource::Helium3,
-            StrategicResource::RareMetals,
-            StrategicResource::BioCultures,
             StrategicResource::QuantumCrystals,
+            StrategicResource::ReactiveIsotopes,
+            StrategicResource::DarkMatter,
+            StrategicResource::LivingAlloy,
+            StrategicResource::HyperfiberOrganics,
+            StrategicResource::Helium3,
+            StrategicResource::PsionicSpores,
+            StrategicResource::NeutroniumDeposits,
+            StrategicResource::AntimatterResidue,
+            StrategicResource::PrecursorDatacores,
         ]
     }
 
-    /// Short display name for this resource.
-    pub fn name(&self) -> &'static str {
+    pub fn record(self) -> StrategicResourceRecord {
         match self {
-            StrategicResource::Helium3 => "Helium-3",
-            StrategicResource::RareMetals => "Rare Metals",
-            StrategicResource::BioCultures => "Bio-Cultures",
-            StrategicResource::QuantumCrystals => "Quantum Crystals",
+            StrategicResource::QuantumCrystals => StrategicResourceRecord {
+                resource_id: 1,
+                name: "Quantum Crystals",
+                description:
+                    "Phase-stable crystal lattices that amplify defensive field harmonics.",
+                rarity: StrategicResourceRarity::Rare,
+                category: StrategicResourceCategory::Exotic,
+                discovery_requirements: ResourceDiscoveryRequirements {
+                    surveyed: true,
+                    required_tech: Some(TechId::ADVANCED_SURVEY),
+                },
+                extraction_requirements: ResourceExtractionRequirements {
+                    requires_colony_control: true,
+                    requires_supply: true,
+                    blocked_by_blockade: true,
+                    required_surface_building: Some(BuildingType::ScienceNexus),
+                    required_orbital_structure: None,
+                    required_tech: Some(TechId(14)),
+                },
+                tech_requirements: Some(TechId(14)),
+                strategic_effects: &[
+                    "Unlocks shield-matrix refinement",
+                    "Adds empire-wide research calibration",
+                ],
+                trade_value: 110,
+                future_hook_megaproject: true,
+            },
+            StrategicResource::ReactiveIsotopes => StrategicResourceRecord {
+                resource_id: 2,
+                name: "Reactive Isotopes",
+                description: "Volatile isotope bundles ideal for advanced ordnance and boosters.",
+                rarity: StrategicResourceRarity::Uncommon,
+                category: StrategicResourceCategory::Military,
+                discovery_requirements: ResourceDiscoveryRequirements {
+                    surveyed: true,
+                    required_tech: None,
+                },
+                extraction_requirements: ResourceExtractionRequirements {
+                    requires_colony_control: true,
+                    requires_supply: true,
+                    blocked_by_blockade: true,
+                    required_surface_building: Some(BuildingType::FabricationYard),
+                    required_orbital_structure: None,
+                    required_tech: None,
+                },
+                tech_requirements: None,
+                strategic_effects: &[
+                    "Unlocks missile rack stabilization",
+                    "Improves wartime production tempo",
+                ],
+                trade_value: 70,
+                future_hook_megaproject: false,
+            },
+            StrategicResource::DarkMatter => StrategicResourceRecord {
+                resource_id: 3,
+                name: "Dark Matter",
+                description: "Containment-grade dark-mass traces suitable for extreme propulsion.",
+                rarity: StrategicResourceRarity::Legendary,
+                category: StrategicResourceCategory::Energy,
+                discovery_requirements: ResourceDiscoveryRequirements {
+                    surveyed: true,
+                    required_tech: Some(TechId::PAN_GALACTIC_SENSOR_NET),
+                },
+                extraction_requirements: ResourceExtractionRequirements {
+                    requires_colony_control: true,
+                    requires_supply: true,
+                    blocked_by_blockade: true,
+                    required_surface_building: None,
+                    required_orbital_structure: Some(OrbitalStructureType::Shipyard),
+                    required_tech: Some(TechId::HYPERSPACE_CARTOGRAPHY),
+                },
+                tech_requirements: Some(TechId::PAN_GALACTIC_SENSOR_NET),
+                strategic_effects: &[
+                    "Unlocks elite drive architecture",
+                    "Increases strategic fleet mobility",
+                ],
+                trade_value: 160,
+                future_hook_megaproject: true,
+            },
+            StrategicResource::LivingAlloy => StrategicResourceRecord {
+                resource_id: 4,
+                name: "Living Alloy",
+                description: "Self-healing metamaterial colonies with adaptive structural memory.",
+                rarity: StrategicResourceRarity::Rare,
+                category: StrategicResourceCategory::Exotic,
+                discovery_requirements: ResourceDiscoveryRequirements {
+                    surveyed: true,
+                    required_tech: Some(TechId(15)),
+                },
+                extraction_requirements: ResourceExtractionRequirements {
+                    requires_colony_control: true,
+                    requires_supply: true,
+                    blocked_by_blockade: true,
+                    required_surface_building: Some(BuildingType::FabricationYard),
+                    required_orbital_structure: Some(OrbitalStructureType::Shipyard),
+                    required_tech: Some(TechId(23)),
+                },
+                tech_requirements: Some(TechId(23)),
+                strategic_effects: &[
+                    "Unlocks resilient hull plating",
+                    "Future hook for colossal construction",
+                ],
+                trade_value: 130,
+                future_hook_megaproject: true,
+            },
+            StrategicResource::HyperfiberOrganics => StrategicResourceRecord {
+                resource_id: 5,
+                name: "Hyperfiber Organics",
+                description: "Engineered growth filaments that optimize food and bio-mesh yields.",
+                rarity: StrategicResourceRarity::Uncommon,
+                category: StrategicResourceCategory::Biological,
+                discovery_requirements: ResourceDiscoveryRequirements {
+                    surveyed: true,
+                    required_tech: Some(TechId(9)),
+                },
+                extraction_requirements: ResourceExtractionRequirements {
+                    requires_colony_control: true,
+                    requires_supply: true,
+                    blocked_by_blockade: true,
+                    required_surface_building: Some(BuildingType::AquacultureBay),
+                    required_orbital_structure: None,
+                    required_tech: None,
+                },
+                tech_requirements: Some(TechId(9)),
+                strategic_effects: &[
+                    "Boosts biological throughput",
+                    "Stabilizes frontier growth curves",
+                ],
+                trade_value: 65,
+                future_hook_megaproject: false,
+            },
+            StrategicResource::Helium3 => StrategicResourceRecord {
+                resource_id: 6,
+                name: "Helium-3",
+                description: "High-purity fusion feedstock that sustains long logistics chains.",
+                rarity: StrategicResourceRarity::Common,
+                category: StrategicResourceCategory::Energy,
+                discovery_requirements: ResourceDiscoveryRequirements {
+                    surveyed: true,
+                    required_tech: None,
+                },
+                extraction_requirements: ResourceExtractionRequirements {
+                    requires_colony_control: true,
+                    requires_supply: true,
+                    blocked_by_blockade: true,
+                    required_surface_building: Some(BuildingType::FabricationYard),
+                    required_orbital_structure: None,
+                    required_tech: None,
+                },
+                tech_requirements: None,
+                strategic_effects: &[
+                    "Reduces per-fleet maintenance burden",
+                    "Strengthens empire logistical endurance",
+                ],
+                trade_value: 45,
+                future_hook_megaproject: false,
+            },
+            StrategicResource::PsionicSpores => StrategicResourceRecord {
+                resource_id: 7,
+                name: "Psionic Spores",
+                description: "Neural-active spores enabling high-fidelity cognition interfaces.",
+                rarity: StrategicResourceRarity::Rare,
+                category: StrategicResourceCategory::Biological,
+                discovery_requirements: ResourceDiscoveryRequirements {
+                    surveyed: true,
+                    required_tech: Some(TechId(9)),
+                },
+                extraction_requirements: ResourceExtractionRequirements {
+                    requires_colony_control: true,
+                    requires_supply: true,
+                    blocked_by_blockade: true,
+                    required_surface_building: Some(BuildingType::ScienceNexus),
+                    required_orbital_structure: None,
+                    required_tech: Some(TechId(46)),
+                },
+                tech_requirements: Some(TechId(46)),
+                strategic_effects: &[
+                    "Accelerates advanced biology research",
+                    "Improves diplomatic signal interpretation",
+                ],
+                trade_value: 120,
+                future_hook_megaproject: false,
+            },
+            StrategicResource::NeutroniumDeposits => StrategicResourceRecord {
+                resource_id: 8,
+                name: "Neutronium Deposits",
+                description: "Ultra-dense metal seams used for compact armor and bastions.",
+                rarity: StrategicResourceRarity::Rare,
+                category: StrategicResourceCategory::Industrial,
+                discovery_requirements: ResourceDiscoveryRequirements {
+                    surveyed: true,
+                    required_tech: Some(TechId(14)),
+                },
+                extraction_requirements: ResourceExtractionRequirements {
+                    requires_colony_control: true,
+                    requires_supply: true,
+                    blocked_by_blockade: true,
+                    required_surface_building: Some(BuildingType::FabricationYard),
+                    required_orbital_structure: Some(OrbitalStructureType::Shipyard),
+                    required_tech: Some(TechId(28)),
+                },
+                tech_requirements: Some(TechId(28)),
+                strategic_effects: &[
+                    "Reinforces fleet durability planning",
+                    "Improves fortress-world survivability",
+                ],
+                trade_value: 140,
+                future_hook_megaproject: true,
+            },
+            StrategicResource::AntimatterResidue => StrategicResourceRecord {
+                resource_id: 9,
+                name: "Antimatter Residue",
+                description: "Residual annihilation condensate recovered from hazardous systems.",
+                rarity: StrategicResourceRarity::Legendary,
+                category: StrategicResourceCategory::Military,
+                discovery_requirements: ResourceDiscoveryRequirements {
+                    surveyed: true,
+                    required_tech: Some(TechId::PAN_GALACTIC_SENSOR_NET),
+                },
+                extraction_requirements: ResourceExtractionRequirements {
+                    requires_colony_control: true,
+                    requires_supply: true,
+                    blocked_by_blockade: true,
+                    required_surface_building: None,
+                    required_orbital_structure: Some(OrbitalStructureType::Shipyard),
+                    required_tech: Some(TechId(34)),
+                },
+                tech_requirements: Some(TechId(34)),
+                strategic_effects: &[
+                    "Enables high-energy weapons programs",
+                    "Elevates war-readiness pressure on rivals",
+                ],
+                trade_value: 180,
+                future_hook_megaproject: true,
+            },
+            StrategicResource::PrecursorDatacores => StrategicResourceRecord {
+                resource_id: 10,
+                name: "Precursor Datacores",
+                description: "Encrypted knowledge vaults left by vanished interstellar architects.",
+                rarity: StrategicResourceRarity::Legendary,
+                category: StrategicResourceCategory::Precursor,
+                discovery_requirements: ResourceDiscoveryRequirements {
+                    surveyed: true,
+                    required_tech: Some(TechId::PAN_GALACTIC_SENSOR_NET),
+                },
+                extraction_requirements: ResourceExtractionRequirements {
+                    requires_colony_control: true,
+                    requires_supply: true,
+                    blocked_by_blockade: true,
+                    required_surface_building: Some(BuildingType::ScienceNexus),
+                    required_orbital_structure: None,
+                    required_tech: Some(TechId(63)),
+                },
+                tech_requirements: Some(TechId(63)),
+                strategic_effects: &[
+                    "Accelerates high-tier research lanes",
+                    "Future hook for precursor megaproject chains",
+                ],
+                trade_value: 210,
+                future_hook_megaproject: true,
+            },
         }
     }
 
-    /// One-line description of this resource's effect.
-    pub fn description(&self) -> &'static str {
-        match self {
-            StrategicResource::Helium3 => "-1 maintenance",
-            StrategicResource::RareMetals => "+1 industry",
-            StrategicResource::BioCultures => "+2 food",
-            StrategicResource::QuantumCrystals => "+2 science",
-        }
+    pub fn name(self) -> &'static str {
+        self.record().name
     }
 
-    /// Flat yield modifiers applied each turn to a colonized, surveyed planet.
-    pub fn yield_effect(&self) -> YieldEffect {
-        match self {
-            StrategicResource::Helium3 => YieldEffect {
-                maintenance: -1,
-                ..YieldEffect::default()
-            },
-            StrategicResource::RareMetals => YieldEffect {
-                industry: 1,
-                ..YieldEffect::default()
-            },
-            StrategicResource::BioCultures => YieldEffect {
-                food: 2,
-                ..YieldEffect::default()
-            },
-            StrategicResource::QuantumCrystals => YieldEffect {
-                science: 2,
-                ..YieldEffect::default()
-            },
-        }
+    pub fn description(self) -> &'static str {
+        self.record().description
     }
+
+    pub fn rarity(self) -> StrategicResourceRarity {
+        self.record().rarity
+    }
+
+    pub fn category(self) -> StrategicResourceCategory {
+        self.record().category
+    }
+
+    pub fn trade_value(self) -> u16 {
+        self.record().trade_value
+    }
+
+    pub fn strategic_effects(self) -> &'static [&'static str] {
+        self.record().strategic_effects
+    }
+
+    /// Flat yield modifiers when the resource is discovered and actively extracted.
+    pub fn yield_effect(self) -> YieldEffect {
+        YieldEffect::default()
+    }
+}
+
+/// Returns true when `resource` is revealable for an empire with `completed_techs`.
+pub fn is_resource_discoverable(resource: StrategicResource, completed_techs: &[TechId]) -> bool {
+    let req = resource.record().discovery_requirements;
+    match req.required_tech {
+        Some(tech) => completed_techs.contains(&tech),
+        None => true,
+    }
+}
+
+/// Returns the strategic resources visible to an empire on this planet.
+///
+/// Visibility requires survey completion and any resource-specific discovery tech.
+pub fn visible_resources_for_empire(
+    planet: &Planet,
+    completed_techs: &[TechId],
+) -> Vec<StrategicResource> {
+    if !planet.surveyed {
+        return Vec::new();
+    }
+    planet
+        .resources
+        .iter()
+        .copied()
+        .filter(|resource| is_resource_discoverable(*resource, completed_techs))
+        .collect()
 }
 
 /// A planet within a star system
@@ -1965,6 +2331,12 @@ pub struct GameState {
     /// Persisted to detect start/end transitions for event emission on the next turn.
     #[cfg_attr(feature = "serde", serde(default))]
     pub colony_blockade: BTreeMap<ColonyId, EmpireId>,
+    /// Current strategic-resource access counts per empire.
+    ///
+    /// Counts are deterministic and derived from colony control, survey/discovery,
+    /// extraction requirements, supply connectivity, and blockade status.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub empire_resource_access: BTreeMap<EmpireId, BTreeMap<StrategicResource, u32>>,
     /// Deterministic victory-condition progress and winner state.
     #[cfg_attr(feature = "serde", serde(default))]
     pub victory_status: VictoryStatus,
@@ -2052,6 +2424,106 @@ impl GameState {
     /// Returns the empire currently blockading `colony_id`, or `None` if unblockaded.
     pub fn colony_blockade_state(&self, colony_id: ColonyId) -> Option<EmpireId> {
         self.colony_blockade.get(&colony_id).copied()
+    }
+
+    /// Returns true when a colony currently satisfies extraction requirements for `resource`.
+    pub fn colony_can_extract_resource(
+        &self,
+        colony_id: ColonyId,
+        resource: StrategicResource,
+    ) -> bool {
+        let Some(colony) = self.colonies.get(&colony_id) else {
+            return false;
+        };
+        let Some(planet) = self
+            .stars
+            .get(&colony.star)
+            .and_then(|s| s.planets.get(colony.planet_index))
+        else {
+            return false;
+        };
+        if !planet.surveyed {
+            return false;
+        }
+        if !planet.resources.contains(&resource) {
+            return false;
+        }
+        let Some(empire) = self.empires.get(&colony.owner) else {
+            return false;
+        };
+        let completed_techs = &empire.research.completed;
+        if !is_resource_discoverable(resource, completed_techs) {
+            return false;
+        }
+
+        let extraction = resource.record().extraction_requirements;
+        if extraction.requires_colony_control && colony.owner != empire.id {
+            return false;
+        }
+        if extraction.requires_supply
+            && self.colony_supply_state(colony_id) != ColonySupplyState::Connected
+        {
+            return false;
+        }
+        if extraction.blocked_by_blockade && self.colony_blockade_state(colony_id).is_some() {
+            return false;
+        }
+        if let Some(required) = extraction.required_surface_building {
+            if !colony.buildings.contains(&required) {
+                return false;
+            }
+        }
+        if let Some(required) = extraction.required_orbital_structure {
+            if !colony.orbital_installations.contains(&required) {
+                return false;
+            }
+        }
+        if let Some(required_tech) = extraction.required_tech {
+            if !completed_techs.contains(&required_tech) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Recompute deterministic strategic-resource access counts for all empires.
+    pub fn recompute_empire_resource_access(
+        &self,
+    ) -> BTreeMap<EmpireId, BTreeMap<StrategicResource, u32>> {
+        let mut access: BTreeMap<EmpireId, BTreeMap<StrategicResource, u32>> = BTreeMap::new();
+        for (colony_id, colony) in &self.colonies {
+            let Some(planet) = self
+                .stars
+                .get(&colony.star)
+                .and_then(|s| s.planets.get(colony.planet_index))
+            else {
+                continue;
+            };
+            let Some(empire) = self.empires.get(&colony.owner) else {
+                continue;
+            };
+            let visible = visible_resources_for_empire(planet, &empire.research.completed);
+            for resource in visible {
+                // Count each extractable colony-source for this empire/resource pair.
+                if self.colony_can_extract_resource(*colony_id, resource) {
+                    *access
+                        .entry(colony.owner)
+                        .or_default()
+                        .entry(resource)
+                        .or_insert(0) += 1;
+                }
+            }
+        }
+        access
+    }
+
+    /// Convenience accessor: extraction count for one empire/resource.
+    pub fn empire_resource_count(&self, empire_id: EmpireId, resource: StrategicResource) -> u32 {
+        self.empire_resource_access
+            .get(&empire_id)
+            .and_then(|by_resource| by_resource.get(&resource))
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Return fleet role, defaulting deterministically from fleet kind.
@@ -2477,6 +2949,7 @@ impl PartialEq for GameState {
             && self.ai_empires == other.ai_empires
             && self.colony_supply == other.colony_supply
             && self.colony_blockade == other.colony_blockade
+            && self.empire_resource_access == other.empire_resource_access
             && self.victory_status == other.victory_status
             && self.custom_designs == other.custom_designs
             && self.next_custom_design_id == other.next_custom_design_id
@@ -2545,6 +3018,7 @@ impl Default for GameState {
             ai_empires: Vec::new(),
             colony_supply: BTreeMap::new(),
             colony_blockade: BTreeMap::new(),
+            empire_resource_access: BTreeMap::new(),
             victory_status: VictoryStatus::default(),
             galactic_dispatches: VecDeque::new(),
             custom_designs: BTreeMap::new(),

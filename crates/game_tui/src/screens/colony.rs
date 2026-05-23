@@ -466,6 +466,12 @@ fn render_colony_stats(
     // Show active specials/resources for this colonized, surveyed planet.
     if let Some(p) = planet {
         if p.surveyed && (!p.specials.is_empty() || !p.resources.is_empty()) {
+            let completed_techs: Vec<game_core::TechId> = game_state
+                .empires
+                .get(&colony.owner)
+                .map(|e| e.research.completed.clone())
+                .unwrap_or_default();
+            let visible_resources = game_core::visible_resources_for_empire(p, &completed_techs);
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 "Active Effects:",
@@ -481,12 +487,22 @@ fn render_colony_stats(
                     ),
                 ]));
             }
-            for resource in &p.resources {
+            for resource in &visible_resources {
+                let extracted = if game_state.colony_can_extract_resource(colony.id, *resource) {
+                    "active"
+                } else {
+                    "offline"
+                };
                 lines.push(Line::from(vec![
                     Span::styled(format!("  {} ", glyphs.resource), Theme::accent_style()),
                     Span::styled(resource.name(), Theme::default_style()),
                     Span::styled(
-                        format!(" ({})", resource.description()),
+                        format!(
+                            " ({}, {}, {})",
+                            resource.rarity().label(),
+                            resource.category().label(),
+                            extracted
+                        ),
                         Theme::muted_style(),
                     ),
                 ]));

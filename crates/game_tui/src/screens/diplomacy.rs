@@ -193,6 +193,26 @@ fn render_empire_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_
                 ]));
             }
         }
+
+        if !matches!(status, RelationshipStatus::Unknown) {
+            if let Some(access) = game_state.empire_resource_access.get(&empire_id) {
+                let mut resource_lines: Vec<String> = access
+                    .iter()
+                    .filter(|(_, count)| **count > 0)
+                    .map(|(resource, count)| format!("{} x{}", resource.name(), count))
+                    .collect();
+                resource_lines.sort();
+                if !resource_lines.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(
+                            format!("Strategic Assets: {}", resource_lines.join(", ")),
+                            Theme::muted_style(),
+                        ),
+                    ]));
+                }
+            }
+        }
     }
 
     if game_state

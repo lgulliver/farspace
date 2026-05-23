@@ -85,7 +85,11 @@ impl CustomShipDesign {
 
     /// Validate that the design is buildable: hull and all components must be
     /// tech-unlocked, and components must match available hull slots exactly.
-    pub fn validate(&self, completed_techs: &[TechId]) -> Result<(), &'static str> {
+    pub fn validate_with_resources(
+        &self,
+        completed_techs: &[TechId],
+        available_resources: &[StrategicResource],
+    ) -> Result<(), &'static str> {
         let hull = match self.hull_id.template() {
             Some(h) => h,
             None => return Err("Invalid hull"),
@@ -119,9 +123,19 @@ impl CustomShipDesign {
                     return Err("Component tech not unlocked");
                 }
             }
+            if let Some(resource) = comp.required_resource {
+                if !available_resources.contains(&resource) {
+                    return Err("Component resource not available");
+                }
+            }
         }
 
         Ok(())
+    }
+
+    /// Backward-compatible tech-only validation helper.
+    pub fn validate(&self, completed_techs: &[TechId]) -> Result<(), &'static str> {
+        self.validate_with_resources(completed_techs, &[])
     }
 }
 
@@ -300,7 +314,7 @@ impl ShipDesignId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{ComponentId, CustomDesignId, EmpireId, HullId, TechId};
+    use crate::state::{ComponentId, CustomDesignId, EmpireId, HullId, StrategicResource, TechId};
 
     fn player() -> EmpireId {
         EmpireId(1)
@@ -402,6 +416,43 @@ mod tests {
             "Component with locked tech should fail validation"
         );
         assert_eq!(result.unwrap_err(), "Component tech not unlocked");
+    }
+
+    /// Test: resource-gated component fails without strategic resource access.
+    #[test]
+    fn validate_fails_when_component_resource_missing() {
+        // Shield Matrix requires Quantum Crystals in addition to Perimeter Defense tech.
+        let design = make_design(
+            HullId::ESCORT_FRIGATE,
+            vec![
+                ComponentId(1),
+                ComponentId(11),
+                ComponentId(20),
+                ComponentId(30),
+            ],
+        );
+        let result = design.validate_with_resources(&[TechId(4), TechId(16)], &[]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Component resource not available");
+    }
+
+    /// Test: resource-gated component succeeds once the strategic resource is available.
+    #[test]
+    fn validate_succeeds_when_component_resource_present() {
+        let design = make_design(
+            HullId::ESCORT_FRIGATE,
+            vec![
+                ComponentId(1),
+                ComponentId(11),
+                ComponentId(20),
+                ComponentId(30),
+            ],
+        );
+        let result = design.validate_with_resources(
+            &[TechId(4), TechId(16)],
+            &[StrategicResource::QuantumCrystals],
+        );
+        assert!(result.is_ok());
     }
 
     /// Test 7: validate positive path with unlocked tech — Colony Ark with all required techs.

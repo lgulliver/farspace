@@ -98,7 +98,7 @@ fn empire_intel_level(
     game_state.intel_level_for_empire(empire_id)
 }
 
-fn can_show_foreign_colony_details(game_state: &GameState, empire_id: game_core::EmpireId) -> bool {
+fn can_show_colony_details(game_state: &GameState, empire_id: game_core::EmpireId) -> bool {
     empire_id == game_state.player_empire
         || empire_intel_level(game_state, empire_id) >= game_core::IntelLevel::Informed
 }
@@ -585,7 +585,7 @@ fn render_selected_planet_hero(
     ];
     if let Some(colony_id) = planet.colony {
         if let Some(colony) = game_state.colonies.get(&colony_id) {
-            if can_show_foreign_colony_details(game_state, colony.owner) {
+            if can_show_colony_details(game_state, colony.owner) {
                 lines.push(Line::from(vec![
                     Span::styled("Colony ", Theme::muted_style()),
                     Span::styled(format!("Pop {}", colony.population), Theme::accent_style()),
@@ -810,7 +810,7 @@ fn render_system_detail_facts(
 
     let colony_line = if let Some(colony_id) = planet.colony {
         if let Some(colony) = game_state.colonies.get(&colony_id) {
-            if can_show_foreign_colony_details(game_state, colony.owner) {
+            if can_show_colony_details(game_state, colony.owner) {
                 let infra = colony.surface_installations.len() + colony.orbital_installations.len();
                 let supply = game_state.colony_supply_state(colony.id);
                 let planet_ref = game_state
@@ -856,7 +856,7 @@ fn render_system_detail_facts(
 
     if let Some(colony_id) = planet.colony {
         if let Some(colony) = game_state.colonies.get(&colony_id) {
-            if can_show_foreign_colony_details(game_state, colony.owner) {
+            if can_show_colony_details(game_state, colony.owner) {
                 let supply = game_state.colony_supply_state(colony.id);
                 let planet_ref = game_state
                     .stars

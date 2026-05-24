@@ -456,6 +456,7 @@ impl Engine {
             });
         }
         if next == RelationshipStatus::Unknown {
+            // Unknown means contact is lost or never established, so rival intel returns to hidden.
             self.state.empire_intel.remove(&empire_id);
         } else {
             self.ensure_empire_intel_contact(empire_id);

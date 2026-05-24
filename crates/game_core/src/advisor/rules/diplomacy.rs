@@ -36,7 +36,7 @@ impl AdvisorRule for LowIntelRule {
             return;
         }
 
-        low_intel_empires.sort_by(|a, b| a.0.cmp(&b.0));
+        low_intel_empires.sort_by_key(|(name, _)| name.as_str());
         let target = Some(AdvisorTarget::Empire);
         let key = AdvisorMessageKey {
             rule_id: self.id(),

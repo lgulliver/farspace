@@ -176,6 +176,18 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                         .colony_rebellion_risk_bp
                         .insert(*colony_id, unrest_state.base_rebellion_risk_bp());
                 }
+                save.metadata.schema_version = 37;
+                save.version = 37;
+            }
+            37 => {
+                for (&empire_id, status) in &save.state.diplomacy {
+                    if *status != game_core::RelationshipStatus::Unknown {
+                        save.state
+                            .empire_intel
+                            .entry(empire_id)
+                            .or_insert_with(game_core::EmpireIntel::new_contacted);
+                    }
+                }
                 save.metadata.schema_version = CURRENT_VERSION;
                 save.version = CURRENT_VERSION;
             }
@@ -271,6 +283,35 @@ mod tests {
         };
         let migrated = migrate(v3_save).expect("v3 migration should succeed");
         assert_eq!(migrated.version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn migrate_v37_seeds_intel_only_for_contacted_empires() {
+        let mut state = GameState::default();
+        state.diplomacy.insert(
+            game_core::EmpireId(1),
+            game_core::RelationshipStatus::Contacted,
+        );
+        state.diplomacy.insert(
+            game_core::EmpireId(2),
+            game_core::RelationshipStatus::Unknown,
+        );
+        let save = SaveFile {
+            version: 37,
+            state,
+            metadata: Default::default(),
+        };
+
+        let migrated = migrate(save).expect("v37 migration should succeed");
+
+        assert!(migrated
+            .state
+            .empire_intel
+            .contains_key(&game_core::EmpireId(1)));
+        assert!(!migrated
+            .state
+            .empire_intel
+            .contains_key(&game_core::EmpireId(2)));
     }
 
     #[test]

@@ -4008,6 +4008,7 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         fleet_custom_designs: BTreeMap::new(),
         next_battle_report_id: 1,
         battle_reports: std::collections::VecDeque::new(),
+        empire_intel: BTreeMap::new(),
     };
 
     // Player star
@@ -4232,6 +4233,7 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         fleet_custom_designs: BTreeMap::new(),
         next_battle_report_id: 1,
         battle_reports: std::collections::VecDeque::new(),
+        empire_intel: BTreeMap::new(),
     };
 
     // Populate stars, empires, colonies, fleet
@@ -4615,6 +4617,7 @@ fn contact_detection_is_deterministic() {
         fleet_custom_designs: BTreeMap::new(),
         next_battle_report_id: 1,
         battle_reports: std::collections::VecDeque::new(),
+        empire_intel: BTreeMap::new(),
     };
 
     // Two AI empires each have a colony at target_star
@@ -4792,6 +4795,113 @@ fn contact_detection_is_deterministic() {
 
     // Both empires contacted, in ascending EmpireId order (BTreeMap iteration)
     assert_eq!(contacts, vec![ai1, ai2]);
+}
+
+#[test]
+fn gather_intelligence_command_improves_contacted_empire() {
+    let (mut engine, _, _, ai_id) = make_two_empire_state();
+    engine
+        .state
+        .diplomacy
+        .insert(ai_id, RelationshipStatus::Contacted);
+    engine.state.diplomacy_relationships.insert(
+        ai_id,
+        DiplomaticRelationship::from_status(RelationshipStatus::Contacted),
+    );
+    engine
+        .state
+        .empire_intel
+        .insert(ai_id, EmpireIntel::new_contacted());
+
+    let events = engine.apply_turn(vec![Command::GatherIntelligence { target: ai_id }]);
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::IntelGained {
+            with_empire,
+            gained,
+            new_level,
+            ..
+        } if *with_empire == ai_id && *gained == INTEL_GATHER_POINTS && *new_level == IntelLevel::Basic
+    )));
+    assert_eq!(
+        engine.state.intel_level_for_empire(ai_id),
+        IntelLevel::Basic
+    );
+}
+
+#[test]
+fn gather_intelligence_without_contact_fails_clearly() {
+    let (mut engine, _, _, ai_id) = make_two_empire_state();
+
+    let events = engine.apply_turn(vec![Command::GatherIntelligence { target: ai_id }]);
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::Error { message }
+            if message.contains("contact") || message.contains("known foreign empire")
+    )));
+}
+
+#[test]
+fn passive_intel_progression_is_deterministic() {
+    fn configure_engine(engine: &mut Engine, ai_id: EmpireId, ai_star_id: StarId) {
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Contacted);
+        let mut relationship = DiplomaticRelationship::from_status(RelationshipStatus::Contacted);
+        relationship.active_treaties.push(DiplomaticTreaty {
+            treaty_type: TreatyType::NonAggressionPact,
+            with_empire: ai_id,
+            start_turn: engine.state.turn,
+            duration_turns: 12,
+        });
+        engine
+            .state
+            .diplomacy_relationships
+            .insert(ai_id, relationship);
+        engine
+            .state
+            .empire_intel
+            .insert(ai_id, EmpireIntel::new_contacted());
+        let player = engine
+            .state
+            .empires
+            .get_mut(&engine.state.player_empire)
+            .expect("player empire exists");
+        player
+            .research
+            .completed
+            .extend([TechId::SURVEY_DRONES, TechId::SECTOR_CARTOGRAPHY]);
+        let fleet_id = FleetId(900);
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: engine.state.player_empire,
+                location: ai_star_id,
+                ships: 1,
+                kind: FleetKind::Scout,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+    }
+
+    let (mut a, _, ai_star_id, ai_id) = make_two_empire_state();
+    let (mut b, _, other_ai_star_id, other_ai_id) = make_two_empire_state();
+    configure_engine(&mut a, ai_id, ai_star_id);
+    configure_engine(&mut b, other_ai_id, other_ai_star_id);
+
+    for _ in 0..4 {
+        let events_a = a.apply_turn(vec![Command::EndTurn]);
+        let events_b = b.apply_turn(vec![Command::EndTurn]);
+        assert_eq!(events_a, events_b);
+    }
+
+    assert_eq!(a.state.empire_intel, b.state.empire_intel);
+    assert_eq!(a.state.intel_level_for_empire(ai_id), IntelLevel::Deep);
 }
 
 /// FirstContact log message contains expected text.
@@ -9310,6 +9420,7 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         fleet_custom_designs: BTreeMap::new(),
         next_battle_report_id: 1,
         battle_reports: std::collections::VecDeque::new(),
+        empire_intel: BTreeMap::new(),
     };
 
     state.stars.insert(

@@ -49,3 +49,18 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets
 cargo llvm-cov --workspace --all-targets --fail-under-lines 80
 ```
+
+## E2E Guide
+
+Use the deterministic E2E harness when a slice changes multi-turn game flow or information visibility.
+
+```bash
+cargo test -p game_e2e --test e2e_100_turn_playthrough -- --nocapture
+cargo run -p game_e2e --bin e2e_runner -- --seed 12345 --turns 100 --report target/e2e/playthrough-report.json
+```
+
+When reviewing E2E output for diplomacy / intel slices, verify:
+
+- intel gains appear deterministically at the same turns for the same seed
+- dispatch and log summaries do not reveal rival research or colony details too early
+- save/load or replay continuation preserves intel level and redaction behavior

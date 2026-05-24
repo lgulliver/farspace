@@ -4,7 +4,7 @@
 //! `DISPATCH_CADENCE` turns) or whenever urgent / historic events occur.
 //! All generation is deterministic — same inputs always yield the same output.
 
-use crate::state::{EmpireId, RelationshipStatus, StarId};
+use crate::state::{EmpireId, StarId};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -92,20 +92,15 @@ pub struct GalacticDispatch {
 /// Returns `true` if the player knows of `empire_id` (i.e. has made contact
 /// or the empire *is* the player).
 fn player_knows_empire(state: &crate::state::GameState, empire_id: EmpireId) -> bool {
-    if empire_id == state.player_empire {
-        return true;
-    }
-    matches!(
-        state.diplomacy.get(&empire_id),
-        Some(
-            RelationshipStatus::Contacted
-                | RelationshipStatus::Neutral
-                | RelationshipStatus::Cooperative
-                | RelationshipStatus::Tense
-                | RelationshipStatus::Hostile
-                | RelationshipStatus::War
-        )
-    )
+    state.player_knows_empire(empire_id)
+}
+
+fn player_has_intel_at_least(
+    state: &crate::state::GameState,
+    empire_id: EmpireId,
+    minimum: crate::state::IntelLevel,
+) -> bool {
+    state.intel_level_for_empire(empire_id) >= minimum
 }
 
 /// Returns the star's display name if the player has explored it, otherwise `None`.
@@ -333,7 +328,7 @@ pub fn generate_dispatch(
                 planet_index,
                 colony: _,
             } => {
-                if player_knows_empire(state, *empire) {
+                if player_has_intel_at_least(state, *empire, crate::state::IntelLevel::Basic) {
                     let (headline, related_star) =
                         if let Some(star_name) = star_name_if_known(state, *star) {
                             (
@@ -354,6 +349,19 @@ pub fn generate_dispatch(
                         Some(*empire),
                         related_star,
                         Some(*planet_index),
+                    ));
+                } else if player_knows_empire(state, *empire) {
+                    let empire_name = empire_name_for_id(state, *empire);
+                    items.push(item(
+                        DispatchCategory::Colonization,
+                        DispatchSeverity::Notable,
+                        "Colonial Traffic Detected Beyond Frontier".to_string(),
+                        format!(
+                            "Signals suggest {empire_name} has expanded, but location details remain sparse."
+                        ),
+                        Some(*empire),
+                        None,
+                        None,
                     ));
                 } else {
                     items.push(item(
@@ -385,7 +393,11 @@ pub fn generate_dispatch(
             }
 
             Event::AiResearchSelected { empire, tech: _ }
-                if player_knows_empire(state, *empire) =>
+                if player_has_intel_at_least(
+                    state,
+                    *empire,
+                    crate::state::IntelLevel::Informed,
+                ) =>
             {
                 let empire_name = empire_name_for_id(state, *empire);
                 items.push(item(
@@ -1012,6 +1024,7 @@ mod tests {
             fleet_custom_designs: Default::default(),
             next_battle_report_id: 1,
             battle_reports: Default::default(),
+            empire_intel: Default::default(),
         }
     }
     // Cadence behaviour
@@ -1517,5 +1530,107 @@ mod tests {
             .collect();
         assert!(!items.is_empty());
         assert_eq!(items[0].severity, DispatchSeverity::Historic);
+    }
+
+    #[test]
+    fn ai_research_dispatch_requires_informed_intel() {
+        let mut state = minimal_state();
+        let ai_id = EmpireId(2);
+        state.empires.insert(
+            ai_id,
+            Empire {
+                id: ai_id,
+                name: "Signal Veil".to_string(),
+                credits: 0,
+                research_points: 0,
+                home_star: StarId(10),
+                research: Default::default(),
+                food: 0,
+                empire_def: None,
+            },
+        );
+        state
+            .diplomacy
+            .insert(ai_id, crate::state::RelationshipStatus::Contacted);
+        state
+            .empire_intel
+            .insert(ai_id, crate::state::EmpireIntel::new_contacted());
+
+        let events = vec![Event::AiResearchSelected {
+            empire: ai_id,
+            tech: TechId::SURVEY_DRONES,
+        }];
+        let low_intel = generate_dispatch(0, &events, &state).unwrap();
+        assert!(
+            !low_intel
+                .items
+                .iter()
+                .any(|item| item.category == DispatchCategory::Research),
+            "contact-only intel must not reveal rival research shifts"
+        );
+
+        state.empire_intel.insert(
+            ai_id,
+            crate::state::EmpireIntel {
+                level: crate::state::IntelLevel::Informed,
+                points: 9,
+                last_gather_turn: None,
+            },
+        );
+        let informed = generate_dispatch(0, &events, &state).unwrap();
+        assert!(informed.items.iter().any(|item| {
+            item.category == DispatchCategory::Research
+                && item.headline.contains("Labs Redirect Research Priorities")
+        }));
+    }
+
+    #[test]
+    fn ai_colonization_dispatch_redacts_contact_only_intel() {
+        let mut state = minimal_state();
+        let ai_id = EmpireId(2);
+        state.empires.insert(
+            ai_id,
+            Empire {
+                id: ai_id,
+                name: "Signal Veil".to_string(),
+                credits: 0,
+                research_points: 0,
+                home_star: StarId(10),
+                research: Default::default(),
+                food: 0,
+                empire_def: None,
+            },
+        );
+        state
+            .diplomacy
+            .insert(ai_id, crate::state::RelationshipStatus::Contacted);
+        state
+            .empire_intel
+            .insert(ai_id, crate::state::EmpireIntel::new_contacted());
+        let events = vec![Event::AiColonized {
+            empire: ai_id,
+            star: StarId(10),
+            planet_index: 0,
+            colony: ColonyId(2),
+        }];
+
+        let low_intel = generate_dispatch(0, &events, &state).unwrap();
+        assert!(low_intel.items.iter().any(|item| {
+            item.category == DispatchCategory::Colonization
+                && item.headline.contains("Colonial Traffic Detected")
+        }));
+
+        state.empire_intel.insert(
+            ai_id,
+            crate::state::EmpireIntel {
+                level: crate::state::IntelLevel::Basic,
+                points: 4,
+                last_gather_turn: None,
+            },
+        );
+        let basic = generate_dispatch(0, &events, &state).unwrap();
+        assert!(basic.items.iter().any(|item| {
+            item.category == DispatchCategory::Colonization && item.body.contains("rival empire")
+        }));
     }
 }

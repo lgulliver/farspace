@@ -16,12 +16,26 @@ fn fleet_supply_counts(state: &GameState) -> (usize, usize, usize) {
 }
 
 impl App {
-    pub(super) fn empire_display_name(&self, empire_id: game_core::EmpireId) -> String {
+    fn empire_intel_level(&self, empire_id: game_core::EmpireId) -> game_core::IntelLevel {
         self.engine
             .as_ref()
-            .and_then(|engine| engine.state.empires.get(&empire_id))
+            .map(|engine| engine.state.intel_level_for_empire(empire_id))
+            .unwrap_or(game_core::IntelLevel::Unknown)
+    }
+
+    pub(super) fn empire_display_name(&self, empire_id: game_core::EmpireId) -> String {
+        let Some(engine) = self.engine.as_ref() else {
+            return format!("Unknown Empire {}", empire_id.0);
+        };
+        if !engine.state.player_knows_empire(empire_id) {
+            return format!("Unknown Empire {}", empire_id.0);
+        }
+        engine
+            .state
+            .empires
+            .get(&empire_id)
             .map(|empire| empire.name.clone())
-            .unwrap_or_else(|| format!("Empire {}", empire_id.0))
+            .unwrap_or_else(|| format!("Unknown Empire {}", empire_id.0))
     }
 
     pub(super) fn format_core_event_for_log(&self, event: &CoreEvent) -> String {
@@ -41,10 +55,16 @@ impl App {
             CoreEvent::AiResearchSelected { empire, tech } => {
                 let name = self.empire_display_name(*empire);
                 let doctrine = self.empire_doctrine_marker(*empire);
-                let tech_name = tech_by_id(*tech)
-                    .map(|record| record.name)
-                    .unwrap_or("Unknown Tech");
-                format!("{name} {doctrine} redirected its labs to {tech_name}")
+                if self.empire_intel_level(*empire).reveals_tech_level() {
+                    let tech_name = tech_by_id(*tech)
+                        .map(|record| record.name)
+                        .unwrap_or("Unknown Tech");
+                    format!("{name} {doctrine} redirected its labs to {tech_name}")
+                } else {
+                    format!(
+                        "{name} {doctrine} adjusted research priorities (details hidden by limited intel)"
+                    )
+                }
             }
             CoreEvent::AiBuildQueued {
                 empire,
@@ -53,11 +73,17 @@ impl App {
             } => {
                 let name = self.empire_display_name(*empire);
                 let doctrine = self.empire_doctrine_marker(*empire);
-                format!(
-                    "{name} {doctrine} queued {} at colony {}",
-                    item.name(),
-                    colony.0
-                )
+                if self.empire_intel_level(*empire).reveals_economy_summary() {
+                    format!(
+                        "{name} {doctrine} queued {} at colony {}",
+                        item.name(),
+                        colony.0
+                    )
+                } else {
+                    format!(
+                        "{name} {doctrine} adjusted production queues (details hidden by limited intel)"
+                    )
+                }
             }
             CoreEvent::AiScoutDispatched {
                 empire,
@@ -66,10 +92,14 @@ impl App {
             } => {
                 let name = self.empire_display_name(*empire);
                 let doctrine = self.empire_doctrine_marker(*empire);
-                format!(
-                    "{name} {doctrine} dispatched scout {} to system {}",
-                    fleet.0, destination.0
-                )
+                if self.empire_intel_level(*empire).reveals_fleet_strength() {
+                    format!(
+                        "{name} {doctrine} dispatched scout {} to system {}",
+                        fleet.0, destination.0
+                    )
+                } else {
+                    format!("{name} {doctrine} launched a scouting operation beyond known space")
+                }
             }
             CoreEvent::AiColonized {
                 empire,
@@ -79,12 +109,18 @@ impl App {
             } => {
                 let name = self.empire_display_name(*empire);
                 let doctrine = self.empire_doctrine_marker(*empire);
-                format!(
-                    "{name} {doctrine} founded colony {} at system {} orbit {}",
-                    colony.0,
-                    star.0,
-                    planet_index + 1
-                )
+                if self.empire_intel_level(*empire).reveals_colony_count() {
+                    format!(
+                        "{name} {doctrine} founded colony {} at system {} orbit {}",
+                        colony.0,
+                        star.0,
+                        planet_index + 1
+                    )
+                } else {
+                    format!(
+                        "{name} {doctrine} expanded to a new colony site (location hidden by limited intel)"
+                    )
+                }
             }
             CoreEvent::AiColonyRoleAssigned {
                 empire,
@@ -162,6 +198,30 @@ impl App {
                 let to_name = self.empire_display_name(*to_empire);
                 format!("{to_name} refused tribute demanded by {from_name}")
             }
+            CoreEvent::IntelGained {
+                with_empire,
+                gained,
+                new_level,
+                sources,
+            } => format!(
+                "Intel on {} +{} via {} - level {}",
+                self.empire_display_name(*with_empire),
+                gained,
+                sources
+                    .iter()
+                    .map(|source| source.label())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                new_level.label()
+            ),
+            CoreEvent::EspionageMissionUnavailable {
+                with_empire,
+                mission,
+            } => format!(
+                "{} against {} reserved for later slice",
+                mission.label(),
+                self.empire_display_name(*with_empire)
+            ),
             CoreEvent::FleetArrived { fleet, star } => {
                 let Some(engine) = self.engine.as_ref() else {
                     return event.to_log_message();
@@ -338,6 +398,7 @@ impl App {
         let mut treaty_events = 0usize;
         let mut war_events = 0usize;
         let mut peace_events = 0usize;
+        let mut intel_gains = 0usize;
         let mut unrest_worsened = 0usize;
         let mut revolt_risk = 0usize;
 
@@ -369,6 +430,7 @@ impl App {
                 | CoreEvent::TreatyCancelled { .. } => treaty_events += 1,
                 CoreEvent::WarDeclared { .. } => war_events += 1,
                 CoreEvent::PeaceSigned { .. } => peace_events += 1,
+                CoreEvent::IntelGained { .. } => intel_gains += 1,
                 CoreEvent::ColonyUnrestChanged { from, to, .. } => {
                     if to > from {
                         unrest_worsened += 1;
@@ -391,7 +453,7 @@ impl App {
         });
 
         format!(
-            "Turn {} global summary (all empires): explored {}, surveyed {}, discoveries {}, colonized {}, research {}, queued starts {}, arrivals {}, combats {}, retreats {}, invasions won {}, invasions failed {}, treaties {}, wars {}, peaces {}, victory milestones {}, victories {}, unrest worsened {}, revolt risk {}, warnings {}, isolated {}, reconnected {}, errors {}{}.",
+            "Turn {} global summary (all empires): explored {}, surveyed {}, discoveries {}, colonized {}, research {}, queued starts {}, arrivals {}, combats {}, retreats {}, invasions won {}, invasions failed {}, treaties {}, wars {}, peaces {}, intel gains {}, victory milestones {}, victories {}, unrest worsened {}, revolt risk {}, warnings {}, isolated {}, reconnected {}, errors {}{}.",
             turn,
             explored,
             surveyed,
@@ -407,6 +469,7 @@ impl App {
             treaty_events,
             war_events,
             peace_events,
+            intel_gains,
             victory_milestones,
             victories,
             unrest_worsened,

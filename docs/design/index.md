@@ -21,6 +21,7 @@ Use this index as entrypoint for design and direction docs.
 - [Combat v2](combat-v2.md)
 - [Fleet Supply & Logistics](fleet-supply-logistics.md)
 - [Diplomacy](diplomacy.md)
+- [Espionage and Intelligence Lite](espionage-and-intelligence.md)
 - [Balance and Pacing](balance-and-pacing.md)
 - [Internal Stability and Unrest](internal-stability-and-unrest.md)
 

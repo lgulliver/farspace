@@ -160,6 +160,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Note(
                 "Fleet rows and focused fleet status show current supply and logistics penalties",
             ),
+            HelpEntry::Note("Foreign colony and fleet details stay hidden until intel improves"),
             HelpEntry::Note("Planet detail shows colony trade/supply status"),
             HelpEntry::Note("⚔ marker indicates a blockaded colony (hostile fleet present)"),
             HelpEntry::Note("Resources show rarity/category once discovered by survey + tech"),
@@ -275,12 +276,19 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("g", "Send diplomatic greeting"),
             HelpEntry::Binding("u", "Issue warning"),
             HelpEntry::Binding("m", "Demand tribute"),
+            HelpEntry::Binding("i", "Gather Intelligence on selected empire"),
+            HelpEntry::Binding("z", "Sabotage Production placeholder"),
+            HelpEntry::Binding("y", "Steal Research placeholder"),
             HelpEntry::Binding("c", "Open diplomatic communication modal"),
             HelpEntry::Binding(
                 "Enter",
                 "End turn (or respond when communication modal is open)",
             ),
             HelpEntry::Binding("e / t", "End turn"),
+            HelpEntry::Note("Intel levels: Contacted → Basic → Informed → Deep"),
+            HelpEntry::Note(
+                "Higher intel reveals colony count, fleet strength, tech, economy, and resources",
+            ),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
             HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),

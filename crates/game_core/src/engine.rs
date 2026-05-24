@@ -12,11 +12,12 @@ use crate::state::{
     AiDoctrine, BattleReport, BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState,
     ColonyUnrestState, CombatPhase, CombatPhaseSummary, ComponentId, CustomDesignId,
     CustomShipDesign, DiplomaticCommunication, DiplomaticCommunicationType, DiplomaticRelationship,
-    DiplomaticResponse, DiplomaticTone, DiplomaticTreaty, Empire, EmpireId, Fleet, FleetFormation,
-    FleetId, FleetKind, FleetMission, FleetOrder, FleetRole, FleetSupplyState, GameState, HullId,
-    HyperspaceLane, OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup,
-    ScoutMission, ShipDesignId, StarId, StrategicResource, SurveyMission, TechId, TreatyType,
-    UnrestCause, YieldType,
+    DiplomaticResponse, DiplomaticTone, DiplomaticTreaty, Empire, EmpireId, EmpireIntel,
+    EspionageMission, Fleet, FleetFormation, FleetId, FleetKind, FleetMission, FleetOrder,
+    FleetRole, FleetSupplyState, GameState, HullId, HyperspaceLane, IntelLevel, IntelSource,
+    OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
+    ShipDesignId, StarId, StrategicResource, SurveyMission, TechId, TreatyType, UnrestCause,
+    YieldType,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
@@ -54,6 +55,14 @@ const NAP_DURATION_TURNS: u32 = 12;
 const BATTLE_REPORT_MAX_HISTORY: usize = 40;
 const ATTRITION_DIVISOR: u64 = 400;
 const BATTLE_REPORT_ID_PENDING: u64 = 0;
+/// 4 points = about 4 turns from contact alone, or faster with treaties / sensors.
+const INTEL_THRESHOLD_BASIC: u16 = 4;
+/// 9 points = mid-tier read on a rival after sustained contact or one active gather.
+const INTEL_THRESHOLD_INFORMED: u16 = 9;
+/// 16 points = deep read after prolonged passive tracking or repeated gathers.
+const INTEL_THRESHOLD_DEEP: u16 = 16;
+/// One active gather roughly equals several turns of passive contact.
+const INTEL_GATHER_POINTS: u16 = 4;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct YieldBonuses {
@@ -445,6 +454,139 @@ impl Engine {
                 from: previous,
                 to: next,
             });
+        }
+        if next == RelationshipStatus::Unknown {
+            // Unknown means contact is lost or never established, so rival intel returns to hidden.
+            self.state.empire_intel.remove(&empire_id);
+        } else {
+            self.ensure_empire_intel_contact(empire_id);
+        }
+    }
+
+    fn ensure_empire_intel_contact(&mut self, empire_id: EmpireId) {
+        self.state
+            .empire_intel
+            .entry(empire_id)
+            .and_modify(|intel| {
+                if intel.level == IntelLevel::Unknown {
+                    intel.level = IntelLevel::Contacted;
+                }
+            })
+            .or_insert_with(EmpireIntel::new_contacted);
+    }
+
+    fn intel_level_for_points(points: u16) -> IntelLevel {
+        match points {
+            p if p >= INTEL_THRESHOLD_DEEP => IntelLevel::Deep,
+            p if p >= INTEL_THRESHOLD_INFORMED => IntelLevel::Informed,
+            p if p >= INTEL_THRESHOLD_BASIC => IntelLevel::Basic,
+            _ => IntelLevel::Contacted,
+        }
+    }
+
+    fn sensor_intel_bonus(&self) -> u16 {
+        let Some(player) = self.state.empires.get(&self.state.player_empire) else {
+            return 0;
+        };
+        let completed = &player.research.completed;
+        let has_tech = |tech_id| completed.contains(&tech_id);
+
+        let mut bonus = 0;
+        if has_tech(TechId::SURVEY_DRONES) || has_tech(TechId::ADVANCED_SURVEY) {
+            bonus += 1;
+        }
+        if has_tech(TechId::SECTOR_CARTOGRAPHY) {
+            bonus += 1;
+        }
+        if has_tech(TechId::PAN_GALACTIC_SENSOR_NET)
+            || completed
+                .iter()
+                .filter_map(|tech_id| tech_by_id(*tech_id))
+                .any(|record| {
+                    record
+                        .tags
+                        .contains(&crate::state::TechTag::EspionageFuture)
+                })
+        {
+            bonus += 1;
+        }
+        bonus
+    }
+
+    fn has_nearby_intel_presence(&self, empire_id: EmpireId) -> bool {
+        let player_stars: BTreeSet<_> = self
+            .state
+            .fleets
+            .values()
+            .filter(|fleet| fleet.owner == self.state.player_empire)
+            .map(|fleet| fleet.location)
+            .collect();
+        if player_stars.is_empty() {
+            return false;
+        }
+        self.state
+            .fleets
+            .values()
+            .any(|fleet| fleet.owner == empire_id && player_stars.contains(&fleet.location))
+            || self
+                .state
+                .colonies
+                .values()
+                .any(|colony| colony.owner == empire_id && player_stars.contains(&colony.star))
+    }
+
+    fn refresh_empire_intelligence(&mut self, events: &mut Vec<Event>) {
+        let targets: Vec<_> = self
+            .state
+            .diplomacy
+            .iter()
+            .filter(|(_, status)| **status != RelationshipStatus::Unknown)
+            .map(|(empire_id, _)| *empire_id)
+            .collect();
+        let sensor_bonus = self.sensor_intel_bonus();
+
+        for empire_id in targets {
+            self.ensure_empire_intel_contact(empire_id);
+
+            let mut sources = vec![IntelSource::Contact];
+            let mut gained: u16 = 1;
+            if self
+                .state
+                .relationship_data(empire_id)
+                .is_some_and(|relationship| {
+                    relationship
+                        .active_treaties
+                        .iter()
+                        .any(|treaty| treaty.is_active(self.state.turn))
+                })
+            {
+                gained += 1;
+                sources.push(IntelSource::Treaty);
+            }
+            if self.has_nearby_intel_presence(empire_id) {
+                gained += 1;
+                sources.push(IntelSource::NearbyFleets);
+            }
+            if sensor_bonus > 0 {
+                gained += sensor_bonus;
+                sources.push(IntelSource::SensorTech);
+            }
+
+            let Some(intel) = self.state.empire_intel.get_mut(&empire_id) else {
+                continue;
+            };
+            let previous_level = intel.level;
+            intel.points = intel.points.saturating_add(gained);
+            intel.level = Self::intel_level_for_points(intel.points);
+
+            if intel.level > previous_level || sources.len() > 1 {
+                events.push(Event::IntelGained {
+                    with_empire: empire_id,
+                    gained,
+                    new_level: intel.level,
+                    sources,
+                });
+            }
         }
     }
 
@@ -1350,6 +1492,23 @@ impl Engine {
                 } => {
                     self.process_respond_to_communication(communication_id, response, &mut events);
                 }
+                Command::GatherIntelligence { target } => {
+                    self.process_gather_intelligence(target, &mut events);
+                }
+                Command::SabotageProduction { target } => {
+                    self.process_placeholder_espionage(
+                        target,
+                        EspionageMission::SabotageProduction,
+                        &mut events,
+                    );
+                }
+                Command::StealResearch { target } => {
+                    self.process_placeholder_espionage(
+                        target,
+                        EspionageMission::StealResearch,
+                        &mut events,
+                    );
+                }
                 Command::CreateShipDesign {
                     hull_id,
                     components,
@@ -1393,6 +1552,7 @@ impl Engine {
         let current_turn_blockade = self.state.colony_blockade.clone();
         // Strategic resource access snapshot for this turn's economy pass.
         self.state.empire_resource_access = self.state.recompute_empire_resource_access();
+        self.refresh_empire_intelligence(events);
 
         // Track per-empire aggregates for this turn.
         // Keys are EmpireId; BTreeMap ensures deterministic iteration order.
@@ -2903,6 +3063,61 @@ impl Engine {
         });
     }
 
+    fn process_gather_intelligence(&mut self, target: EmpireId, events: &mut Vec<Event>) {
+        let Some(status) = self.validate_known_foreign_empire(target, events) else {
+            return;
+        };
+        if status == RelationshipStatus::Unknown {
+            events.push(Event::error(
+                "Cannot gather intelligence: establish diplomatic contact first",
+            ));
+            return;
+        }
+
+        self.ensure_empire_intel_contact(target);
+        let Some(intel) = self.state.empire_intel.get_mut(&target) else {
+            return;
+        };
+        if intel.last_gather_turn == Some(self.state.turn) {
+            events.push(Event::error(
+                "Gather Intelligence already used on this empire this turn",
+            ));
+            return;
+        }
+
+        intel.points = intel.points.saturating_add(INTEL_GATHER_POINTS);
+        intel.level = Self::intel_level_for_points(intel.points);
+        intel.last_gather_turn = Some(self.state.turn);
+        events.push(Event::IntelGained {
+            with_empire: target,
+            gained: INTEL_GATHER_POINTS,
+            new_level: intel.level,
+            sources: vec![IntelSource::GatherIntelligence],
+        });
+    }
+
+    fn process_placeholder_espionage(
+        &mut self,
+        target: EmpireId,
+        mission: EspionageMission,
+        events: &mut Vec<Event>,
+    ) {
+        let Some(status) = self.validate_known_foreign_empire(target, events) else {
+            return;
+        };
+        if status == RelationshipStatus::Unknown {
+            events.push(Event::error(format!(
+                "{} requires diplomatic contact first",
+                mission.label()
+            )));
+            return;
+        }
+        events.push(Event::EspionageMissionUnavailable {
+            with_empire: target,
+            mission,
+        });
+    }
+
     fn process_cancel_treaty(
         &mut self,
         target: EmpireId,
@@ -4314,6 +4529,7 @@ impl Engine {
                 self.state
                     .diplomacy_relationships
                     .insert(empire_id, relationship);
+                self.ensure_empire_intel_contact(empire_id);
                 events.push(Event::FirstContact {
                     with_empire: empire_id,
                 });
@@ -4393,6 +4609,7 @@ impl Engine {
             self.state
                 .diplomacy_relationships
                 .insert(ai_empire_id, relationship);
+            self.ensure_empire_intel_contact(ai_empire_id);
             events.push(Event::FirstContact {
                 with_empire: ai_empire_id,
             });

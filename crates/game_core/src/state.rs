@@ -2816,6 +2816,127 @@ impl RelationshipStatus {
     }
 }
 
+/// Discrete intelligence level the player has on another empire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum IntelLevel {
+    #[default]
+    Unknown,
+    Contacted,
+    Basic,
+    Informed,
+    Deep,
+}
+
+impl IntelLevel {
+    pub fn label(self) -> &'static str {
+        match self {
+            IntelLevel::Unknown => "Unknown",
+            IntelLevel::Contacted => "Contacted",
+            IntelLevel::Basic => "Basic",
+            IntelLevel::Informed => "Informed",
+            IntelLevel::Deep => "Deep",
+        }
+    }
+
+    pub fn reveals_colony_count(self) -> bool {
+        self >= IntelLevel::Basic
+    }
+
+    pub fn reveals_fleet_strength(self) -> bool {
+        self >= IntelLevel::Basic
+    }
+
+    pub fn reveals_tech_level(self) -> bool {
+        self >= IntelLevel::Informed
+    }
+
+    pub fn reveals_economy_summary(self) -> bool {
+        self >= IntelLevel::Informed
+    }
+
+    pub fn reveals_diplomatic_stance(self) -> bool {
+        self >= IntelLevel::Contacted
+    }
+
+    pub fn reveals_strategic_resources(self) -> bool {
+        self >= IntelLevel::Deep
+    }
+}
+
+/// Deterministic source that improved empire intelligence this turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum IntelSource {
+    Contact,
+    NearbyFleets,
+    SensorTech,
+    Treaty,
+    GatherIntelligence,
+}
+
+impl IntelSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            IntelSource::Contact => "contact",
+            IntelSource::NearbyFleets => "nearby fleets",
+            IntelSource::SensorTech => "sensor tech",
+            IntelSource::Treaty => "treaty",
+            IntelSource::GatherIntelligence => "gather intel",
+        }
+    }
+}
+
+/// Lightweight espionage actions surfaced in diplomacy UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum EspionageMission {
+    GatherIntelligence,
+    SabotageProduction,
+    StealResearch,
+}
+
+impl EspionageMission {
+    pub fn label(self) -> &'static str {
+        match self {
+            EspionageMission::GatherIntelligence => "Gather Intelligence",
+            EspionageMission::SabotageProduction => "Sabotage Production",
+            EspionageMission::StealResearch => "Steal Research",
+        }
+    }
+}
+
+/// Persisted intelligence state for one foreign empire.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct EmpireIntel {
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub level: IntelLevel,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub points: u16,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub last_gather_turn: Option<u32>,
+}
+
+impl EmpireIntel {
+    pub fn new_contacted() -> Self {
+        Self {
+            level: IntelLevel::Contacted,
+            points: 0,
+            last_gather_turn: None,
+        }
+    }
+}
+
+/// Aggregated deterministic economy snapshot for empire-intelligence UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EmpireEconomySummary {
+    pub food_balance: i64,
+    pub industry: i64,
+    pub science: i64,
+    pub credits: i64,
+}
+
 /// Supported treaty types in diplomacy v3.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -3301,6 +3422,9 @@ pub struct GameState {
     /// Recent deterministic combat battle reports (oldest at front).
     #[cfg_attr(feature = "serde", serde(default))]
     pub battle_reports: VecDeque<BattleReport>,
+    /// Persisted intelligence state per known foreign empire.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub empire_intel: BTreeMap<EmpireId, EmpireIntel>,
 }
 
 impl GameState {
@@ -3827,6 +3951,104 @@ impl GameState {
             })
     }
 
+    pub fn player_knows_empire(&self, empire_id: EmpireId) -> bool {
+        empire_id == self.player_empire
+            || self.intel_level_for_empire(empire_id) >= IntelLevel::Contacted
+    }
+
+    pub fn intel_level_for_empire(&self, empire_id: EmpireId) -> IntelLevel {
+        if empire_id == self.player_empire {
+            return IntelLevel::Deep;
+        }
+        if let Some(intel) = self.empire_intel.get(&empire_id) {
+            return intel.level;
+        }
+        match self.relationship_status(self.player_empire, empire_id) {
+            RelationshipStatus::Unknown => IntelLevel::Unknown,
+            _ => IntelLevel::Contacted,
+        }
+    }
+
+    pub fn empire_colony_count(&self, empire_id: EmpireId) -> usize {
+        self.colonies
+            .values()
+            .filter(|colony| colony.owner == empire_id)
+            .count()
+    }
+
+    pub fn empire_total_fleet_strength(&self, empire_id: EmpireId) -> u32 {
+        self.fleets
+            .values()
+            .filter(|fleet| fleet.owner == empire_id)
+            .map(|fleet| fleet.strength.saturating_mul(fleet.ships.max(1)))
+            .sum()
+    }
+
+    pub fn empire_fleet_strength_band(&self, empire_id: EmpireId) -> &'static str {
+        match self.empire_total_fleet_strength(empire_id) {
+            0 => "No signal",
+            1..=12 => "Light",
+            13..=32 => "Moderate",
+            33..=64 => "Strong",
+            _ => "Overwhelming",
+        }
+    }
+
+    pub fn empire_highest_tech_tier(&self, empire_id: EmpireId) -> Option<TechTier> {
+        let empire = self.empires.get(&empire_id)?;
+        empire
+            .research
+            .completed
+            .iter()
+            .filter_map(|tech_id| tech_by_id(*tech_id))
+            .map(|record| record.tier)
+            .max()
+    }
+
+    pub fn empire_economy_summary(&self, empire_id: EmpireId) -> Option<EmpireEconomySummary> {
+        if !self.empires.contains_key(&empire_id) {
+            return None;
+        }
+        let mut summary = EmpireEconomySummary::default();
+        let mut found = false;
+        for colony in self
+            .colonies
+            .values()
+            .filter(|colony| colony.owner == empire_id)
+        {
+            let planet = self
+                .stars
+                .get(&colony.star)
+                .and_then(|star| star.planets.get(colony.planet_index));
+            let yield_snapshot = crate::yield_model::calculate_yield(colony, planet);
+            summary.food_balance += yield_snapshot.food - yield_snapshot.food_consumed;
+            summary.industry += yield_snapshot.industry;
+            summary.science += yield_snapshot.science;
+            summary.credits += yield_snapshot.credits;
+            found = true;
+        }
+        found.then_some(summary)
+    }
+
+    pub fn visible_empire_resources_for_player(
+        &self,
+        empire_id: EmpireId,
+    ) -> Vec<(StrategicResource, u32)> {
+        let mut resources = self
+            .empire_resource_access
+            .get(&empire_id)
+            .map(|by_resource| {
+                by_resource
+                    .iter()
+                    .filter(|(_, count)| **count > 0)
+                    .map(|(resource, count)| (*resource, *count))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        resources.sort_by(|a, b| a.0.name().cmp(b.0.name()));
+        resources
+    }
+
     /// Recompute which colonies are blockaded based on current idle fleet positions
     /// and diplomacy.
     ///
@@ -4056,6 +4278,7 @@ impl PartialEq for GameState {
             && self.galactic_dispatches == other.galactic_dispatches
             && self.next_battle_report_id == other.next_battle_report_id
             && self.battle_reports == other.battle_reports
+            && self.empire_intel == other.empire_intel
     }
 }
 
@@ -4130,6 +4353,7 @@ impl Default for GameState {
             fleet_custom_designs: BTreeMap::new(),
             next_battle_report_id: 1,
             battle_reports: VecDeque::new(),
+            empire_intel: BTreeMap::new(),
         }
     }
 }

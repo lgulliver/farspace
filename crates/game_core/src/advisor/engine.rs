@@ -2,7 +2,7 @@ use crate::advisor::rules::{
     colony::{
         ColonyFoodDeficitRule, ColonyUnrestRule, IdleColonyProductionRule, UndefendedColonyRule,
     },
-    diplomacy::DiplomacyRulesStub,
+    diplomacy::LowIntelRule,
     economy::TreasuryDepletionRiskRule,
     military::IdleFleetRule,
     science::NoActiveResearchRule,
@@ -54,7 +54,7 @@ impl AdvisorEngine {
                 Box::new(IdleFleetRule),
                 Box::new(NoActiveResearchRule),
                 Box::new(TreasuryDepletionRiskRule),
-                Box::new(DiplomacyRulesStub),
+                Box::new(LowIntelRule),
             ],
             max_messages_per_turn: AdvisorPreferences::default().max_messages_per_turn,
         }

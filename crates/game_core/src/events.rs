@@ -2,9 +2,9 @@
 
 use crate::state::{
     BuildItem, ColonyId, ColonyRole, ColonyUnrestState, CustomDesignId,
-    DiplomaticCommunicationType, EmpireId, FleetFormation, FleetId, FleetOrder, FleetRole, HullId,
-    PlanetAnomaly, PlanetSpecial, StarId, StrategicResource, TechId, TreatyType, UnrestCause,
-    VictoryPath,
+    DiplomaticCommunicationType, EmpireId, EspionageMission, FleetFormation, FleetId, FleetOrder,
+    FleetRole, HullId, IntelLevel, IntelSource, PlanetAnomaly, PlanetSpecial, StarId,
+    StrategicResource, TechId, TreatyType, UnrestCause, VictoryPath,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -325,6 +325,18 @@ pub enum Event {
         with_empire: EmpireId,
         from: crate::state::RelationshipStatus,
         to: crate::state::RelationshipStatus,
+    },
+    /// Intelligence level improved on a foreign empire.
+    IntelGained {
+        with_empire: EmpireId,
+        gained: u16,
+        new_level: IntelLevel,
+        sources: Vec<IntelSource>,
+    },
+    /// Placeholder espionage mission acknowledged for future expansion.
+    EspionageMissionUnavailable {
+        with_empire: EmpireId,
+        mission: EspionageMission,
     },
     /// Combat was auto-resolved between two hostile fleets at a star system
     CombatResolved {
@@ -989,6 +1001,30 @@ impl Event {
                 with_empire.0,
                 from.label(),
                 to.label()
+            ),
+            Event::IntelGained {
+                with_empire,
+                gained,
+                new_level,
+                sources,
+            } => format!(
+                "Intelligence on Empire {} improved by {} point(s) via {} — level {}",
+                with_empire.0,
+                gained,
+                sources
+                    .iter()
+                    .map(|source| source.label())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                new_level.label()
+            ),
+            Event::EspionageMissionUnavailable {
+                with_empire,
+                mission,
+            } => format!(
+                "{} against Empire {} reserved for future slice",
+                mission.label(),
+                with_empire.0
             ),
             Event::CombatResolved {
                 star,

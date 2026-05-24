@@ -380,7 +380,10 @@ fn render_empire_detail(
                     Span::styled(
                         format!(
                             "F {:+} · I {} · S {} · C {}",
-                            summary.food_balance, summary.industry, summary.science, summary.credits
+                            summary.food_balance,
+                            summary.industry,
+                            summary.science,
+                            summary.credits
                         ),
                         Theme::default_style(),
                     ),

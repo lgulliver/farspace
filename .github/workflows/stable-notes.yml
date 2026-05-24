@@ -1,0 +1,25 @@
+name: stable-notes
+
+on:
+  workflow_call:
+    inputs:
+      stable_tag:
+        description: Stable release tag being published (e.g. v0.1.0)
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  generate:
+    name: Generate stable release notes
+    uses: ./.github/workflows/nightly-notes.lock.yml
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      pull-requests: read
+    secrets: inherit
+    with:
+      # Locked workflow input is currently named nightly_tag; keep mapping here so stable channel uses stable_tag externally.
+      nightly_tag: ${{ inputs.stable_tag }}

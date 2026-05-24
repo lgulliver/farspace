@@ -1,0 +1,19 @@
+use crate::advisor::message::AdvisorCategory;
+use std::collections::BTreeSet;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdvisorPreferences {
+    pub enabled: bool,
+    pub muted_categories: BTreeSet<AdvisorCategory>,
+    pub max_messages_per_turn: usize,
+}
+
+impl Default for AdvisorPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            muted_categories: BTreeSet::new(),
+            max_messages_per_turn: 5,
+        }
+    }
+}

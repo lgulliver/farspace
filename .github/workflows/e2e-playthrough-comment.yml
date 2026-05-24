@@ -41,28 +41,6 @@ jobs:
             const fs = require('fs');
             const path = require('path');
 
-            function findReport(startDir, filename) {
-              if (!fs.existsSync(startDir)) {
-                return null;
-              }
-
-              const entries = fs.readdirSync(startDir, { withFileTypes: true });
-              for (const entry of entries) {
-                const fullPath = path.join(startDir, entry.name);
-                if (entry.isFile() && entry.name === filename) {
-                  return fullPath;
-                }
-                if (entry.isDirectory()) {
-                  const nested = findReport(fullPath, filename);
-                  if (nested) {
-                    return nested;
-                  }
-                }
-              }
-
-              return null;
-            }
-
             const marker = '<!-- e2e-playthrough-summary -->';
             const pr = context.payload.workflow_run?.pull_requests?.[0];
             if (!pr) {
@@ -70,13 +48,17 @@ jobs:
               return;
             }
 
-            const reportPath = findReport('target/e2e', 'playthrough-report.md');
+            const reportPath = path.join('target/e2e', 'playthrough-report.md');
 
             let report = '_E2E markdown report not found in workflow artifacts._';
-            if (reportPath) {
+            if (fs.existsSync(reportPath)) {
               report = fs.readFileSync(reportPath, 'utf8');
             } else if (process.env.REPORT_DOWNLOAD_OUTCOME !== 'success') {
-              report = `_E2E artifact download ${process.env.REPORT_DOWNLOAD_OUTCOME}; markdown report unavailable._`;
+              const downloadOutcome = process.env.REPORT_DOWNLOAD_OUTCOME || 'did not complete successfully';
+              const downloadStatus = downloadOutcome === 'failure'
+                ? 'failed'
+                : downloadOutcome;
+              report = `_E2E artifact download ${downloadStatus}; markdown report unavailable._`;
             }
 
             const conclusion = (process.env.WORKFLOW_CONCLUSION || 'unknown').toUpperCase();

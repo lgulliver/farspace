@@ -3280,7 +3280,7 @@ impl GameState {
             .values()
             .any(|colony| colony.owner == empire_id)
         {
-            return FleetSupplyState::Supplied;
+            return FleetSupplyState::OutOfSupply;
         }
         let mut best = FleetSupplyState::OutOfSupply;
         for colony in self

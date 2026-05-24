@@ -8,6 +8,8 @@ on:
         required: true
         type: string
 
+permissions: {}
+
 jobs:
   generate:
     name: Generate stable release notes
@@ -19,4 +21,5 @@ jobs:
       pull-requests: read
     secrets: inherit
     with:
+      # Input name follows contract of locked reusable workflow.
       nightly_tag: ${{ inputs.stable_tag }}

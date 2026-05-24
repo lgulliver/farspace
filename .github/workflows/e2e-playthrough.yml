@@ -12,7 +12,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-      issues: write
 
     steps:
       - uses: actions/checkout@v4
@@ -31,64 +30,3 @@ jobs:
           name: e2e-playthrough-report
           path: |
             target/e2e/
-
-      - name: Post E2E summary on PR
-        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const marker = '<!-- e2e-playthrough-summary -->';
-            const reportPath = 'target/e2e/playthrough-report.md';
-            let report = '_E2E markdown report not found at `target/e2e/playthrough-report.md`._';
-
-            if (fs.existsSync(reportPath)) {
-              report = fs.readFileSync(reportPath, 'utf8');
-            }
-
-            const maxLength = 60000;
-            if (report.length > maxLength) {
-              report = `${report.slice(0, maxLength)}\n\n_...truncated due to comment size limit._`;
-            }
-
-            const body = `${marker}
-            ## E2E Playthrough Summary
-
-            ${report}`;
-
-            try {
-              const { owner, repo } = context.repo;
-              const issue_number = context.issue.number;
-              const comments = await github.paginate(github.rest.issues.listComments, {
-                owner,
-                repo,
-                issue_number,
-                per_page: 100,
-              });
-
-              const existing = comments.find(
-                (comment) =>
-                  comment.user?.type === 'Bot' &&
-                  typeof comment.body === 'string' &&
-                  comment.body.includes(marker)
-              );
-
-              if (existing) {
-                await github.rest.issues.updateComment({
-                  owner,
-                  repo,
-                  comment_id: existing.id,
-                  body,
-                });
-              } else {
-                await github.rest.issues.createComment({
-                  owner,
-                  repo,
-                  issue_number,
-                  body,
-                });
-              }
-            } catch (error) {
-              console.warn(`Skipping E2E PR comment: ${error.message}`);
-            }

@@ -12,10 +12,10 @@ env:
 jobs:
   e2e-playthrough:
     runs-on: ubuntu-latest
+    # PR comments now come from trusted workflow_run follow-up workflow.
     permissions:
       actions: read
       contents: read
-      # PR commenting moved to trusted workflow_run follow-up workflow.
 
     steps:
       - uses: actions/checkout@v4

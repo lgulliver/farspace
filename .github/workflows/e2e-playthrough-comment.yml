@@ -36,6 +36,7 @@ jobs:
           artifact_name="${ARTIFACT_NAME}"
           artifact_zip="/tmp/${artifact_name}.zip"
           artifacts_json="$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts")"
+          artifact_count="$(printf '%s' "${artifacts_json}" | jq -r --arg artifact_name "${artifact_name}" '[.artifacts[] | select(.name == $artifact_name)] | length')"
 
           artifact_id="$(printf '%s' "${artifacts_json}" | jq -r --arg artifact_name "${artifact_name}" '.artifacts[] | select(.name == $artifact_name) | .id' | head -n 1)"
           if [ -z "${artifact_id}" ]; then
@@ -45,6 +46,9 @@ jobs:
             fi
             echo "E2E artifact ${artifact_name} not found for workflow run ${RUN_ID}. Available artifacts: ${available_artifacts}."
             exit 1
+          fi
+          if [ "${artifact_count}" -gt 1 ]; then
+            echo "Warning: found ${artifact_count} artifacts named ${artifact_name}; using first match."
           fi
 
           gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}/zip" --output "${artifact_zip}"
@@ -85,7 +89,16 @@ jobs:
               report = `_E2E artifact download ${downloadStatus}; markdown report unavailable._`;
             }
 
-            const conclusion = (process.env.WORKFLOW_CONCLUSION || 'unknown').toUpperCase();
+            const conclusion = {
+              success: 'Success',
+              failure: 'Failure',
+              cancelled: 'Cancelled',
+              skipped: 'Skipped',
+              neutral: 'Neutral',
+              timed_out: 'Timed out',
+              action_required: 'Action required',
+              stale: 'Stale',
+            }[process.env.WORKFLOW_CONCLUSION || ''] || 'Unknown';
             const maxLength = 60000;
             if (report.length > maxLength) {
               report = `${report.slice(0, maxLength)}\n\n_...truncated due to comment size limit._`;

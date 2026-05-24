@@ -49,6 +49,8 @@ Unrest states apply deterministic colony penalties:
 - increased colony maintenance
 - increased rebellion risk basis points (`colony_rebellion_risk_bp`) as future hook
 
+Note: build throughput is based on colony-local industry (then unrest penalty), while empire/resource flat economic bonuses affect economy outputs only and do not directly accelerate build-pool accumulation.
+
 No rebellion mechanics are executed in v1.
 
 ## Conquest Handling

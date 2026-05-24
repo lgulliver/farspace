@@ -21,7 +21,7 @@ use ratatui::{
 pub enum OverviewSort {
     #[default]
     Name,
-    StabilityWarnings,
+    OrderWarnings,
     ProductionCompletion,
     Population,
 }
@@ -29,8 +29,8 @@ pub enum OverviewSort {
 impl OverviewSort {
     pub fn next(self) -> Self {
         match self {
-            OverviewSort::Name => OverviewSort::StabilityWarnings,
-            OverviewSort::StabilityWarnings => OverviewSort::ProductionCompletion,
+            OverviewSort::Name => OverviewSort::OrderWarnings,
+            OverviewSort::OrderWarnings => OverviewSort::ProductionCompletion,
             OverviewSort::ProductionCompletion => OverviewSort::Population,
             OverviewSort::Population => OverviewSort::Name,
         }
@@ -39,7 +39,7 @@ impl OverviewSort {
     fn label(self) -> &'static str {
         match self {
             OverviewSort::Name => "Name",
-            OverviewSort::StabilityWarnings => "Stability warnings",
+            OverviewSort::OrderWarnings => "Order warnings",
             OverviewSort::ProductionCompletion => "Production ETA",
             OverviewSort::Population => "Population",
         }
@@ -479,7 +479,7 @@ fn sort_rows(rows: &mut [ColonyOverviewRow], sort: OverviewSort) {
                 .then(a.planet.cmp(&b.planet))
                 .then(a.colony_id.0.cmp(&b.colony_id.0))
         }),
-        OverviewSort::StabilityWarnings => rows.sort_by(|a, b| {
+        OverviewSort::OrderWarnings => rows.sort_by(|a, b| {
             let a_warn = usize::from(a.unrest_state != ColonyUnrestState::Calm);
             let b_warn = usize::from(b.unrest_state != ColonyUnrestState::Calm);
             b_warn

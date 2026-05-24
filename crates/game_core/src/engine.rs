@@ -999,6 +999,21 @@ impl Engine {
         for colony in self.state.colonies.values() {
             *colony_counts.entry(colony.owner).or_insert(0) += 1;
         }
+        let player = self.state.player_empire;
+        let war_with_player: BTreeMap<EmpireId, bool> = self
+            .state
+            .empires
+            .keys()
+            .copied()
+            .filter(|empire_id| *empire_id != player)
+            .map(|empire_id| {
+                (
+                    empire_id,
+                    self.state.relationship_status(player, empire_id) == RelationshipStatus::War,
+                )
+            })
+            .collect();
+        let player_at_war = war_with_player.values().copied().any(|at_war| at_war);
 
         self.state
             .empires
@@ -1008,13 +1023,11 @@ impl Engine {
                 let colony_count = colony_counts.get(&empire_id).copied().unwrap_or(0);
                 let overextension = colony_count.saturating_sub(OVEREXTENSION_COLONY_THRESHOLD);
                 let overextension_points = overextension.min(3) as u8;
-                let at_war = self.state.empires.keys().copied().any(|other| {
-                    other != empire_id
-                        && self
-                            .state
-                            .relationship_status(empire_id, other)
-                            .is_hostile_or_war()
-                });
+                let at_war = if empire_id == player {
+                    player_at_war
+                } else {
+                    war_with_player.get(&empire_id).copied().unwrap_or(false)
+                };
                 let war_exhaustion_points = if at_war { 1 } else { 0 };
                 (
                     empire_id,
@@ -1025,6 +1038,18 @@ impl Engine {
                 )
             })
             .collect()
+    }
+
+    fn colony_unrest_yield_context(
+        empire_food_shortage: bool,
+        colony_stability: u8,
+        is_connected: bool,
+        is_blockaded: bool,
+    ) -> YieldContext {
+        YieldContext {
+            food_shortage: empire_food_shortage || !is_connected || is_blockaded,
+            stability_pressure: colony_stability < 85 || is_blockaded,
+        }
     }
 
     fn unrest_state_from_score(score: u8) -> ColonyUnrestState {
@@ -1153,12 +1178,25 @@ impl Engine {
                 .stars
                 .get(&colony.star)
                 .and_then(|s| s.planets.get(colony.planet_index));
-            let yield_snapshot = crate::yield_model::calculate_yield(colony, planet);
-            let food_deficit = (yield_snapshot.food_consumed - yield_snapshot.food).max(0);
-            let housing_deficit = yield_snapshot.workforce.housing_deficit;
             let is_connected =
                 self.state.colony_supply_state(colony_id) == ColonySupplyState::Connected;
             let is_blockaded = self.state.colony_blockade_state(colony_id).is_some();
+            let empire_food_shortage = self
+                .state
+                .empires
+                .get(&colony.owner)
+                .map(|e| e.food < 0)
+                .unwrap_or(false);
+            let context = Self::colony_unrest_yield_context(
+                empire_food_shortage,
+                colony.stability,
+                is_connected,
+                is_blockaded,
+            );
+            let yield_snapshot =
+                crate::yield_model::calculate_yield_with_context(colony, planet, context);
+            let food_deficit = (yield_snapshot.food_consumed - yield_snapshot.food).max(0);
+            let housing_deficit = yield_snapshot.workforce.housing_deficit;
             let unrest = self.evaluate_colony_unrest(
                 colony,
                 food_deficit,
@@ -1436,10 +1474,12 @@ impl Engine {
                 .get(&owner)
                 .map(|e| e.food < 0)
                 .unwrap_or(false);
-            let context = YieldContext {
-                food_shortage: empire_food_shortage || !is_connected || is_blockaded,
-                stability_pressure: colony_stability < 85 || is_blockaded,
-            };
+            let context = Self::colony_unrest_yield_context(
+                empire_food_shortage,
+                colony_stability,
+                is_connected,
+                is_blockaded,
+            );
 
             // Calculate yield via the pop/jobs model.
             let colony_yield = {

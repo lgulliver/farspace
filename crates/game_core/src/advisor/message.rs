@@ -77,7 +77,7 @@ pub enum AdvisorTarget {
     Tech(TechId),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct AdvisorMessageKey {
     pub rule_id: AdvisorRuleId,
     pub target: Option<AdvisorTarget>,

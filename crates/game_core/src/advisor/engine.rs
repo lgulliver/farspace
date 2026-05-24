@@ -17,7 +17,7 @@ use crate::advisor::{
 };
 use crate::events::Event;
 use crate::state::GameState;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 pub struct AdvisorContext<'a> {
     pub state: &'a GameState,
@@ -78,7 +78,7 @@ impl AdvisorEngine {
                     .is_none_or(|id| !ctx.knowledge.dismissed_tutorials.contains(&id))
         });
 
-        let mut seen_keys = HashSet::new();
+        let mut seen_keys = BTreeSet::new();
         messages.retain(|message| seen_keys.insert(message.key.clone()));
 
         messages.sort_by(|a, b| {
@@ -89,13 +89,10 @@ impl AdvisorEngine {
                 .then_with(|| a.id.0.cmp(&b.id.0))
         });
 
-        let cap = if ctx.preferences.max_messages_per_turn == 0 {
-            self.max_messages_per_turn
-        } else {
-            ctx.preferences
-                .max_messages_per_turn
-                .min(self.max_messages_per_turn)
-        };
+        let cap = ctx
+            .preferences
+            .max_messages_per_turn
+            .min(self.max_messages_per_turn);
         let critical_count = messages
             .iter()
             .filter(|msg| msg.severity == AdvisorSeverity::Critical)

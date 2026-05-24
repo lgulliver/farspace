@@ -104,6 +104,12 @@ pub enum Command {
         communication_id: u64,
         response: DiplomaticResponse,
     },
+    /// Conduct a lightweight intelligence sweep against a contacted empire
+    GatherIntelligence { target: EmpireId },
+    /// Placeholder for future production sabotage mission
+    SabotageProduction { target: EmpireId },
+    /// Placeholder for future research theft mission
+    StealResearch { target: EmpireId },
     /// Create a new custom ship design for the player empire
     CreateShipDesign {
         hull_id: HullId,

@@ -176,6 +176,18 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                         .colony_rebellion_risk_bp
                         .insert(*colony_id, unrest_state.base_rebellion_risk_bp());
                 }
+                save.metadata.schema_version = 37;
+                save.version = 37;
+            }
+            37 => {
+                for (&empire_id, status) in &save.state.diplomacy {
+                    if *status != game_core::RelationshipStatus::Unknown {
+                        save.state
+                            .empire_intel
+                            .entry(empire_id)
+                            .or_insert_with(game_core::EmpireIntel::new_contacted);
+                    }
+                }
                 save.metadata.schema_version = CURRENT_VERSION;
                 save.version = CURRENT_VERSION;
             }

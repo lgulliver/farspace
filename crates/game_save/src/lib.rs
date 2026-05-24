@@ -1237,6 +1237,29 @@ mod tests {
         assert_eq!(loaded.diplomacy_next_communication_id, 78);
     }
 
+    #[test]
+    fn save_load_preserves_empire_intel_state() {
+        let mut engine = Engine::new(42);
+        let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Contacted);
+        engine.state.empire_intel.insert(
+            ai_id,
+            game_core::EmpireIntel {
+                level: game_core::IntelLevel::Deep,
+                points: 18,
+                last_gather_turn: Some(engine.state.turn),
+            },
+        );
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+
+        assert_eq!(loaded.empire_intel, engine.state.empire_intel);
+    }
+
     /// v6 saves (without diplomacy field) load correctly with diplomacy defaulting to empty.
     #[test]
     fn load_v6_save_defaults_diplomacy_to_empty() {

@@ -149,7 +149,7 @@ cargo run --release -p farspace
 - **Exploration:** sector/system navigation, scout missions, survey actions.
 - **Colonization & economy:** colony creation, role assignment, production queue, supply/food/credits.
 - **Research:** active tech, queue management, unlock-driven progression.
-- **Diplomacy & war:** first contact, relationship drift, war state, invasion and strategic auto-resolve combat.
+- **Diplomacy & war:** first contact, relationship drift, empire intel levels, war state, invasion and strategic auto-resolve combat.
 - **Victory:** progress tracked in empire overview (`O`/`V`) across enabled victory paths.
 - **Save/load:** menu (`L`) or command palette (`:` then `save` / `load`).
 
@@ -180,6 +180,8 @@ Optional E2E runner command:
 ```bash
 cargo run -p game_e2e --bin e2e_runner -- --seed 12345 --turns 100 --report target/e2e/playthrough-report.json
 ```
+
+For intel / diplomacy slices, use the report to verify rival info stays redacted until the expected intel level and that deterministic runs produce the same intel gains for the same seed.
 
 Testing policy details: [`docs/testing.md`](docs/testing.md)
 

@@ -1662,6 +1662,21 @@ impl App {
                     self.dispatch_command(Command::DemandTribute { target });
                 }
             }
+            KeyCode::Char('i') => {
+                if let Some(target) = self.selected_diplomacy_target() {
+                    self.dispatch_command(Command::GatherIntelligence { target });
+                }
+            }
+            KeyCode::Char('z') => {
+                if let Some(target) = self.selected_diplomacy_target() {
+                    self.dispatch_command(Command::SabotageProduction { target });
+                }
+            }
+            KeyCode::Char('y') => {
+                if let Some(target) = self.selected_diplomacy_target() {
+                    self.dispatch_command(Command::StealResearch { target });
+                }
+            }
             // End turn from diplomacy screen
             _ => {
                 if KeyMap::is_end_turn(key) {

@@ -91,6 +91,18 @@ fn planet_survey_state(
     }
 }
 
+fn empire_intel_level(
+    game_state: &GameState,
+    empire_id: game_core::EmpireId,
+) -> game_core::IntelLevel {
+    game_state.intel_level_for_empire(empire_id)
+}
+
+fn can_show_foreign_colony_details(game_state: &GameState, empire_id: game_core::EmpireId) -> bool {
+    empire_id == game_state.player_empire
+        || empire_intel_level(game_state, empire_id) >= game_core::IntelLevel::Informed
+}
+
 fn render_orbital_panel(
     frame: &mut Frame,
     area: Rect,
@@ -573,15 +585,22 @@ fn render_selected_planet_hero(
     ];
     if let Some(colony_id) = planet.colony {
         if let Some(colony) = game_state.colonies.get(&colony_id) {
-            lines.push(Line::from(vec![
-                Span::styled("Colony ", Theme::muted_style()),
-                Span::styled(format!("Pop {}", colony.population), Theme::accent_style()),
-                Span::styled("  Order ", Theme::muted_style()),
-                Span::styled(
-                    game_state.colony_unrest_label(colony.id),
-                    Theme::default_style(),
-                ),
-            ]));
+            if can_show_foreign_colony_details(game_state, colony.owner) {
+                lines.push(Line::from(vec![
+                    Span::styled("Colony ", Theme::muted_style()),
+                    Span::styled(format!("Pop {}", colony.population), Theme::accent_style()),
+                    Span::styled("  Order ", Theme::muted_style()),
+                    Span::styled(
+                        game_state.colony_unrest_label(colony.id),
+                        Theme::default_style(),
+                    ),
+                ]));
+            } else {
+                lines.push(Line::from(vec![
+                    Span::styled("Colony ", Theme::muted_style()),
+                    Span::styled("Foreign settlement — details hidden", Theme::muted_style()),
+                ]));
+            }
         }
     } else {
         lines.push(Line::from(vec![
@@ -791,24 +810,35 @@ fn render_system_detail_facts(
 
     let colony_line = if let Some(colony_id) = planet.colony {
         if let Some(colony) = game_state.colonies.get(&colony_id) {
-            let infra = colony.surface_installations.len() + colony.orbital_installations.len();
-            let supply = game_state.colony_supply_state(colony.id);
-            let planet_ref = game_state
-                .stars
-                .get(&colony.star)
-                .and_then(|s| s.planets.get(colony.planet_index));
-            let y = game_core::yield_model::calculate_yield(colony, planet_ref);
-            format!(
-                "Colony {} (Empire {}, Pop {}, Emp {}/{}, Infra {}, {}, {})",
-                colony_id.0,
-                colony.owner.0,
-                colony.population,
-                y.workforce.employed,
-                y.workforce.population,
-                infra,
-                supply.label(),
-                game_state.colony_unrest_label(colony.id)
-            )
+            if can_show_foreign_colony_details(game_state, colony.owner) {
+                let infra = colony.surface_installations.len() + colony.orbital_installations.len();
+                let supply = game_state.colony_supply_state(colony.id);
+                let planet_ref = game_state
+                    .stars
+                    .get(&colony.star)
+                    .and_then(|s| s.planets.get(colony.planet_index));
+                let y = game_core::yield_model::calculate_yield(colony, planet_ref);
+                format!(
+                    "Colony {} (Empire {}, Pop {}, Emp {}/{}, Infra {}, {}, {})",
+                    colony_id.0,
+                    colony.owner.0,
+                    colony.population,
+                    y.workforce.employed,
+                    y.workforce.population,
+                    infra,
+                    supply.label(),
+                    game_state.colony_unrest_label(colony.id)
+                )
+            } else {
+                format!(
+                    "Foreign colony ({})",
+                    game_state
+                        .empires
+                        .get(&colony.owner)
+                        .map(|empire| empire.name.as_str())
+                        .unwrap_or("unknown owner")
+                )
+            }
         } else {
             format!("Colony {}", colony_id.0)
         }
@@ -822,50 +852,61 @@ fn render_system_detail_facts(
 
     if let Some(colony_id) = planet.colony {
         if let Some(colony) = game_state.colonies.get(&colony_id) {
-            let supply = game_state.colony_supply_state(colony.id);
-            let planet_ref = game_state
-                .stars
-                .get(&colony.star)
-                .and_then(|s| s.planets.get(colony.planet_index));
-            let y = game_core::yield_model::calculate_yield(colony, planet_ref);
-            lines.push(Line::from(vec![
-                Span::styled("Trade:  ", Theme::muted_style()),
-                Span::styled(
-                    supply.label(),
-                    if supply == ColonySupplyState::Isolated {
-                        Theme::warning_style()
-                    } else {
-                        Theme::accent_style()
-                    },
-                ),
-            ]));
-            lines.push(Line::from(vec![
-                Span::styled("Economy:", Theme::muted_style()),
-                Span::styled(
-                    format!(
-                        " F {:+}  I {}  S {}  C {}",
-                        y.food - y.food_consumed,
-                        y.industry,
-                        y.science,
-                        y.credits
+            if can_show_foreign_colony_details(game_state, colony.owner) {
+                let supply = game_state.colony_supply_state(colony.id);
+                let planet_ref = game_state
+                    .stars
+                    .get(&colony.star)
+                    .and_then(|s| s.planets.get(colony.planet_index));
+                let y = game_core::yield_model::calculate_yield(colony, planet_ref);
+                lines.push(Line::from(vec![
+                    Span::styled("Trade:  ", Theme::muted_style()),
+                    Span::styled(
+                        supply.label(),
+                        if supply == ColonySupplyState::Isolated {
+                            Theme::warning_style()
+                        } else {
+                            Theme::accent_style()
+                        },
                     ),
-                    Theme::accent_style(),
-                ),
-            ]));
-            lines.push(Line::from(vec![
-                Span::styled("Housing:", Theme::muted_style()),
-                Span::styled(
-                    format!(
-                        " {} / {}  unemployed {}",
-                        y.workforce.population, y.workforce.housing, y.workforce.unemployed
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("Economy:", Theme::muted_style()),
+                    Span::styled(
+                        format!(
+                            " F {:+}  I {}  S {}  C {}",
+                            y.food - y.food_consumed,
+                            y.industry,
+                            y.science,
+                            y.credits
+                        ),
+                        Theme::accent_style(),
                     ),
-                    if y.workforce.unemployed > 0 || y.workforce.housing_deficit > 0 {
-                        Theme::warning_style()
-                    } else {
-                        Theme::accent_style()
-                    },
-                ),
-            ]));
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("Housing:", Theme::muted_style()),
+                    Span::styled(
+                        format!(
+                            " {} / {}  unemployed {}",
+                            y.workforce.population, y.workforce.housing, y.workforce.unemployed
+                        ),
+                        if y.workforce.unemployed > 0 || y.workforce.housing_deficit > 0 {
+                            Theme::warning_style()
+                        } else {
+                            Theme::accent_style()
+                        },
+                    ),
+                ]));
+            } else {
+                lines.push(Line::from(vec![
+                    Span::styled("Trade:  ", Theme::muted_style()),
+                    Span::styled("Hidden by limited intel", Theme::muted_style()),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("Economy:", Theme::muted_style()),
+                    Span::styled("Hidden by limited intel", Theme::muted_style()),
+                ]));
+            }
         }
     }
 
@@ -897,6 +938,8 @@ fn render_system_detail_facts(
         lines.push(Line::from(Span::styled("  None", Theme::muted_style())));
     } else {
         for (idx, fleet) in fleets_here.iter().enumerate() {
+            let intel = empire_intel_level(game_state, fleet.owner);
+            let owns_fleet = fleet.owner == game_state.player_empire;
             let order_label = match game_state.fleet_orders.get(&fleet.id) {
                 Some(game_core::FleetOrder::Hold) => " [Hold]".to_string(),
                 Some(game_core::FleetOrder::MoveToSystem(star_id)) => {
@@ -929,8 +972,12 @@ fn render_system_detail_facts(
             } else {
                 " ".to_string()
             };
-            let mut name = game_state.fleet_name_for(fleet.id);
-            if matches!(fleet.kind, FleetKind::Science | FleetKind::SurveyCutter) {
+            let mut name = if owns_fleet || intel >= game_core::IntelLevel::Basic {
+                game_state.fleet_name_for(fleet.id)
+            } else {
+                "Foreign Fleet".to_string()
+            };
+            if owns_fleet && matches!(fleet.kind, FleetKind::Science | FleetKind::SurveyCutter) {
                 if let Some(mission) = game_state.survey_missions.get(&fleet.id) {
                     name.push_str(&format!(" (Surveying orbit {})", mission.planet_index + 1));
                 }
@@ -938,25 +985,60 @@ fn render_system_detail_facts(
             lines.push(Line::from(vec![
                 Span::raw(format!("{} {} ", prefix, name)),
                 Span::styled(
-                    format!(
-                        "[{} | {} | DOC {}]",
-                        role.label(),
-                        formation.label(),
-                        doctrine
-                    ),
+                    if owns_fleet || intel >= game_core::IntelLevel::Informed {
+                        format!(
+                            "[{} | {} | DOC {}]",
+                            role.label(),
+                            formation.label(),
+                            doctrine
+                        )
+                    } else {
+                        "[details hidden]".to_string()
+                    },
                     Theme::muted_style(),
                 ),
                 Span::raw(" "),
-                Span::raw(composition),
+                Span::raw(if owns_fleet || intel >= game_core::IntelLevel::Informed {
+                    composition
+                } else if intel.reveals_fleet_strength() {
+                    game_state
+                        .empire_fleet_strength_band(fleet.owner)
+                        .to_string()
+                } else {
+                    "strength hidden".to_string()
+                }),
                 Span::styled(
-                    format!(" {} {}", glyphs.separator_dot, supply.label()),
-                    Theme::fleet_supply_style(supply),
+                    if owns_fleet || intel >= game_core::IntelLevel::Informed {
+                        format!(" {} {}", glyphs.separator_dot, supply.label())
+                    } else {
+                        format!(" {} supply hidden", glyphs.separator_dot)
+                    },
+                    if owns_fleet || intel >= game_core::IntelLevel::Informed {
+                        Theme::fleet_supply_style(supply)
+                    } else {
+                        Theme::muted_style()
+                    },
                 ),
                 Span::styled(
-                    format!(" {} {}", glyphs.separator_dot, summary),
-                    Theme::default_style(),
+                    if owns_fleet || intel >= game_core::IntelLevel::Informed {
+                        format!(" {} {}", glyphs.separator_dot, summary)
+                    } else {
+                        format!(" {} intel {}", glyphs.separator_dot, intel.label())
+                    },
+                    if owns_fleet || intel >= game_core::IntelLevel::Informed {
+                        Theme::default_style()
+                    } else {
+                        Theme::muted_style()
+                    },
                 ),
-                Span::styled(order_label, Theme::muted_style()),
+                Span::styled(
+                    if owns_fleet {
+                        order_label
+                    } else {
+                        String::new()
+                    },
+                    Theme::muted_style(),
+                ),
             ]));
         }
         lines.push(Line::from(Span::styled(
@@ -994,8 +1076,28 @@ fn planet_signature(planet: &game_core::Planet, survey_state: &str) -> &'static 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_core::Engine;
+    use game_core::{
+        EmpireIntel, Engine, Fleet, FleetId, FleetKind, IntelLevel, RelationshipStatus,
+    };
     use ratatui::{backend::TestBackend, layout::Rect, Terminal};
+
+    fn render_to_string(engine: &Engine, app_state: &AppState) -> String {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_system(frame, frame.area(), app_state, &engine.state))
+            .unwrap();
+        let buf = terminal.backend().buffer();
+        (0..40u16)
+            .flat_map(|y| {
+                (0..120u16).map(move |x| {
+                    buf.cell((x, y))
+                        .and_then(|c| c.symbol().chars().next())
+                        .unwrap_or(' ')
+                })
+            })
+            .collect()
+    }
 
     #[test]
     fn system_screen_renders_without_panic() {
@@ -1132,6 +1234,59 @@ mod tests {
             .collect();
         assert!(rendered.contains("Trade:"));
         assert!(rendered.contains("Isolated"));
+    }
+
+    #[test]
+    fn foreign_colony_and_fleet_details_stay_hidden_until_intel_improves() {
+        let mut engine = Engine::new(42);
+        let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Contacted);
+        engine.state.empire_intel.insert(
+            ai_id,
+            EmpireIntel {
+                level: IntelLevel::Contacted,
+                points: 0,
+                last_gather_turn: None,
+            },
+        );
+
+        let enemy_colony_id = *engine
+            .state
+            .colonies
+            .iter()
+            .find_map(|(colony_id, colony)| (colony.owner == ai_id).then_some(colony_id))
+            .expect("enemy colony should exist");
+        let enemy_colony = engine.state.colonies[&enemy_colony_id].clone();
+        engine.state.fleets.insert(
+            FleetId(777),
+            Fleet {
+                id: FleetId(777),
+                owner: ai_id,
+                location: enemy_colony.star,
+                ships: 4,
+                kind: FleetKind::Destroyer,
+                strength: 6,
+                integrity: 100,
+            },
+        );
+
+        let app_state = AppState {
+            navigation: crate::app::NavigationState {
+                selected_star: Some(enemy_colony.star),
+                selected_planet_index: enemy_colony.planet_index,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let rendered = render_to_string(&engine, &app_state);
+        assert!(rendered.contains("Foreign settlement"));
+        assert!(rendered.contains("Foreign Fleet"));
+        assert!(!rendered.contains("4x Destroyer"));
+        assert!(rendered.contains("details hidden"));
     }
 
     #[test]

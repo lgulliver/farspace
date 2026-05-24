@@ -9,6 +9,12 @@ jobs:
   generate-notes:
     name: Generate release notes
     uses: ./.github/workflows/stable-notes.yml
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      pull-requests: read
+    secrets: inherit
     with:
       stable_tag: ${{ github.ref_name }}
 

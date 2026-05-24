@@ -751,7 +751,7 @@ mod tests {
 
     #[test]
     fn save_load_preserves_or_rederives_fleet_supply_state() {
-        use game_core::{Fleet, FleetId, FleetKind, StarId};
+        use game_core::{Fleet, FleetId, FleetKind};
 
         let mut engine = Engine::new(42);
         let player = engine.state.player_empire;

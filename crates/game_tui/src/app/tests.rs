@@ -920,6 +920,99 @@ fn dispatch_command_end_turn_sets_summary_status() {
 }
 
 #[test]
+fn end_turn_report_with_state_includes_fleet_supply_counts() {
+    let mut app = App::new();
+    app.new_game(42);
+    let engine = app.engine.as_mut().unwrap();
+    let home_star = engine.state.empires[&engine.state.player_empire].home_star;
+    let fleet_id = FleetId(9990);
+    engine.state.fleets.insert(
+        fleet_id,
+        game_core::Fleet {
+            id: fleet_id,
+            owner: engine.state.player_empire,
+            location: home_star,
+            ships: 1,
+            kind: FleetKind::Destroyer,
+            strength: 8,
+            integrity: 100,
+        },
+    );
+    engine
+        .state
+        .fleet_supply
+        .insert(fleet_id, game_core::FleetSupplyState::Extended);
+
+    let report = App::build_end_turn_report_with_state(2, &[], Some(&engine.state));
+    assert!(report.contains("fleet supply"));
+    assert!(report.contains("extended"));
+}
+
+#[test]
+fn fleet_arrival_log_mentions_supply_state() {
+    let mut app = App::new();
+    app.new_game(42);
+    let engine = app.engine.as_mut().unwrap();
+    let home_star = engine.state.empires[&engine.state.player_empire].home_star;
+    let fleet_id = FleetId(9991);
+    engine.state.fleets.insert(
+        fleet_id,
+        game_core::Fleet {
+            id: fleet_id,
+            owner: engine.state.player_empire,
+            location: home_star,
+            ships: 1,
+            kind: FleetKind::Destroyer,
+            strength: 8,
+            integrity: 100,
+        },
+    );
+    engine
+        .state
+        .fleet_supply
+        .insert(fleet_id, game_core::FleetSupplyState::Extended);
+
+    let message = app.format_core_event_for_log(&CoreEvent::FleetArrived {
+        fleet: fleet_id,
+        star: home_star,
+    });
+    assert!(message.contains("Extended"));
+    assert!(message.contains("travel"));
+}
+
+#[test]
+fn focused_fleet_status_mentions_supply_penalty() {
+    let mut app = App::new();
+    app.new_game(42);
+    let engine = app.engine.as_mut().unwrap();
+    let home_star = engine.state.empires[&engine.state.player_empire].home_star;
+    let fleet_id = FleetId(9992);
+    engine.state.fleets.insert(
+        fleet_id,
+        game_core::Fleet {
+            id: fleet_id,
+            owner: engine.state.player_empire,
+            location: home_star,
+            ships: 1,
+            kind: FleetKind::TroopTransport,
+            strength: 4,
+            integrity: 100,
+        },
+    );
+    engine
+        .state
+        .fleet_supply
+        .insert(fleet_id, game_core::FleetSupplyState::OutOfSupply);
+    app.state.navigation.selected_star = Some(home_star);
+
+    app.inspect_selected_fleet_composition();
+
+    let message = app.state.status_message.as_deref().unwrap_or_default();
+    assert!(message.contains("Out of Supply"));
+    assert!(message.contains("cannot invade"));
+}
+
+#[test]
 fn galaxy_renders_with_log_entries() {
     let backend = TestBackend::new(120, 40);
     let mut terminal = Terminal::new(backend).unwrap();

@@ -3,9 +3,10 @@
 use crate::layout::centered_rect;
 use crate::theme::Theme;
 use crate::{glyphs::glyphs_for_mode, visual_mode::VisualMode};
-use game_core::BattleReport;
+use game_core::{BattleReport, FleetSupplyState};
 use ratatui::{
     layout::Rect,
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
@@ -13,6 +14,14 @@ use ratatui::{
 use std::{collections::VecDeque, ops::Range};
 
 const MAX_VISIBLE_REPORTS: usize = 8;
+
+fn fleet_supply_style(state: FleetSupplyState) -> Style {
+    match state {
+        FleetSupplyState::Supplied => Theme::success_style(),
+        FleetSupplyState::Extended => Theme::warning_style(),
+        FleetSupplyState::OutOfSupply => Theme::error_style(),
+    }
+}
 
 pub fn render_battle_reports(
     frame: &mut Frame,
@@ -90,6 +99,12 @@ pub fn render_battle_reports(
             ),
             Theme::muted_style(),
         )));
+        lines.push(Line::from(vec![
+            Span::styled("Supply: ", Theme::muted_style()),
+            Span::styled(selected.supply_a.label(), fleet_supply_style(selected.supply_a)),
+            Span::styled(" vs ", Theme::muted_style()),
+            Span::styled(selected.supply_b.label(), fleet_supply_style(selected.supply_b)),
+        ]));
         lines.push(Line::from(Span::styled(
             format!(
                 "Integrity: {}→{} | {}→{} · Retreat: {} / {}",
@@ -131,9 +146,9 @@ pub fn render_battle_reports(
     )));
     lines.push(Line::from(Span::styled(
         if inspect_mode {
-            "↑/↓ select  Enter back to list  Esc/B close"
+            "↑/↓ select  Enter back to list  Esc/B close  supply affects attack/defense/travel"
         } else {
-            "↑/↓ select  Enter inspect battle  Esc/B close"
+            "↑/↓ select  Enter inspect battle  Esc/B close  supply affects attack/defense/travel"
         },
         Theme::muted_style(),
     )));
@@ -167,6 +182,12 @@ fn visible_report_window(report_count: usize, selected_index: usize) -> Range<us
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_core::{
+        BattleReport, CombatPhase, CombatPhaseSummary, EmpireId, FleetFormation, FleetId, FleetKind,
+        FleetRole, FleetSupplyState, StarId,
+    };
+    use ratatui::{backend::TestBackend, Terminal};
+    use std::collections::VecDeque;
 
     #[test]
     fn visible_report_window_keeps_older_selected_report_visible() {
@@ -180,5 +201,75 @@ mod tests {
         let window = visible_report_window(20, 19);
         assert_eq!(window, 12..20);
         assert!(window.contains(&19));
+    }
+
+    #[test]
+    fn render_battle_reports_shows_supply_states() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut reports = VecDeque::new();
+        reports.push_back(BattleReport {
+            report_id: 1,
+            turn: 7,
+            star: StarId(3),
+            fleet_a: FleetId(10),
+            fleet_b: FleetId(11),
+            empire_a: EmpireId(1),
+            empire_b: EmpireId(2),
+            role_a: FleetRole::Assault,
+            role_b: FleetRole::Escort,
+            formation_a: FleetFormation::Balanced,
+            formation_b: FleetFormation::Balanced,
+            doctrine_a: "Pressure".to_string(),
+            doctrine_b: "Reserve".to_string(),
+            supply_a: FleetSupplyState::OutOfSupply,
+            supply_b: FleetSupplyState::Supplied,
+            kind_a: FleetKind::Destroyer,
+            kind_b: FleetKind::Frigate,
+            ships_a: 3,
+            ships_b: 2,
+            integrity_a_start: 100,
+            integrity_b_start: 100,
+            integrity_a_end: 45,
+            integrity_b_end: 0,
+            fleet_a_destroyed: false,
+            fleet_b_destroyed: true,
+            fleet_a_retreated: false,
+            fleet_b_retreated: true,
+            phases: vec![CombatPhaseSummary {
+                phase: CombatPhase::OpeningVolley,
+                pressure_a: 8,
+                pressure_b: 3,
+                note: "Logistics pressure".to_string(),
+            }],
+            system_outcome: "Attacker victory".to_string(),
+        });
+
+        terminal
+            .draw(|frame| {
+                render_battle_reports(
+                    frame,
+                    frame.area(),
+                    &reports,
+                    0,
+                    false,
+                    VisualMode::default(),
+                );
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer();
+        let rendered: String = (0..40u16)
+            .flat_map(|y| {
+                (0..120u16).map(move |x| {
+                    buf.cell((x, y))
+                        .and_then(|c| c.symbol().chars().next())
+                        .unwrap_or(' ')
+                })
+            })
+            .collect();
+        assert!(rendered.contains("Supply:"));
+        assert!(rendered.contains("Out of Supply"));
+        assert!(rendered.contains("Supplied"));
     }
 }

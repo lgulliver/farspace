@@ -89,6 +89,8 @@ Status labels:
 - **Status:** **In Progress**
 - Multi-archetype ship design records present (including scout/science/colonizer/combat variants)
 - Fleet missions, movement timing, standing orders, and rally routing implemented
+- Fleet supply/logistics v1 implemented with `Supplied` / `Extended` / `Out of Supply` states
+- Sector/system views now surface projected/current fleet supply for movement and posture planning
 - Custom ship designer with hull selection, component allocation, and validation present in TUI
 
 ## Combat
@@ -96,6 +98,7 @@ Status labels:
 - **Status:** **In Progress**
 - Deterministic strategic auto-resolve combat events implemented
 - Strategic invasion system with troop transports and capture/failure outcomes implemented
+- Battle reports record both fleets' supply states and TUI exposes logistics posture in report details
 - No tactical battle layer (out of scope)
 
 ## Diplomacy
@@ -131,7 +134,7 @@ Status labels:
 ## Save / Load
 
 - **Status:** **Done**
-- Versioned schema with migration support (`CURRENT_VERSION = 35`)
+- Versioned schema with migration support (`CURRENT_VERSION = 36`)
 - Save/load file and metadata APIs implemented
 - TUI menu + command palette integration for save/load
 

@@ -30,10 +30,15 @@ jobs:
           mkdir -p target/e2e
           artifact_name="e2e-playthrough-report"
           artifact_zip="/tmp/${artifact_name}.zip"
+          artifacts_json="$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts")"
 
-          artifact_id="$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts" --jq ".artifacts[] | select(.name==\"${artifact_name}\") | .id" | head -n 1)"
+          artifact_id="$(printf '%s' "${artifacts_json}" | jq -r --arg artifact_name "${artifact_name}" '.artifacts[] | select(.name == $artifact_name) | .id' | head -n 1)"
           if [ -z "${artifact_id}" ]; then
-            echo "E2E artifact ${artifact_name} not found for workflow run ${RUN_ID}."
+            available_artifacts="$(printf '%s' "${artifacts_json}" | jq -r '[.artifacts[].name] | join(", ")')"
+            if [ -z "${available_artifacts}" ]; then
+              available_artifacts="none"
+            fi
+            echo "E2E artifact ${artifact_name} not found for workflow run ${RUN_ID}. Available artifacts: ${available_artifacts}."
             exit 1
           fi
 
@@ -65,12 +70,13 @@ jobs:
             if (fs.existsSync(reportPath)) {
               report = fs.readFileSync(reportPath, 'utf8');
             } else if (process.env.REPORT_DOWNLOAD_OUTCOME !== 'success') {
-              const downloadOutcome = process.env.REPORT_DOWNLOAD_OUTCOME || 'did not complete successfully';
+              const downloadOutcome = process.env.REPORT_DOWNLOAD_OUTCOME || 'unknown';
               const downloadStatus = {
                 failure: 'failed',
                 cancelled: 'was cancelled',
                 skipped: 'was skipped',
-              }[downloadOutcome] ?? downloadOutcome;
+                unknown: 'status was unavailable',
+              }[downloadOutcome] ?? `status was ${downloadOutcome}`;
               report = `_E2E artifact download ${downloadStatus}; markdown report unavailable._`;
             }
 

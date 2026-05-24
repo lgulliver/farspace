@@ -250,7 +250,6 @@ dependencies = [
  "game_tui",
  "rand",
  "rand_chacha",
- "ratatui",
  "serde",
  "serde_json",
 ]

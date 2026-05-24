@@ -8,16 +8,9 @@ on:
 jobs:
   generate-notes:
     name: Generate release notes
-    uses: ./.github/workflows/nightly-notes.lock.yml
-    permissions:
-      contents: read
-      actions: read
-      issues: read
-      pull-requests: read
-    secrets: inherit
+    uses: ./.github/workflows/stable-notes.yml
     with:
-      # Reuse nightly-notes workflow for tagged releases; input name is fixed by reusable workflow contract.
-      nightly_tag: ${{ github.ref_name }}
+      stable_tag: ${{ github.ref_name }}
 
   build:
     name: Build ${{ matrix.target }}
@@ -103,7 +96,7 @@ jobs:
       - name: Download release notes artifact
         uses: actions/download-artifact@v4
         with:
-          # Produced by nightly-notes.lock.yml safe output upload_artifact call.
+          # Produced by stable-notes workflow (delegates to locked notes generator).
           name: release-notes.md
 
       - name: Download all artifacts

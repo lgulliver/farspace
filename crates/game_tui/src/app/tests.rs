@@ -942,10 +942,29 @@ fn end_turn_report_with_state_includes_fleet_supply_counts() {
         .state
         .fleet_supply
         .insert(fleet_id, game_core::FleetSupplyState::Extended);
+    let ai_fleet_id = FleetId(9993);
+    let ai_empire = engine.state.ai_empire.expect("AI empire should exist");
+    engine.state.fleets.insert(
+        ai_fleet_id,
+        game_core::Fleet {
+            id: ai_fleet_id,
+            owner: ai_empire,
+            location: home_star,
+            ships: 1,
+            kind: FleetKind::Destroyer,
+            strength: 8,
+            integrity: 100,
+        },
+    );
+    engine
+        .state
+        .fleet_supply
+        .insert(ai_fleet_id, game_core::FleetSupplyState::OutOfSupply);
 
     let report = App::build_end_turn_report_with_state(2, &[], Some(&engine.state));
     assert!(report.contains("fleet supply"));
     assert!(report.contains("extended"));
+    assert!(report.contains("out 1"));
 }
 
 #[test]

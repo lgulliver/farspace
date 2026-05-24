@@ -6,9 +6,6 @@ fn fleet_supply_counts(state: &GameState) -> (usize, usize, usize) {
     let mut extended = 0usize;
     let mut out_of_supply = 0usize;
     for fleet in state.fleets.values() {
-        if fleet.owner != state.player_empire {
-            continue;
-        }
         match state.fleet_supply_state(fleet.id) {
             FleetSupplyState::Supplied => supplied += 1,
             FleetSupplyState::Extended => extended += 1,

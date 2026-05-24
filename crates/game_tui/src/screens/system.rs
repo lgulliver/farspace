@@ -22,7 +22,6 @@ use game_core::{
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -58,14 +57,6 @@ pub fn render_system(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
         "Survey with S, colonize with C, invade with I, and watch fleet supply in roster.",
     );
     render_footer(frame, footer_area, &Screen::System, Some(hint));
-}
-
-fn fleet_supply_style(state: FleetSupplyState) -> Style {
-    match state {
-        FleetSupplyState::Supplied => Theme::success_style(),
-        FleetSupplyState::Extended => Theme::warning_style(),
-        FleetSupplyState::OutOfSupply => Theme::error_style(),
-    }
 }
 
 fn selected_star<'a>(
@@ -957,7 +948,7 @@ fn render_system_detail_facts(
                 Span::raw(composition),
                 Span::styled(
                     format!(" {} {}", glyphs.separator_dot, supply.label()),
-                    fleet_supply_style(supply),
+                    Theme::fleet_supply_style(supply),
                 ),
                 Span::styled(
                     format!(" {} {}", glyphs.separator_dot, summary),

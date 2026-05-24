@@ -3,10 +3,9 @@
 use crate::layout::centered_rect;
 use crate::theme::Theme;
 use crate::{glyphs::glyphs_for_mode, visual_mode::VisualMode};
-use game_core::{BattleReport, FleetSupplyState};
+use game_core::BattleReport;
 use ratatui::{
     layout::Rect,
-    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
@@ -14,14 +13,6 @@ use ratatui::{
 use std::{collections::VecDeque, ops::Range};
 
 const MAX_VISIBLE_REPORTS: usize = 8;
-
-fn fleet_supply_style(state: FleetSupplyState) -> Style {
-    match state {
-        FleetSupplyState::Supplied => Theme::success_style(),
-        FleetSupplyState::Extended => Theme::warning_style(),
-        FleetSupplyState::OutOfSupply => Theme::error_style(),
-    }
-}
 
 pub fn render_battle_reports(
     frame: &mut Frame,
@@ -103,12 +94,12 @@ pub fn render_battle_reports(
             Span::styled("Supply: ", Theme::muted_style()),
             Span::styled(
                 selected.supply_a.label(),
-                fleet_supply_style(selected.supply_a),
+                Theme::fleet_supply_style(selected.supply_a),
             ),
             Span::styled(" vs ", Theme::muted_style()),
             Span::styled(
                 selected.supply_b.label(),
-                fleet_supply_style(selected.supply_b),
+                Theme::fleet_supply_style(selected.supply_b),
             ),
         ]));
         lines.push(Line::from(Span::styled(

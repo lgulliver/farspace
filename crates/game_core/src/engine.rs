@@ -4141,13 +4141,13 @@ impl Engine {
             .map(|(fid, _)| *fid)
             .collect();
 
-        for enemy_id in enemy_fleet_ids {
+        for enemy_fleet_id in enemy_fleet_ids {
             // Re-fetch arriving fleet — may have been destroyed in a prior iteration.
             let (a_str, a_int) = match self.state.fleets.get(&arrived_fleet_id) {
                 Some(f) => (f.strength, f.integrity),
                 None => break,
             };
-            let (d_str, d_int, d_owner) = match self.state.fleets.get(&enemy_id) {
+            let (d_str, d_int, d_owner) = match self.state.fleets.get(&enemy_fleet_id) {
                 Some(f) => (f.strength, f.integrity, f.owner),
                 None => continue,
             };
@@ -4155,7 +4155,7 @@ impl Engine {
             events.push(Event::FleetEngagementStarted {
                 star: star_id,
                 fleet_a: arrived_fleet_id,
-                fleet_b: enemy_id,
+                fleet_b: enemy_fleet_id,
             });
 
             if self.should_avoid_engagement(arrived_fleet_id, a_str, d_str)
@@ -4163,8 +4163,8 @@ impl Engine {
             {
                 break;
             }
-            if self.should_avoid_engagement(enemy_id, d_str, a_str)
-                && self.start_retreat_if_possible(enemy_id, star_id, events)
+            if self.should_avoid_engagement(enemy_fleet_id, d_str, a_str)
+                && self.start_retreat_if_possible(enemy_fleet_id, star_id, events)
             {
                 continue;
             }
@@ -4172,12 +4172,12 @@ impl Engine {
             let (mut a_attack_pct, a_defense_pct, a_retreat_threshold) =
                 self.fleet_combat_profile(arrived_fleet_id, star_id);
             let (mut d_attack_pct, d_defense_pct, d_retreat_threshold) =
-                self.fleet_combat_profile(enemy_id, star_id);
+                self.fleet_combat_profile(enemy_fleet_id, star_id);
 
             let role_a = self.state.fleet_role_for(arrived_fleet_id);
-            let role_b = self.state.fleet_role_for(enemy_id);
+            let role_b = self.state.fleet_role_for(enemy_fleet_id);
             let formation_a = self.state.fleet_formation_for(arrived_fleet_id);
-            let formation_b = self.state.fleet_formation_for(enemy_id);
+            let formation_b = self.state.fleet_formation_for(enemy_fleet_id);
             let kind_a = self
                 .state
                 .fleets
@@ -4187,7 +4187,7 @@ impl Engine {
             let kind_b = self
                 .state
                 .fleets
-                .get(&enemy_id)
+                .get(&enemy_fleet_id)
                 .map(|fleet| fleet.kind)
                 .unwrap_or(FleetKind::Scout);
             let ships_a = self
@@ -4199,17 +4199,17 @@ impl Engine {
             let ships_b = self
                 .state
                 .fleets
-                .get(&enemy_id)
+                .get(&enemy_fleet_id)
                 .map(|fleet| fleet.ships)
                 .unwrap_or(0);
             let doctrine_a = self.empire_doctrine_summary(arrived_owner);
             let doctrine_b = self.empire_doctrine_summary(d_owner);
             let supply_a = self.state.derived_fleet_supply_state(arrived_fleet_id);
-            let supply_b = self.state.derived_fleet_supply_state(enemy_id);
+            let supply_b = self.state.derived_fleet_supply_state(enemy_fleet_id);
 
             let mut phase_summaries: Vec<CombatPhaseSummary> = Vec::new();
             let a_detection = self.fleet_detection_score(arrived_fleet_id, kind_a, formation_a);
-            let d_detection = self.fleet_detection_score(enemy_id, kind_b, formation_b);
+            let d_detection = self.fleet_detection_score(enemy_fleet_id, kind_b, formation_b);
             phase_summaries.push(CombatPhaseSummary {
                 phase: CombatPhase::Detection,
                 pressure_a: a_detection,
@@ -4273,7 +4273,7 @@ impl Engine {
             let d_defense = self
                 .state
                 .fleet_custom_designs
-                .get(&enemy_id)
+                .get(&enemy_fleet_id)
                 .and_then(|did| self.state.custom_designs.get(did))
                 .map(|d| d.derived_stats().defense.max(1) as u64)
                 .unwrap_or(d_str as u64);
@@ -4358,7 +4358,7 @@ impl Engine {
                 star: star_id,
                 fleet_a: arrived_fleet_id,
                 empire_a: arrived_owner,
-                fleet_b: enemy_id,
+                fleet_b: enemy_fleet_id,
                 empire_b: d_owner,
                 strength_a: a_str,
                 strength_b: d_str,
@@ -4375,8 +4375,8 @@ impl Engine {
             }
 
             if fleet_b_destroyed {
-                self.remove_fleet_and_assignments(enemy_id);
-            } else if let Some(f) = self.state.fleets.get_mut(&enemy_id) {
+                self.remove_fleet_and_assignments(enemy_fleet_id);
+            } else if let Some(f) = self.state.fleets.get_mut(&enemy_fleet_id) {
                 f.integrity = new_d_int;
             }
 
@@ -4431,7 +4431,7 @@ impl Engine {
             }
             if !fleet_b_destroyed
                 && new_d_int <= d_retreat_threshold
-                && self.start_retreat_if_possible(enemy_id, star_id, events)
+                && self.start_retreat_if_possible(enemy_fleet_id, star_id, events)
             {
                 phase_summaries.push(CombatPhaseSummary {
                     phase: CombatPhase::RetreatOrCollapse,
@@ -4450,7 +4450,7 @@ impl Engine {
                     turn: self.state.turn,
                     star: star_id,
                     fleet_a: arrived_fleet_id,
-                    fleet_b: enemy_id,
+                    fleet_b: enemy_fleet_id,
                     empire_a: arrived_owner,
                     empire_b: d_owner,
                     role_a,
@@ -4502,7 +4502,7 @@ impl Engine {
                 turn: self.state.turn,
                 star: star_id,
                 fleet_a: arrived_fleet_id,
-                fleet_b: enemy_id,
+                fleet_b: enemy_fleet_id,
                 empire_a: arrived_owner,
                 empire_b: d_owner,
                 role_a,

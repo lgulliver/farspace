@@ -1792,3 +1792,22 @@ fn blockade_interrupts_fleet_supply() {
         Some(&FleetSupplyState::OutOfSupply)
     );
 }
+
+#[test]
+fn fleets_without_colony_anchor_are_out_of_supply() {
+    let mut state = make_supply_test_state();
+    let owner = state.player_empire;
+    state.colonies.clear();
+    insert_supply_test_fleet(
+        &mut state,
+        FleetId(16),
+        owner,
+        StarId(1),
+        FleetKind::Destroyer,
+    );
+
+    assert_eq!(
+        state.recompute_fleet_supply().get(&FleetId(16)),
+        Some(&FleetSupplyState::OutOfSupply)
+    );
+}

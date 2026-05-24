@@ -27,7 +27,7 @@ use crate::{
     },
     AppState,
 };
-use game_core::{FleetSupplyState, GameState, SectorId, StarId, TechId};
+use game_core::{GameState, SectorId, StarId, TechId};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -75,14 +75,6 @@ pub fn render_sector_map(
         .as_deref()
         .unwrap_or("Enter opens system detail. S scouts, M moves fleets, and system rows show projected supply.");
     render_footer(frame, footer_area, &Screen::SectorMap, Some(hint));
-}
-
-fn fleet_supply_style(state: FleetSupplyState) -> Style {
-    match state {
-        FleetSupplyState::Supplied => Theme::success_style(),
-        FleetSupplyState::Extended => Theme::warning_style(),
-        FleetSupplyState::OutOfSupply => Theme::error_style(),
-    }
 }
 
 fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_state: &AppState) {
@@ -645,7 +637,7 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
             spans.push(Span::raw("  "));
             spans.push(Span::styled(
                 format!("[{}]", supply.label()),
-                fleet_supply_style(supply),
+                Theme::fleet_supply_style(supply),
             ));
         }
         lines.push(Line::from(spans));

@@ -21,13 +21,22 @@ jobs:
       - name: Download E2E reports
         id: download-report
         continue-on-error: true
-        uses: actions/download-artifact@v5
-        with:
-          name: e2e-playthrough-report
-          path: target/e2e
-          repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ github.token }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p target/e2e
+
+          artifact_id="$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts" --jq '.artifacts[] | select(.name=="e2e-playthrough-report") | .id' | head -n 1)"
+          if [ -z "${artifact_id}" ]; then
+            echo "E2E artifact not found for workflow run ${RUN_ID}."
+            exit 1
+          fi
+
+          gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}/zip" --output /tmp/e2e-playthrough-report.zip
+          unzip -o /tmp/e2e-playthrough-report.zip -d target/e2e
 
       - name: Post E2E summary on PR
         if: always()

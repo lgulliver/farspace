@@ -246,6 +246,7 @@ fn nearest_unexplored_system(state: &crate::state::GameState) -> Option<StarId> 
             let dist_sq = dx * dx + dy * dy;
             (*star_id, dist_sq)
         })
+        // Tie-break by StarId to keep target selection stable across identical distances.
         .min_by_key(|(star_id, dist_sq)| (*dist_sq, *star_id))
         .map(|(star_id, _)| star_id)
 }

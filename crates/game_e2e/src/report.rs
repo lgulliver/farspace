@@ -155,8 +155,8 @@ impl E2eRunReport {
     }
 
     pub fn write_outputs(&self) -> anyhow::Result<()> {
-        let base_dir = Path::new("target/e2e");
-        fs::create_dir_all(base_dir).context("failed to create target/e2e")?;
+        let base_dir = Self::workspace_target_e2e_dir();
+        fs::create_dir_all(&base_dir).context("failed to create target/e2e")?;
         fs::create_dir_all(base_dir.join("snapshots"))
             .context("failed to create target/e2e/snapshots")?;
 
@@ -175,7 +175,8 @@ impl E2eRunReport {
             .chars()
             .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
             .collect::<String>();
-        Path::new("target/e2e/snapshots")
+        Self::workspace_target_e2e_dir()
+            .join("snapshots")
             .join(format!("turn-{turn:03}-{safe_target}-{width}x{height}.txt"))
     }
 
@@ -184,7 +185,9 @@ impl E2eRunReport {
         let grouped = self.failures.iter().fold(
             BTreeMap::<E2eFailureCategory, Vec<&E2eFailure>>::new(),
             |mut acc, failure| {
-                acc.entry(failure.category.clone()).or_default().push(failure);
+                acc.entry(failure.category.clone())
+                    .or_default()
+                    .push(failure);
                 acc
             },
         );
@@ -230,6 +233,7 @@ impl E2eRunReport {
                     ));
                     lines.push(format!("  - Context: `{}`", failure.context));
                 }
+
                 lines.push(String::new());
             }
         }
@@ -264,5 +268,13 @@ impl E2eRunReport {
 
     pub fn brief_context(turn: u32, detail: impl Into<String>) -> serde_json::Value {
         json!({"turn": turn, "detail": detail.into()})
+    }
+
+    fn workspace_target_e2e_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("target")
+            .join("e2e")
     }
 }

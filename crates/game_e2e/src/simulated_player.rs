@@ -74,7 +74,9 @@ impl PlayerObservation {
         let idle_scouts = state
             .fleets
             .values()
-            .filter(|fleet| idle_player_fleets.contains(&fleet.id) && fleet.kind == FleetKind::Scout)
+            .filter(|fleet| {
+                idle_player_fleets.contains(&fleet.id) && fleet.kind == FleetKind::Scout
+            })
             .map(|fleet| fleet.id)
             .collect::<Vec<_>>();
 
@@ -99,36 +101,28 @@ impl PlayerObservation {
         let visible_unsurveyed_planets = known_stars
             .iter()
             .flat_map(|star_id| {
-                state
-                    .stars
-                    .get(star_id)
-                    .into_iter()
-                    .flat_map(move |star| {
-                        star.planets
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, planet)| !planet.surveyed)
-                            .map(move |(index, _)| (*star_id, index))
-                    })
+                state.stars.get(star_id).into_iter().flat_map(move |star| {
+                    star.planets
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, planet)| !planet.surveyed)
+                        .map(move |(index, _)| (*star_id, index))
+                })
             })
             .collect::<Vec<_>>();
 
         let colonizable_planets = known_stars
             .iter()
             .flat_map(|star_id| {
-                state
-                    .stars
-                    .get(star_id)
-                    .into_iter()
-                    .flat_map(move |star| {
-                        star.planets
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, planet)| {
-                                planet.habitable && planet.colony.is_none() && planet.surveyed
-                            })
-                            .map(move |(index, _)| (*star_id, index))
-                    })
+                state.stars.get(star_id).into_iter().flat_map(move |star| {
+                    star.planets
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, planet)| {
+                            planet.habitable && planet.colony.is_none() && planet.surveyed
+                        })
+                        .map(move |(index, _)| (*star_id, index))
+                })
             })
             .collect::<Vec<_>>();
 
@@ -220,6 +214,12 @@ impl BalancedExplorerPlayer {
     }
 }
 
+impl Default for BalancedExplorerPlayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimulatedPlayer for BalancedExplorerPlayer {
     fn choose_actions(
         &mut self,
@@ -231,7 +231,7 @@ impl SimulatedPlayer for BalancedExplorerPlayer {
         for (communication_id, response) in &observation.communication_responses {
             actions.push(Command::RespondToCommunication {
                 communication_id: *communication_id,
-                response: response.clone(),
+                response: *response,
             });
         }
 
@@ -248,9 +248,9 @@ impl SimulatedPlayer for BalancedExplorerPlayer {
         }
 
         for colony in observation.colonies_without_queue.iter().take(2) {
-            let build_item = if observation.turn % 7 == 0 {
+            let build_item = if observation.turn.is_multiple_of(7) {
                 BuildItem::Ship(game_core::ShipDesignId::COLONY)
-            } else if observation.turn % 3 == 0 {
+            } else if observation.turn.is_multiple_of(3) {
                 BuildItem::SurfaceStructure(BuildingType::ScienceNexus)
             } else {
                 BuildItem::SurfaceStructure(BuildingType::FabricationYard)
@@ -261,7 +261,7 @@ impl SimulatedPlayer for BalancedExplorerPlayer {
             });
         }
 
-        if observation.turn % 5 == 0 {
+        if observation.turn.is_multiple_of(5) {
             if let Some(colony) = observation.colonies_role_candidates.first() {
                 let role = match (observation.turn / 5) % 3 {
                     0 => ColonyRole::Balanced,
@@ -334,7 +334,7 @@ impl SimulatedPlayer for BalancedExplorerPlayer {
             });
         }
 
-        if observation.turn % 8 == 0 {
+        if observation.turn.is_multiple_of(8) {
             if let Some(fleet) = observation.idle_player_fleets.first() {
                 if rng.gen_bool(0.5) {
                     actions.push(Command::SetFleetRole {

@@ -10,8 +10,14 @@ use ratatui::Terminal;
 pub enum E2eRenderTarget {
     Screen(Screen),
     HelpOverlay(Screen),
-    PaletteOverlay { screen: Screen, input: String },
-    DispatchOverlay { screen: Screen, history_index: usize },
+    PaletteOverlay {
+        screen: Screen,
+        input: String,
+    },
+    DispatchOverlay {
+        screen: Screen,
+        history_index: usize,
+    },
     BattleReportsOverlay {
         screen: Screen,
         report_index: usize,
@@ -53,7 +59,8 @@ pub fn render_target_to_text(
             }
             E2eRenderTarget::DispatchOverlay { history_index, .. } => {
                 if !state.galactic_dispatches.is_empty() {
-                    let idx = (*history_index).min(state.galactic_dispatches.len().saturating_sub(1));
+                    let idx =
+                        (*history_index).min(state.galactic_dispatches.len().saturating_sub(1));
                     render_dispatch(
                         frame,
                         area,
@@ -85,8 +92,10 @@ pub fn render_target_to_text(
 }
 
 fn seeded_app_state(state: &GameState) -> AppState {
-    let mut app_state = AppState::default();
-    app_state.visual_mode = VisualMode::Ascii;
+    let mut app_state = AppState {
+        visual_mode: VisualMode::Ascii,
+        ..Default::default()
+    };
     app_state.navigation.selected_sector = state.sectors.keys().next().copied();
     app_state.navigation.selected_star = state
         .explored_stars

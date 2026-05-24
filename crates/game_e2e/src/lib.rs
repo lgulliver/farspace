@@ -28,14 +28,15 @@ pub fn run_e2e_scenario(scenario: E2eScenario) -> Result<E2eRunReport> {
     let mut engine = Engine::new_from_setup(setup);
 
     let mut simulated_player = BalancedExplorerPlayer::new();
-    let mut rng = ChaCha8Rng::seed_from_u64(scenario.seed ^ 0xE2E5_EED);
+    let mut rng = ChaCha8Rng::seed_from_u64(scenario.seed ^ 0x0E2E_5EED);
 
     for expected_turn in 1..=scenario.max_turns {
         if validate_game_state(&engine.state, expected_turn, &mut report).is_err() {
             break;
         }
 
-        let rendered_texts = render::render_and_validate_major_screens(&engine, expected_turn, &mut report)?;
+        let rendered_texts =
+            render::render_and_validate_major_screens(&engine, expected_turn, &mut report)?;
         let observation = PlayerObservation::from_state(&engine.state);
         let commands = simulated_player.choose_actions(&observation, &mut rng);
 
@@ -50,12 +51,8 @@ pub fn run_e2e_scenario(scenario: E2eScenario) -> Result<E2eRunReport> {
         }
 
         let turn_before = engine.state.turn;
-        let end_turn_events = apply_command_and_record(
-            &mut engine,
-            expected_turn,
-            Command::EndTurn,
-            &mut report,
-        );
+        let end_turn_events =
+            apply_command_and_record(&mut engine, expected_turn, Command::EndTurn, &mut report);
 
         if engine.state.turn == turn_before {
             report.push_failure(
@@ -71,7 +68,12 @@ pub fn run_e2e_scenario(scenario: E2eScenario) -> Result<E2eRunReport> {
 
         validate_events_and_dispatch(&engine.state, expected_turn, &end_turn_events, &mut report);
         validate_visibility(&engine.state, expected_turn, &rendered_texts, &mut report);
-        assert_no_diplomacy_before_contact(&engine.state, expected_turn, &rendered_texts, &mut report);
+        assert_no_diplomacy_before_contact(
+            &engine.state,
+            expected_turn,
+            &rendered_texts,
+            &mut report,
+        );
 
         if expected_turn % 10 == 0 {
             validate_save_load_roundtrip(&engine, expected_turn, &mut report)?;

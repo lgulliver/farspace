@@ -6,6 +6,18 @@ on:
       - "v*"
 
 jobs:
+  generate-notes:
+    name: Generate release notes
+    uses: ./.github/workflows/nightly-notes.lock.yml
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      pull-requests: read
+    secrets: inherit
+    with:
+      nightly_tag: ${{ github.ref_name }}
+
   build:
     name: Build ${{ matrix.target }}
     strategy:
@@ -80,22 +92,40 @@ jobs:
 
   release:
     name: Create GitHub release
-    needs: build
+    needs: [build, generate-notes]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes.md
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4.1.3
         with:
           path: artifacts
 
+      - name: Build release body
+        id: body
+        run: |
+          TAG="${{ github.ref_name }}"
+          DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+          {
+            echo 'body<<BODY_EOF'
+            echo "> FARSPACE release \`${TAG}\` — ${DATE}"
+            echo ""
+            cat release-notes.md
+            echo 'BODY_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body: ${{ steps.body.outputs.body }}
           files: |
             artifacts/farspace-linux-x86_64/farspace-linux-x86_64
             artifacts/farspace-linux-aarch64/farspace-linux-aarch64

@@ -750,6 +750,62 @@ mod tests {
     }
 
     #[test]
+    fn save_load_preserves_or_rederives_fleet_supply_state() {
+        use game_core::{Fleet, FleetId, FleetKind};
+
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        let home_star = engine.state.empires[&player].home_star;
+        let unsupported_star = *engine
+            .state
+            .stars
+            .keys()
+            .find(|&&star_id| star_id != home_star)
+            .expect("need secondary star");
+        if let Some(star) = engine.state.stars.get_mut(&unsupported_star) {
+            star.x = 1_400;
+            star.y = 0;
+        }
+        let fleet_id = FleetId(999);
+        engine.state.fleets.insert(
+            fleet_id,
+            Fleet {
+                id: fleet_id,
+                owner: player,
+                location: unsupported_star,
+                ships: 1,
+                kind: FleetKind::Destroyer,
+                strength: 8,
+                integrity: 100,
+            },
+        );
+        engine.state.fleet_supply = engine.state.recompute_fleet_supply();
+
+        let saved = save(&engine.state).expect("save should succeed");
+        let loaded = load(&saved).expect("load should succeed");
+        assert_eq!(
+            loaded.fleet_supply,
+            loaded.recompute_fleet_supply(),
+            "current-version save/load should preserve valid fleet supply map"
+        );
+
+        let mut legacy_json: serde_json::Value =
+            serde_json::from_slice(&saved).expect("saved json should parse");
+        legacy_json["version"] = serde_json::json!(35u32);
+        legacy_json["metadata"]["schema_version"] = serde_json::json!(35u32);
+        if let Some(state_obj) = legacy_json["state"].as_object_mut() {
+            state_obj.remove("fleet_supply");
+        }
+        let legacy_bytes = serde_json::to_vec(&legacy_json).expect("serialize legacy json");
+        let legacy_loaded = load(&legacy_bytes).expect("legacy load should succeed");
+        assert_eq!(
+            legacy_loaded.fleet_supply,
+            legacy_loaded.recompute_fleet_supply(),
+            "legacy saves should re-derive fleet supply deterministically"
+        );
+    }
+
+    #[test]
     fn save_load_preserves_active_scout_mission() {
         use game_core::{Command, FleetId, ScoutMission};
 

@@ -2044,8 +2044,13 @@ impl App {
                 None => return,
             };
             let events = engine.apply_turn(vec![command]);
-            let report =
-                is_end_turn.then(|| Self::build_end_turn_report(engine.state.turn, &events));
+            let report = is_end_turn.then(|| {
+                Self::build_end_turn_report_with_state(
+                    engine.state.turn,
+                    &events,
+                    Some(&engine.state),
+                )
+            });
             (events, report)
         };
 
@@ -2823,20 +2828,23 @@ impl App {
         };
         let role = engine.state.fleet_role_for(selected);
         let formation = engine.state.fleet_formation_for(selected);
+        let supply = engine.state.fleet_supply_state(selected);
         if let Some(summary) = engine.state.fleet_evaluation(selected) {
             self.push_status(
                 LogEntryKind::Other,
                 format!(
-                    "Fleet {} [{} | {}] off {} def {} inv {} mob {} esc {} blk {}",
+                    "Fleet {} [{} | {} | {}] off {} def {} inv {} mob {} esc {} blk {} — {}",
                     selected.0,
                     role.label(),
                     formation.label(),
+                    supply.label(),
                     summary.offensive,
                     summary.defensive,
                     summary.invasion_capability,
                     summary.mobility,
                     summary.escort_quality,
-                    summary.blockade_strength
+                    summary.blockade_strength,
+                    supply.penalty_summary()
                 ),
             );
         }

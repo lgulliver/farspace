@@ -960,6 +960,7 @@ mod tests {
             scenario: None,
             ai_empires: Vec::new(),
             colony_supply: Default::default(),
+            fleet_supply: Default::default(),
             colony_blockade: Default::default(),
             empire_resource_access: Default::default(),
             victory_status: Default::default(),

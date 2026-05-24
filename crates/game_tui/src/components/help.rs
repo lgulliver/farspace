@@ -123,6 +123,9 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("S", "Dispatch scout to selected unexplored system"),
             HelpEntry::Binding("M", "Move idle fleet to selected explored system"),
             HelpEntry::Binding("R", "Confirm rally point for selected colony (pick mode)"),
+            HelpEntry::Note(
+                "System rows show projected fleet supply: Supplied / Extended / Out of Supply",
+            ),
             HelpEntry::Binding("E / T", "End turn (AI acts automatically)"),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
@@ -154,6 +157,9 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("f", "Cycle focused player fleet in this system"),
             HelpEntry::Binding("R", "Assign next strategic role to focused fleet"),
             HelpEntry::Binding("F", "Assign next formation to focused fleet"),
+            HelpEntry::Note(
+                "Fleet rows and focused fleet status show current supply and logistics penalties",
+            ),
             HelpEntry::Note("Planet detail shows colony trade/supply status"),
             HelpEntry::Note("⚔ marker indicates a blockaded colony (hostile fleet present)"),
             HelpEntry::Note("Resources show rarity/category once discovered by survey + tech"),

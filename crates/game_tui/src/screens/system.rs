@@ -52,10 +52,9 @@ pub fn render_system(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
         app_state.visual_mode,
     );
 
-    let hint = app_state
-        .status_message
-        .as_deref()
-        .unwrap_or("Survey with S, colonize with C, and invade hostile colonies with I.");
+    let hint = app_state.status_message.as_deref().unwrap_or(
+        "Survey with S, colonize with C, invade with I, and watch fleet supply in roster.",
+    );
     render_footer(frame, footer_area, &Screen::System, Some(hint));
 }
 
@@ -921,6 +920,7 @@ fn render_system_detail_facts(
                     )
                 })
                 .unwrap_or_else(|| "off ? def ? inv ? mob ?".to_string());
+            let supply = game_state.fleet_supply_state(fleet.id);
             let prefix = if idx == selected_fleet_index {
                 glyphs.list_selected.to_string()
             } else {
@@ -932,21 +932,32 @@ fn render_system_detail_facts(
                     name.push_str(&format!(" (Surveying orbit {})", mission.planet_index + 1));
                 }
             }
-            lines.push(Line::from(Span::raw(format!(
-                "{} {} [{} | {} | DOC {}] {} {} {}{}",
-                prefix,
-                name,
-                role.label(),
-                formation.label(),
-                doctrine,
-                composition,
-                glyphs.separator_dot,
-                summary,
-                order_label
-            ))));
+            lines.push(Line::from(vec![
+                Span::raw(format!("{} {} ", prefix, name)),
+                Span::styled(
+                    format!(
+                        "[{} | {} | DOC {}]",
+                        role.label(),
+                        formation.label(),
+                        doctrine
+                    ),
+                    Theme::muted_style(),
+                ),
+                Span::raw(" "),
+                Span::raw(composition),
+                Span::styled(
+                    format!(" {} {}", glyphs.separator_dot, supply.label()),
+                    Theme::fleet_supply_style(supply),
+                ),
+                Span::styled(
+                    format!(" {} {}", glyphs.separator_dot, summary),
+                    Theme::default_style(),
+                ),
+                Span::styled(order_label, Theme::muted_style()),
+            ]));
         }
         lines.push(Line::from(Span::styled(
-            "  [f] focus fleet  [R] next role  [F] next formation  [B] battle reports",
+            "  [f] focus fleet  [R] next role  [F] next formation  [B] battle reports  supply: Supplied / Extended / Out of Supply",
             Theme::muted_style(),
         )));
     }

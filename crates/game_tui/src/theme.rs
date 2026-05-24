@@ -1,6 +1,6 @@
 //! Color theme for the TUI
 
-use game_core::EmpireId;
+use game_core::{EmpireId, FleetSupplyState};
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::faction::FogState;
@@ -139,6 +139,15 @@ impl Theme {
     /// Success style — for positive/good values (income, surplus)
     pub fn success_style() -> Style {
         Style::default().fg(Self::success())
+    }
+
+    /// Fleet supply style
+    pub fn fleet_supply_style(state: FleetSupplyState) -> Style {
+        match state {
+            FleetSupplyState::Supplied => Self::success_style(),
+            FleetSupplyState::Extended => Self::warning_style(),
+            FleetSupplyState::OutOfSupply => Self::error_style(),
+        }
     }
 
     /// Muted style

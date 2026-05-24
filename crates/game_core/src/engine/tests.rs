@@ -1,7 +1,7 @@
 use super::*;
 use crate::state::{
     BuildingType, ComponentId, CustomDesignId, HullId, Planet, PlanetClass, PlanetSize,
-    PlanetSpecial, SectorId, StrategicResource,
+    PlanetSpecial, SectorId, SpectralClass, Star, StrategicResource,
 };
 
 /// Inject a Shipyard directly into a colony's orbital installations.
@@ -2292,6 +2292,115 @@ fn fleet_travel_turns_distance_formula() {
 }
 
 #[test]
+fn out_of_supply_destroyer_travel_is_penalized() {
+    let mut engine = Engine::new(42);
+    let player = engine.state.player_empire;
+    let home_star = engine.state.empires[&player].home_star;
+    let destination = *engine
+        .state
+        .stars
+        .keys()
+        .find(|&&star_id| star_id != home_star)
+        .expect("need destination");
+    if let Some(star) = engine.state.stars.get_mut(&destination) {
+        star.x = 1_200;
+        star.y = 0;
+    }
+    let fleet_id = FleetId(77);
+    engine.state.fleets.insert(
+        fleet_id,
+        Fleet {
+            id: fleet_id,
+            owner: player,
+            location: home_star,
+            ships: 1,
+            kind: FleetKind::Destroyer,
+            strength: 8,
+            integrity: 100,
+        },
+    );
+    engine.state.explored_stars.insert(destination);
+
+    let events = engine.apply_turn(vec![Command::MoveFleet {
+        fleet: fleet_id,
+        destination,
+    }]);
+    let turns_remaining = events
+        .iter()
+        .find_map(|event| match event {
+            Event::FleetDeparted {
+                fleet,
+                turns_remaining,
+                ..
+            } if *fleet == fleet_id => Some(*turns_remaining),
+            _ => None,
+        })
+        .expect("fleet should depart");
+    let (base_turns, _) = travel_turns_with_lanes(&engine.state, player, home_star, destination);
+    let mobility = engine
+        .state
+        .fleet_evaluation(fleet_id)
+        .map(|summary| summary.mobility)
+        .unwrap_or(100)
+        .max(1);
+    let supply = engine.state.projected_fleet_supply(player, destination);
+    let expected_turns = ((base_turns as u64 * 100 * supply.movement_penalty_pct() as u64)
+        .div_ceil(mobility as u64 * 100) as u32)
+        .max(1);
+
+    assert_eq!(
+        engine.state.fleet_supply_state(fleet_id),
+        FleetSupplyState::OutOfSupply
+    );
+    assert_eq!(
+        turns_remaining, expected_turns,
+        "logistics penalty should scale travel by supply state and mobility"
+    );
+    assert!(turns_remaining > base_turns);
+}
+
+#[test]
+fn fleet_supply_recalculates_deterministically_after_movement() {
+    let mut engine = Engine::new(42);
+    let player = engine.state.player_empire;
+    let home_star = engine.state.empires[&player].home_star;
+    let destination = *engine
+        .state
+        .stars
+        .keys()
+        .find(|&&star_id| star_id != home_star)
+        .expect("need destination");
+    if let Some(star) = engine.state.stars.get_mut(&destination) {
+        star.x = 700;
+        star.y = 0;
+    }
+    let fleet_id = FleetId(78);
+    engine.state.fleets.insert(
+        fleet_id,
+        Fleet {
+            id: fleet_id,
+            owner: player,
+            location: home_star,
+            ships: 1,
+            kind: FleetKind::Destroyer,
+            strength: 8,
+            integrity: 100,
+        },
+    );
+    engine.state.explored_stars.insert(destination);
+
+    engine.apply_turn(vec![Command::MoveFleet {
+        fleet: fleet_id,
+        destination,
+    }]);
+
+    let a = engine.state.recompute_fleet_supply();
+    let b = engine.state.recompute_fleet_supply();
+    assert_eq!(a, b);
+    assert_eq!(engine.state.fleet_supply, a);
+}
+
+#[test]
 fn scout_exploration_still_works_after_fleet_movement_added() {
     // Regression: scout missions must still explore unexplored systems.
     let mut engine = Engine::new(42);
@@ -3885,6 +3994,7 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         scenario: None,
         ai_empires: vec![ai_id],
         colony_supply: BTreeMap::new(),
+        fleet_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
         empire_resource_access: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
@@ -4104,6 +4214,7 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         scenario: None,
         ai_empires: vec![ai_id],
         colony_supply: BTreeMap::new(),
+        fleet_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
         empire_resource_access: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
@@ -4482,6 +4593,7 @@ fn contact_detection_is_deterministic() {
         scenario: None,
         ai_empires: vec![ai1, ai2],
         colony_supply: BTreeMap::new(),
+        fleet_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
         empire_resource_access: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
@@ -5056,6 +5168,63 @@ fn combat_generates_structured_battle_report_with_phases() {
         .phases
         .iter()
         .any(|phase| matches!(phase.phase, crate::state::CombatPhase::Resolution)));
+}
+
+#[test]
+fn battle_report_records_supply_state_for_logistics_penalties() {
+    let (mut state, _star_id, player_fid, enemy_fid) = make_combat_state(20, 100, 20, 100);
+    let enemy_empire = state.fleets[&enemy_fid].owner;
+    let enemy_colonies: Vec<_> = state
+        .colonies
+        .iter()
+        .filter_map(|(colony_id, colony)| (colony.owner == enemy_empire).then_some(*colony_id))
+        .collect();
+    for colony_id in enemy_colonies {
+        state.colonies.remove(&colony_id);
+    }
+    let star_id = StarId(999);
+    state.stars.insert(
+        star_id,
+        Star {
+            id: star_id,
+            sector: SectorId(1),
+            name: "Unsupported".to_string(),
+            x: 1_400,
+            y: 0,
+            spectral_class: SpectralClass::F,
+            planets: vec![],
+        },
+    );
+    if let Some(player_fleet) = state.fleets.get_mut(&player_fid) {
+        player_fleet.location = star_id;
+    }
+    if let Some(enemy_fleet) = state.fleets.get_mut(&enemy_fid) {
+        enemy_fleet.location = star_id;
+    }
+    if let Some(player_fleet) = state.fleets.get_mut(&player_fid) {
+        player_fleet.kind = FleetKind::Destroyer;
+        player_fleet.strength = 12;
+    }
+    if let Some(enemy_fleet) = state.fleets.get_mut(&enemy_fid) {
+        enemy_fleet.kind = FleetKind::Destroyer;
+        enemy_fleet.strength = 12;
+    }
+
+    let mut engine = Engine::from_state(state);
+    let mut events = Vec::new();
+    engine.check_combat_at_star(star_id, player_fid, &mut events);
+
+    let report = engine
+        .state
+        .battle_reports
+        .back()
+        .expect("battle report should be recorded");
+    assert_eq!(report.supply_a, FleetSupplyState::OutOfSupply);
+    assert_eq!(report.supply_b, FleetSupplyState::OutOfSupply);
+    assert!(report
+        .phases
+        .iter()
+        .any(|phase| phase.note.contains("supply Out of Supply vs Out of Supply")));
 }
 
 #[test]
@@ -9115,6 +9284,7 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         scenario: None,
         ai_empires: vec![],
         colony_supply: BTreeMap::new(),
+        fleet_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
         empire_resource_access: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
@@ -10187,7 +10357,54 @@ fn blockade_turn_report_events_appear_in_log() {
 
 fn make_invasion_engine() -> (Engine, StarId, ColonyId, EmpireId, EmpireId, FleetId) {
     let (mut state, star_id, colony_id, player_id, enemy_id) = make_blockade_state();
+    let support_star = StarId(2);
+    let support_colony = ColonyId(2);
     state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+    state.explored_stars.insert(support_star);
+    state.stars.insert(
+        support_star,
+        Star {
+            id: support_star,
+            name: "Forward Base".to_string(),
+            x: 200,
+            y: 0,
+            sector: SectorId(0),
+            spectral_class: SpectralClass::F,
+            planets: vec![Planet {
+                name: "Forward Base I".to_string(),
+                size: PlanetSize::Medium,
+                class: PlanetClass::Terran,
+                colony: Some(support_colony),
+                habitable: true,
+                surveyed: true,
+                specials: vec![],
+                resources: vec![],
+                anomalies: vec![],
+                ancient_ruins_collected: false,
+            }],
+        },
+    );
+    state.colonies.insert(
+        support_colony,
+        Colony {
+            id: support_colony,
+            star: support_star,
+            planet_index: 0,
+            owner: player_id,
+            population: 4,
+            production: 5,
+            prod_pct: 50,
+            research_pct: 50,
+            build_queue: vec![],
+            accumulated_production: 0,
+            buildings: vec![],
+            surface_installations: vec![],
+            orbital_installations: vec![],
+            stability: 100,
+            role: ColonyRole::Balanced,
+            rally_point: None,
+        },
+    );
     if let Some(colony) = state.colonies.get_mut(&colony_id) {
         colony.owner = enemy_id;
         colony.population = 1;
@@ -10306,6 +10523,90 @@ fn cannot_invade_uncolonized_planet() {
     }]);
 
     assert!(events.iter().any(|e| e.is_error()));
+}
+
+#[test]
+fn out_of_supply_fleet_cannot_invade() {
+    use crate::state::{Planet, PlanetClass, PlanetSize, SpectralClass, Star};
+
+    let (mut state, home_star, _home_colony, player_id, enemy_id) = make_blockade_state();
+    let target_star = StarId(55);
+    let target_colony = ColonyId(55);
+    state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+    state.stars.insert(
+        target_star,
+        Star {
+            id: target_star,
+            name: "Deep Redoubt".to_string(),
+            x: 1_200,
+            y: 0,
+            sector: SectorId(1),
+            spectral_class: SpectralClass::K,
+            planets: vec![Planet {
+                name: "Deep Redoubt I".to_string(),
+                size: PlanetSize::Medium,
+                class: PlanetClass::Terran,
+                colony: Some(target_colony),
+                habitable: true,
+                surveyed: true,
+                specials: vec![],
+                resources: vec![],
+                anomalies: vec![],
+                ancient_ruins_collected: false,
+            }],
+        },
+    );
+    state.colonies.insert(
+        target_colony,
+        Colony {
+            id: target_colony,
+            star: target_star,
+            planet_index: 0,
+            owner: enemy_id,
+            population: 3,
+            production: 5,
+            prod_pct: 50,
+            research_pct: 50,
+            build_queue: vec![],
+            accumulated_production: 0,
+            buildings: vec![],
+            surface_installations: vec![],
+            orbital_installations: vec![],
+            stability: 100,
+            role: ColonyRole::Balanced,
+            rally_point: None,
+        },
+    );
+    let fleet_id = FleetId(79);
+    state.fleets.insert(
+        fleet_id,
+        Fleet {
+            id: fleet_id,
+            owner: player_id,
+            location: target_star,
+            ships: 1,
+            kind: FleetKind::TroopTransport,
+            strength: 1,
+            integrity: 100,
+        },
+    );
+    let mut engine = Engine::from_state(state);
+
+    assert_eq!(
+        engine.state.fleet_supply_state(fleet_id),
+        FleetSupplyState::OutOfSupply
+    );
+    let events = engine.apply_turn(vec![Command::Invade {
+        fleet: fleet_id,
+        star: target_star,
+        planet_index: 0,
+    }]);
+
+    assert!(events.iter().any(|event| {
+        matches!(event, Event::Error { message } if message.contains("out of supply"))
+    }));
+    assert_eq!(engine.state.colonies[&target_colony].owner, enemy_id);
+    assert_eq!(engine.state.empires[&player_id].home_star, home_star);
 }
 
 #[test]

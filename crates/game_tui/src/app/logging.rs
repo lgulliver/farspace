@@ -1,4 +1,19 @@
 use super::*;
+use game_core::{FleetSupplyState, GameState};
+
+fn fleet_supply_counts(state: &GameState) -> (usize, usize, usize) {
+    let mut supplied = 0usize;
+    let mut extended = 0usize;
+    let mut out_of_supply = 0usize;
+    for fleet in state.fleets.values() {
+        match state.fleet_supply_state(fleet.id) {
+            FleetSupplyState::Supplied => supplied += 1,
+            FleetSupplyState::Extended => extended += 1,
+            FleetSupplyState::OutOfSupply => out_of_supply += 1,
+        }
+    }
+    (supplied, extended, out_of_supply)
+}
 
 impl App {
     pub(super) fn empire_display_name(&self, empire_id: game_core::EmpireId) -> String {
@@ -147,6 +162,19 @@ impl App {
                 let to_name = self.empire_display_name(*to_empire);
                 format!("{to_name} refused tribute demanded by {from_name}")
             }
+            CoreEvent::FleetArrived { fleet, star } => {
+                let Some(engine) = self.engine.as_ref() else {
+                    return event.to_log_message();
+                };
+                let supply = engine.state.fleet_supply_state(*fleet);
+                format!(
+                    "Fleet {} arrived at system {} — {} ({})",
+                    fleet.0,
+                    star.0,
+                    supply.label(),
+                    supply.penalty_summary()
+                )
+            }
             _ => event.to_log_message(),
         }
     }
@@ -279,7 +307,16 @@ impl App {
         self.push_status(LogEntryKind::Error, message);
     }
 
+    #[cfg(test)]
     pub(super) fn build_end_turn_report(turn: u32, events: &[CoreEvent]) -> String {
+        Self::build_end_turn_report_with_state(turn, events, None)
+    }
+
+    pub(super) fn build_end_turn_report_with_state(
+        turn: u32,
+        events: &[CoreEvent],
+        state: Option<&GameState>,
+    ) -> String {
         let mut explored = 0usize;
         let mut surveyed = 0usize;
         let mut colonized = 0usize;
@@ -334,8 +371,16 @@ impl App {
             }
         }
 
+        let fleet_supply_summary = state.map(|state| {
+            let (supplied, extended, out_of_supply) = fleet_supply_counts(state);
+            format!(
+                ", fleet supply {} supplied / {} extended / {} out",
+                supplied, extended, out_of_supply
+            )
+        });
+
         format!(
-            "Turn {} global summary (all empires): explored {}, surveyed {}, discoveries {}, colonized {}, research {}, queued starts {}, arrivals {}, combats {}, retreats {}, invasions won {}, invasions failed {}, treaties {}, wars {}, peaces {}, victory milestones {}, victories {}, warnings {}, isolated {}, reconnected {}, errors {}.",
+            "Turn {} global summary (all empires): explored {}, surveyed {}, discoveries {}, colonized {}, research {}, queued starts {}, arrivals {}, combats {}, retreats {}, invasions won {}, invasions failed {}, treaties {}, wars {}, peaces {}, victory milestones {}, victories {}, warnings {}, isolated {}, reconnected {}, errors {}{}.",
             turn,
             explored,
             surveyed,
@@ -356,7 +401,8 @@ impl App {
             warnings,
             newly_isolated,
             reconnected,
-            errors
+            errors,
+            fleet_supply_summary.unwrap_or_default()
         )
     }
 }

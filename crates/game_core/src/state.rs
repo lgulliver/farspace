@@ -1766,18 +1766,24 @@ impl BuildingType {
 pub enum OrbitalStructureType {
     /// A large orbital drydock capable of constructing and refitting warships
     Shipyard,
+    /// Logistics anchor extending fleet supply reach from this colony
+    SupplyHub,
 }
 
 impl OrbitalStructureType {
     /// All orbital structure types available for construction
     pub fn all() -> &'static [OrbitalStructureType] {
-        &[OrbitalStructureType::Shipyard]
+        &[
+            OrbitalStructureType::Shipyard,
+            OrbitalStructureType::SupplyHub,
+        ]
     }
 
     /// Display name for this orbital structure
     pub fn name(&self) -> &'static str {
         match self {
             OrbitalStructureType::Shipyard => "Shipyard",
+            OrbitalStructureType::SupplyHub => "Supply Hub",
         }
     }
 
@@ -1787,6 +1793,9 @@ impl OrbitalStructureType {
             OrbitalStructureType::Shipyard => {
                 "Orbital drydock — required to construct ships at this colony"
             }
+            OrbitalStructureType::SupplyHub => {
+                "Logistics anchor — extends supply projection for nearby fleets"
+            }
         }
     }
 
@@ -1794,6 +1803,7 @@ impl OrbitalStructureType {
     pub fn cost(&self) -> u64 {
         match self {
             OrbitalStructureType::Shipyard => 200,
+            OrbitalStructureType::SupplyHub => 160,
         }
     }
 
@@ -1801,6 +1811,7 @@ impl OrbitalStructureType {
     pub fn maintenance_cost(&self) -> i64 {
         match self {
             OrbitalStructureType::Shipyard => 2,
+            OrbitalStructureType::SupplyHub => 1,
         }
     }
 
@@ -1808,6 +1819,7 @@ impl OrbitalStructureType {
     pub fn required_tech(&self) -> Option<TechId> {
         match self {
             OrbitalStructureType::Shipyard => Some(TechId::ORBITAL_ENGINEERING),
+            OrbitalStructureType::SupplyHub => Some(TechId::RAPID_TRANSIT),
         }
     }
 }
@@ -2126,6 +2138,12 @@ impl Colony {
             .contains(&OrbitalStructureType::Shipyard)
     }
 
+    /// Returns `true` if this colony has a Supply Hub in its orbital installations
+    pub fn has_supply_hub(&self) -> bool {
+        self.orbital_installations
+            .contains(&OrbitalStructureType::SupplyHub)
+    }
+
     /// Returns true when colony stability is low enough to be considered unrest.
     pub fn is_unrest(&self) -> bool {
         self.stability < 60
@@ -2154,6 +2172,68 @@ impl ColonySupplyState {
         match self {
             ColonySupplyState::Connected => "Connected",
             ColonySupplyState::Isolated => "Isolated",
+        }
+    }
+}
+
+/// Current logistics status for a fleet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum FleetSupplyState {
+    #[default]
+    Supplied,
+    Extended,
+    OutOfSupply,
+}
+
+impl FleetSupplyState {
+    pub fn label(self) -> &'static str {
+        match self {
+            FleetSupplyState::Supplied => "Supplied",
+            FleetSupplyState::Extended => "Extended",
+            FleetSupplyState::OutOfSupply => "Out of Supply",
+        }
+    }
+
+    pub fn movement_penalty_pct(self) -> u32 {
+        match self {
+            FleetSupplyState::Supplied => 100,
+            FleetSupplyState::Extended => 125,
+            FleetSupplyState::OutOfSupply => 160,
+        }
+    }
+
+    pub fn combat_attack_pct(self) -> u32 {
+        match self {
+            FleetSupplyState::Supplied => 100,
+            FleetSupplyState::Extended => 90,
+            FleetSupplyState::OutOfSupply => 75,
+        }
+    }
+
+    pub fn combat_defense_pct(self) -> u32 {
+        match self {
+            FleetSupplyState::Supplied => 100,
+            FleetSupplyState::Extended => 95,
+            FleetSupplyState::OutOfSupply => 80,
+        }
+    }
+
+    pub fn invasion_strength_pct(self) -> u32 {
+        match self {
+            FleetSupplyState::Supplied => 100,
+            FleetSupplyState::Extended => 75,
+            FleetSupplyState::OutOfSupply => 0,
+        }
+    }
+
+    pub fn penalty_summary(self) -> &'static str {
+        match self {
+            FleetSupplyState::Supplied => "No logistics penalty",
+            FleetSupplyState::Extended => "-10% attack, -5% defense, +25% travel, -25% invasion",
+            FleetSupplyState::OutOfSupply => {
+                "-25% attack, -20% defense, +60% travel, cannot invade"
+            }
         }
     }
 }
@@ -2472,6 +2552,10 @@ pub struct BattleReport {
     pub formation_b: FleetFormation,
     pub doctrine_a: String,
     pub doctrine_b: String,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub supply_a: FleetSupplyState,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub supply_b: FleetSupplyState,
     pub kind_a: FleetKind,
     pub kind_b: FleetKind,
     pub ships_a: u32,
@@ -3056,6 +3140,12 @@ pub struct GameState {
     /// It is persisted to simplify UI rendering and turn-over-turn transition reporting.
     #[cfg_attr(feature = "serde", serde(default))]
     pub colony_supply: BTreeMap<ColonyId, ColonySupplyState>,
+    /// Last computed fleet supply states, keyed by fleet ID.
+    ///
+    /// This map is deterministic and derived from fleet location, empire
+    /// technology, active colonies, orbital infrastructure, and blockade state.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub fleet_supply: BTreeMap<FleetId, FleetSupplyState>,
     /// Active blockades this turn: maps blockaded `ColonyId` to the `EmpireId` of the
     /// primary blockading empire.
     ///
@@ -3104,6 +3194,15 @@ impl GameState {
     // strategic weight unless bridged by hyperspace lanes.
     const TRADE_LINK_RANGE_SQ_SAME_SECTOR: i64 = 550 * 550;
     const TRADE_LINK_RANGE_SQ_CROSS_SECTOR: i64 = 325 * 325;
+    const FLEET_SUPPLY_RANGE_SAME_SECTOR: i64 = 500;
+    const FLEET_SUPPLY_RANGE_CROSS_SECTOR: i64 = 280;
+    const FLEET_EXTENDED_RANGE_SAME_SECTOR: i64 = 800;
+    const FLEET_EXTENDED_RANGE_CROSS_SECTOR: i64 = 450;
+    const FLEET_SUPPLY_TECH_BONUS: i64 = 100;
+    const FLEET_SUPPLY_SHIPYARD_BONUS: i64 = 120;
+    const FLEET_SUPPLY_HUB_BONUS: i64 = 220;
+    const FLEET_SUPPLY_LANE_BONUS: i64 = 200;
+    const FLEET_EXTENDED_LANE_BONUS: i64 = 260;
 
     /// Generate a new colony ID
     pub fn next_colony_id(&mut self) -> ColonyId {
@@ -3151,6 +3250,113 @@ impl GameState {
             .get(&colony_id)
             .copied()
             .unwrap_or(ColonySupplyState::Connected)
+    }
+
+    pub fn fleet_supply_state(&self, fleet_id: FleetId) -> FleetSupplyState {
+        self.fleet_supply
+            .get(&fleet_id)
+            .copied()
+            .unwrap_or_else(|| self.derived_fleet_supply_state(fleet_id))
+    }
+
+    pub fn derived_fleet_supply_state(&self, fleet_id: FleetId) -> FleetSupplyState {
+        let Some(location) = self.fleet_location(fleet_id) else {
+            return FleetSupplyState::OutOfSupply;
+        };
+        let Some(empire_id) = self.fleets.get(&fleet_id).map(|fleet| fleet.owner) else {
+            return FleetSupplyState::OutOfSupply;
+        };
+        match location {
+            FleetLocation::AtStar(star_id) => self.projected_fleet_supply(empire_id, star_id),
+            FleetLocation::Travelling { destination, .. } => {
+                self.projected_fleet_supply(empire_id, destination)
+            }
+        }
+    }
+
+    pub fn projected_fleet_supply(&self, empire_id: EmpireId, star_id: StarId) -> FleetSupplyState {
+        if !self
+            .colonies
+            .values()
+            .any(|colony| colony.owner == empire_id)
+        {
+            return FleetSupplyState::OutOfSupply;
+        }
+        let mut best = FleetSupplyState::OutOfSupply;
+        for colony in self
+            .colonies
+            .values()
+            .filter(|colony| colony.owner == empire_id)
+        {
+            if self.colony_blockade_state(colony.id).is_some() {
+                continue;
+            }
+
+            if colony.star == star_id {
+                return FleetSupplyState::Supplied;
+            }
+
+            let connected = self.colony_supply_state(colony.id) == ColonySupplyState::Connected;
+            let has_shipyard = colony.has_shipyard();
+            let has_supply_hub = colony.has_supply_hub();
+            if !connected && !has_shipyard && !has_supply_hub {
+                continue;
+            }
+
+            let Some(from) = self.stars.get(&colony.star) else {
+                continue;
+            };
+            let Some(to) = self.stars.get(&star_id) else {
+                continue;
+            };
+
+            let mut full_range = if from.sector == to.sector {
+                Self::FLEET_SUPPLY_RANGE_SAME_SECTOR
+            } else {
+                Self::FLEET_SUPPLY_RANGE_CROSS_SECTOR
+            };
+            let mut extended_range = if from.sector == to.sector {
+                Self::FLEET_EXTENDED_RANGE_SAME_SECTOR
+            } else {
+                Self::FLEET_EXTENDED_RANGE_CROSS_SECTOR
+            };
+
+            if self.empire_has_hyperspace_trade(empire_id) {
+                full_range += Self::FLEET_SUPPLY_TECH_BONUS;
+                extended_range += Self::FLEET_SUPPLY_TECH_BONUS;
+            }
+            if has_shipyard {
+                full_range += Self::FLEET_SUPPLY_SHIPYARD_BONUS;
+                extended_range += Self::FLEET_SUPPLY_SHIPYARD_BONUS;
+            }
+            if has_supply_hub {
+                full_range += Self::FLEET_SUPPLY_HUB_BONUS;
+                extended_range += Self::FLEET_SUPPLY_HUB_BONUS;
+            }
+
+            if let Some(lane) = HyperspaceLane::new(colony.star, star_id) {
+                if self.empire_can_use_trade_lane(empire_id, lane) {
+                    full_range += Self::FLEET_SUPPLY_LANE_BONUS;
+                    extended_range += Self::FLEET_EXTENDED_LANE_BONUS;
+                }
+            }
+
+            if !connected {
+                full_range = 0;
+                extended_range /= 2;
+            }
+
+            let dx = (from.x - to.x) as i64;
+            let dy = (from.y - to.y) as i64;
+            let sq_dist = dx * dx + dy * dy;
+            if sq_dist <= full_range * full_range {
+                return FleetSupplyState::Supplied;
+            }
+            if sq_dist <= extended_range * extended_range {
+                best = FleetSupplyState::Extended;
+            }
+        }
+        best
     }
 
     /// Returns the empire currently blockading `colony_id`, or `None` if unblockaded.
@@ -3589,6 +3795,14 @@ impl GameState {
         supply
     }
 
+    pub fn recompute_fleet_supply(&self) -> BTreeMap<FleetId, FleetSupplyState> {
+        self.fleets
+            .keys()
+            .copied()
+            .map(|fleet_id| (fleet_id, self.derived_fleet_supply_state(fleet_id)))
+            .collect()
+    }
+
     fn empire_trade_hub_star(
         &self,
         empire_id: EmpireId,
@@ -3680,6 +3894,7 @@ impl PartialEq for GameState {
             && self.scenario == other.scenario
             && self.ai_empires == other.ai_empires
             && self.colony_supply == other.colony_supply
+            && self.fleet_supply == other.fleet_supply
             && self.colony_blockade == other.colony_blockade
             && self.empire_resource_access == other.empire_resource_access
             && self.victory_status == other.victory_status
@@ -3749,6 +3964,7 @@ impl Default for GameState {
             scenario: None,
             ai_empires: Vec::new(),
             colony_supply: BTreeMap::new(),
+            fleet_supply: BTreeMap::new(),
             colony_blockade: BTreeMap::new(),
             empire_resource_access: BTreeMap::new(),
             victory_status: VictoryStatus::default(),

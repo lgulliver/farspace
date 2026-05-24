@@ -19,9 +19,9 @@ use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, visible_anomalies_for_empire,
     visible_specials_for_empire, AiDoctrine, BuildItem, BuildingType, Colony, ColonyId, ColonyRole,
     ComponentId, CustomDesignId, CustomShipDesign, EmpireId, FleetFormation, FleetId, FleetKind,
-    FleetRole, GameState, OrbitalStructureType, PlanetAnomaly, PlanetClass, PlanetSpecial,
-    PlaystyleTag, ScoutMission, ShipDesignId, SlotCategory, StarId, StrategicResource,
-    StrategicResourceCategory, TechDomain, TechId, TechTag, VictoryPath,
+    FleetRole, FleetSupplyState, GameState, OrbitalStructureType, PlanetAnomaly, PlanetClass,
+    PlanetSpecial, PlaystyleTag, ScoutMission, ShipDesignId, SlotCategory, StarId,
+    StrategicResource, StrategicResourceCategory, TechDomain, TechId, TechTag, VictoryPath,
 };
 use crate::yield_model::{calculate_yield_with_context, YieldContext};
 
@@ -1084,7 +1084,20 @@ fn ai_travel_turns_for_fleet(
         .map(|summary| summary.mobility)
         .unwrap_or(100)
         .max(1);
-    let adjusted_turns = ((base_turns as u64 * 100).div_ceil(mobility as u64) as u32).max(1);
+    let supply = state
+        .fleets
+        .get(&fleet_id)
+        .map(|fleet| {
+            if fleet.kind.is_combat() || fleet.kind == FleetKind::TroopTransport {
+                state.projected_fleet_supply(empire_id, destination)
+            } else {
+                FleetSupplyState::Supplied
+            }
+        })
+        .unwrap_or(FleetSupplyState::Supplied);
+    let adjusted_turns = ((base_turns as u64 * 100 * supply.movement_penalty_pct() as u64)
+        .div_ceil(mobility as u64 * 100) as u32)
+        .max(1);
     (adjusted_turns, used_lane)
 }
 
@@ -1153,6 +1166,15 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
             None => continue,
         };
         let role = state.fleet_role_for(fleet_id);
+        let def = state
+            .empires
+            .get(&empire_id)
+            .and_then(|empire| empire.empire_def)
+            .and_then(empire_definition_by_id);
+        let doctrine = |axis| def.map(|d| d.doctrine_weight(axis)).unwrap_or(0);
+        let risk_tolerant = doctrine(AiDoctrine::Militarist) + doctrine(AiDoctrine::Imperial) >= 12;
+        let conservative =
+            doctrine(AiDoctrine::Merchant) + doctrine(AiDoctrine::Isolationist) >= 12;
 
         // Find the nearest player colony star; tie-break by ascending StarId
         let fleet_star = match state.stars.get(&fleet_loc) {
@@ -1186,7 +1208,25 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
                 let dx = (s.x - fleet_x) as i64;
                 let dy = (s.y - fleet_y) as i64;
                 let strategic = contested_star_resource_score(state, empire_id, sid);
-                Some((strategic, dx * dx + dy * dy, sid))
+                let supply = state.projected_fleet_supply(empire_id, sid);
+                let supply_bonus = match supply {
+                    FleetSupplyState::Supplied => 6,
+                    FleetSupplyState::Extended => {
+                        if risk_tolerant {
+                            1
+                        } else {
+                            -8
+                        }
+                    }
+                    FleetSupplyState::OutOfSupply => {
+                        if risk_tolerant || !conservative {
+                            -10
+                        } else {
+                            -30
+                        }
+                    }
+                };
+                Some((strategic + supply_bonus, dx * dx + dy * dy, sid))
             })
             .collect();
 
@@ -3768,6 +3808,120 @@ mod tests {
                 "Dispatched fleet must have an active FleetMission"
             );
         }
+    }
+
+    #[test]
+    fn ai_prefers_supported_target_over_unsupported_deep_strike() {
+        use crate::state::{
+            Colony, ColonyId, Fleet, FleetId, FleetKind, Planet, PlanetClass, PlanetSize,
+        };
+
+        let mut engine = Engine::new(42);
+        let ai = ai_id(&engine);
+        let player = engine.state.player_empire;
+        engine.state.turn = 20;
+        engine
+            .state
+            .diplomacy
+            .insert(ai, crate::state::RelationshipStatus::War);
+
+        let home_colony = engine
+            .state
+            .colonies
+            .values()
+            .find(|colony| colony.owner == player)
+            .cloned()
+            .expect("player colony exists");
+        let ai_star = engine
+            .state
+            .colonies
+            .values()
+            .find(|colony| colony.owner == ai)
+            .map(|colony| colony.star)
+            .expect("ai colony exists");
+        let far_star = *engine
+            .state
+            .stars
+            .keys()
+            .find(|&&star_id| star_id != home_colony.star && star_id != ai_star)
+            .expect("need extra star");
+        if let Some(ai_origin) = engine.state.stars.get_mut(&ai_star) {
+            ai_origin.x = 0;
+            ai_origin.y = 0;
+        }
+        if let Some(home_star) = engine.state.stars.get_mut(&home_colony.star) {
+            home_star.x = 250;
+            home_star.y = 0;
+        }
+        if let Some(frontier_star) = engine.state.stars.get_mut(&far_star) {
+            frontier_star.x = 1_300;
+            frontier_star.y = 0;
+            if frontier_star.planets.is_empty() {
+                frontier_star.planets.push(Planet {
+                    name: "Frontier I".to_string(),
+                    size: PlanetSize::Medium,
+                    class: PlanetClass::Terran,
+                    colony: None,
+                    habitable: true,
+                    surveyed: true,
+                    specials: vec![],
+                    resources: vec![],
+                    anomalies: vec![],
+                    ancient_ruins_collected: false,
+                });
+            }
+        }
+        let frontier_colony_id = ColonyId(9_001);
+        engine.state.colonies.insert(
+            frontier_colony_id,
+            Colony {
+                id: frontier_colony_id,
+                star: far_star,
+                planet_index: 0,
+                owner: player,
+                population: 3,
+                production: 4,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: vec![],
+                accumulated_production: 0,
+                buildings: vec![],
+                surface_installations: vec![],
+                orbital_installations: vec![],
+                stability: 100,
+                role: crate::state::ColonyRole::Balanced,
+                rally_point: None,
+            },
+        );
+        if let Some(star) = engine.state.stars.get_mut(&far_star) {
+            if let Some(planet) = star.planets.get_mut(0) {
+                planet.colony = Some(frontier_colony_id);
+            }
+        }
+        let combat_fleet_id = FleetId(9_002);
+        engine.state.fleets.insert(
+            combat_fleet_id,
+            Fleet {
+                id: combat_fleet_id,
+                owner: ai,
+                location: ai_star,
+                ships: 1,
+                kind: FleetKind::Destroyer,
+                strength: 10,
+                integrity: 100,
+            },
+        );
+
+        let _events = run_ai_turn(&mut engine.state, ai);
+        let mission = engine
+            .state
+            .fleet_missions
+            .get(&combat_fleet_id)
+            .expect("combat fleet should be dispatched");
+        assert_eq!(
+            mission.destination, home_colony.star,
+            "AI should prefer supported nearby target over unsupported deep strike"
+        );
     }
 
     #[test]

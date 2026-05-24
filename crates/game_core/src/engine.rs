@@ -13,9 +13,10 @@ use crate::state::{
     CombatPhase, CombatPhaseSummary, ComponentId, CustomDesignId, CustomShipDesign,
     DiplomaticCommunication, DiplomaticCommunicationType, DiplomaticRelationship,
     DiplomaticResponse, DiplomaticTone, DiplomaticTreaty, Empire, EmpireId, Fleet, FleetFormation,
-    FleetId, FleetKind, FleetMission, FleetOrder, FleetRole, GameState, HullId, HyperspaceLane,
-    OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
-    ShipDesignId, StarId, StrategicResource, SurveyMission, TechId, TreatyType, YieldType,
+    FleetId, FleetKind, FleetMission, FleetOrder, FleetRole, FleetSupplyState, GameState, HullId,
+    HyperspaceLane, OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup,
+    ScoutMission, ShipDesignId, StarId, StrategicResource, SurveyMission, TechId, TreatyType,
+    YieldType,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
@@ -141,6 +142,10 @@ fn apply_isolation_penalty(credits: i64, research: i64, _food: i64) -> (i64, i64
 /// ever change.
 fn apply_blockade_penalty(credits: i64, research: i64, food: i64) -> (i64, i64, i64) {
     apply_isolation_penalty(credits, research, food)
+}
+
+fn fleet_uses_logistics_penalties(kind: FleetKind) -> bool {
+    kind.is_combat() || kind == FleetKind::TroopTransport
 }
 
 /// Apply an empire identity percentage modifier to a production cost.
@@ -973,6 +978,7 @@ impl Engine {
 
     fn refresh_colony_supply_statuses(&mut self) {
         self.state.colony_supply = self.state.recompute_colony_supply();
+        self.state.fleet_supply = self.state.recompute_fleet_supply();
     }
 
     /// Apply a list of commands and return generated events
@@ -1861,6 +1867,7 @@ impl Engine {
         }
         self.state.colony_blockade = updated_blockade.clone();
         self.last_turn_colony_blockade = updated_blockade;
+        self.state.fleet_supply = self.state.recompute_fleet_supply();
         self.state.empire_resource_access = self.state.recompute_empire_resource_access();
 
         // Deterministic population growth tick (lite v1):
@@ -2915,7 +2922,21 @@ impl Engine {
             .map(|summary| summary.mobility)
             .unwrap_or(100)
             .max(1);
-        let adjusted_turns = ((base_turns as u64 * 100).div_ceil(mobility as u64) as u32).max(1);
+        let supply = self
+            .state
+            .fleets
+            .get(&fleet_id)
+            .map(|fleet| {
+                if fleet_uses_logistics_penalties(fleet.kind) {
+                    self.state.projected_fleet_supply(empire_id, to)
+                } else {
+                    FleetSupplyState::Supplied
+                }
+            })
+            .unwrap_or(FleetSupplyState::Supplied);
+        let adjusted_turns = ((base_turns as u64 * 100 * supply.movement_penalty_pct() as u64)
+            .div_ceil(mobility as u64 * 100) as u32)
+            .max(1);
         (adjusted_turns, used_lane)
     }
 
@@ -3728,6 +3749,14 @@ impl Engine {
         };
         let defense_strength = Self::colony_defense_strength(&target_colony);
         let base_invasion_strength = self.invasion_strength_for_empire(fleet.owner, fleet.ships);
+        let supply_state = self.state.derived_fleet_supply_state(fleet_id);
+        if supply_state == FleetSupplyState::OutOfSupply {
+            events.push(Event::error(format!(
+                "Fleet {} cannot invade while out of supply",
+                fleet_id.0
+            )));
+            return;
+        }
         let escort_quality: u32 = self
             .state
             .fleets
@@ -3747,7 +3776,10 @@ impl Engine {
                     .unwrap_or(0)
             })
             .sum();
-        let invasion_strength = base_invasion_strength.saturating_add(escort_quality / 5);
+        let invasion_strength = base_invasion_strength
+            .saturating_add(escort_quality / 5)
+            .saturating_mul(supply_state.invasion_strength_pct())
+            / 100;
 
         if hostile_orbital_defenders {
             events.push(Event::InvasionFailed {
@@ -4109,13 +4141,13 @@ impl Engine {
             .map(|(fid, _)| *fid)
             .collect();
 
-        for enemy_id in enemy_fleet_ids {
+        for enemy_fleet_id in enemy_fleet_ids {
             // Re-fetch arriving fleet — may have been destroyed in a prior iteration.
             let (a_str, a_int) = match self.state.fleets.get(&arrived_fleet_id) {
                 Some(f) => (f.strength, f.integrity),
                 None => break,
             };
-            let (d_str, d_int, d_owner) = match self.state.fleets.get(&enemy_id) {
+            let (d_str, d_int, d_owner) = match self.state.fleets.get(&enemy_fleet_id) {
                 Some(f) => (f.strength, f.integrity, f.owner),
                 None => continue,
             };
@@ -4123,7 +4155,7 @@ impl Engine {
             events.push(Event::FleetEngagementStarted {
                 star: star_id,
                 fleet_a: arrived_fleet_id,
-                fleet_b: enemy_id,
+                fleet_b: enemy_fleet_id,
             });
 
             if self.should_avoid_engagement(arrived_fleet_id, a_str, d_str)
@@ -4131,8 +4163,8 @@ impl Engine {
             {
                 break;
             }
-            if self.should_avoid_engagement(enemy_id, d_str, a_str)
-                && self.start_retreat_if_possible(enemy_id, star_id, events)
+            if self.should_avoid_engagement(enemy_fleet_id, d_str, a_str)
+                && self.start_retreat_if_possible(enemy_fleet_id, star_id, events)
             {
                 continue;
             }
@@ -4140,12 +4172,12 @@ impl Engine {
             let (mut a_attack_pct, a_defense_pct, a_retreat_threshold) =
                 self.fleet_combat_profile(arrived_fleet_id, star_id);
             let (mut d_attack_pct, d_defense_pct, d_retreat_threshold) =
-                self.fleet_combat_profile(enemy_id, star_id);
+                self.fleet_combat_profile(enemy_fleet_id, star_id);
 
             let role_a = self.state.fleet_role_for(arrived_fleet_id);
-            let role_b = self.state.fleet_role_for(enemy_id);
+            let role_b = self.state.fleet_role_for(enemy_fleet_id);
             let formation_a = self.state.fleet_formation_for(arrived_fleet_id);
-            let formation_b = self.state.fleet_formation_for(enemy_id);
+            let formation_b = self.state.fleet_formation_for(enemy_fleet_id);
             let kind_a = self
                 .state
                 .fleets
@@ -4155,7 +4187,7 @@ impl Engine {
             let kind_b = self
                 .state
                 .fleets
-                .get(&enemy_id)
+                .get(&enemy_fleet_id)
                 .map(|fleet| fleet.kind)
                 .unwrap_or(FleetKind::Scout);
             let ships_a = self
@@ -4167,15 +4199,17 @@ impl Engine {
             let ships_b = self
                 .state
                 .fleets
-                .get(&enemy_id)
+                .get(&enemy_fleet_id)
                 .map(|fleet| fleet.ships)
                 .unwrap_or(0);
             let doctrine_a = self.empire_doctrine_summary(arrived_owner);
             let doctrine_b = self.empire_doctrine_summary(d_owner);
+            let supply_a = self.state.derived_fleet_supply_state(arrived_fleet_id);
+            let supply_b = self.state.derived_fleet_supply_state(enemy_fleet_id);
 
             let mut phase_summaries: Vec<CombatPhaseSummary> = Vec::new();
             let a_detection = self.fleet_detection_score(arrived_fleet_id, kind_a, formation_a);
-            let d_detection = self.fleet_detection_score(enemy_id, kind_b, formation_b);
+            let d_detection = self.fleet_detection_score(enemy_fleet_id, kind_b, formation_b);
             phase_summaries.push(CombatPhaseSummary {
                 phase: CombatPhase::Detection,
                 pressure_a: a_detection,
@@ -4198,9 +4232,11 @@ impl Engine {
                 pressure_a: a_attack_pct,
                 pressure_b: d_attack_pct,
                 note: format!(
-                    "{} / {} posture applied",
+                    "{} / {} posture applied; supply {} vs {}",
                     formation_a.label(),
-                    formation_b.label()
+                    formation_b.label(),
+                    supply_a.label(),
+                    supply_b.label()
                 ),
             });
 
@@ -4237,7 +4273,7 @@ impl Engine {
             let d_defense = self
                 .state
                 .fleet_custom_designs
-                .get(&enemy_id)
+                .get(&enemy_fleet_id)
                 .and_then(|did| self.state.custom_designs.get(did))
                 .map(|d| d.derived_stats().defense.max(1) as u64)
                 .unwrap_or(d_str as u64);
@@ -4322,7 +4358,7 @@ impl Engine {
                 star: star_id,
                 fleet_a: arrived_fleet_id,
                 empire_a: arrived_owner,
-                fleet_b: enemy_id,
+                fleet_b: enemy_fleet_id,
                 empire_b: d_owner,
                 strength_a: a_str,
                 strength_b: d_str,
@@ -4339,8 +4375,8 @@ impl Engine {
             }
 
             if fleet_b_destroyed {
-                self.remove_fleet_and_assignments(enemy_id);
-            } else if let Some(f) = self.state.fleets.get_mut(&enemy_id) {
+                self.remove_fleet_and_assignments(enemy_fleet_id);
+            } else if let Some(f) = self.state.fleets.get_mut(&enemy_fleet_id) {
                 f.integrity = new_d_int;
             }
 
@@ -4365,7 +4401,7 @@ impl Engine {
                     turn: self.state.turn,
                     star: star_id,
                     fleet_a: arrived_fleet_id,
-                    fleet_b: enemy_id,
+                    fleet_b: enemy_fleet_id,
                     empire_a: arrived_owner,
                     empire_b: d_owner,
                     role_a,
@@ -4374,6 +4410,8 @@ impl Engine {
                     formation_b,
                     doctrine_a,
                     doctrine_b,
+                    supply_a,
+                    supply_b,
                     kind_a,
                     kind_b,
                     ships_a,
@@ -4393,7 +4431,7 @@ impl Engine {
             }
             if !fleet_b_destroyed
                 && new_d_int <= d_retreat_threshold
-                && self.start_retreat_if_possible(enemy_id, star_id, events)
+                && self.start_retreat_if_possible(enemy_fleet_id, star_id, events)
             {
                 phase_summaries.push(CombatPhaseSummary {
                     phase: CombatPhase::RetreatOrCollapse,
@@ -4412,7 +4450,7 @@ impl Engine {
                     turn: self.state.turn,
                     star: star_id,
                     fleet_a: arrived_fleet_id,
-                    fleet_b: enemy_id,
+                    fleet_b: enemy_fleet_id,
                     empire_a: arrived_owner,
                     empire_b: d_owner,
                     role_a,
@@ -4421,6 +4459,8 @@ impl Engine {
                     formation_b,
                     doctrine_a,
                     doctrine_b,
+                    supply_a,
+                    supply_b,
                     kind_a,
                     kind_b,
                     ships_a,
@@ -4462,7 +4502,7 @@ impl Engine {
                 turn: self.state.turn,
                 star: star_id,
                 fleet_a: arrived_fleet_id,
-                fleet_b: enemy_id,
+                fleet_b: enemy_fleet_id,
                 empire_a: arrived_owner,
                 empire_b: d_owner,
                 role_a,
@@ -4471,6 +4511,8 @@ impl Engine {
                 formation_b,
                 doctrine_a,
                 doctrine_b,
+                supply_a,
+                supply_b,
                 kind_a,
                 kind_b,
                 ships_a,
@@ -4599,6 +4641,17 @@ impl Engine {
             if has_vulnerable_friendly {
                 defense_pct = defense_pct.saturating_add(15);
             }
+        }
+
+        let supply = if fleet_uses_logistics_penalties(fleet.kind) {
+            self.state.derived_fleet_supply_state(fleet_id)
+        } else {
+            FleetSupplyState::Supplied
+        };
+        attack_pct = attack_pct.saturating_mul(supply.combat_attack_pct()) / 100;
+        defense_pct = defense_pct.saturating_mul(supply.combat_defense_pct()) / 100;
+        if supply != FleetSupplyState::Supplied {
+            retreat_threshold = retreat_threshold.saturating_add(10);
         }
 
         (

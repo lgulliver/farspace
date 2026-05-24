@@ -73,7 +73,7 @@ pub fn render_sector_map(
     let hint = app_state
         .status_message
         .as_deref()
-        .unwrap_or("Enter opens system detail. S scouts, M moves fleets, and map pips show fog, borders, and traffic.");
+        .unwrap_or("Enter opens system detail. S scouts, M moves fleets, and system rows show projected supply.");
     render_footer(frame, footer_area, &Screen::SectorMap, Some(hint));
 }
 
@@ -620,14 +620,27 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
             .filter(|count| *count > 0)
             .map(|count| format!("  [{}f]", count))
             .unwrap_or_default();
+        let supply_note = if matches!(fog, FogState::Unexplored) {
+            None
+        } else {
+            Some(game_state.projected_fleet_supply(game_state.player_empire, star.id))
+        };
 
-        lines.push(Line::from(vec![
+        let mut spans = vec![
             Span::raw(format!("{} ", prefix)),
             Span::styled(symbol.to_string(), style),
             Span::raw(" "),
             Span::styled(name, style),
             Span::styled(fleet_note, Theme::muted_style()),
-        ]));
+        ];
+        if let Some(supply) = supply_note {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(
+                format!("[{}]", supply.label()),
+                Theme::fleet_supply_style(supply),
+            ));
+        }
+        lines.push(Line::from(spans));
     }
 
     frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
@@ -1082,6 +1095,29 @@ mod tests {
 
         assert!(text.contains(&format!("{} ???", glyphs.star_unexplored)));
         assert!(!text.contains(&format!("{} ???", visual.symbol)));
+    }
+
+    #[test]
+    fn system_list_shows_projected_supply_state() {
+        let (mut app_state, mut game_state) = create_app_with_sector();
+        let target = game_state
+            .stars
+            .values()
+            .find(|star| star.id != game_state.empires[&game_state.player_empire].home_star)
+            .map(|star| star.id)
+            .unwrap();
+        let sector = game_state.stars[&target].sector;
+        app_state.navigation.selected_sector = Some(sector);
+        app_state.navigation.selected_star = Some(target);
+        game_state.explored_stars.insert(target);
+        if let Some(star) = game_state.stars.get_mut(&target) {
+            star.x = 5_000;
+            star.y = 0;
+        }
+
+        let buffer = render_system_list_to_buffer(&app_state, &game_state, 72, 20);
+        let text = buffer_text(&buffer, Rect::new(0, 0, 72, 20));
+        assert!(text.contains("Out of Supply"));
     }
 
     #[test]

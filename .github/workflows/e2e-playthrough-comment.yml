@@ -48,7 +48,8 @@ jobs:
             exit 1
           fi
           if [ "${artifact_count}" -gt 1 ]; then
-            echo "Warning: found ${artifact_count} artifacts named ${artifact_name}; using first match."
+            echo "::warning::Found ${artifact_count} artifacts named ${artifact_name}; refusing ambiguous download."
+            exit 1
           fi
 
           gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}/zip" --output "${artifact_zip}"

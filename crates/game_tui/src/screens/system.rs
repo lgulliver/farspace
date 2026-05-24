@@ -986,7 +986,7 @@ fn render_system_detail_facts(
                     name.push_str(&format!(" (Surveying orbit {})", mission.planet_index + 1));
                 }
             }
-            lines.push(Line::from(vec![
+            let mut fleet_line = vec![
                 Span::raw(format!("{} {} ", prefix, name)),
                 Span::styled(
                     if owns_fleet || intel >= game_core::IntelLevel::Informed {
@@ -1035,15 +1035,13 @@ fn render_system_detail_facts(
                         Theme::muted_style()
                     },
                 ),
-                Span::styled(
-                    if owns_fleet {
-                        order_label.as_str()
-                    } else {
-                        ""
-                    },
-                    Theme::muted_style(),
-                ),
-            ]));
+            ];
+            fleet_line.push(if owns_fleet {
+                Span::styled(order_label, Theme::muted_style())
+            } else {
+                Span::styled("", Theme::muted_style())
+            });
+            lines.push(Line::from(fleet_line));
         }
         lines.push(Line::from(Span::styled(
             "  [f] focus fleet  [R] next role  [F] next formation  [B] battle reports  supply: Supplied / Extended / Out of Supply",

@@ -501,7 +501,11 @@ impl Engine {
             || completed
                 .iter()
                 .filter_map(|tech_id| tech_by_id(*tech_id))
-                .any(|record| record.tags.contains(&crate::state::TechTag::EspionageFuture))
+                .any(|record| {
+                    record
+                        .tags
+                        .contains(&crate::state::TechTag::EspionageFuture)
+                })
         {
             bonus += 1;
         }

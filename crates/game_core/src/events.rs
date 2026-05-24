@@ -1,9 +1,10 @@
 //! Events emitted by the game engine
 
 use crate::state::{
-    BuildItem, ColonyId, ColonyRole, CustomDesignId, DiplomaticCommunicationType, EmpireId,
-    FleetFormation, FleetId, FleetOrder, FleetRole, HullId, PlanetAnomaly, PlanetSpecial, StarId,
-    StrategicResource, TechId, TreatyType, VictoryPath,
+    BuildItem, ColonyId, ColonyRole, ColonyUnrestState, CustomDesignId,
+    DiplomaticCommunicationType, EmpireId, FleetFormation, FleetId, FleetOrder, FleetRole, HullId,
+    PlanetAnomaly, PlanetSpecial, StarId, StrategicResource, TechId, TreatyType, UnrestCause,
+    VictoryPath,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -211,6 +212,14 @@ pub enum Event {
     ColonyIsolated { colony: ColonyId },
     /// A previously isolated colony regained trade-network connectivity
     ColonyReconnected { colony: ColonyId },
+    /// A colony's unrest state changed this turn.
+    ColonyUnrestChanged {
+        colony: ColonyId,
+        from: ColonyUnrestState,
+        to: ColonyUnrestState,
+        causes: Vec<UnrestCause>,
+        rebellion_risk_bp: u16,
+    },
     /// An error occurred
     Error { message: String },
     /// AI empire has selected a technology to research
@@ -793,6 +802,31 @@ impl Event {
             }
             Event::ColonyReconnected { colony } => {
                 format!("Colony {} reconnected to trade network", colony.0)
+            }
+            Event::ColonyUnrestChanged {
+                colony,
+                from,
+                to,
+                causes,
+                rebellion_risk_bp,
+            } => {
+                let cause_text = if causes.is_empty() {
+                    "no active causes".to_string()
+                } else {
+                    causes
+                        .iter()
+                        .map(|cause| cause.label())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                format!(
+                    "UNREST: Colony {} {} → {} (risk {:.1}%, causes: {})",
+                    colony.0,
+                    from.label(),
+                    to.label(),
+                    f64::from(*rebellion_risk_bp) / 100.0,
+                    cause_text
+                )
             }
             Event::Error { message } => format!("Error: {}", message),
             Event::AiResearchSelected { empire, tech } => {

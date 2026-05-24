@@ -29,8 +29,8 @@ pub use state::{
     tech_by_id, tech_yield_bonus_per_colony, visible_anomalies_for_empire,
     visible_resources_for_empire, visible_specials_for_empire, AnomalyCategory, AnomalyRiskLevel,
     BattleReport, BuildItem, BuildingType, Colony, ColonyId, ColonyRole, ColonySupplyState,
-    CombatPhase, CombatPhaseSummary, ComponentDef, ComponentId, ComponentTag, CustomDesignId,
-    CustomShipDesign, DerivedShipStats, DifficultyLevel, DiplomaticCommunication,
+    ColonyUnrestState, CombatPhase, CombatPhaseSummary, ComponentDef, ComponentId, ComponentTag,
+    CustomDesignId, CustomShipDesign, DerivedShipStats, DifficultyLevel, DiplomaticCommunication,
     DiplomaticCommunicationType, DiplomaticRelationship, DiplomaticResponse, DiplomaticTone,
     DiplomaticTreaty, DiscoveryRarity, DiscoveryRequirements, Empire, EmpireDefinition,
     EmpireDefinitionId, EmpireId, EmpireTraitModifiers, Fleet, FleetEvaluation, FleetFormation,
@@ -41,7 +41,7 @@ pub use state::{
     Sector, SectorId, ShipDesignId, ShipDesignRecord, SlotCategory, SpectralClass, Star, StarId,
     StrategicResource, StrategicResourceCategory, StrategicResourceRarity, StrategicResourceRecord,
     SurveyMission, TechCapability, TechDomain, TechId, TechRecord, TechTier, TechUnlock,
-    TreatyType, VictoryCondition, VictoryPath, VictoryProgress, VictoryProgressValue,
+    TreatyType, UnrestCause, VictoryCondition, VictoryPath, VictoryProgress, VictoryProgressValue,
     VictorySettings, VictoryStatus, YieldEffect, YieldType,
 };
 pub use yield_model::{

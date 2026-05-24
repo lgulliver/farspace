@@ -119,6 +119,7 @@ fn classify_log_entry(lower: &str) -> LogEntryKind {
     } else if lower.starts_with("warning:")
         || lower.contains(" shortage")
         || lower.contains(" deficit")
+        || lower.contains("unrest")
     {
         LogEntryKind::Warning
     } else if lower.starts_with("turn ") && lower.contains(" report:") {

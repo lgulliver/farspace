@@ -10,13 +10,13 @@ use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hypers
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
     AiDoctrine, BattleReport, BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState,
-    CombatPhase, CombatPhaseSummary, ComponentId, CustomDesignId, CustomShipDesign,
-    DiplomaticCommunication, DiplomaticCommunicationType, DiplomaticRelationship,
+    ColonyUnrestState, CombatPhase, CombatPhaseSummary, ComponentId, CustomDesignId,
+    CustomShipDesign, DiplomaticCommunication, DiplomaticCommunicationType, DiplomaticRelationship,
     DiplomaticResponse, DiplomaticTone, DiplomaticTreaty, Empire, EmpireId, Fleet, FleetFormation,
     FleetId, FleetKind, FleetMission, FleetOrder, FleetRole, FleetSupplyState, GameState, HullId,
     HyperspaceLane, OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup,
     ScoutMission, ShipDesignId, StarId, StrategicResource, SurveyMission, TechId, TreatyType,
-    YieldType,
+    UnrestCause, YieldType,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
@@ -29,11 +29,11 @@ use std::collections::{BTreeMap, BTreeSet};
 // backward compatibility with all existing tests.
 use crate::balance::{
     BLOCKADED_STABILITY_PENALTY, BORDER_TENSION_DISTANCE_SQ, CAPTURED_UNREST_STABILITY,
-    FLEET_TRAVEL_SPEED, HYPERSPACE_TRAVEL_DIVISOR, ISOLATED_STABILITY_PENALTY,
-    ISOLATED_YIELD_PERCENT, MAX_HOUSING_DEFICIT_STABILITY_PENALTY,
+    CONQUEST_UNREST_TURNS, FLEET_TRAVEL_SPEED, HYPERSPACE_TRAVEL_DIVISOR,
+    ISOLATED_STABILITY_PENALTY, ISOLATED_YIELD_PERCENT, MAX_HOUSING_DEFICIT_STABILITY_PENALTY,
     MAX_ISOLATED_FOOD_DEFICIT_STABILITY_PENALTY, MAX_UNEMPLOYMENT_STABILITY_PENALTY,
-    MIN_STABILITY_FOR_POP_GROWTH, POP_GROWTH_PERIOD_TURNS, SEVERE_BORDER_TENSION_DISTANCE_SQ,
-    TROOP_TRANSPORT_INVASION_STRENGTH,
+    MIN_STABILITY_FOR_POP_GROWTH, OVEREXTENSION_COLONY_THRESHOLD, POP_GROWTH_PERIOD_TURNS,
+    SEVERE_BORDER_TENSION_DISTANCE_SQ, TROOP_TRANSPORT_INVASION_STRENGTH,
 };
 
 /// Number of turns for a science ship to survey a planet
@@ -69,6 +69,19 @@ struct StrategicResourceBonuses {
     science_per_colony: i64,
     food_per_colony: i64,
     research_percent_bonus: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct EmpireUnrestPressure {
+    war_exhaustion: u8,
+    overextension: u8,
+}
+
+#[derive(Debug, Clone)]
+struct UnrestEvaluation {
+    state: ColonyUnrestState,
+    causes: Vec<UnrestCause>,
+    rebellion_risk_bp: u16,
 }
 
 fn strategic_resource_bonuses_for_empire(
@@ -981,6 +994,192 @@ impl Engine {
         self.state.fleet_supply = self.state.recompute_fleet_supply();
     }
 
+    fn empire_unrest_pressure_map(&self) -> BTreeMap<EmpireId, EmpireUnrestPressure> {
+        let mut colony_counts: BTreeMap<EmpireId, usize> = BTreeMap::new();
+        for colony in self.state.colonies.values() {
+            *colony_counts.entry(colony.owner).or_insert(0) += 1;
+        }
+
+        self.state
+            .empires
+            .keys()
+            .copied()
+            .map(|empire_id| {
+                let colony_count = colony_counts.get(&empire_id).copied().unwrap_or(0);
+                let overextension = colony_count.saturating_sub(OVEREXTENSION_COLONY_THRESHOLD);
+                let overextension_points = overextension.min(3) as u8;
+                let at_war = self.state.empires.keys().copied().any(|other| {
+                    other != empire_id
+                        && self
+                            .state
+                            .relationship_status(empire_id, other)
+                            .is_hostile_or_war()
+                });
+                let war_exhaustion_points = if at_war { 1 } else { 0 };
+                (
+                    empire_id,
+                    EmpireUnrestPressure {
+                        war_exhaustion: war_exhaustion_points,
+                        overextension: overextension_points,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn unrest_state_from_score(score: u8) -> ColonyUnrestState {
+        match score {
+            0..=1 => ColonyUnrestState::Calm,
+            2..=3 => ColonyUnrestState::Strained,
+            4..=6 => ColonyUnrestState::Unrest,
+            _ => ColonyUnrestState::RevoltRisk,
+        }
+    }
+
+    fn evaluate_colony_unrest(
+        &self,
+        colony: &Colony,
+        food_deficit: i64,
+        housing_deficit: u64,
+        is_connected: bool,
+        is_blockaded: bool,
+        empire_pressure: EmpireUnrestPressure,
+    ) -> UnrestEvaluation {
+        let mut score = 0u8;
+        let mut causes = Vec::new();
+
+        if food_deficit > 0 {
+            score = score.saturating_add(2);
+            causes.push(UnrestCause::FoodShortage);
+        }
+        if housing_deficit > 0 {
+            score = score.saturating_add(2);
+            causes.push(UnrestCause::HousingShortage);
+        }
+        let low_stability_points = if colony.stability < 55 {
+            3
+        } else if colony.stability < 70 {
+            2
+        } else if colony.stability < 85 {
+            1
+        } else {
+            0
+        };
+        if low_stability_points > 0 {
+            score = score.saturating_add(low_stability_points);
+            causes.push(UnrestCause::LowStability);
+        }
+        if is_blockaded {
+            score = score.saturating_add(3);
+            causes.push(UnrestCause::Blockade);
+        }
+        if !is_connected {
+            score = score.saturating_add(2);
+            causes.push(UnrestCause::Isolated);
+        }
+        if empire_pressure.war_exhaustion > 0 {
+            score = score.saturating_add(empire_pressure.war_exhaustion);
+            causes.push(UnrestCause::WarExhaustion);
+        }
+        if empire_pressure.overextension > 0 {
+            score = score.saturating_add(empire_pressure.overextension);
+            causes.push(UnrestCause::Overextension);
+        }
+
+        if let Some(conquered_turn) = self
+            .state
+            .colony_recent_conquest_turn
+            .get(&colony.id)
+            .copied()
+        {
+            let age = self.state.turn.saturating_sub(conquered_turn);
+            let conquest_points = if age <= 3 {
+                3
+            } else if age <= 7 {
+                2
+            } else if age <= CONQUEST_UNREST_TURNS {
+                1
+            } else {
+                0
+            };
+            if conquest_points > 0 {
+                score = score.saturating_add(conquest_points);
+                causes.push(UnrestCause::RecentConquest);
+            }
+        }
+
+        let state = Self::unrest_state_from_score(score);
+        let rebellion_risk_bp = state
+            .base_rebellion_risk_bp()
+            .saturating_add(u16::from(score).saturating_mul(20));
+        UnrestEvaluation {
+            state,
+            causes,
+            rebellion_risk_bp,
+        }
+    }
+
+    fn apply_unrest_penalties(
+        unrest_state: ColonyUnrestState,
+        industry: i64,
+        credits: i64,
+        research: i64,
+        maintenance: i64,
+    ) -> (i64, i64, i64, i64) {
+        let penalized_industry = (industry * unrest_state.production_percent()) / 100;
+        let penalized_credits = (credits * unrest_state.economy_percent()) / 100;
+        let penalized_research = (research * unrest_state.economy_percent()) / 100;
+        let penalized_maintenance = (maintenance * unrest_state.maintenance_percent()) / 100;
+        (
+            penalized_industry.max(0),
+            penalized_credits.max(0),
+            penalized_research.max(0),
+            penalized_maintenance.max(0),
+        )
+    }
+
+    fn refresh_unrest_statuses(&mut self) {
+        let pressure_by_empire = self.empire_unrest_pressure_map();
+        let mut colony_unrest = BTreeMap::new();
+        let mut colony_causes = BTreeMap::new();
+        let mut colony_risk = BTreeMap::new();
+
+        for colony_id in sorted_colony_ids(&self.state.colonies) {
+            let Some(colony) = self.state.colonies.get(&colony_id) else {
+                continue;
+            };
+            let planet = self
+                .state
+                .stars
+                .get(&colony.star)
+                .and_then(|s| s.planets.get(colony.planet_index));
+            let yield_snapshot = crate::yield_model::calculate_yield(colony, planet);
+            let food_deficit = (yield_snapshot.food_consumed - yield_snapshot.food).max(0);
+            let housing_deficit = yield_snapshot.workforce.housing_deficit;
+            let is_connected =
+                self.state.colony_supply_state(colony_id) == ColonySupplyState::Connected;
+            let is_blockaded = self.state.colony_blockade_state(colony_id).is_some();
+            let unrest = self.evaluate_colony_unrest(
+                colony,
+                food_deficit,
+                housing_deficit,
+                is_connected,
+                is_blockaded,
+                pressure_by_empire
+                    .get(&colony.owner)
+                    .copied()
+                    .unwrap_or_default(),
+            );
+            colony_unrest.insert(colony_id, unrest.state);
+            colony_causes.insert(colony_id, unrest.causes);
+            colony_risk.insert(colony_id, unrest.rebellion_risk_bp);
+        }
+
+        self.state.colony_unrest = colony_unrest;
+        self.state.colony_unrest_causes = colony_causes;
+        self.state.colony_rebellion_risk_bp = colony_risk;
+    }
+
     /// Apply a list of commands and return generated events
     pub fn apply_turn(&mut self, commands: Vec<Command>) -> Vec<Event> {
         let mut events = Vec::new();
@@ -1128,6 +1327,7 @@ impl Engine {
 
         if !processed_end_turn {
             self.refresh_colony_supply_statuses();
+            self.refresh_unrest_statuses();
             self.state.empire_resource_access = self.state.recompute_empire_resource_access();
         }
 
@@ -1189,6 +1389,7 @@ impl Engine {
                     )
                 })
                 .collect();
+        let empire_unrest_pressure = self.empire_unrest_pressure_map();
 
         for colony_id in colony_ids {
             // Get colony data needed for yield calculation and build queue
@@ -1277,9 +1478,11 @@ impl Engine {
             // Industry modifier from empire def is already informational here; the
             // yield model computed the base industry.  We expose the bonus via
             // the ColonyProduced event so the UI can show "empire bonus" detail.
-            let industry = colony_yield.industry
+            let mut industry = colony_yield.industry
                 + empire_def_mods.industry_per_colony
                 + resource_bonuses.industry_per_colony;
+            let mut build_industry = colony_yield.industry;
+            let mut colony_maintenance = colony_yield.maintenance;
             if resource_bonuses.research_percent_bonus > 0 {
                 // Intentional compounding: percent applies after flat colony modifiers.
                 research += research * resource_bonuses.research_percent_bonus / 100;
@@ -1333,6 +1536,64 @@ impl Engine {
                 }
             }
 
+            let unrest_eval = self
+                .state
+                .colonies
+                .get(&colony_id)
+                .map(|colony| {
+                    self.evaluate_colony_unrest(
+                        colony,
+                        food_deficit,
+                        housing_deficit,
+                        is_connected,
+                        is_blockaded,
+                        empire_unrest_pressure
+                            .get(&owner)
+                            .copied()
+                            .unwrap_or_default(),
+                    )
+                })
+                .unwrap_or(UnrestEvaluation {
+                    state: ColonyUnrestState::Calm,
+                    causes: Vec::new(),
+                    rebellion_risk_bp: 0,
+                });
+            let previous_unrest = self.state.colony_unrest_state(colony_id);
+            if previous_unrest != unrest_eval.state {
+                events.push(Event::ColonyUnrestChanged {
+                    colony: colony_id,
+                    from: previous_unrest,
+                    to: unrest_eval.state,
+                    causes: unrest_eval.causes.clone(),
+                    rebellion_risk_bp: unrest_eval.rebellion_risk_bp,
+                });
+            }
+            self.state
+                .colony_unrest
+                .insert(colony_id, unrest_eval.state);
+            self.state
+                .colony_unrest_causes
+                .insert(colony_id, unrest_eval.causes.clone());
+            self.state
+                .colony_rebellion_risk_bp
+                .insert(colony_id, unrest_eval.rebellion_risk_bp);
+            if self
+                .state
+                .colony_recent_conquest_turn
+                .get(&colony_id)
+                .is_some_and(|turn| self.state.turn.saturating_sub(*turn) > CONQUEST_UNREST_TURNS)
+            {
+                self.state.colony_recent_conquest_turn.remove(&colony_id);
+            }
+            (industry, credits, research, colony_maintenance) = Self::apply_unrest_penalties(
+                unrest_eval.state,
+                industry,
+                credits,
+                research,
+                colony_maintenance,
+            );
+            build_industry = (build_industry * unrest_eval.state.production_percent()) / 100;
+
             // Update empire credits and lifetime research total
             if let Some(empire) = self.state.empires.get_mut(&owner) {
                 empire.credits += credits;
@@ -1348,7 +1609,7 @@ impl Engine {
                 *empire_food_produced.entry(owner).or_insert(0) += food;
                 *empire_food_consumed.entry(owner).or_insert(0) += colony_yield.food_consumed;
             }
-            *empire_colony_maintenance.entry(owner).or_insert(0) += colony_yield.maintenance;
+            *empire_colony_maintenance.entry(owner).or_insert(0) += colony_maintenance;
 
             events.push(Event::ColonyProduced {
                 colony: colony_id,
@@ -1356,7 +1617,7 @@ impl Engine {
                 research,
                 food,
                 industry,
-                maintenance: colony_yield.maintenance,
+                maintenance: colony_maintenance,
             });
 
             // Process production queue — one active item at a time, with deterministic
@@ -1372,7 +1633,7 @@ impl Engine {
                 // We take the max with the raw `colony.production` field so that
                 // tests which set `production = 999` for instant builds remain
                 // unaffected.
-                let effective_production = (colony_yield.industry.max(1) as u64).max(production);
+                let effective_production = (build_industry.max(1) as u64).max(production);
                 let mut production_pool = accumulated + effective_production + ship_bonus;
 
                 // Determine how many items complete this turn and collect them.
@@ -1868,6 +2129,7 @@ impl Engine {
         self.state.colony_blockade = updated_blockade.clone();
         self.last_turn_colony_blockade = updated_blockade;
         self.state.fleet_supply = self.state.recompute_fleet_supply();
+        self.refresh_unrest_statuses();
         self.state.empire_resource_access = self.state.recompute_empire_resource_access();
 
         // Deterministic population growth tick (lite v1):
@@ -3805,11 +4067,26 @@ impl Engine {
                 colony.accumulated_production = 0;
                 colony.rally_point = None;
             }
+            self.state
+                .colony_recent_conquest_turn
+                .insert(planet_colony, self.state.turn);
+            self.state
+                .colony_unrest
+                .insert(planet_colony, ColonyUnrestState::RevoltRisk);
+            self.state.colony_unrest_causes.insert(
+                planet_colony,
+                vec![UnrestCause::RecentConquest, UnrestCause::LowStability],
+            );
+            self.state.colony_rebellion_risk_bp.insert(
+                planet_colony,
+                ColonyUnrestState::RevoltRisk.base_rebellion_risk_bp(),
+            );
 
             self.remove_fleet_and_assignments(fleet_id);
             // Ownership and fleet changes can invalidate cached blockade state.
             // Recompute now so the next end-turn economy pass does not use stale blockade entries.
             self.state.colony_blockade = self.state.recompute_colony_blockade();
+            self.refresh_unrest_statuses();
 
             events.push(Event::InvasionSucceeded {
                 attacker: self.state.player_empire,

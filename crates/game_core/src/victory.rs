@@ -261,8 +261,19 @@ fn evaluate_prosperity(
                 let avg_stability = if colonies.is_empty() {
                     0
                 } else {
-                    (colonies.iter().map(|c| c.stability as u32).sum::<u32>()
-                        / colonies.len() as u32) as u8
+                    let effective_stability_sum = colonies
+                        .iter()
+                        .map(|c| {
+                            let unrest_penalty = match state.colony_unrest_state(c.id) {
+                                crate::state::ColonyUnrestState::Calm => 0u32,
+                                crate::state::ColonyUnrestState::Strained => 5u32,
+                                crate::state::ColonyUnrestState::Unrest => 12u32,
+                                crate::state::ColonyUnrestState::RevoltRisk => 20u32,
+                            };
+                            u32::from(c.stability).saturating_sub(unrest_penalty)
+                        })
+                        .sum::<u32>();
+                    (effective_stability_sum / colonies.len() as u32) as u8
                 };
                 let (credits, food) = state
                     .empires

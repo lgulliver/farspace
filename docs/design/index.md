@@ -22,6 +22,7 @@ Use this index as entrypoint for design and direction docs.
 - [Fleet Supply & Logistics](fleet-supply-logistics.md)
 - [Diplomacy](diplomacy.md)
 - [Balance and Pacing](balance-and-pacing.md)
+- [Internal Stability and Unrest](internal-stability-and-unrest.md)
 
 ## Additional Design Docs
 

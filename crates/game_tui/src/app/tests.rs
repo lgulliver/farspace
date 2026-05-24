@@ -268,6 +268,22 @@ fn end_turn_report_includes_victory_milestones() {
 }
 
 #[test]
+fn end_turn_report_highlights_unrest_changes() {
+    let report = App::build_end_turn_report(
+        12,
+        &[game_core::Event::ColonyUnrestChanged {
+            colony: game_core::ColonyId(1),
+            from: game_core::ColonyUnrestState::Strained,
+            to: game_core::ColonyUnrestState::RevoltRisk,
+            causes: vec![game_core::UnrestCause::Blockade],
+            rebellion_risk_bp: 850,
+        }],
+    );
+    assert!(report.contains("unrest worsened 1"));
+    assert!(report.contains("revolt risk 1"));
+}
+
+#[test]
 fn overview_enter_opens_selected_colony() {
     let mut app = App::new();
     app.new_game(42);
@@ -884,7 +900,7 @@ fn end_turn_report_handles_empty_event_list() {
     let report = App::build_end_turn_report(3, &[]);
     assert_eq!(
         report,
-        "Turn 3 global summary (all empires): explored 0, surveyed 0, discoveries 0, colonized 0, research 0, queued starts 0, arrivals 0, combats 0, retreats 0, invasions won 0, invasions failed 0, treaties 0, wars 0, peaces 0, victory milestones 0, victories 0, warnings 0, isolated 0, reconnected 0, errors 0."
+        "Turn 3 global summary (all empires): explored 0, surveyed 0, discoveries 0, colonized 0, research 0, queued starts 0, arrivals 0, combats 0, retreats 0, invasions won 0, invasions failed 0, treaties 0, wars 0, peaces 0, victory milestones 0, victories 0, unrest worsened 0, revolt risk 0, warnings 0, isolated 0, reconnected 0, errors 0."
     );
 }
 

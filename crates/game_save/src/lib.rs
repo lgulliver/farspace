@@ -176,7 +176,8 @@ mod tests {
 
     #[test]
     fn save_load_round_trip_preserves_state() {
-        let engine = Engine::new(42);
+        let mut engine = Engine::new(42);
+        engine.apply_turn(vec![Command::EndTurn]);
         let original = engine.state.clone();
 
         let saved = save(&original).expect("Save should succeed");
@@ -217,6 +218,14 @@ mod tests {
         assert_eq!(
             original_workforce, loaded_workforce,
             "derived workforce summary should round-trip deterministically"
+        );
+        assert_eq!(
+            original.colony_unrest, loaded.colony_unrest,
+            "colony unrest state cache should survive save/load"
+        );
+        assert_eq!(
+            original.colony_unrest_causes, loaded.colony_unrest_causes,
+            "unrest causes should survive save/load"
         );
     }
 

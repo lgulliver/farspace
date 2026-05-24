@@ -1037,9 +1037,9 @@ fn render_system_detail_facts(
                 ),
                 Span::styled(
                     if owns_fleet {
-                        order_label
+                        order_label.as_str()
                     } else {
-                        String::new()
+                        ""
                     },
                     Theme::muted_style(),
                 ),

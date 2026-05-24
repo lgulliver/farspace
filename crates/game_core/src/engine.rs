@@ -489,12 +489,6 @@ impl Engine {
         };
         let completed = &player.research.completed;
         let has_tech = |tech_id| completed.contains(&tech_id);
-        let has_tag = |predicate: fn(&crate::state::TechRecord) -> bool| {
-            completed
-                .iter()
-                .filter_map(|tech_id| tech_by_id(*tech_id))
-                .any(predicate)
-        };
 
         let mut bonus = 0;
         if has_tech(TechId::SURVEY_DRONES) || has_tech(TechId::ADVANCED_SURVEY) {
@@ -504,11 +498,10 @@ impl Engine {
             bonus += 1;
         }
         if has_tech(TechId::PAN_GALACTIC_SENSOR_NET)
-            || has_tag(|record| {
-                record
-                    .tags
-                    .contains(&crate::state::TechTag::EspionageFuture)
-            })
+            || completed
+                .iter()
+                .filter_map(|tech_id| tech_by_id(*tech_id))
+                .any(|record| record.tags.contains(&crate::state::TechTag::EspionageFuture))
         {
             bonus += 1;
         }

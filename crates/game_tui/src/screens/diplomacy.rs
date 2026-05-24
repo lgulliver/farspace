@@ -421,11 +421,13 @@ fn render_empire_detail(
         }
     }
 
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "Active intel: [i] gather  [z] sabotage placeholder  [y] research theft placeholder",
-        Theme::muted_style(),
-    )));
+    if selected_empire.is_some() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Active intel: [i] gather  [z] sabotage placeholder  [y] research theft placeholder",
+            Theme::muted_style(),
+        )));
+    }
     frame.render_widget(
         Paragraph::new(lines)
             .style(Theme::default_style())

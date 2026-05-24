@@ -73,7 +73,7 @@ fn render_empire_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_
     ];
 
     for empire_id in &foreign_ids {
-        let Some(empire) = game_state.empires.get(&empire_id) else {
+        let Some(empire) = game_state.empires.get(empire_id) else {
             continue;
         };
 

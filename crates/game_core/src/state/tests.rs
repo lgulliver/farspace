@@ -1613,7 +1613,13 @@ fn supply_connectivity_is_deterministic_for_same_state() {
 fn fleet_near_owned_colony_is_supplied() {
     let mut state = make_supply_test_state();
     let owner = state.player_empire;
-    insert_supply_test_fleet(&mut state, FleetId(10), owner, StarId(2), FleetKind::Destroyer);
+    insert_supply_test_fleet(
+        &mut state,
+        FleetId(10),
+        owner,
+        StarId(2),
+        FleetKind::Destroyer,
+    );
 
     let supply = state.recompute_fleet_supply();
     assert_eq!(supply.get(&FleetId(10)), Some(&FleetSupplyState::Supplied));
@@ -1623,6 +1629,8 @@ fn fleet_near_owned_colony_is_supplied() {
 fn fleet_beyond_range_becomes_extended_then_out_of_supply() {
     let mut state = make_supply_test_state();
     let owner = state.player_empire;
+    state.colonies.remove(&ColonyId(2));
+    state.colonies.remove(&ColonyId(3));
     state.stars.insert(
         StarId(4),
         Star {
@@ -1647,12 +1655,27 @@ fn fleet_beyond_range_becomes_extended_then_out_of_supply() {
             planets: vec![],
         },
     );
-    insert_supply_test_fleet(&mut state, FleetId(11), owner, StarId(4), FleetKind::Destroyer);
-    insert_supply_test_fleet(&mut state, FleetId(12), owner, StarId(5), FleetKind::Destroyer);
+    insert_supply_test_fleet(
+        &mut state,
+        FleetId(11),
+        owner,
+        StarId(4),
+        FleetKind::Destroyer,
+    );
+    insert_supply_test_fleet(
+        &mut state,
+        FleetId(12),
+        owner,
+        StarId(5),
+        FleetKind::Destroyer,
+    );
 
     let supply = state.recompute_fleet_supply();
     assert_eq!(supply.get(&FleetId(11)), Some(&FleetSupplyState::Extended));
-    assert_eq!(supply.get(&FleetId(12)), Some(&FleetSupplyState::OutOfSupply));
+    assert_eq!(
+        supply.get(&FleetId(12)),
+        Some(&FleetSupplyState::OutOfSupply)
+    );
 }
 
 #[test]
@@ -1673,7 +1696,13 @@ fn shipyard_projects_supply_farther_than_plain_colony() {
             planets: vec![],
         },
     );
-    insert_supply_test_fleet(&mut state, FleetId(13), owner, StarId(4), FleetKind::Destroyer);
+    insert_supply_test_fleet(
+        &mut state,
+        FleetId(13),
+        owner,
+        StarId(4),
+        FleetKind::Destroyer,
+    );
 
     assert_eq!(
         state.recompute_fleet_supply().get(&FleetId(13)),
@@ -1710,7 +1739,13 @@ fn hyperspace_lane_extends_fleet_supply_projection() {
             planets: vec![],
         },
     );
-    insert_supply_test_fleet(&mut state, FleetId(14), owner, StarId(4), FleetKind::Destroyer);
+    insert_supply_test_fleet(
+        &mut state,
+        FleetId(14),
+        owner,
+        StarId(4),
+        FleetKind::Destroyer,
+    );
     assert_eq!(
         state.recompute_fleet_supply().get(&FleetId(14)),
         Some(&FleetSupplyState::OutOfSupply)
@@ -1739,7 +1774,13 @@ fn blockade_interrupts_fleet_supply() {
     let owner = state.player_empire;
     state.colonies.remove(&ColonyId(2));
     state.colonies.remove(&ColonyId(3));
-    insert_supply_test_fleet(&mut state, FleetId(15), owner, StarId(2), FleetKind::Destroyer);
+    insert_supply_test_fleet(
+        &mut state,
+        FleetId(15),
+        owner,
+        StarId(2),
+        FleetKind::Destroyer,
+    );
     assert_eq!(
         state.recompute_fleet_supply().get(&FleetId(15)),
         Some(&FleetSupplyState::Supplied)

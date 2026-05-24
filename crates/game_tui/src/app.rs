@@ -2044,8 +2044,13 @@ impl App {
                 None => return,
             };
             let events = engine.apply_turn(vec![command]);
-            let report = is_end_turn
-                .then(|| Self::build_end_turn_report_with_state(engine.state.turn, &events, Some(&engine.state)));
+            let report = is_end_turn.then(|| {
+                Self::build_end_turn_report_with_state(
+                    engine.state.turn,
+                    &events,
+                    Some(&engine.state),
+                )
+            });
             (events, report)
         };
 

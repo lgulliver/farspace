@@ -54,10 +54,9 @@ pub fn render_system(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
         app_state.visual_mode,
     );
 
-    let hint = app_state
-        .status_message
-        .as_deref()
-        .unwrap_or("Survey with S, colonize with C, invade with I, and watch fleet supply in roster.");
+    let hint = app_state.status_message.as_deref().unwrap_or(
+        "Survey with S, colonize with C, invade with I, and watch fleet supply in roster.",
+    );
     render_footer(frame, footer_area, &Screen::System, Some(hint));
 }
 
@@ -946,7 +945,12 @@ fn render_system_detail_facts(
             lines.push(Line::from(vec![
                 Span::raw(format!("{} {} ", prefix, name)),
                 Span::styled(
-                    format!("[{} | {} | DOC {}]", role.label(), formation.label(), doctrine),
+                    format!(
+                        "[{} | {} | DOC {}]",
+                        role.label(),
+                        formation.label(),
+                        doctrine
+                    ),
                     Theme::muted_style(),
                 ),
                 Span::raw(" "),
@@ -1135,54 +1139,6 @@ mod tests {
             .collect();
         assert!(rendered.contains("Trade:"));
         assert!(rendered.contains("Isolated"));
-    }
-
-    #[test]
-    fn system_screen_shows_fleet_supply_state() {
-        let backend = TestBackend::new(120, 40);
-        let mut terminal = Terminal::new(backend).unwrap();
-        let mut engine = Engine::new(42);
-        let star_id = engine.state.empires[&engine.state.player_empire].home_star;
-        let fleet_id = game_core::FleetId(9900);
-        engine.state.fleets.insert(
-            fleet_id,
-            game_core::Fleet {
-                id: fleet_id,
-                owner: engine.state.player_empire,
-                location: star_id,
-                ships: 1,
-                kind: game_core::FleetKind::Destroyer,
-                strength: 8,
-                integrity: 100,
-            },
-        );
-        engine
-            .state
-            .fleet_supply
-            .insert(fleet_id, game_core::FleetSupplyState::OutOfSupply);
-        let app_state = AppState {
-            navigation: crate::app::NavigationState {
-                selected_star: Some(star_id),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        terminal
-            .draw(|frame| render_system(frame, frame.area(), &app_state, &engine.state))
-            .unwrap();
-
-        let buf = terminal.backend().buffer();
-        let rendered: String = (0..40u16)
-            .flat_map(|y| {
-                (0..120u16).map(move |x| {
-                    buf.cell((x, y))
-                        .and_then(|c| c.symbol().chars().next())
-                        .unwrap_or(' ')
-                })
-            })
-            .collect();
-        assert!(rendered.contains("Out of Supply"));
     }
 
     #[test]

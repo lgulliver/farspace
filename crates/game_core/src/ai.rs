@@ -20,8 +20,8 @@ use crate::state::{
     visible_specials_for_empire, AiDoctrine, BuildItem, BuildingType, Colony, ColonyId, ColonyRole,
     ComponentId, CustomDesignId, CustomShipDesign, EmpireId, FleetFormation, FleetId, FleetKind,
     FleetRole, FleetSupplyState, GameState, OrbitalStructureType, PlanetAnomaly, PlanetClass,
-    PlanetSpecial, PlaystyleTag, ScoutMission, ShipDesignId, SlotCategory, StarId, StrategicResource,
-    StrategicResourceCategory, TechDomain, TechId, TechTag, VictoryPath,
+    PlanetSpecial, PlaystyleTag, ScoutMission, ShipDesignId, SlotCategory, StarId,
+    StrategicResource, StrategicResourceCategory, TechDomain, TechId, TechTag, VictoryPath,
 };
 use crate::yield_model::{calculate_yield_with_context, YieldContext};
 
@@ -1173,7 +1173,8 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
             .and_then(empire_definition_by_id);
         let doctrine = |axis| def.map(|d| d.doctrine_weight(axis)).unwrap_or(0);
         let risk_tolerant = doctrine(AiDoctrine::Militarist) + doctrine(AiDoctrine::Imperial) >= 12;
-        let conservative = doctrine(AiDoctrine::Merchant) + doctrine(AiDoctrine::Isolationist) >= 12;
+        let conservative =
+            doctrine(AiDoctrine::Merchant) + doctrine(AiDoctrine::Isolationist) >= 12;
 
         // Find the nearest player colony star; tie-break by ascending StarId
         let fleet_star = match state.stars.get(&fleet_loc) {
@@ -3811,7 +3812,9 @@ mod tests {
 
     #[test]
     fn ai_prefers_supported_target_over_unsupported_deep_strike() {
-        use crate::state::{Colony, ColonyId, Fleet, FleetId, FleetKind, Planet, PlanetClass, PlanetSize};
+        use crate::state::{
+            Colony, ColonyId, Fleet, FleetId, FleetKind, Planet, PlanetClass, PlanetSize,
+        };
 
         let mut engine = Engine::new(42);
         let ai = ai_id(&engine);

@@ -1773,7 +1773,10 @@ pub enum OrbitalStructureType {
 impl OrbitalStructureType {
     /// All orbital structure types available for construction
     pub fn all() -> &'static [OrbitalStructureType] {
-        &[OrbitalStructureType::Shipyard, OrbitalStructureType::SupplyHub]
+        &[
+            OrbitalStructureType::Shipyard,
+            OrbitalStructureType::SupplyHub,
+        ]
     }
 
     /// Display name for this orbital structure
@@ -3272,11 +3275,19 @@ impl GameState {
     }
 
     pub fn projected_fleet_supply(&self, empire_id: EmpireId, star_id: StarId) -> FleetSupplyState {
-        if !self.colonies.values().any(|colony| colony.owner == empire_id) {
+        if !self
+            .colonies
+            .values()
+            .any(|colony| colony.owner == empire_id)
+        {
             return FleetSupplyState::Supplied;
         }
         let mut best = FleetSupplyState::OutOfSupply;
-        for colony in self.colonies.values().filter(|colony| colony.owner == empire_id) {
+        for colony in self
+            .colonies
+            .values()
+            .filter(|colony| colony.owner == empire_id)
+        {
             if self.colony_blockade_state(colony.id).is_some() {
                 continue;
             }

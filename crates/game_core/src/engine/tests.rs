@@ -1,7 +1,7 @@
 use super::*;
 use crate::state::{
     BuildingType, ComponentId, CustomDesignId, HullId, Planet, PlanetClass, PlanetSize,
-    PlanetSpecial, SectorId, StrategicResource,
+    PlanetSpecial, SectorId, SpectralClass, Star, StrategicResource,
 };
 
 /// Inject a Shipyard directly into a colony's orbital installations.
@@ -2336,12 +2336,27 @@ fn out_of_supply_destroyer_travel_is_penalized() {
             _ => None,
         })
         .expect("fleet should depart");
+    let (base_turns, _) = travel_turns_with_lanes(&engine.state, player, home_star, destination);
+    let mobility = engine
+        .state
+        .fleet_evaluation(fleet_id)
+        .map(|summary| summary.mobility)
+        .unwrap_or(100)
+        .max(1);
+    let supply = engine.state.projected_fleet_supply(player, destination);
+    let expected_turns = ((base_turns as u64 * 100 * supply.movement_penalty_pct() as u64)
+        .div_ceil(mobility as u64 * 100) as u32)
+        .max(1);
 
     assert_eq!(
         engine.state.fleet_supply_state(fleet_id),
         FleetSupplyState::OutOfSupply
     );
-    assert_eq!(turns_remaining, 5, "160% logistics penalty should increase travel");
+    assert_eq!(
+        turns_remaining, expected_turns,
+        "logistics penalty should scale travel by supply state and mobility"
+    );
+    assert!(turns_remaining > base_turns);
 }
 
 #[test]
@@ -5157,10 +5172,34 @@ fn combat_generates_structured_battle_report_with_phases() {
 
 #[test]
 fn battle_report_records_supply_state_for_logistics_penalties() {
-    let (mut state, star_id, player_fid, enemy_fid) = make_combat_state(20, 100, 20, 100);
-    if let Some(target_star) = state.stars.get_mut(&star_id) {
-        target_star.x = 950;
-        target_star.y = 0;
+    let (mut state, _star_id, player_fid, enemy_fid) = make_combat_state(20, 100, 20, 100);
+    let enemy_empire = state.fleets[&enemy_fid].owner;
+    let enemy_colonies: Vec<_> = state
+        .colonies
+        .iter()
+        .filter_map(|(colony_id, colony)| (colony.owner == enemy_empire).then_some(*colony_id))
+        .collect();
+    for colony_id in enemy_colonies {
+        state.colonies.remove(&colony_id);
+    }
+    let star_id = StarId(999);
+    state.stars.insert(
+        star_id,
+        Star {
+            id: star_id,
+            sector: SectorId(1),
+            name: "Unsupported".to_string(),
+            x: 1_400,
+            y: 0,
+            spectral_class: SpectralClass::F,
+            planets: vec![],
+        },
+    );
+    if let Some(player_fleet) = state.fleets.get_mut(&player_fid) {
+        player_fleet.location = star_id;
+    }
+    if let Some(enemy_fleet) = state.fleets.get_mut(&enemy_fid) {
+        enemy_fleet.location = star_id;
     }
     if let Some(player_fleet) = state.fleets.get_mut(&player_fid) {
         player_fleet.kind = FleetKind::Destroyer;

@@ -986,6 +986,10 @@ fn focused_fleet_status_mentions_supply_penalty() {
     app.new_game(42);
     let engine = app.engine.as_mut().unwrap();
     let home_star = engine.state.empires[&engine.state.player_empire].home_star;
+    engine.state.fleets.clear();
+    engine.state.fleet_missions.clear();
+    engine.state.scout_missions.clear();
+    engine.state.survey_missions.clear();
     let fleet_id = FleetId(9992);
     engine.state.fleets.insert(
         fleet_id,

@@ -14,8 +14,9 @@ use crate::state::{
     DiplomaticCommunication, DiplomaticCommunicationType, DiplomaticRelationship,
     DiplomaticResponse, DiplomaticTone, DiplomaticTreaty, Empire, EmpireId, Fleet, FleetFormation,
     FleetId, FleetKind, FleetMission, FleetOrder, FleetRole, FleetSupplyState, GameState, HullId,
-    HyperspaceLane, OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
-    ShipDesignId, StarId, StrategicResource, SurveyMission, TechId, TreatyType, YieldType,
+    HyperspaceLane, OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup,
+    ScoutMission, ShipDesignId, StarId, StrategicResource, SurveyMission, TechId, TreatyType,
+    YieldType,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;

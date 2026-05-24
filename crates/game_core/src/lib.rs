@@ -41,8 +41,8 @@ pub use state::{
     Sector, SectorId, ShipDesignId, ShipDesignRecord, SlotCategory, SpectralClass, Star, StarId,
     StrategicResource, StrategicResourceCategory, StrategicResourceRarity, StrategicResourceRecord,
     SurveyMission, TechCapability, TechDomain, TechId, TechRecord, TechTier, TechUnlock,
-    TreatyType, VictoryCondition, VictoryPath, VictoryProgress, VictoryProgressValue, VictorySettings,
-    VictoryStatus, YieldEffect, YieldType,
+    TreatyType, VictoryCondition, VictoryPath, VictoryProgress, VictoryProgressValue,
+    VictorySettings, VictoryStatus, YieldEffect, YieldType,
 };
 pub use yield_model::{
     ColonyWorkforceSummary, ColonyYield, JobAssignment, JobType, YieldBreakdown, YieldContext,

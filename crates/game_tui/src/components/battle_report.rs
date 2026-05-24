@@ -101,9 +101,15 @@ pub fn render_battle_reports(
         )));
         lines.push(Line::from(vec![
             Span::styled("Supply: ", Theme::muted_style()),
-            Span::styled(selected.supply_a.label(), fleet_supply_style(selected.supply_a)),
+            Span::styled(
+                selected.supply_a.label(),
+                fleet_supply_style(selected.supply_a),
+            ),
             Span::styled(" vs ", Theme::muted_style()),
-            Span::styled(selected.supply_b.label(), fleet_supply_style(selected.supply_b)),
+            Span::styled(
+                selected.supply_b.label(),
+                fleet_supply_style(selected.supply_b),
+            ),
         ]));
         lines.push(Line::from(Span::styled(
             format!(
@@ -183,8 +189,8 @@ fn visible_report_window(report_count: usize, selected_index: usize) -> Range<us
 mod tests {
     use super::*;
     use game_core::{
-        BattleReport, CombatPhase, CombatPhaseSummary, EmpireId, FleetFormation, FleetId, FleetKind,
-        FleetRole, FleetSupplyState, StarId,
+        BattleReport, CombatPhase, CombatPhaseSummary, EmpireId, FleetFormation, FleetId,
+        FleetKind, FleetRole, FleetSupplyState, StarId,
     };
     use ratatui::{backend::TestBackend, Terminal};
     use std::collections::VecDeque;
@@ -216,8 +222,8 @@ mod tests {
             fleet_b: FleetId(11),
             empire_a: EmpireId(1),
             empire_b: EmpireId(2),
-            role_a: FleetRole::Assault,
-            role_b: FleetRole::Escort,
+            role_a: FleetRole::StrikeFleet,
+            role_b: FleetRole::DefenseFleet,
             formation_a: FleetFormation::Balanced,
             formation_b: FleetFormation::Balanced,
             doctrine_a: "Pressure".to_string(),
@@ -225,7 +231,7 @@ mod tests {
             supply_a: FleetSupplyState::OutOfSupply,
             supply_b: FleetSupplyState::Supplied,
             kind_a: FleetKind::Destroyer,
-            kind_b: FleetKind::Frigate,
+            kind_b: FleetKind::EscortFrigate,
             ships_a: 3,
             ships_b: 2,
             integrity_a_start: 100,

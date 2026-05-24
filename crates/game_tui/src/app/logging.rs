@@ -310,6 +310,7 @@ impl App {
         self.push_status(LogEntryKind::Error, message);
     }
 
+    #[cfg(test)]
     pub(super) fn build_end_turn_report(turn: u32, events: &[CoreEvent]) -> String {
         Self::build_end_turn_report_with_state(turn, events, None)
     }

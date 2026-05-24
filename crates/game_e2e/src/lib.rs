@@ -16,7 +16,9 @@ use rand_chacha::ChaCha8Rng;
 use report::{E2eCommandTrace, E2eFailureCategory, E2eRunReport, E2eSeverity};
 use scenario::{build_scenario_setup, E2eScenario};
 use serde_json::json;
-use simulated_player::{BalancedExplorerPlayer, PlayerObservation, SimulatedPlayer};
+use simulated_player::{
+    BalancedExplorerPlayer, PlayerObservation, SimulatedPlayer, SimulatedPlayerPolicy,
+};
 
 pub fn default_scenario() -> E2eScenario {
     E2eScenario::default()
@@ -27,7 +29,7 @@ pub fn run_e2e_scenario(scenario: E2eScenario) -> Result<E2eRunReport> {
     let setup = build_scenario_setup(&scenario)?;
     let mut engine = Engine::new_from_setup(setup);
 
-    let mut simulated_player = BalancedExplorerPlayer::new();
+    let mut simulated_player = build_simulated_player(&scenario.player_policy);
     let mut rng = ChaCha8Rng::seed_from_u64(scenario.seed ^ 0x0E2E_5EED);
 
     for expected_turn in 1..=scenario.max_turns {
@@ -93,6 +95,12 @@ pub fn run_e2e_scenario(scenario: E2eScenario) -> Result<E2eRunReport> {
 
     report.write_outputs()?;
     Ok(report)
+}
+
+fn build_simulated_player(policy: &SimulatedPlayerPolicy) -> Box<dyn SimulatedPlayer> {
+    match policy {
+        SimulatedPlayerPolicy::BalancedExplorer => Box::new(BalancedExplorerPlayer::new()),
+    }
 }
 
 fn apply_command_and_record(

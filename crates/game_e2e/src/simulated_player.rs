@@ -5,6 +5,7 @@ use game_core::{
 use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SimulatedPlayerPolicy {
@@ -70,12 +71,13 @@ impl PlayerObservation {
             })
             .map(|fleet| fleet.id)
             .collect::<Vec<_>>();
+        let idle_player_fleet_set = idle_player_fleets.iter().copied().collect::<HashSet<_>>();
 
         let idle_scouts = state
             .fleets
             .values()
             .filter(|fleet| {
-                idle_player_fleets.contains(&fleet.id) && fleet.kind == FleetKind::Scout
+                idle_player_fleet_set.contains(&fleet.id) && fleet.kind == FleetKind::Scout
             })
             .map(|fleet| fleet.id)
             .collect::<Vec<_>>();
@@ -84,7 +86,7 @@ impl PlayerObservation {
             .fleets
             .values()
             .filter(|fleet| {
-                idle_player_fleets.contains(&fleet.id) && fleet.kind == FleetKind::Science
+                idle_player_fleet_set.contains(&fleet.id) && fleet.kind == FleetKind::Science
             })
             .map(|fleet| (fleet.id, fleet.location))
             .collect::<Vec<_>>();
@@ -93,7 +95,7 @@ impl PlayerObservation {
             .fleets
             .values()
             .filter(|fleet| {
-                idle_player_fleets.contains(&fleet.id) && fleet.kind == FleetKind::Colonizer
+                idle_player_fleet_set.contains(&fleet.id) && fleet.kind == FleetKind::Colonizer
             })
             .map(|fleet| (fleet.id, fleet.location))
             .collect::<Vec<_>>();

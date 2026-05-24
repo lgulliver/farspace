@@ -12,7 +12,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
-ratatui = { workspace = true }
 
 [[bin]]
 name = "e2e_runner"

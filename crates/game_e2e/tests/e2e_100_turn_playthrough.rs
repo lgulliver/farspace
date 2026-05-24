@@ -3,7 +3,6 @@ use game_e2e::{default_scenario, run_e2e_scenario};
 #[test]
 fn e2e_100_turn_playthrough() {
     let report = run_e2e_scenario(default_scenario()).expect("E2E scenario should run");
-    report.write_outputs().expect("report should write");
 
     assert_eq!(
         report.turns_completed, report.turns_requested,

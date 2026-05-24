@@ -4,8 +4,10 @@ use game_core::{
     Command, DiplomaticCommunicationType, Engine, Event, GameState, RelationshipStatus,
 };
 use serde_json::json;
-use std::collections::{hash_map::DefaultHasher, BTreeSet, HashSet};
-use std::hash::{Hash, Hasher};
+use std::collections::{BTreeSet, HashSet};
+
+const FNV1A64_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV1A64_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 const FORBIDDEN_UI_STRINGS: &[&str] = &[
     "TODO",
@@ -391,9 +393,16 @@ pub fn stable_state_hash_state(state: &GameState) -> Result<u64> {
         object.remove("metadata");
     }
     let canonical = serde_json::to_string(&value)?;
-    let mut hasher = DefaultHasher::new();
-    canonical.hash(&mut hasher);
-    Ok(hasher.finish())
+    Ok(fnv1a64(canonical.as_bytes()))
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = FNV1A64_OFFSET_BASIS;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV1A64_PRIME);
+    }
+    hash
 }
 
 fn fail_state_link(

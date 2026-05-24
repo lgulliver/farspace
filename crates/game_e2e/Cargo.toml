@@ -1,0 +1,18 @@
+[package]
+name = "game_e2e"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+game_core = { path = "../game_core" }
+game_save = { path = "../game_save" }
+game_tui = { path = "../game_tui", features = ["e2e"] }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+
+[[bin]]
+name = "e2e_runner"
+path = "src/bin/e2e_runner.rs"

@@ -62,6 +62,7 @@ Detailed architecture and boundaries: [`docs/architecture.md`](docs/architecture
 | `game_tui` | ratatui/crossterm UI: key handling, screen state, rendering, command dispatch |
 | `game_content` | Static content helpers and templates |
 | `game_save` | Versioned save/load and migrations for `GameState` |
+| `game_e2e` | Deterministic 100-turn E2E simulated-playthrough harness + reports |
 | `farspace` | Binary entrypoint and terminal lifecycle |
 
 ## Installation
@@ -166,6 +167,18 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets
 cargo llvm-cov --workspace --all-targets --fail-under-lines 80
+```
+
+Run the E2E simulated playthrough locally:
+
+```bash
+cargo test -p game_e2e --test e2e_100_turn_playthrough -- --nocapture
+```
+
+Optional E2E runner command:
+
+```bash
+cargo run -p game_e2e --bin e2e_runner -- --seed 12345 --turns 100 --report target/e2e/playthrough-report.json
 ```
 
 Testing policy details: [`docs/testing.md`](docs/testing.md)

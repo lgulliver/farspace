@@ -6,6 +6,7 @@ members = [
     "crates/game_save",
     "crates/game_tui",
     "crates/farspace",
+    "crates/game_e2e",
 ]
 
 [workspace.dependencies]

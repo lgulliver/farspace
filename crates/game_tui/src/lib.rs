@@ -4,6 +4,8 @@
 
 pub mod app;
 pub mod components;
+#[cfg(any(test, feature = "e2e"))]
+pub mod e2e_support;
 pub mod faction;
 pub mod glyphs;
 pub mod keys;

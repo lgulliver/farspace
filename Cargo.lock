@@ -241,6 +241,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "game_e2e"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "game_core",
+ "game_save",
+ "game_tui",
+ "rand",
+ "rand_chacha",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "game_save"
 version = "0.1.0"
 dependencies = [

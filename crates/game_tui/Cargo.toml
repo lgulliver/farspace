@@ -3,6 +3,9 @@ name = "game_tui"
 version.workspace = true
 edition.workspace = true
 
+[features]
+e2e = []
+
 [dependencies]
 game_core = { path = "../game_core" }
 game_save = { path = "../game_save" }

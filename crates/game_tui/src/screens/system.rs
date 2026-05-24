@@ -17,11 +17,10 @@ use crate::renderer::{
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{
-    empire_definition_by_id, ColonySupplyState, FleetKind, FleetSupplyState, GameState,
-};
+use game_core::{empire_definition_by_id, ColonySupplyState, FleetKind, GameState};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,

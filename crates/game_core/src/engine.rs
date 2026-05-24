@@ -4401,7 +4401,7 @@ impl Engine {
                     turn: self.state.turn,
                     star: star_id,
                     fleet_a: arrived_fleet_id,
-                    fleet_b: enemy_id,
+                    fleet_b: enemy_fleet_id,
                     empire_a: arrived_owner,
                     empire_b: d_owner,
                     role_a,

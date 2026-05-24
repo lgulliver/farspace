@@ -5220,11 +5220,11 @@ fn battle_report_records_supply_state_for_logistics_penalties() {
         .back()
         .expect("battle report should be recorded");
     assert_eq!(report.supply_a, FleetSupplyState::OutOfSupply);
-    assert_eq!(report.supply_b, FleetSupplyState::Supplied);
+    assert_eq!(report.supply_b, FleetSupplyState::OutOfSupply);
     assert!(report
         .phases
         .iter()
-        .any(|phase| phase.note.contains("supply Out of Supply vs Supplied")));
+        .any(|phase| phase.note.contains("supply Out of Supply vs Out of Supply")));
 }
 
 #[test]
@@ -10357,7 +10357,54 @@ fn blockade_turn_report_events_appear_in_log() {
 
 fn make_invasion_engine() -> (Engine, StarId, ColonyId, EmpireId, EmpireId, FleetId) {
     let (mut state, star_id, colony_id, player_id, enemy_id) = make_blockade_state();
+    let support_star = StarId(2);
+    let support_colony = ColonyId(2);
     state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+    state.explored_stars.insert(support_star);
+    state.stars.insert(
+        support_star,
+        Star {
+            id: support_star,
+            name: "Forward Base".to_string(),
+            x: 200,
+            y: 0,
+            sector: SectorId(0),
+            spectral_class: SpectralClass::F,
+            planets: vec![Planet {
+                name: "Forward Base I".to_string(),
+                size: PlanetSize::Medium,
+                class: PlanetClass::Terran,
+                colony: Some(support_colony),
+                habitable: true,
+                surveyed: true,
+                specials: vec![],
+                resources: vec![],
+                anomalies: vec![],
+                ancient_ruins_collected: false,
+            }],
+        },
+    );
+    state.colonies.insert(
+        support_colony,
+        Colony {
+            id: support_colony,
+            star: support_star,
+            planet_index: 0,
+            owner: player_id,
+            population: 4,
+            production: 5,
+            prod_pct: 50,
+            research_pct: 50,
+            build_queue: vec![],
+            accumulated_production: 0,
+            buildings: vec![],
+            surface_installations: vec![],
+            orbital_installations: vec![],
+            stability: 100,
+            role: ColonyRole::Balanced,
+            rally_point: None,
+        },
+    );
     if let Some(colony) = state.colonies.get_mut(&colony_id) {
         colony.owner = enemy_id;
         colony.population = 1;

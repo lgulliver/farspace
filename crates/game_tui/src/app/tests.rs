@@ -961,10 +961,46 @@ fn end_turn_report_with_state_includes_fleet_supply_counts() {
         .fleet_supply
         .insert(ai_fleet_id, game_core::FleetSupplyState::OutOfSupply);
 
+    let supplied = engine
+        .state
+        .fleets
+        .values()
+        .filter(|fleet| {
+            matches!(
+                engine.state.fleet_supply_state(fleet.id),
+                game_core::FleetSupplyState::Supplied
+            )
+        })
+        .count();
+    let extended = engine
+        .state
+        .fleets
+        .values()
+        .filter(|fleet| {
+            matches!(
+                engine.state.fleet_supply_state(fleet.id),
+                game_core::FleetSupplyState::Extended
+            )
+        })
+        .count();
+    let out_of_supply = engine
+        .state
+        .fleets
+        .values()
+        .filter(|fleet| {
+            matches!(
+                engine.state.fleet_supply_state(fleet.id),
+                game_core::FleetSupplyState::OutOfSupply
+            )
+        })
+        .count();
+
     let report = App::build_end_turn_report_with_state(2, &[], Some(&engine.state));
     assert!(report.contains("fleet supply"));
-    assert!(report.contains("extended"));
-    assert!(report.contains("out 1"));
+    assert!(report.contains(&format!(
+        "fleet supply {} supplied / {} extended / {} out",
+        supplied, extended, out_of_supply
+    )));
 }
 
 #[test]

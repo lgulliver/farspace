@@ -38,7 +38,6 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const core = require('@actions/core');
             const fs = require('fs');
             const marker = '<!-- e2e-playthrough-summary -->';
             const reportPath = 'target/e2e/playthrough-report.md';
@@ -91,5 +90,5 @@ jobs:
                 });
               }
             } catch (error) {
-              core.warning(`Skipping E2E PR comment: ${error.message}`);
+              console.warn(`Skipping E2E PR comment: ${error.message}`);
             }

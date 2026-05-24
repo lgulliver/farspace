@@ -36,7 +36,6 @@ jobs:
           artifact_name="${ARTIFACT_NAME}"
           artifact_zip="/tmp/${artifact_name}.zip"
           artifacts_json="$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts")"
-          artifact_count="$(printf '%s' "${artifacts_json}" | jq -r --arg artifact_name "${artifact_name}" '[.artifacts[] | select(.name == $artifact_name)] | length')"
 
           artifact_id="$(printf '%s' "${artifacts_json}" | jq -r --arg artifact_name "${artifact_name}" '.artifacts[] | select(.name == $artifact_name) | .id' | head -n 1)"
           if [ -z "${artifact_id}" ]; then
@@ -47,8 +46,9 @@ jobs:
             echo "E2E artifact ${artifact_name} not found for workflow run ${RUN_ID}. Available artifacts: ${available_artifacts}."
             exit 1
           fi
+          artifact_count="$(printf '%s' "${artifacts_json}" | jq -r --arg artifact_name "${artifact_name}" '[.artifacts[] | select(.name == $artifact_name)] | length')"
           if [ "${artifact_count}" -gt 1 ]; then
-            echo "::warning::Found ${artifact_count} artifacts named ${artifact_name}; refusing ambiguous download."
+            echo "::error::Found ${artifact_count} artifacts named ${artifact_name}; refusing ambiguous download."
             exit 1
           fi
 

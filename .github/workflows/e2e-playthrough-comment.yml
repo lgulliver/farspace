@@ -70,7 +70,7 @@ jobs:
               return;
             }
 
-            const reportPath = findReport('target/e2e', 'playthrough-report.md') ?? findReport('.', 'playthrough-report.md');
+            const reportPath = findReport('target/e2e', 'playthrough-report.md');
 
             let report = '_E2E markdown report not found in workflow artifacts._';
             if (reportPath) {
@@ -85,10 +85,12 @@ jobs:
               report = `${report.slice(0, maxLength)}\n\n_...truncated due to comment size limit._`;
             }
 
-            const body = `${marker}
-            ## E2E Playthrough Summary (${conclusion})
-
-            ${report}`;
+            const body = [
+              marker,
+              `## E2E Playthrough Summary (${conclusion})`,
+              '',
+              report,
+            ].join('\n');
 
             const { owner, repo } = context.repo;
             const issue_number = pr.number;

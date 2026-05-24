@@ -1,5 +1,7 @@
 use crate::advisor::rules::{
-    colony::{ColonyFoodDeficitRule, ColonyUnrestRule, IdleColonyProductionRule, UndefendedColonyRule},
+    colony::{
+        ColonyFoodDeficitRule, ColonyUnrestRule, IdleColonyProductionRule, UndefendedColonyRule,
+    },
     diplomacy::DiplomacyRulesStub,
     economy::TreasuryDepletionRiskRule,
     military::IdleFleetRule,
@@ -69,9 +71,7 @@ impl AdvisorEngine {
         }
 
         messages.retain(|message| {
-            !ctx.preferences
-                .muted_categories
-                .contains(&message.category)
+            !ctx.preferences.muted_categories.contains(&message.category)
                 && !ctx.knowledge.dismissed_message_keys.contains(&message.key)
                 && message
                     .tutorial_id
@@ -92,7 +92,9 @@ impl AdvisorEngine {
         let cap = if ctx.preferences.max_messages_per_turn == 0 {
             self.max_messages_per_turn
         } else {
-            ctx.preferences.max_messages_per_turn.min(self.max_messages_per_turn)
+            ctx.preferences
+                .max_messages_per_turn
+                .min(self.max_messages_per_turn)
         };
         let critical_count = messages
             .iter()
@@ -154,9 +156,11 @@ mod tests {
     fn test_state() -> GameState {
         let player_id = EmpireId(1);
         let star_id = StarId(1);
-        let mut state = GameState::default();
-        state.player_empire = player_id;
-        state.turn = 7;
+        let mut state = GameState {
+            player_empire: player_id,
+            turn: 7,
+            ..GameState::default()
+        };
         state.stars.insert(
             star_id,
             Star {
@@ -272,7 +276,8 @@ mod tests {
         assert_eq!(output.active.len(), 1);
 
         let mut seen = PlayerKnowledge::default();
-        seen.seen_mechanics.insert(MechanicId("advisor.mechanic.first_colony"));
+        seen.seen_mechanics
+            .insert(MechanicId("advisor.mechanic.first_colony"));
         let second = engine.evaluate(&AdvisorContext {
             state: &state,
             events: &[],

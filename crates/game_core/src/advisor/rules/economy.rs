@@ -73,7 +73,9 @@ impl AdvisorRule for TreasuryDepletionRiskRule {
             body: "Credits projected to hit zero next turn at current upkeep.".to_string(),
             turn_created: ctx.turn,
             expires_on_turn: None,
-            actions: vec![AdvisorAction::OpenCommandPalette(Some("economy".to_string()))],
+            actions: vec![AdvisorAction::OpenCommandPalette(Some(
+                "economy".to_string(),
+            ))],
             dismissible: true,
             tutorial_id: None,
             target,

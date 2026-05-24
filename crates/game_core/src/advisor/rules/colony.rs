@@ -4,7 +4,6 @@ use crate::advisor::{
     AdvisorMessageKey, AdvisorPersona, AdvisorRuleId, AdvisorSeverity, AdvisorTarget,
 };
 use crate::events::Event;
-use crate::state::Colony;
 
 pub struct IdleColonyProductionRule;
 
@@ -114,11 +113,9 @@ impl AdvisorRule for UndefendedColonyRule {
             if colony.owner != ctx.state.player_empire {
                 continue;
             }
-            let has_defense = ctx
-                .state
-                .fleets
-                .values()
-                .any(|fleet| fleet.owner == ctx.state.player_empire && fleet.location == colony.star);
+            let has_defense = ctx.state.fleets.values().any(|fleet| {
+                fleet.owner == ctx.state.player_empire && fleet.location == colony.star
+            });
             if has_defense {
                 continue;
             }

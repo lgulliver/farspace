@@ -1,25 +1,18 @@
 use crate::state::{ColonyId, FleetId, StarId, TechId};
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct AdvisorMessageId(pub String);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct AdvisorRuleId(pub &'static str);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TutorialId(pub &'static str);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MechanicId(pub &'static str);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum AdvisorCategory {
     Tutorial,
     Economy,
@@ -47,7 +40,6 @@ impl AdvisorCategory {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum AdvisorSeverity {
     Info,
     Suggestion,
@@ -67,7 +59,6 @@ impl AdvisorSeverity {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum AdvisorPersona {
     Guide,
     EconomicAdvisor,
@@ -78,7 +69,6 @@ pub enum AdvisorPersona {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum AdvisorTarget {
     Empire,
     System(StarId),
@@ -88,14 +78,12 @@ pub enum AdvisorTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct AdvisorMessageKey {
     pub rule_id: AdvisorRuleId,
     pub target: Option<AdvisorTarget>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ScreenRef {
     Galaxy,
     Colony,
@@ -106,7 +94,6 @@ pub enum ScreenRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum AdvisorAction {
     OpenScreen(ScreenRef),
     FocusSystem(StarId),
@@ -118,7 +105,6 @@ pub enum AdvisorAction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct AdvisorMessage {
     pub id: AdvisorMessageId,
     pub key: AdvisorMessageKey,

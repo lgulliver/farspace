@@ -4,7 +4,7 @@ use crate::advisor::{
     AdvisorMessageKey, AdvisorPersona, AdvisorRuleId, AdvisorSeverity, AdvisorTarget, MechanicId,
     TutorialId,
 };
-use crate::state::{available_tech_ids, Colony, ColonyId, Star, StarId};
+use crate::state::{available_tech_ids, Colony, StarId};
 
 pub const TUTORIAL_FIRST_COLONY: TutorialId = TutorialId("advisor.tutorial.first_colony");
 pub const TUTORIAL_FIRST_RESEARCH: TutorialId = TutorialId("advisor.tutorial.first_research");
@@ -28,8 +28,14 @@ impl AdvisorRule for FirstColonyManagementRule {
     }
 
     fn evaluate(&self, ctx: &AdvisorContext<'_>, out: &mut Vec<AdvisorMessage>) {
-        if ctx.knowledge.seen_mechanics.contains(&MECHANIC_FIRST_COLONY)
-            || ctx.knowledge.dismissed_tutorials.contains(&TUTORIAL_FIRST_COLONY)
+        if ctx
+            .knowledge
+            .seen_mechanics
+            .contains(&MECHANIC_FIRST_COLONY)
+            || ctx
+                .knowledge
+                .dismissed_tutorials
+                .contains(&TUTORIAL_FIRST_COLONY)
         {
             return;
         }
@@ -44,13 +50,15 @@ impl AdvisorRule for FirstColonyManagementRule {
         out.push(build_tutorial_message(
             self.id(),
             Some(AdvisorTarget::Colony(colony_id)),
-            AdvisorPersona::ColonialOffice,
-            AdvisorSeverity::Info,
-            "Your first colony",
-            "Colonies turn population into food, industry, science, and credits.",
-            vec![AdvisorAction::FocusColony(colony_id)],
             TUTORIAL_FIRST_COLONY,
             ctx.turn,
+            TutorialTemplate {
+                persona: AdvisorPersona::ColonialOffice,
+                severity: AdvisorSeverity::Info,
+                title: "Your first colony",
+                body: "Colonies turn population into food, industry, science, and credits.",
+                actions: vec![AdvisorAction::FocusColony(colony_id)],
+            },
         ));
     }
 }
@@ -63,8 +71,14 @@ impl AdvisorRule for FirstResearchChoiceRule {
     }
 
     fn evaluate(&self, ctx: &AdvisorContext<'_>, out: &mut Vec<AdvisorMessage>) {
-        if ctx.knowledge.seen_mechanics.contains(&MECHANIC_FIRST_RESEARCH)
-            || ctx.knowledge.dismissed_tutorials.contains(&TUTORIAL_FIRST_RESEARCH)
+        if ctx
+            .knowledge
+            .seen_mechanics
+            .contains(&MECHANIC_FIRST_RESEARCH)
+            || ctx
+                .knowledge
+                .dismissed_tutorials
+                .contains(&TUTORIAL_FIRST_RESEARCH)
         {
             return;
         }
@@ -81,13 +95,15 @@ impl AdvisorRule for FirstResearchChoiceRule {
         out.push(build_tutorial_message(
             self.id(),
             Some(AdvisorTarget::Empire),
-            AdvisorPersona::ScienceDirector,
-            AdvisorSeverity::Suggestion,
-            "Select first research project",
-            "Choose a technology to start long-term research momentum.",
-            vec![AdvisorAction::OpenResearch],
             TUTORIAL_FIRST_RESEARCH,
             ctx.turn,
+            TutorialTemplate {
+                persona: AdvisorPersona::ScienceDirector,
+                severity: AdvisorSeverity::Suggestion,
+                title: "Select first research project",
+                body: "Choose a technology to start long-term research momentum.",
+                actions: vec![AdvisorAction::OpenResearch],
+            },
         ));
     }
 }
@@ -101,7 +117,10 @@ impl AdvisorRule for FirstFleetRule {
 
     fn evaluate(&self, ctx: &AdvisorContext<'_>, out: &mut Vec<AdvisorMessage>) {
         if ctx.knowledge.seen_mechanics.contains(&MECHANIC_FIRST_FLEET)
-            || ctx.knowledge.dismissed_tutorials.contains(&TUTORIAL_FIRST_FLEET)
+            || ctx
+                .knowledge
+                .dismissed_tutorials
+                .contains(&TUTORIAL_FIRST_FLEET)
         {
             return;
         }
@@ -116,13 +135,15 @@ impl AdvisorRule for FirstFleetRule {
         out.push(build_tutorial_message(
             self.id(),
             Some(AdvisorTarget::Fleet(fleet_id)),
-            AdvisorPersona::MilitaryCommand,
-            AdvisorSeverity::Suggestion,
-            "Fleet ready for orders",
-            "Use fleets to scout lanes, survey systems, and project power.",
-            vec![AdvisorAction::FocusFleet(fleet_id)],
             TUTORIAL_FIRST_FLEET,
             ctx.turn,
+            TutorialTemplate {
+                persona: AdvisorPersona::MilitaryCommand,
+                severity: AdvisorSeverity::Suggestion,
+                title: "Fleet ready for orders",
+                body: "Use fleets to scout lanes, survey systems, and project power.",
+                actions: vec![AdvisorAction::FocusFleet(fleet_id)],
+            },
         ));
     }
 }
@@ -155,13 +176,15 @@ impl AdvisorRule for FirstIdleColonyRule {
         out.push(build_tutorial_message(
             self.id(),
             Some(AdvisorTarget::Colony(colony_id)),
-            AdvisorPersona::ColonialOffice,
-            AdvisorSeverity::Suggestion,
-            "Idle colony queue",
-            "Colonies usually perform best with a queued build plan.",
-            vec![AdvisorAction::FocusColony(colony_id)],
             TUTORIAL_FIRST_IDLE_COLONY,
             ctx.turn,
+            TutorialTemplate {
+                persona: AdvisorPersona::ColonialOffice,
+                severity: AdvisorSeverity::Suggestion,
+                title: "Idle colony queue",
+                body: "Colonies usually perform best with a queued build plan.",
+                actions: vec![AdvisorAction::FocusColony(colony_id)],
+            },
         ));
     }
 }
@@ -191,13 +214,15 @@ impl AdvisorRule for FirstUnexploredNearbySystemRule {
         out.push(build_tutorial_message(
             self.id(),
             Some(AdvisorTarget::System(target_system)),
-            AdvisorPersona::Guide,
-            AdvisorSeverity::Suggestion,
-            "Unexplored system nearby",
-            "Send a scout to reveal system data and expansion options.",
-            vec![AdvisorAction::FocusSystem(target_system)],
             TUTORIAL_FIRST_UNEXPLORED_SYSTEM,
             ctx.turn,
+            TutorialTemplate {
+                persona: AdvisorPersona::Guide,
+                severity: AdvisorSeverity::Suggestion,
+                title: "Unexplored system nearby",
+                body: "Send a scout to reveal system data and expansion options.",
+                actions: vec![AdvisorAction::FocusSystem(target_system)],
+            },
         ));
     }
 }
@@ -235,30 +260,34 @@ fn first_player_colony(state: &crate::state::GameState) -> Option<&Colony> {
 fn build_tutorial_message(
     rule_id: AdvisorRuleId,
     target: Option<AdvisorTarget>,
-    persona: AdvisorPersona,
-    severity: AdvisorSeverity,
-    title: &str,
-    body: &str,
-    actions: Vec<AdvisorAction>,
     tutorial_id: TutorialId,
     turn: u32,
+    template: TutorialTemplate<'_>,
 ) -> AdvisorMessage {
     let key = AdvisorMessageKey { rule_id, target };
     AdvisorMessage {
         id: AdvisorMessageId(message_id(&key)),
         key,
         category: AdvisorCategory::Tutorial,
-        persona,
-        severity,
-        title: title.to_string(),
-        body: body.to_string(),
+        persona: template.persona,
+        severity: template.severity,
+        title: template.title.to_string(),
+        body: template.body.to_string(),
         turn_created: turn,
         expires_on_turn: None,
-        actions,
+        actions: template.actions,
         dismissible: true,
         tutorial_id: Some(tutorial_id),
-        target: key.target,
+        target,
     }
+}
+
+struct TutorialTemplate<'a> {
+    persona: AdvisorPersona,
+    severity: AdvisorSeverity,
+    title: &'a str,
+    body: &'a str,
+    actions: Vec<AdvisorAction>,
 }
 
 fn message_id(key: &AdvisorMessageKey) -> String {

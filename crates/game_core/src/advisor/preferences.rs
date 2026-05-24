@@ -1,10 +1,7 @@
 use crate::advisor::message::AdvisorCategory;
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct AdvisorPreferences {
     pub enabled: bool,
     pub muted_categories: HashSet<AdvisorCategory>,

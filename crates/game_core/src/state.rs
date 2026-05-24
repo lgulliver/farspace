@@ -2176,6 +2176,112 @@ impl ColonySupplyState {
     }
 }
 
+/// Coarse internal order state for a colony.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum ColonyUnrestState {
+    #[default]
+    Calm,
+    Strained,
+    Unrest,
+    RevoltRisk,
+}
+
+impl ColonyUnrestState {
+    pub fn from_stability(stability: u8) -> Self {
+        if stability >= 85 {
+            ColonyUnrestState::Calm
+        } else if stability >= 70 {
+            ColonyUnrestState::Strained
+        } else if stability >= 50 {
+            ColonyUnrestState::Unrest
+        } else {
+            ColonyUnrestState::RevoltRisk
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ColonyUnrestState::Calm => "Calm",
+            ColonyUnrestState::Strained => "Strained",
+            ColonyUnrestState::Unrest => "Unrest",
+            ColonyUnrestState::RevoltRisk => "Revolt Risk",
+        }
+    }
+
+    pub fn is_unrest(self) -> bool {
+        matches!(
+            self,
+            ColonyUnrestState::Unrest | ColonyUnrestState::RevoltRisk
+        )
+    }
+
+    pub fn production_percent(self) -> i64 {
+        match self {
+            ColonyUnrestState::Calm => 100,
+            ColonyUnrestState::Strained => 90,
+            ColonyUnrestState::Unrest => 75,
+            ColonyUnrestState::RevoltRisk => 60,
+        }
+    }
+
+    pub fn economy_percent(self) -> i64 {
+        match self {
+            ColonyUnrestState::Calm => 100,
+            ColonyUnrestState::Strained => 92,
+            ColonyUnrestState::Unrest => 78,
+            ColonyUnrestState::RevoltRisk => 62,
+        }
+    }
+
+    pub fn maintenance_percent(self) -> i64 {
+        match self {
+            ColonyUnrestState::Calm => 100,
+            ColonyUnrestState::Strained => 110,
+            ColonyUnrestState::Unrest => 125,
+            ColonyUnrestState::RevoltRisk => 145,
+        }
+    }
+
+    pub fn base_rebellion_risk_bp(self) -> u16 {
+        match self {
+            ColonyUnrestState::Calm => 0,
+            ColonyUnrestState::Strained => 50,
+            ColonyUnrestState::Unrest => 250,
+            ColonyUnrestState::RevoltRisk => 800,
+        }
+    }
+}
+
+/// Deterministic unrest contributors for explainability and UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum UnrestCause {
+    FoodShortage,
+    HousingShortage,
+    LowStability,
+    RecentConquest,
+    Blockade,
+    Isolated,
+    WarExhaustion,
+    Overextension,
+}
+
+impl UnrestCause {
+    pub fn label(self) -> &'static str {
+        match self {
+            UnrestCause::FoodShortage => "Food shortage",
+            UnrestCause::HousingShortage => "Housing shortage",
+            UnrestCause::LowStability => "Low stability",
+            UnrestCause::RecentConquest => "Recent conquest",
+            UnrestCause::Blockade => "Blockade",
+            UnrestCause::Isolated => "Out of supply / isolated",
+            UnrestCause::WarExhaustion => "War exhaustion",
+            UnrestCause::Overextension => "Overextension",
+        }
+    }
+}
+
 /// Current logistics status for a fleet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -3153,6 +3259,18 @@ pub struct GameState {
     /// Persisted to detect start/end transitions for event emission on the next turn.
     #[cfg_attr(feature = "serde", serde(default))]
     pub colony_blockade: BTreeMap<ColonyId, EmpireId>,
+    /// Deterministic colony unrest state cache for UI/reporting and penalties.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub colony_unrest: BTreeMap<ColonyId, ColonyUnrestState>,
+    /// Deterministic unrest causes captured for each colony this turn.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub colony_unrest_causes: BTreeMap<ColonyId, Vec<UnrestCause>>,
+    /// Deterministic rebellion-risk basis points per colony (future rebellion hook).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub colony_rebellion_risk_bp: BTreeMap<ColonyId, u16>,
+    /// Turn number when colony was last conquered; used for recent-conquest unrest decay.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub colony_recent_conquest_turn: BTreeMap<ColonyId, u32>,
     /// Current strategic-resource access counts per empire.
     ///
     /// Counts are deterministic and derived from colony control, survey/discovery,
@@ -3250,6 +3368,36 @@ impl GameState {
             .get(&colony_id)
             .copied()
             .unwrap_or(ColonySupplyState::Connected)
+    }
+
+    pub fn colony_unrest_state(&self, colony_id: ColonyId) -> ColonyUnrestState {
+        self.colony_unrest
+            .get(&colony_id)
+            .copied()
+            .unwrap_or_else(|| {
+                self.colonies
+                    .get(&colony_id)
+                    .map(|colony| ColonyUnrestState::from_stability(colony.stability))
+                    .unwrap_or_default()
+            })
+    }
+
+    pub fn colony_unrest_label(&self, colony_id: ColonyId) -> &'static str {
+        self.colony_unrest_state(colony_id).label()
+    }
+
+    pub fn colony_unrest_causes(&self, colony_id: ColonyId) -> &[UnrestCause] {
+        self.colony_unrest_causes
+            .get(&colony_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn colony_rebellion_risk_bp(&self, colony_id: ColonyId) -> u16 {
+        self.colony_rebellion_risk_bp
+            .get(&colony_id)
+            .copied()
+            .unwrap_or_else(|| self.colony_unrest_state(colony_id).base_rebellion_risk_bp())
     }
 
     pub fn fleet_supply_state(&self, fleet_id: FleetId) -> FleetSupplyState {
@@ -3896,6 +4044,10 @@ impl PartialEq for GameState {
             && self.colony_supply == other.colony_supply
             && self.fleet_supply == other.fleet_supply
             && self.colony_blockade == other.colony_blockade
+            && self.colony_unrest == other.colony_unrest
+            && self.colony_unrest_causes == other.colony_unrest_causes
+            && self.colony_rebellion_risk_bp == other.colony_rebellion_risk_bp
+            && self.colony_recent_conquest_turn == other.colony_recent_conquest_turn
             && self.empire_resource_access == other.empire_resource_access
             && self.victory_status == other.victory_status
             && self.custom_designs == other.custom_designs
@@ -3966,6 +4118,10 @@ impl Default for GameState {
             colony_supply: BTreeMap::new(),
             fleet_supply: BTreeMap::new(),
             colony_blockade: BTreeMap::new(),
+            colony_unrest: BTreeMap::new(),
+            colony_unrest_causes: BTreeMap::new(),
+            colony_rebellion_risk_bp: BTreeMap::new(),
+            colony_recent_conquest_turn: BTreeMap::new(),
             empire_resource_access: BTreeMap::new(),
             victory_status: VictoryStatus::default(),
             galactic_dispatches: VecDeque::new(),

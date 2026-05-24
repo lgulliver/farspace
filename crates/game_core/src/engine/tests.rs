@@ -3996,6 +3996,10 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         colony_supply: BTreeMap::new(),
         fleet_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
+        colony_unrest: BTreeMap::new(),
+        colony_unrest_causes: BTreeMap::new(),
+        colony_rebellion_risk_bp: BTreeMap::new(),
+        colony_recent_conquest_turn: BTreeMap::new(),
         empire_resource_access: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
         galactic_dispatches: std::collections::VecDeque::new(),
@@ -4216,6 +4220,10 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         colony_supply: BTreeMap::new(),
         fleet_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
+        colony_unrest: BTreeMap::new(),
+        colony_unrest_causes: BTreeMap::new(),
+        colony_rebellion_risk_bp: BTreeMap::new(),
+        colony_recent_conquest_turn: BTreeMap::new(),
         empire_resource_access: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
         galactic_dispatches: std::collections::VecDeque::new(),
@@ -4595,6 +4603,10 @@ fn contact_detection_is_deterministic() {
         colony_supply: BTreeMap::new(),
         fleet_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
+        colony_unrest: BTreeMap::new(),
+        colony_unrest_causes: BTreeMap::new(),
+        colony_rebellion_risk_bp: BTreeMap::new(),
+        colony_recent_conquest_turn: BTreeMap::new(),
         empire_resource_access: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
         galactic_dispatches: std::collections::VecDeque::new(),
@@ -9286,6 +9298,10 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         colony_supply: BTreeMap::new(),
         fleet_supply: BTreeMap::new(),
         colony_blockade: BTreeMap::new(),
+        colony_unrest: BTreeMap::new(),
+        colony_unrest_causes: BTreeMap::new(),
+        colony_rebellion_risk_bp: BTreeMap::new(),
+        colony_recent_conquest_turn: BTreeMap::new(),
         empire_resource_access: BTreeMap::new(),
         victory_status: crate::state::VictoryStatus::default(),
         galactic_dispatches: std::collections::VecDeque::new(),
@@ -9921,6 +9937,227 @@ fn blockade_state_persisted_in_game_state() {
         engine.state.colony_blockade.contains_key(&colony_id),
         "colony_blockade in GameState should be updated after end turn"
     );
+}
+
+#[test]
+fn stable_colony_remains_calm() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    engine.apply_turn(vec![Command::EndTurn]);
+    assert_eq!(
+        engine.state.colony_unrest_state(colony_id),
+        crate::state::ColonyUnrestState::Calm
+    );
+}
+
+#[test]
+fn food_shortage_increases_unrest() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    let (star_id, planet_index) = {
+        let colony = &engine.state.colonies[&colony_id];
+        (colony.star, colony.planet_index)
+    };
+    engine.state.stars.get_mut(&star_id).unwrap().planets[planet_index].class =
+        crate::state::PlanetClass::Barren;
+
+    engine.apply_turn(vec![Command::EndTurn]);
+    let state = engine.state.colony_unrest_state(colony_id);
+    let causes = engine.state.colony_unrest_causes(colony_id);
+    assert!(state >= crate::state::ColonyUnrestState::Strained);
+    assert!(causes.contains(&crate::state::UnrestCause::FoodShortage));
+}
+
+#[test]
+fn housing_shortage_increases_unrest() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    let (star_id, planet_index) = {
+        let colony = &engine.state.colonies[&colony_id];
+        (colony.star, colony.planet_index)
+    };
+    engine.state.stars.get_mut(&star_id).unwrap().planets[planet_index].size =
+        crate::state::PlanetSize::Tiny;
+    engine
+        .state
+        .colonies
+        .get_mut(&colony_id)
+        .unwrap()
+        .population = 10;
+
+    engine.apply_turn(vec![Command::EndTurn]);
+    assert!(engine
+        .state
+        .colony_unrest_causes(colony_id)
+        .contains(&crate::state::UnrestCause::HousingShortage));
+}
+
+#[test]
+fn blockade_increases_unrest() {
+    let (mut state, star_id, colony_id, _player_id, enemy_id) = make_blockade_state();
+    state.diplomacy.insert(enemy_id, RelationshipStatus::War);
+    let enemy_fid = FleetId(20);
+    state.fleets.insert(
+        enemy_fid,
+        Fleet {
+            id: enemy_fid,
+            owner: enemy_id,
+            location: star_id,
+            ships: 1,
+            kind: FleetKind::Scout,
+            strength: 2,
+            integrity: 100,
+        },
+    );
+    state.colony_blockade = state.recompute_colony_blockade();
+
+    let mut engine = Engine::from_state(state);
+    engine.apply_turn(vec![Command::EndTurn]);
+    assert!(engine
+        .state
+        .colony_unrest_causes(colony_id)
+        .contains(&crate::state::UnrestCause::Blockade));
+}
+
+#[test]
+fn unrest_penalties_apply_deterministically() {
+    let mut calm_engine = Engine::new(42);
+    calm_engine
+        .state
+        .colonies
+        .get_mut(&ColonyId(1))
+        .unwrap()
+        .buildings
+        .push(BuildingType::ScienceNexus);
+    calm_engine
+        .state
+        .colonies
+        .get_mut(&ColonyId(1))
+        .unwrap()
+        .buildings
+        .push(BuildingType::FabricationYard);
+    calm_engine
+        .state
+        .colonies
+        .get_mut(&ColonyId(1))
+        .unwrap()
+        .orbital_installations
+        .push(crate::state::OrbitalStructureType::Shipyard);
+    let calm_events = calm_engine.apply_turn(vec![Command::EndTurn]);
+    let calm_colony = calm_events.iter().find_map(|event| match event {
+        Event::ColonyProduced {
+            colony,
+            credits,
+            research,
+            industry,
+            maintenance,
+            ..
+        } if *colony == ColonyId(1) => Some((*credits, *research, *industry, *maintenance)),
+        _ => None,
+    });
+
+    let mut unrest_engine_a = Engine::new(42);
+    let mut unrest_engine_b = Engine::new(42);
+    for engine in [&mut unrest_engine_a, &mut unrest_engine_b] {
+        let colony = engine.state.colonies.get_mut(&ColonyId(1)).unwrap();
+        colony.buildings.push(BuildingType::ScienceNexus);
+        colony.buildings.push(BuildingType::FabricationYard);
+        colony
+            .orbital_installations
+            .push(crate::state::OrbitalStructureType::Shipyard);
+        colony.stability = 45;
+        colony.population = 12;
+        let (star_id, planet_index) = (colony.star, colony.planet_index);
+        engine.state.stars.get_mut(&star_id).unwrap().planets[planet_index].size =
+            crate::state::PlanetSize::Tiny;
+        engine.state.stars.get_mut(&star_id).unwrap().planets[planet_index].class =
+            crate::state::PlanetClass::Barren;
+    }
+
+    let unrest_a = unrest_engine_a.apply_turn(vec![Command::EndTurn]);
+    let unrest_b = unrest_engine_b.apply_turn(vec![Command::EndTurn]);
+    let produced_a = unrest_a.iter().find_map(|event| match event {
+        Event::ColonyProduced {
+            colony,
+            credits,
+            research,
+            industry,
+            maintenance,
+            ..
+        } if *colony == ColonyId(1) => Some((*credits, *research, *industry, *maintenance)),
+        _ => None,
+    });
+    let produced_b = unrest_b.iter().find_map(|event| match event {
+        Event::ColonyProduced {
+            colony,
+            credits,
+            research,
+            industry,
+            maintenance,
+            ..
+        } if *colony == ColonyId(1) => Some((*credits, *research, *industry, *maintenance)),
+        _ => None,
+    });
+    assert_eq!(
+        produced_a, produced_b,
+        "unrest penalties must be deterministic"
+    );
+    let (calm_credits, calm_research, calm_industry, calm_maintenance) = calm_colony.unwrap();
+    let (unrest_credits, unrest_research, unrest_industry, unrest_maintenance) =
+        produced_a.unwrap();
+    assert!(unrest_credits < calm_credits);
+    assert!(unrest_research < calm_research);
+    assert!(unrest_industry < calm_industry);
+    assert!(unrest_maintenance > calm_maintenance);
+}
+
+#[test]
+fn unrest_recovers_when_conditions_improve() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    let (star_id, planet_index) = {
+        let colony = &engine.state.colonies[&colony_id];
+        (colony.star, colony.planet_index)
+    };
+    engine.state.stars.get_mut(&star_id).unwrap().planets[planet_index].size =
+        crate::state::PlanetSize::Tiny;
+    engine.state.stars.get_mut(&star_id).unwrap().planets[planet_index].class =
+        crate::state::PlanetClass::Barren;
+    engine.state.colonies.get_mut(&colony_id).unwrap().stability = 55;
+    engine.apply_turn(vec![Command::EndTurn]);
+    let worsened = engine.state.colony_unrest_state(colony_id);
+    assert!(worsened >= crate::state::ColonyUnrestState::Unrest);
+
+    engine.state.stars.get_mut(&star_id).unwrap().planets[planet_index].size =
+        crate::state::PlanetSize::Massive;
+    engine.state.stars.get_mut(&star_id).unwrap().planets[planet_index].class =
+        crate::state::PlanetClass::Terran;
+    engine.state.colonies.get_mut(&colony_id).unwrap().stability = 100;
+    engine.apply_turn(vec![Command::EndTurn]);
+    assert_eq!(
+        engine.state.colony_unrest_state(colony_id),
+        crate::state::ColonyUnrestState::Calm
+    );
+}
+
+#[test]
+fn overextension_contributes_to_unrest() {
+    let mut engine = Engine::new(42);
+    let player = engine.state.player_empire;
+    let base_colony = engine.state.colonies[&ColonyId(1)].clone();
+    for _ in 0..5u64 {
+        let new_id = engine.state.next_colony_id();
+        let mut colony = base_colony.clone();
+        colony.id = new_id;
+        colony.owner = player;
+        colony.planet_index = 0;
+        engine.state.colonies.insert(new_id, colony);
+    }
+    engine.apply_turn(vec![Command::EndTurn]);
+    assert!(engine
+        .state
+        .colony_unrest_causes(ColonyId(1))
+        .contains(&crate::state::UnrestCause::Overextension));
 }
 
 #[test]
@@ -10656,6 +10893,10 @@ fn successful_invasion_transfers_ownership_and_sets_unrest() {
     assert_eq!(colony.owner, player_id);
     assert_eq!(colony.stability, CAPTURED_UNREST_STABILITY);
     assert!(colony.is_unrest());
+    assert!(matches!(
+        engine.state.colony_unrest_state(colony_id),
+        crate::state::ColonyUnrestState::Unrest | crate::state::ColonyUnrestState::RevoltRisk
+    ));
     assert!(!engine.state.fleets.contains_key(&troop_fleet));
 }
 

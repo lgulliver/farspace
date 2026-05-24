@@ -238,7 +238,8 @@ impl App {
             CoreEvent::ColonyStatusWarning { colony, .. }
             | CoreEvent::PopulationGrew { colony, .. }
             | CoreEvent::ColonyIsolated { colony }
-            | CoreEvent::ColonyReconnected { colony } => self.colony_is_player_owned(*colony),
+            | CoreEvent::ColonyReconnected { colony }
+            | CoreEvent::ColonyUnrestChanged { colony, .. } => self.colony_is_player_owned(*colony),
             CoreEvent::SystemExplored { star }
             | CoreEvent::PlanetSurveyCompleted { star, .. }
             | CoreEvent::AncientRuinsDiscovered { star, .. }
@@ -337,6 +338,8 @@ impl App {
         let mut treaty_events = 0usize;
         let mut war_events = 0usize;
         let mut peace_events = 0usize;
+        let mut unrest_worsened = 0usize;
+        let mut revolt_risk = 0usize;
 
         for event in events {
             match event {
@@ -366,6 +369,14 @@ impl App {
                 | CoreEvent::TreatyCancelled { .. } => treaty_events += 1,
                 CoreEvent::WarDeclared { .. } => war_events += 1,
                 CoreEvent::PeaceSigned { .. } => peace_events += 1,
+                CoreEvent::ColonyUnrestChanged { from, to, .. } => {
+                    if to > from {
+                        unrest_worsened += 1;
+                    }
+                    if matches!(to, game_core::ColonyUnrestState::RevoltRisk) {
+                        revolt_risk += 1;
+                    }
+                }
                 CoreEvent::Error { .. } => errors += 1,
                 _ => {}
             }
@@ -380,7 +391,7 @@ impl App {
         });
 
         format!(
-            "Turn {} global summary (all empires): explored {}, surveyed {}, discoveries {}, colonized {}, research {}, queued starts {}, arrivals {}, combats {}, retreats {}, invasions won {}, invasions failed {}, treaties {}, wars {}, peaces {}, victory milestones {}, victories {}, warnings {}, isolated {}, reconnected {}, errors {}{}.",
+            "Turn {} global summary (all empires): explored {}, surveyed {}, discoveries {}, colonized {}, research {}, queued starts {}, arrivals {}, combats {}, retreats {}, invasions won {}, invasions failed {}, treaties {}, wars {}, peaces {}, victory milestones {}, victories {}, unrest worsened {}, revolt risk {}, warnings {}, isolated {}, reconnected {}, errors {}{}.",
             turn,
             explored,
             surveyed,
@@ -398,6 +409,8 @@ impl App {
             peace_events,
             victory_milestones,
             victories,
+            unrest_worsened,
+            revolt_risk,
             warnings,
             newly_isolated,
             reconnected,

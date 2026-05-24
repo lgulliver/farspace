@@ -267,6 +267,9 @@ fn render_colony_stats(
     let total_maint = colony_yield.maintenance;
     let supply = game_state.colony_supply_state(colony.id);
     let blockade_empire: Option<EmpireId> = game_state.colony_blockade_state(colony.id);
+    let unrest_state = game_state.colony_unrest_state(colony.id);
+    let unrest_causes = game_state.colony_unrest_causes(colony.id);
+    let unrest_risk_bp = game_state.colony_rebellion_risk_bp(colony.id);
 
     // Get planet size for infrastructure slot capacity
     let (surface_used, surface_max, orbital_used, orbital_max) = planet
@@ -304,11 +307,43 @@ fn render_colony_stats(
         Line::from(vec![
             Span::styled("Order: ", Theme::muted_style()),
             Span::styled(
-                colony.unrest_label(),
-                if colony.is_unrest() {
+                unrest_state.label(),
+                if unrest_state.is_unrest() {
                     Theme::warning_style()
+                } else if unrest_state == game_core::ColonyUnrestState::Strained {
+                    Theme::default_style()
                 } else {
                     Theme::accent_style()
+                },
+            ),
+            Span::styled("  Rebellion risk: ", Theme::muted_style()),
+            Span::styled(
+                format!("{:.1}%", f64::from(unrest_risk_bp) / 100.0),
+                if unrest_risk_bp >= 500 {
+                    Theme::error_style()
+                } else if unrest_risk_bp > 0 {
+                    Theme::warning_style()
+                } else {
+                    Theme::success_style()
+                },
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Unrest causes: ", Theme::muted_style()),
+            Span::styled(
+                if unrest_causes.is_empty() {
+                    "None".to_string()
+                } else {
+                    unrest_causes
+                        .iter()
+                        .map(|cause| cause.label())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                },
+                if unrest_causes.is_empty() {
+                    Theme::success_style()
+                } else {
+                    Theme::warning_style()
                 },
             ),
         ]),
@@ -1162,6 +1197,45 @@ mod tests {
             content.contains("Shipyard"),
             "Build picker must render Shipyard when Orbital Engineering is researched"
         );
+    }
+
+    #[test]
+    fn colony_screen_shows_unrest_state_and_causes() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut engine = Engine::new(42);
+        let colony_id = *engine.state.colonies.keys().next().unwrap();
+        engine
+            .state
+            .colony_unrest
+            .insert(colony_id, game_core::ColonyUnrestState::RevoltRisk);
+        engine.state.colony_unrest_causes.insert(
+            colony_id,
+            vec![
+                game_core::UnrestCause::Blockade,
+                game_core::UnrestCause::RecentConquest,
+            ],
+        );
+        engine.state.colony_rebellion_risk_bp.insert(colony_id, 900);
+        let app_state = make_app_state_with_colony(&engine);
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_colony(frame, area, &app_state, &engine.state);
+            })
+            .unwrap();
+
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(content.contains("Revolt Risk"));
+        assert!(content.contains("Unrest causes"));
+        assert!(content.contains("Recent conquest"));
     }
 
     #[test]

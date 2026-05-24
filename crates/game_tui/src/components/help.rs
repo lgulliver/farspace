@@ -191,8 +191,11 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("R", "Set rally point — navigate to a star and press R"),
             HelpEntry::Binding("X", "Clear rally point for this colony"),
             HelpEntry::Note("Colony panel shows Connected/Isolated supply state"),
+            HelpEntry::Note("Order states: Calm, Strained, Unrest, Revolt Risk"),
             HelpEntry::Note("Pops auto-fill jobs by colony role and shortage priority"),
-            HelpEntry::Note("Housing shortage and unemployment reduce stability"),
+            HelpEntry::Note(
+                "Food/housing shortages, blockade, isolation, war, overextension drive unrest",
+            ),
             HelpEntry::Note(
                 "Blockade: ⚔ means hostile fleet holds orbit — no food, -50% yield, -stability",
             ),
@@ -218,7 +221,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Actions"),
             HelpEntry::Binding("Enter", "Open selected colony"),
             HelpEntry::Binding("S", "Open selected system"),
-            HelpEntry::Note("Rows show supply connectivity and blockade warnings"),
+            HelpEntry::Note("Rows show supply connectivity, unrest order state, and revolt risk"),
             HelpEntry::Note("Rows include employment and unemployment pressure"),
             HelpEntry::Note(
                 "'Blockaded' warning = hostile fleet in orbit (no food, -50% yield, -stability)",

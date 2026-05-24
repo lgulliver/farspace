@@ -100,6 +100,16 @@ pub const MAX_ISOLATED_FOOD_DEFICIT_STABILITY_PENALTY: u8 = 5;
 pub const BLOCKADED_STABILITY_PENALTY: u8 = 8;
 
 // ---------------------------------------------------------------------------
+// Internal stability & unrest
+// ---------------------------------------------------------------------------
+
+/// Number of turns a recently conquered colony carries explicit conquest unrest.
+pub const CONQUEST_UNREST_TURNS: u32 = 12;
+
+/// Colony count before overextension unrest pressure begins.
+pub const OVEREXTENSION_COLONY_THRESHOLD: usize = 4;
+
+// ---------------------------------------------------------------------------
 // Combat and invasion
 // ---------------------------------------------------------------------------
 

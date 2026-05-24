@@ -793,6 +793,44 @@ pub fn generate_dispatch(
                 ));
             }
 
+            Event::ColonyUnrestChanged { colony, to, .. } => {
+                if let Some(colony_record) = state.colonies.get(colony) {
+                    if colony_record.owner == state.player_empire {
+                        let severity = match to {
+                            crate::state::ColonyUnrestState::Calm => DispatchSeverity::Notice,
+                            crate::state::ColonyUnrestState::Strained => DispatchSeverity::Notable,
+                            crate::state::ColonyUnrestState::Unrest => DispatchSeverity::Urgent,
+                            crate::state::ColonyUnrestState::RevoltRisk => {
+                                DispatchSeverity::Historic
+                            }
+                        };
+                        let headline = match to {
+                            crate::state::ColonyUnrestState::Calm => {
+                                "Colonial Order Restored".to_string()
+                            }
+                            crate::state::ColonyUnrestState::Strained => {
+                                "Colonial Tensions Rising".to_string()
+                            }
+                            crate::state::ColonyUnrestState::Unrest => {
+                                "Colonial Unrest Escalates".to_string()
+                            }
+                            crate::state::ColonyUnrestState::RevoltRisk => {
+                                "Major Revolt Risk Reported".to_string()
+                            }
+                        };
+                        items.push(item(
+                            DispatchCategory::Economy,
+                            severity,
+                            headline,
+                            "Internal stability analysts report a significant change in colony order conditions.",
+                            Some(colony_record.owner),
+                            Some(colony_record.star),
+                            Some(colony_record.planet_index),
+                        ));
+                    }
+                }
+            }
+
             // --- Victory ---
             Event::VictoryProgressMilestone {
                 path,
@@ -962,6 +1000,10 @@ mod tests {
             colony_supply: Default::default(),
             fleet_supply: Default::default(),
             colony_blockade: Default::default(),
+            colony_unrest: Default::default(),
+            colony_unrest_causes: Default::default(),
+            colony_rebellion_risk_bp: Default::default(),
+            colony_recent_conquest_turn: Default::default(),
             empire_resource_access: Default::default(),
             victory_status: Default::default(),
             galactic_dispatches: VecDeque::new(),
@@ -1180,6 +1222,45 @@ mod tests {
                 .contains("special"),
             "body must not leak unsurveyed planet specials"
         );
+    }
+
+    #[test]
+    fn revolt_risk_unrest_generates_major_dispatch_item() {
+        let mut state = minimal_state();
+        let colony_id = ColonyId(1);
+        state.colonies.insert(
+            colony_id,
+            Colony {
+                id: colony_id,
+                star: StarId(10),
+                planet_index: 0,
+                owner: state.player_empire,
+                population: 5,
+                production: 5,
+                prod_pct: 50,
+                research_pct: 50,
+                build_queue: Vec::new(),
+                accumulated_production: 0,
+                buildings: Vec::new(),
+                surface_installations: Vec::new(),
+                orbital_installations: Vec::new(),
+                stability: 40,
+                role: crate::state::ColonyRole::Balanced,
+                rally_point: None,
+            },
+        );
+        let events = vec![Event::ColonyUnrestChanged {
+            colony: colony_id,
+            from: crate::state::ColonyUnrestState::Unrest,
+            to: crate::state::ColonyUnrestState::RevoltRisk,
+            causes: vec![crate::state::UnrestCause::RecentConquest],
+            rebellion_risk_bp: 900,
+        }];
+        let dispatch = generate_dispatch(0, &events, &state).expect("dispatch should be generated");
+        assert!(dispatch.items.iter().any(|item| {
+            item.category == DispatchCategory::Economy
+                && item.severity == DispatchSeverity::Historic
+        }));
     }
 
     // ------------------------------------------------------------------

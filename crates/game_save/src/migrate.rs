@@ -164,6 +164,18 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             }
             35 => {
                 save.state.fleet_supply = save.state.recompute_fleet_supply();
+                save.metadata.schema_version = 36;
+                save.version = 36;
+            }
+            36 => {
+                for (colony_id, colony) in &save.state.colonies {
+                    let unrest_state =
+                        game_core::state::ColonyUnrestState::from_stability(colony.stability);
+                    save.state.colony_unrest.insert(*colony_id, unrest_state);
+                    save.state
+                        .colony_rebellion_risk_bp
+                        .insert(*colony_id, unrest_state.base_rebellion_risk_bp());
+                }
                 save.metadata.schema_version = CURRENT_VERSION;
                 save.version = CURRENT_VERSION;
             }

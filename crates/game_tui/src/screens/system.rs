@@ -577,7 +577,10 @@ fn render_selected_planet_hero(
                 Span::styled("Colony ", Theme::muted_style()),
                 Span::styled(format!("Pop {}", colony.population), Theme::accent_style()),
                 Span::styled("  Order ", Theme::muted_style()),
-                Span::styled(colony.unrest_label(), Theme::default_style()),
+                Span::styled(
+                    game_state.colony_unrest_label(colony.id),
+                    Theme::default_style(),
+                ),
             ]));
         }
     } else {
@@ -804,7 +807,7 @@ fn render_system_detail_facts(
                 y.workforce.population,
                 infra,
                 supply.label(),
-                colony.unrest_label()
+                game_state.colony_unrest_label(colony.id)
             )
         } else {
             format!("Colony {}", colony_id.0)

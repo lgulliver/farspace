@@ -6,8 +6,8 @@ use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
 use game_core::{
-    all_techs, yield_model, Colony, ColonyId, ColonySupplyState, EmpireId, GameState, StarId,
-    VictoryProgressValue,
+    all_techs, yield_model, Colony, ColonyId, ColonySupplyState, ColonyUnrestState, EmpireId,
+    GameState, StarId, VictoryProgressValue,
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -21,7 +21,7 @@ use ratatui::{
 pub enum OverviewSort {
     #[default]
     Name,
-    StabilityWarnings,
+    OrderWarnings,
     ProductionCompletion,
     Population,
 }
@@ -29,8 +29,8 @@ pub enum OverviewSort {
 impl OverviewSort {
     pub fn next(self) -> Self {
         match self {
-            OverviewSort::Name => OverviewSort::StabilityWarnings,
-            OverviewSort::StabilityWarnings => OverviewSort::ProductionCompletion,
+            OverviewSort::Name => OverviewSort::OrderWarnings,
+            OverviewSort::OrderWarnings => OverviewSort::ProductionCompletion,
             OverviewSort::ProductionCompletion => OverviewSort::Population,
             OverviewSort::Population => OverviewSort::Name,
         }
@@ -39,7 +39,7 @@ impl OverviewSort {
     fn label(self) -> &'static str {
         match self {
             OverviewSort::Name => "Name",
-            OverviewSort::StabilityWarnings => "Stability warnings",
+            OverviewSort::OrderWarnings => "Order warnings",
             OverviewSort::ProductionCompletion => "Production ETA",
             OverviewSort::Population => "Population",
         }
@@ -60,6 +60,7 @@ pub struct EmpireOverviewSummary {
     pub colony_count: usize,
     pub connected_colonies: usize,
     pub isolated_colonies: usize,
+    pub unrest_colonies: usize,
     pub victory_lines: Vec<(String, Style)>,
 }
 
@@ -83,6 +84,8 @@ pub struct ColonyOverviewRow {
     pub turns_remaining: Option<u64>,
     pub supply: ColonySupplyState,
     pub blockaded: bool,
+    pub unrest_state: ColonyUnrestState,
+    pub unrest_risk_bp: u16,
     pub warnings: Vec<&'static str>,
 }
 
@@ -128,6 +131,7 @@ pub fn derive_empire_overview(
     let mut rows = Vec::new();
     let mut connected_colonies = 0usize;
     let mut isolated_colonies = 0usize;
+    let mut unrest_colonies = 0usize;
 
     for colony in game_state
         .colonies
@@ -164,9 +168,14 @@ pub fn derive_empire_overview(
         let unemployed = y.workforce.unemployed;
         let supply = game_state.colony_supply_state(colony.id);
         let blockaded = game_state.colony_blockade_state(colony.id).is_some();
+        let unrest_state = game_state.colony_unrest_state(colony.id);
+        let unrest_risk_bp = game_state.colony_rebellion_risk_bp(colony.id);
         let mut warnings = Vec::new();
         if stability_has_yield_penalty(colony.stability) {
             warnings.push("Low stability");
+        }
+        if unrest_state != ColonyUnrestState::Calm {
+            warnings.push("Unrest");
         }
         if food_balance < 0 {
             warnings.push("Food deficit");
@@ -192,6 +201,9 @@ pub fn derive_empire_overview(
         } else {
             isolated_colonies += 1;
         }
+        if unrest_state != ColonyUnrestState::Calm {
+            unrest_colonies += 1;
+        }
 
         rows.push(ColonyOverviewRow {
             colony_id: colony.id,
@@ -216,6 +228,8 @@ pub fn derive_empire_overview(
             turns_remaining,
             supply,
             blockaded,
+            unrest_state,
+            unrest_risk_bp,
             warnings,
         });
     }
@@ -284,6 +298,7 @@ pub fn derive_empire_overview(
             colony_count,
             connected_colonies,
             isolated_colonies,
+            unrest_colonies,
             victory_lines,
         },
         rows,
@@ -464,11 +479,12 @@ fn sort_rows(rows: &mut [ColonyOverviewRow], sort: OverviewSort) {
                 .then(a.planet.cmp(&b.planet))
                 .then(a.colony_id.0.cmp(&b.colony_id.0))
         }),
-        OverviewSort::StabilityWarnings => rows.sort_by(|a, b| {
-            let a_warn = usize::from(a.stability < 100);
-            let b_warn = usize::from(b.stability < 100);
+        OverviewSort::OrderWarnings => rows.sort_by(|a, b| {
+            let a_warn = usize::from(a.unrest_state != ColonyUnrestState::Calm);
+            let b_warn = usize::from(b.unrest_state != ColonyUnrestState::Calm);
             b_warn
                 .cmp(&a_warn)
+                .then(b.unrest_state.cmp(&a.unrest_state))
                 .then(a.stability.cmp(&b.stability))
                 .then(b.warning_count().cmp(&a.warning_count()))
                 .then(a.system.cmp(&b.system))
@@ -580,6 +596,16 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
                 Theme::default_style()
             },
         ),
+        Span::raw("  "),
+        Span::styled("Unrest colonies ", Theme::muted_style()),
+        Span::styled(
+            format!("{}", summary.unrest_colonies),
+            if summary.unrest_colonies > 0 {
+                Theme::warning_style()
+            } else {
+                Theme::success_style()
+            },
+        ),
     ]);
     let mut lines = vec![line];
     for (text, style) in &summary.victory_lines {
@@ -651,6 +677,8 @@ fn render_colony_table(
         Span::raw("  "),
         Span::styled("Supply", Theme::title_style()),
         Span::raw("  "),
+        Span::styled("Order", Theme::title_style()),
+        Span::raw("  "),
         Span::styled("Warnings", Theme::title_style()),
     ]));
 
@@ -684,6 +712,15 @@ fn render_colony_table(
             row.warnings.join(",")
         };
         let supply = row.supply.label();
+        let order = if row.unrest_risk_bp > 0 {
+            format!(
+                "{} ({:.1}%)",
+                row.unrest_state.label(),
+                f64::from(row.unrest_risk_bp) / 100.0
+            )
+        } else {
+            row.unrest_state.label().to_string()
+        };
 
         lines.push(Line::from(vec![
             Span::styled(format!("{} ", prefix), style),
@@ -714,6 +751,17 @@ fn render_colony_table(
             Span::styled(
                 supply,
                 if row.supply == ColonySupplyState::Isolated {
+                    Theme::warning_style()
+                } else {
+                    style
+                },
+            ),
+            Span::raw("  "),
+            Span::styled(
+                order,
+                if row.unrest_state.is_unrest() {
+                    Theme::error_style()
+                } else if row.unrest_state == ColonyUnrestState::Strained {
                     Theme::warning_style()
                 } else {
                     style
@@ -842,6 +890,35 @@ mod tests {
             .expect("colony row should exist");
         assert!(row.warnings.contains(&"Low stability"));
         assert!(row.warnings.contains(&"Queue idle"));
+    }
+
+    #[test]
+    fn unrest_colony_is_highlighted_in_overview() {
+        let mut engine = Engine::new(42);
+        let colony_id = *engine.state.colonies.keys().next().unwrap();
+        engine
+            .state
+            .colony_unrest
+            .insert(colony_id, ColonyUnrestState::Unrest);
+        engine
+            .state
+            .colony_unrest_causes
+            .insert(colony_id, vec![game_core::UnrestCause::FoodShortage]);
+        engine.state.colony_rebellion_risk_bp.insert(colony_id, 320);
+
+        let data = derive_empire_overview(
+            &engine.state,
+            engine.state.player_empire,
+            OverviewSort::Name,
+            "",
+        );
+        let row = data
+            .rows
+            .iter()
+            .find(|r| r.colony_id == colony_id)
+            .expect("colony row should exist");
+        assert!(row.warnings.contains(&"Unrest"));
+        assert_eq!(data.summary.unrest_colonies, 1);
     }
 
     #[test]

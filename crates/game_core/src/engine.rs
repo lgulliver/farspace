@@ -1481,6 +1481,9 @@ impl Engine {
             let mut industry = colony_yield.industry
                 + empire_def_mods.industry_per_colony
                 + resource_bonuses.industry_per_colony;
+            // Build queue throughput intentionally starts from colony-local industry;
+            // unrest is applied later in this loop, but empire/resource flat bonuses are
+            // economic modifiers and do not accelerate build-pool accumulation.
             let mut build_industry = colony_yield.industry;
             let mut colony_maintenance = colony_yield.maintenance;
             if resource_bonuses.research_percent_bonus > 0 {

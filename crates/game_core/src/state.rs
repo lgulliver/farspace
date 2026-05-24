@@ -2188,6 +2188,18 @@ pub enum ColonyUnrestState {
 }
 
 impl ColonyUnrestState {
+    pub fn from_stability(stability: u8) -> Self {
+        if stability >= 85 {
+            ColonyUnrestState::Calm
+        } else if stability >= 70 {
+            ColonyUnrestState::Strained
+        } else if stability >= 50 {
+            ColonyUnrestState::Unrest
+        } else {
+            ColonyUnrestState::RevoltRisk
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             ColonyUnrestState::Calm => "Calm",
@@ -3365,17 +3377,7 @@ impl GameState {
             .unwrap_or_else(|| {
                 self.colonies
                     .get(&colony_id)
-                    .map(|colony| {
-                        if colony.stability >= 85 {
-                            ColonyUnrestState::Calm
-                        } else if colony.stability >= 70 {
-                            ColonyUnrestState::Strained
-                        } else if colony.stability >= 50 {
-                            ColonyUnrestState::Unrest
-                        } else {
-                            ColonyUnrestState::RevoltRisk
-                        }
-                    })
+                    .map(|colony| ColonyUnrestState::from_stability(colony.stability))
                     .unwrap_or_default()
             })
     }

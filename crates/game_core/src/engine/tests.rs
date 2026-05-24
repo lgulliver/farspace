@@ -10145,12 +10145,12 @@ fn overextension_contributes_to_unrest() {
     let mut engine = Engine::new(42);
     let player = engine.state.player_empire;
     let base_colony = engine.state.colonies[&ColonyId(1)].clone();
-    for offset in 0..5u64 {
+    for _ in 0..5u64 {
         let new_id = engine.state.next_colony_id();
         let mut colony = base_colony.clone();
         colony.id = new_id;
         colony.owner = player;
-        colony.planet_index = (offset as usize) % 1;
+        colony.planet_index = 0;
         engine.state.colonies.insert(new_id, colony);
     }
     engine.apply_turn(vec![Command::EndTurn]);

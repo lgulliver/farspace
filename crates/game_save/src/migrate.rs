@@ -169,15 +169,8 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             }
             36 => {
                 for (colony_id, colony) in &save.state.colonies {
-                    let unrest_state = if colony.stability >= 85 {
-                        game_core::state::ColonyUnrestState::Calm
-                    } else if colony.stability >= 70 {
-                        game_core::state::ColonyUnrestState::Strained
-                    } else if colony.stability >= 50 {
-                        game_core::state::ColonyUnrestState::Unrest
-                    } else {
-                        game_core::state::ColonyUnrestState::RevoltRisk
-                    };
+                    let unrest_state =
+                        game_core::state::ColonyUnrestState::from_stability(colony.stability);
                     save.state.colony_unrest.insert(*colony_id, unrest_state);
                     save.state
                         .colony_rebellion_risk_bp

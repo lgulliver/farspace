@@ -3066,7 +3066,9 @@ impl Engine {
             return;
         };
         if status == RelationshipStatus::Unknown {
-            events.push(Event::error("Cannot gather intelligence before contact"));
+            events.push(Event::error(
+                "Cannot gather intelligence: establish diplomatic contact first",
+            ));
             return;
         }
 

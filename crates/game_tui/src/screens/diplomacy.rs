@@ -253,7 +253,7 @@ fn render_empire_detail(
 
     if intel == IntelLevel::Unknown {
         lines.push(Line::from(Span::styled(
-            "No verified contact. Rival details remain concealed.",
+            "No verified contact. Empire details remain concealed.",
             Theme::muted_style(),
         )));
     } else {

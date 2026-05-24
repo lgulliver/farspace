@@ -598,7 +598,7 @@ fn render_selected_planet_hero(
             } else {
                 lines.push(Line::from(vec![
                     Span::styled("Colony ", Theme::muted_style()),
-                    Span::styled("Foreign settlement — details hidden", Theme::muted_style()),
+                    Span::styled("Foreign settlement -- details hidden", Theme::muted_style()),
                 ]));
             }
         }

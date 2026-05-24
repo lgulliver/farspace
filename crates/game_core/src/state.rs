@@ -2816,7 +2816,7 @@ impl RelationshipStatus {
     }
 }
 
-/// Coarse intelligence level the player has on another empire.
+/// Discrete intelligence level the player has on another empire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum IntelLevel {
@@ -2928,7 +2928,7 @@ impl EmpireIntel {
     }
 }
 
-/// Coarse deterministic economy snapshot for empire-intelligence UI.
+/// Aggregated deterministic economy snapshot for empire-intelligence UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EmpireEconomySummary {
     pub food_balance: i64,

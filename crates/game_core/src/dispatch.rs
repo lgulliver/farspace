@@ -351,11 +351,14 @@ pub fn generate_dispatch(
                         Some(*planet_index),
                     ));
                 } else if player_knows_empire(state, *empire) {
+                    let empire_name = empire_name_for_id(state, *empire);
                     items.push(item(
                         DispatchCategory::Colonization,
                         DispatchSeverity::Notable,
                         "Colonial Traffic Detected Beyond Frontier".to_string(),
-                        "Signals suggest a contacted empire has expanded, but details remain sparse.",
+                        format!(
+                            "Signals suggest {empire_name} has expanded, but location details remain sparse."
+                        ),
                         Some(*empire),
                         None,
                         None,

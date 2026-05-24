@@ -55,9 +55,13 @@ const NAP_DURATION_TURNS: u32 = 12;
 const BATTLE_REPORT_MAX_HISTORY: usize = 40;
 const ATTRITION_DIVISOR: u64 = 400;
 const BATTLE_REPORT_ID_PENDING: u64 = 0;
+/// 4 points = about 4 turns from contact alone, or faster with treaties / sensors.
 const INTEL_THRESHOLD_BASIC: u16 = 4;
+/// 9 points = mid-tier read on a rival after sustained contact or one active gather.
 const INTEL_THRESHOLD_INFORMED: u16 = 9;
+/// 16 points = deep read after prolonged passive tracking or repeated gathers.
 const INTEL_THRESHOLD_DEEP: u16 = 16;
+/// One active gather roughly equals several turns of passive contact.
 const INTEL_GATHER_POINTS: u16 = 4;
 
 #[derive(Debug, Clone, Copy, Default)]

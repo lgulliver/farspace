@@ -24,15 +24,16 @@ impl App {
     }
 
     pub(super) fn empire_display_name(&self, empire_id: game_core::EmpireId) -> String {
-        self.engine
-            .as_ref()
-            .and_then(|engine| {
-                engine
-                    .state
-                    .player_knows_empire(empire_id)
-                    .then_some(&engine.state)
-            })
-            .and_then(|state| state.empires.get(&empire_id))
+        let Some(engine) = self.engine.as_ref() else {
+            return format!("Unknown Empire {}", empire_id.0);
+        };
+        if !engine.state.player_knows_empire(empire_id) {
+            return format!("Unknown Empire {}", empire_id.0);
+        }
+        engine
+            .state
+            .empires
+            .get(&empire_id)
             .map(|empire| empire.name.clone())
             .unwrap_or_else(|| format!("Unknown Empire {}", empire_id.0))
     }

@@ -830,14 +830,18 @@ fn render_system_detail_facts(
                     game_state.colony_unrest_label(colony.id)
                 )
             } else {
-                format!(
-                    "Foreign colony ({})",
-                    game_state
-                        .empires
-                        .get(&colony.owner)
-                        .map(|empire| empire.name.as_str())
-                        .unwrap_or("unknown owner")
-                )
+                if game_state.player_knows_empire(colony.owner) {
+                    format!(
+                        "Foreign colony ({})",
+                        game_state
+                            .empires
+                            .get(&colony.owner)
+                            .map(|empire| empire.name.as_str())
+                            .unwrap_or("unknown owner")
+                    )
+                } else {
+                    "Foreign colony".to_string()
+                }
             }
         } else {
             format!("Colony {}", colony_id.0)
@@ -1287,6 +1291,34 @@ mod tests {
         assert!(rendered.contains("Foreign Fleet"));
         assert!(!rendered.contains("4x Destroyer"));
         assert!(rendered.contains("details hidden"));
+    }
+
+    #[test]
+    fn foreign_colony_hides_owner_name_without_contact() {
+        let mut engine = Engine::new(42);
+        let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+        if let Some(ai_empire) = engine.state.empires.get_mut(&ai_id) {
+            ai_empire.name = "Hidden Dominion".to_string();
+        }
+        let enemy_colony = engine
+            .state
+            .colonies
+            .values()
+            .find(|colony| colony.owner == ai_id)
+            .cloned()
+            .expect("enemy colony should exist");
+        let app_state = AppState {
+            navigation: crate::app::NavigationState {
+                selected_star: Some(enemy_colony.star),
+                selected_planet_index: enemy_colony.planet_index,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let rendered = render_to_string(&engine, &app_state);
+        assert!(rendered.contains("Foreign colony"));
+        assert!(!rendered.contains("Hidden Dominion"));
     }
 
     #[test]

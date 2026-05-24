@@ -218,19 +218,31 @@ fn render_empire_detail(
         return;
     };
 
-    let Some(empire) = game_state.empires.get(&empire_id) else {
-        frame.render_widget(Paragraph::new(lines), area);
-        return;
-    };
     let intel = game_state.intel_level_for_empire(empire_id);
     let status = game_state
         .diplomacy
         .get(&empire_id)
         .copied()
         .unwrap_or(RelationshipStatus::Unknown);
+    let detail_name = if intel == IntelLevel::Unknown {
+        "[ Unknown Empire ]"
+    } else {
+        game_state
+            .empires
+            .get(&empire_id)
+            .map(|empire| empire.name.as_str())
+            .unwrap_or("[ Unknown Empire ]")
+    };
 
     lines.push(Line::from(vec![
-        Span::styled(empire.name.as_str(), Theme::title_style()),
+        Span::styled(
+            detail_name,
+            if intel == IntelLevel::Unknown {
+                Theme::muted_style()
+            } else {
+                Theme::title_style()
+            },
+        ),
         Span::raw("  "),
         Span::styled(format!("Intel {}", intel.label()), Theme::accent_style()),
     ]));
@@ -257,6 +269,10 @@ fn render_empire_detail(
             Theme::muted_style(),
         )));
     } else {
+        let Some(empire) = game_state.empires.get(&empire_id) else {
+            frame.render_widget(Paragraph::new(lines), area);
+            return;
+        };
         push_identity_lines(&mut lines, empire);
         lines.push(Line::from(""));
 
@@ -357,35 +373,31 @@ fn render_empire_detail(
                 },
             ),
         ]));
-        if let Some(summary) = game_state.empire_economy_summary(empire_id) {
-            lines.push(Line::from(vec![
-                Span::styled("Economy ", Theme::muted_style()),
-                Span::styled(
-                    if intel.reveals_economy_summary() {
+        if intel.reveals_economy_summary() {
+            if let Some(summary) = game_state.empire_economy_summary(empire_id) {
+                lines.push(Line::from(vec![
+                    Span::styled("Economy ", Theme::muted_style()),
+                    Span::styled(
                         format!(
                             "F {:+} · I {} · S {} · C {}",
-                            summary.food_balance,
-                            summary.industry,
-                            summary.science,
-                            summary.credits
-                        )
-                    } else {
-                        "Hidden".to_string()
-                    },
-                    if intel.reveals_economy_summary() {
-                        Theme::default_style()
-                    } else {
-                        Theme::muted_style()
-                    },
-                ),
+                            summary.food_balance, summary.industry, summary.science, summary.credits
+                        ),
+                        Theme::default_style(),
+                    ),
+                ]));
+            }
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled("Economy ", Theme::muted_style()),
+                Span::styled("Hidden", Theme::muted_style()),
             ]));
         }
 
-        let resources = game_state.visible_empire_resources_for_player(empire_id);
-        lines.push(Line::from(vec![
-            Span::styled("Strategic assets ", Theme::muted_style()),
-            Span::styled(
-                if intel.reveals_strategic_resources() {
+        if intel.reveals_strategic_resources() {
+            let resources = game_state.visible_empire_resources_for_player(empire_id);
+            lines.push(Line::from(vec![
+                Span::styled("Strategic assets ", Theme::muted_style()),
+                Span::styled(
                     if resources.is_empty() {
                         "None".to_string()
                     } else {
@@ -394,17 +406,16 @@ fn render_empire_detail(
                             .map(|(resource, count)| format!("{} x{}", resource.name(), count))
                             .collect::<Vec<_>>()
                             .join(", ")
-                    }
-                } else {
-                    "Hidden".to_string()
-                },
-                if intel.reveals_strategic_resources() {
-                    Theme::default_style()
-                } else {
-                    Theme::muted_style()
-                },
-            ),
-        ]));
+                    },
+                    Theme::default_style(),
+                ),
+            ]));
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled("Strategic assets ", Theme::muted_style()),
+                Span::styled("Hidden", Theme::muted_style()),
+            ]));
+        }
     }
 
     lines.push(Line::from(""));
@@ -628,8 +639,11 @@ mod tests {
     fn unknown_empire_shows_hidden_placeholder() {
         use game_core::RelationshipStatus;
 
-        let engine = Engine::new(42);
+        let mut engine = Engine::new(42);
         let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+        if let Some(ai_empire) = engine.state.empires.get_mut(&ai_id) {
+            ai_empire.name = "Leaked Empire".to_string();
+        }
         let doctrine = engine
             .state
             .empires
@@ -653,6 +667,7 @@ mod tests {
         }
         let rendered = render_to_string(&engine);
         assert!(rendered.contains("[ Unknown Empire ]"));
+        assert!(!rendered.contains("Leaked Empire"));
         assert!(!rendered.contains(&doctrine));
     }
 

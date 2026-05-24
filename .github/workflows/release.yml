@@ -16,6 +16,7 @@ jobs:
       pull-requests: read
     secrets: inherit
     with:
+      # Reuse nightly-notes workflow for tagged releases; input name is fixed by reusable workflow contract.
       nightly_tag: ${{ github.ref_name }}
 
   build:
@@ -99,9 +100,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download release notes
+      - name: Download release notes artifact
         uses: actions/download-artifact@v4
         with:
+          # Produced by nightly-notes.lock.yml safe output upload_artifact call.
           name: release-notes.md
 
       - name: Download all artifacts

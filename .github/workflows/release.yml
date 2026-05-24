@@ -114,7 +114,7 @@ jobs:
         id: body
         run: |
           TAG="${{ github.ref_name }}"
-          DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           {
             echo 'body<<BODY_EOF'
             echo "> FARSPACE release \`${TAG}\` — ${DATE}"

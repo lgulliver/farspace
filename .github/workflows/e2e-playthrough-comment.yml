@@ -3,9 +3,13 @@ name: E2E Playthrough PR Comment
 on:
   workflow_run:
     workflows:
+      # Keep in sync with .github/workflows/e2e-playthrough.yml `name`.
       - E2E Playthrough
     types:
       - completed
+
+env:
+  E2E_REPORT_ARTIFACT_NAME: e2e-playthrough-report
 
 permissions:
   actions: read
@@ -25,10 +29,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
+          ARTIFACT_NAME: ${{ env.E2E_REPORT_ARTIFACT_NAME }}
         run: |
           set -euo pipefail
           mkdir -p target/e2e
-          artifact_name="e2e-playthrough-report"
+          artifact_name="${ARTIFACT_NAME}"
           artifact_zip="/tmp/${artifact_name}.zip"
           artifacts_json="$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts")"
 
@@ -76,7 +81,7 @@ jobs:
                 cancelled: 'was cancelled',
                 skipped: 'was skipped',
                 unknown: 'status was unavailable',
-              }[downloadOutcome] ?? `status was ${downloadOutcome}`;
+              }[downloadOutcome] || `status was ${downloadOutcome}`;
               report = `_E2E artifact download ${downloadStatus}; markdown report unavailable._`;
             }
 

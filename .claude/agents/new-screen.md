@@ -31,12 +31,15 @@ Add a complete new screen to `crates/game_tui/src/screens/`:
 - Responds to `crossterm::event::Event::Resize` — layout recalculates on terminal resize.
 - Only sends `Command` values to `game_core`. Never mutates `GameState` directly.
 - Keyboard-first. No mouse-only affordances.
+- Follows `docs/design/ux-splash-screen.md` visual language: calm, cinematic, spacious, readable.
+- Reuses existing `Theme` palette roles and spacing/composition patterns before inventing new ones.
 
 ## Hard rules
 
 - No game logic in screen code.
 - No direct `GameState` field access — use snapshot views or `Event` data.
 - Minimal terminal feel: clean lines, no ASCII art borders unless consistent with existing screens.
+- Keep hierarchy centered and breathable; avoid dashboard-like clutter.
 
 ## Output
 

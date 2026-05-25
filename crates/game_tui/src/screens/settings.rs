@@ -1,4 +1,4 @@
-//! Settings screen — update channel, auto-update toggle, visual mode.
+//! Settings modal overlay — update channel, auto-update toggle, visual mode.
 
 use crate::theme::Theme;
 use crate::AppState;
@@ -6,16 +6,17 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
 const NUM_SETTINGS: usize = 3;
 
 pub fn render_settings(frame: &mut Frame, area: Rect, app_state: &AppState) {
-    let box_width = 52u16;
+    let box_width = 54u16;
     let box_height = 14u16;
 
+    // Center vertically and horizontally
     let v_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -36,14 +37,17 @@ pub fn render_settings(frame: &mut Frame, area: Rect, app_state: &AppState) {
 
     let panel = h_chunks[1];
 
+    // Clear the area beneath the modal so the background doesn't bleed through.
+    frame.render_widget(Clear, panel);
+
     let items = settings_lines(app_state);
 
     let paragraph = Paragraph::new(items)
         .block(
             Block::default()
-                .title(" Settings ")
+                .title(" ⚙ Settings ")
                 .borders(Borders::ALL)
-                .border_style(Theme::default_style())
+                .border_style(Theme::focused_border_style())
                 .style(Theme::default_style()),
         )
         .alignment(Alignment::Left)

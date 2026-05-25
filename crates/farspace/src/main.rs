@@ -144,7 +144,13 @@ fn main() -> Result<()> {
     let restore_result = terminal.restore();
 
     match result {
-        Ok(Ok(())) => restore_result?,
+        Ok(Ok(true)) => {
+            // User confirmed "apply update and restart".
+            restore_result?;
+            update::check_and_apply_staged();
+            restart_process();
+        }
+        Ok(Ok(false)) => restore_result?,
         Ok(Err(e)) => {
             restore_result?;
             eprintln!("Application error: {}", e);
@@ -157,6 +163,32 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Re-execute the current binary in place (replacing the current process on Unix,
+/// spawning a new process and exiting on Windows).
+fn restart_process() -> ! {
+    let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("farspace"));
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let err = std::process::Command::new(&exe).exec();
+        eprintln!("Failed to restart: {err}");
+        std::process::exit(1);
+    }
+
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new(&exe).spawn();
+        std::process::exit(0);
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        eprintln!("Auto-restart not supported on this platform. Please relaunch manually.");
+        std::process::exit(0);
+    }
 }
 
 #[cfg(test)]

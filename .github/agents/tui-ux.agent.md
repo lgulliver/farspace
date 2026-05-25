@@ -12,6 +12,8 @@ You are the TUI and UX engineer for FARSPACE. You own `crates/game_tui` — the 
 
 - Only sends `Command` values to `game_core` — never mutates `GameState` directly
 - Renders from `Event` values and snapshot views only — never reaches into core internals
+- Treat `docs/design/ux-splash-screen.md` as canonical visual language for TUI work
+- Reuse `Theme` palette roles and established spacing/composition patterns before adding new colors or motifs
 - All layouts use ratatui `Constraint`-based sizing — must be resize-safe
 - Keyboard-first navigation — no mouse-only affordances without a keyboard alternative
 - `?` contextual help available on every screen
@@ -21,6 +23,9 @@ You are the TUI and UX engineer for FARSPACE. You own `crates/game_tui` — the 
 # UX Standards
 
 - Minimal, polished terminal feel — inspired by Neovim, K9s, Lazygit
+- Calm, cinematic, spacious composition — avoid telemetry-style density and widget clutter
+- Prefer centered hierarchy with breathing room; avoid noisy border stacks
+- Overlays follow shared modal pattern (`Clear`, rounded border, close on `Esc`)
 - Resize events must reflow layout without corruption
 - Status messages and event log must always be visible
 

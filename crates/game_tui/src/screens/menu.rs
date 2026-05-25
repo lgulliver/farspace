@@ -1,14 +1,11 @@
 //! Main menu screen
 
-use crate::components::render_footer;
-use crate::layout::compose_layout;
 use crate::map_render::visual_hash;
 use crate::renderer::{
-    starfield::{detail_star_glyph, should_render_star, star_magnitude_color, starfield_detail},
+    starfield::{detail_star_glyph, should_render_star, starfield_detail},
     Canvas,
 };
-use crate::screens::Screen;
-use crate::theme::Theme;
+use crate::theme::{gradient, lerp_rgb, SplashPalette, Theme};
 use crate::update::UpdateState;
 use crate::AppState;
 use ratatui::{
@@ -21,11 +18,18 @@ use ratatui::{
 
 const MENU_STARFIELD_SALT: u64 = 0x4D45_4E55;
 const MENU_STARFIELD_TWINKLE_SALT_XOR: u64 = 0x51;
+const MENU_STARFIELD_HAZE_SALT_XOR: u64 = 0x3A;
+const MIN_SPLASH_WIDTH: u16 = 80;
+const MIN_SPLASH_HEIGHT: u16 = 24;
+const WIDE_TITLE_WIDTH: u16 = 110;
+const MEDIUM_TITLE_WIDTH: u16 = 70;
+const MENU_ACTION_COUNT: usize = 4;
 
-/// Each line of the FARSPACE ASCII art title — kept as separate entries so
-/// ratatui renders them as individual rows (spans with embedded `\n` are
-/// stripped by ratatui and would collapse the art into a single garbled line).
-const TITLE_LINES: &[&str] = &[
+const TAGLINE: &str = "CHART • EXPAND • ENDURE";
+const FOOTER_HINT: &str = "Enter Select   ↑↓ Move   ? Help   Esc Quit";
+const FOOTER_HINT_COMPACT: &str = "Enter Select   ↑↓ Move   Esc Quit";
+
+const TITLE_LINES_WIDE: &[&str] = &[
     "  ███████╗ █████╗ ██████╗ ███████╗██████╗  █████╗  ██████╗███████╗",
     "  ██╔════╝██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝██╔════╝",
     "  █████╗  ███████║██████╔╝███████╗██████╔╝███████║██║     █████╗  ",
@@ -34,90 +38,252 @@ const TITLE_LINES: &[&str] = &[
     "  ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝╚══════╝",
 ];
 
-const COMPACT_TITLE: &str = "FARSPACE";
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuAction {
+    NewGame,
+    LoadGame,
+    Options,
+    Quit,
+}
 
-fn build_menu_lines(use_ascii_title: bool, app_state: &AppState) -> Vec<Line<'static>> {
-    let mut menu_items: Vec<Line> = vec![Line::from("")];
-    if use_ascii_title {
-        for line in TITLE_LINES {
-            menu_items.push(Line::from(Span::styled(*line, Theme::title_style())));
+impl MenuAction {
+    pub const fn from_cursor(cursor: usize) -> Self {
+        match cursor % MENU_ACTION_COUNT {
+            0 => Self::NewGame,
+            1 => Self::LoadGame,
+            2 => Self::Options,
+            _ => Self::Quit,
         }
-    } else {
-        menu_items.push(Line::from(Span::styled(
-            COMPACT_TITLE,
-            Theme::title_style(),
-        )));
     }
-    menu_items.extend([
-        Line::from(""),
-        Line::from(Span::styled(
-            "A turn-based 4X space strategy",
-            Theme::muted_style(),
-        )),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("[N]", Theme::title_style()),
-            Span::raw(" New Game"),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("[L]", Theme::title_style()),
-            Span::raw(" Load Game"),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("[Q]", Theme::title_style()),
-            Span::raw(" Quit"),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("[V]", Theme::title_style()),
-            Span::raw(format!(
-                " Visual Mode: {}  ({})",
-                app_state.visual_mode.label(),
-                app_state.visual_mode.preview_sample()
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::NewGame => "New Game",
+            Self::LoadGame => "Load Game",
+            Self::Options => "Options",
+            Self::Quit => "Quit",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SplashLayout {
+    frame: Rect,
+    title: Rect,
+    menu: Rect,
+    footer: Rect,
+}
+
+pub const fn menu_action_count() -> usize {
+    MENU_ACTION_COUNT
+}
+
+fn build_layout(main_area: Rect) -> SplashLayout {
+    // Frame fills almost the full viewport with small margin.
+    let frame_width = main_area.width.saturating_sub(4).max(64);
+    let frame_height = main_area.height.saturating_sub(2).max(18);
+    let frame_x = main_area.x + (main_area.width.saturating_sub(frame_width)) / 2;
+    let frame_y = main_area.y + (main_area.height.saturating_sub(frame_height)) / 2;
+    let frame = Rect::new(frame_x, frame_y, frame_width, frame_height);
+    let inner = Rect::new(
+        frame.x.saturating_add(2),
+        frame.y.saturating_add(1),
+        frame.width.saturating_sub(4),
+        frame.height.saturating_sub(2),
+    );
+    let title_height = if frame.width >= WIDE_TITLE_WIDTH {
+        8
+    } else if frame.width >= MEDIUM_TITLE_WIDTH {
+        6
+    } else {
+        4
+    };
+    let title_gap = if frame.height >= 22 { 2 } else { 1 };
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(title_height),
+            Constraint::Length(title_gap),
+            Constraint::Length(6),
+            Constraint::Fill(1),
+            Constraint::Length(2),
+        ])
+        .split(inner);
+
+    SplashLayout {
+        frame,
+        title: sections[1],
+        menu: sections[3],
+        footer: sections[5],
+    }
+}
+
+fn build_title_lines(area_width: u16, palette: SplashPalette) -> Vec<Line<'static>> {
+    if area_width >= WIDE_TITLE_WIDTH {
+        let colors = gradient(
+            palette.title_primary,
+            palette.title_secondary,
+            TITLE_LINES_WIDE.len(),
+        );
+        let mut lines = TITLE_LINES_WIDE
+            .iter()
+            .enumerate()
+            .map(|(index, line)| {
+                Line::from(Span::styled(
+                    (*line).to_string(),
+                    Style::default()
+                        .fg(colors[index])
+                        .add_modifier(Modifier::BOLD),
+                ))
+            })
+            .collect::<Vec<_>>();
+        lines.push(Line::from(""));
+        lines.push(build_tagline_line(area_width, palette));
+        lines
+    } else if area_width >= MEDIUM_TITLE_WIDTH {
+        vec![
+            Line::from(Span::styled(
+                "F A R S P A C E",
+                Style::default()
+                    .fg(palette.title_primary)
+                    .add_modifier(Modifier::BOLD),
             )),
-        ]),
-        Line::from(""),
+            Line::from(""),
+            build_tagline_line(area_width, palette),
+        ]
+    } else {
+        vec![
+            Line::from(Span::styled(
+                "F A R S P A C E",
+                Style::default()
+                    .fg(palette.title_primary)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            build_tagline_line(area_width, palette),
+        ]
+    }
+}
+
+fn build_tagline_line(area_width: u16, palette: SplashPalette) -> Line<'static> {
+    if area_width >= 88 {
         Line::from(vec![
-            Span::styled("[S]", Theme::title_style()),
-            Span::raw(" Settings"),
-        ]),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            "First Turn Quickstart",
-            Theme::title_style(),
-        )]),
-        Line::from("  1) [N] New Game"),
-        Line::from("  2) [Enter] to open Sector Map and pick a star"),
-        Line::from("  3) [Enter] in a system, then [S] survey and [C] colonize"),
-        Line::from("  4) [r] research and [Enter] to choose active tech"),
-        Line::from("  5) [:] then save / load"),
-    ]);
-    menu_items
+            Span::styled("── ", Style::default().fg(palette.border_cold)),
+            Span::styled(
+                TAGLINE,
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" ──", Style::default().fg(palette.border_cold)),
+        ])
+    } else {
+        Line::from(Span::styled(
+            TAGLINE,
+            Style::default()
+                .fg(palette.accent)
+                .add_modifier(Modifier::BOLD),
+        ))
+    }
 }
 
-fn menu_box_size(main_area: Rect, app_state: &AppState) -> (u16, u16, bool) {
-    let ascii_title_width = TITLE_LINES
-        .iter()
-        .map(|line| line.chars().count())
-        .max()
-        .unwrap_or(0);
-    let use_ascii_title = main_area.width > (ascii_title_width as u16 + 4);
-    let content_lines = build_menu_lines(use_ascii_title, app_state);
-    let content_width = content_lines
-        .iter()
-        .map(|line| line.width() as u16)
-        .max()
-        .unwrap_or(0);
-    let width = (content_width + 4).min(main_area.width).max(24);
-    let height = ((content_lines.len() as u16) + 2)
-        .min(main_area.height)
-        .max(8);
-    (width, height, use_ascii_title)
+fn build_menu_lines(app_state: &AppState, palette: SplashPalette) -> Vec<Line<'static>> {
+    (0..MENU_ACTION_COUNT)
+        .map(|index| {
+            let action = MenuAction::from_cursor(index);
+            let selected = app_state.menu_cursor % MENU_ACTION_COUNT == index;
+            let marker = if selected { "▶ " } else { "  " };
+            let marker_style = if selected {
+                Style::default()
+                    .fg(palette.accent)
+                    .bg(lerp_rgb(palette.void_bg, palette.nebula_b, 0.18))
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(palette.text_muted)
+            };
+            let label_style = if selected {
+                Style::default()
+                    .fg(palette.accent)
+                    .bg(lerp_rgb(palette.void_bg, palette.nebula_b, 0.18))
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Theme::fg())
+            };
+
+            Line::from(vec![
+                Span::styled(marker.to_string(), marker_style),
+                Span::styled(action.label().to_string(), label_style),
+            ])
+        })
+        .collect()
 }
 
-fn render_menu_starfield(frame: &mut Frame, area: Rect, app_state: &AppState) {
+fn render_gradient_frame(frame: &mut Frame, area: Rect, palette: SplashPalette) {
+    if area.width < 2 || area.height < 2 {
+        return;
+    }
+
+    let edge = gradient(palette.border_cold, palette.border_hot, area.width as usize);
+    let buffer = frame.buffer_mut();
+
+    for x in 0..area.width {
+        let top_glyph = match x {
+            0 => '╭',
+            value if value == area.width.saturating_sub(1) => '╮',
+            _ => '─',
+        };
+        let bottom_glyph = match x {
+            0 => '╰',
+            value if value == area.width.saturating_sub(1) => '╯',
+            _ => '─',
+        };
+        let top_style = Style::default()
+            .fg(edge[x as usize])
+            .bg(palette.void_bg)
+            .add_modifier(Modifier::BOLD);
+        let bottom_style = Style::default()
+            .fg(edge[area.width.saturating_sub(1) as usize - x as usize])
+            .bg(palette.void_bg)
+            .add_modifier(Modifier::BOLD);
+
+        if let Some(cell) = buffer.cell_mut((area.x + x, area.y)) {
+            cell.set_char(top_glyph);
+            cell.set_style(top_style);
+        }
+        if let Some(cell) = buffer.cell_mut((area.x + x, area.bottom().saturating_sub(1))) {
+            cell.set_char(bottom_glyph);
+            cell.set_style(bottom_style);
+        }
+    }
+
+    for y in 1..area.height.saturating_sub(1) {
+        let color = lerp_rgb(
+            palette.border_cold,
+            palette.border_hot,
+            y as f32 / area.height.saturating_sub(1) as f32,
+        );
+        let style = Style::default()
+            .fg(color)
+            .bg(palette.void_bg)
+            .add_modifier(Modifier::BOLD);
+
+        if let Some(cell) = buffer.cell_mut((area.x, area.y + y)) {
+            cell.set_char('│');
+            cell.set_style(style);
+        }
+        if let Some(cell) = buffer.cell_mut((area.right().saturating_sub(1), area.y + y)) {
+            cell.set_char('│');
+            cell.set_style(style);
+        }
+    }
+}
+
+fn render_menu_starfield(
+    frame: &mut Frame,
+    area: Rect,
+    app_state: &AppState,
+    palette: SplashPalette,
+) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -127,15 +293,41 @@ fn render_menu_starfield(frame: &mut Frame, area: Rect, app_state: &AppState) {
     let frame_group = if app_state.reduced_motion {
         0
     } else {
-        app_state.tick_count / 4
+        app_state.tick_count / 10
     };
-    let base_style = Style::default().bg(Theme::space_bg());
 
     for y in 0..area.height {
         for x in 0..area.width {
-            canvas.set_cell(x, y, ' ', base_style, 0);
-            let static_hash = visual_hash(0, x, y, 0, MENU_STARFIELD_SALT);
-            if should_render_star(static_hash, detail) {
+            let base_hash = visual_hash(0, x, y, 0, MENU_STARFIELD_SALT);
+            let drift_hash = visual_hash(0, x, y, frame_group, MENU_STARFIELD_SALT ^ 0xA5);
+            let haze_hash = visual_hash(
+                0,
+                x,
+                y,
+                0,
+                MENU_STARFIELD_SALT ^ MENU_STARFIELD_HAZE_SALT_XOR,
+            );
+            let drift = (drift_hash % 100) as f32 / 100.0;
+            let depth = (base_hash % 100) as f32 / 100.0;
+            let bg_color = lerp_rgb(
+                lerp_rgb(palette.void_bg, palette.nebula_a, depth * 0.12),
+                palette.nebula_b,
+                drift * 0.05,
+            );
+
+            let mut symbol = ' ';
+            let mut style = Style::default().bg(bg_color);
+            let haze = haze_hash % 2600;
+
+            if haze == 0 {
+                symbol = '·';
+                style = style.fg(lerp_rgb(palette.nebula_a, palette.text_muted, 0.14));
+            } else if haze == 1 {
+                symbol = '.';
+                style = style.fg(lerp_rgb(palette.nebula_a, palette.text_muted, 0.12));
+            }
+
+            if should_render_star(base_hash, detail) && base_hash.is_multiple_of(9) {
                 let twinkle_hash = visual_hash(
                     0,
                     x,
@@ -143,167 +335,238 @@ fn render_menu_starfield(frame: &mut Frame, area: Rect, app_state: &AppState) {
                     frame_group,
                     MENU_STARFIELD_SALT ^ MENU_STARFIELD_TWINKLE_SALT_XOR,
                 );
-                canvas.set_cell(
-                    x,
-                    y,
-                    detail_star_glyph(static_hash, detail),
-                    base_style.fg(star_magnitude_color(static_hash, twinkle_hash)),
-                    1,
-                );
+                symbol = if twinkle_hash.is_multiple_of(9) {
+                    '✦'
+                } else {
+                    detail_star_glyph(base_hash, detail)
+                };
+                let sparkle = 0.5 + (twinkle_hash % 20) as f32 / 100.0;
+                style = Style::default().bg(bg_color).fg(lerp_rgb(
+                    palette.title_primary,
+                    palette.star_core,
+                    sparkle,
+                ));
             }
+
+            canvas.set_cell(x, y, symbol, style, 0);
         }
     }
 
     canvas.render_to_buffer(area, frame.buffer_mut());
 }
 
-/// Render the main menu
-pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
-    let (_header_area, main_area, footer_area) = compose_layout(area);
+fn render_footer_line(
+    frame: &mut Frame,
+    area: Rect,
+    palette: SplashPalette,
+    hint: &str,
+    show_version: bool,
+) {
+    let footer_bg = lerp_rgb(palette.void_bg, palette.nebula_a, 0.08);
+    frame.render_widget(
+        Block::default()
+            .borders(Borders::TOP)
+            .border_style(Style::default().fg(palette.border_cold))
+            .style(Style::default().bg(footer_bg)),
+        area,
+    );
 
-    // Footer shows keyboard hints for the menu screen
-    let menu_hint = app_state.status_message.as_deref().or(Some(
-        "Quickstart: N, Enter, r, Enter, then S/C in system view.",
-    ));
-    render_footer(frame, footer_area, &Screen::Menu, menu_hint);
+    let inner = Rect::new(
+        area.x.saturating_add(1),
+        area.y.saturating_add(1),
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(1),
+    );
+    if show_version && inner.width > 28 {
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Fill(1), Constraint::Length(16)])
+            .split(inner);
 
-    let (menu_width, menu_height, use_ascii_title) = menu_box_size(main_area, app_state);
-
-    let v_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Fill(1),
-            Constraint::Length(menu_height),
-            Constraint::Fill(1),
-        ])
-        .split(main_area);
-
-    // Center the menu box horizontally
-    let h_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Fill(1),
-            Constraint::Length(menu_width),
-            Constraint::Fill(1),
-        ])
-        .split(v_chunks[1]);
-
-    let menu_area = h_chunks[1];
-
-    render_menu_starfield(frame, main_area, app_state);
-
-    let menu_items = build_menu_lines(use_ascii_title, app_state);
-
-    let paragraph = Paragraph::new(menu_items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .style(Theme::default_style()),
-        )
-        .alignment(Alignment::Center)
-        .style(Theme::default_style())
-        .wrap(Wrap { trim: false });
-
-    frame.render_widget(paragraph, menu_area);
-
-    if app_state.update_state.is_notifiable() {
-        render_update_notification(frame, main_area, app_state);
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                hint,
+                Style::default().fg(palette.text_muted),
+            )))
+            .alignment(Alignment::Left)
+            .style(Style::default().bg(footer_bg)),
+            columns[0],
+        );
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                build_info(),
+                Style::default().fg(palette.text_muted),
+            ))
+            .alignment(Alignment::Right)
+            .style(Style::default().bg(footer_bg)),
+            columns[1],
+        );
+    } else {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                hint,
+                Style::default().fg(palette.text_muted),
+            )))
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(footer_bg)),
+            inner,
+        );
     }
 }
 
-/// Render a small update notification in the bottom-right corner of the menu area.
-fn render_update_notification(frame: &mut Frame, area: Rect, app_state: &AppState) {
-    const BOX_WIDTH: u16 = 38;
-    const BOX_HEIGHT: u16 = 5;
+fn render_compact_menu(
+    frame: &mut Frame,
+    area: Rect,
+    app_state: &AppState,
+    palette: SplashPalette,
+) {
+    let content = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Length(4),
+            Constraint::Length(1),
+        ])
+        .split(Rect::new(
+            area.x + area.width.saturating_sub(34) / 2,
+            area.y + area.height.saturating_sub(10) / 2,
+            area.width.min(34),
+            area.height.min(10),
+        ));
 
-    if area.width < BOX_WIDTH + 2 || area.height < BOX_HEIGHT + 2 {
-        return;
+    frame.render_widget(
+        Clear,
+        Rect::new(content[0].x, content[0].y, content[0].width, 10),
+    );
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled(
+                "FARSPACE",
+                Style::default()
+                    .fg(palette.title_primary)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                TAGLINE,
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD),
+            )),
+        ])
+        .alignment(Alignment::Center)
+        .style(Style::default().bg(palette.void_bg)),
+        content[0],
+    );
+    frame.render_widget(
+        Paragraph::new(build_menu_lines(app_state, palette))
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(palette.void_bg)),
+        content[2],
+    );
+    render_footer_line(frame, content[3], palette, FOOTER_HINT_COMPACT, false);
+}
+
+fn render_dashboard(frame: &mut Frame, area: Rect, app_state: &AppState, palette: SplashPalette) {
+    let layout = build_layout(area);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(palette.void_bg)),
+        layout.frame,
+    );
+    render_gradient_frame(frame, layout.frame, palette);
+
+    let title = Paragraph::new(build_title_lines(layout.frame.width, palette))
+        .alignment(Alignment::Center)
+        .style(Style::default().bg(palette.void_bg))
+        .wrap(Wrap { trim: false });
+    frame.render_widget(title, layout.title);
+
+    let menu_width = layout.menu.width.min(30);
+    let menu_area = Rect::new(
+        layout.menu.x + layout.menu.width.saturating_sub(menu_width) / 2,
+        layout.menu.y,
+        menu_width,
+        layout.menu.height,
+    );
+    frame.render_widget(
+        Block::default().style(Style::default().bg(lerp_rgb(
+            palette.void_bg,
+            palette.nebula_a,
+            0.10,
+        ))),
+        menu_area,
+    );
+    let menu = Paragraph::new(build_menu_lines(app_state, palette))
+        .alignment(Alignment::Left)
+        .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_a, 0.10)));
+    frame.render_widget(menu, menu_area);
+
+    render_footer_line(frame, layout.footer, palette, FOOTER_HINT, true);
+
+    // Update notification — rendered above footer when available
+    if app_state.update_state.is_notifiable() {
+        render_update_notice(frame, layout.footer, app_state, palette);
     }
+}
 
-    let x = area.right().saturating_sub(BOX_WIDTH + 1);
-    let y = area.bottom().saturating_sub(BOX_HEIGHT + 1);
-    let notif_area = Rect::new(x, y, BOX_WIDTH, BOX_HEIGHT);
+fn build_info() -> String {
+    match option_env!("FARSPACE_BUILD_TAG") {
+        Some(tag) if !tag.is_empty() => format!("v{}-{tag}", env!("CARGO_PKG_VERSION")),
+        _ => format!("v{}", env!("CARGO_PKG_VERSION")),
+    }
+}
 
-    let (title, lines, border_style) = match &app_state.update_state {
-        UpdateState::Available(info) => (
-            " Update Available ",
-            vec![
-                Line::from(Span::styled(
-                    format!("  {} ready", info.version),
-                    Theme::accent_style(),
-                )),
-                Line::from(""),
-                Line::from(vec![
-                    Span::styled("  [U]", Theme::highlight_style()),
-                    Span::raw(" Download   "),
-                    Span::styled("[D]", Theme::highlight_style()),
-                    Span::raw(" Dismiss"),
-                ]),
-            ],
-            Theme::focused_border_style(),
-        ),
-        UpdateState::Downloading => (
-            " Update ",
-            vec![
-                Line::from(Span::styled("  Downloading...", Theme::muted_style())),
-                Line::from(""),
-                Line::from(""),
-            ],
-            Theme::dim_border_style(),
-        ),
-        UpdateState::Staged { version } => (
-            " Update Ready ",
-            vec![
-                Line::from(Span::styled(
-                    format!("  {} staged", version),
-                    Theme::success_style(),
-                )),
-                Line::from(Span::styled("  Restart to apply.", Theme::muted_style())),
-                Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled("[D]", Theme::highlight_style()),
-                    Span::raw(" Dismiss"),
-                ]),
-            ],
-            Theme::focused_border_style(),
-        ),
-        UpdateState::Error(msg) => {
-            let truncated = if msg.chars().count() > 30 {
-                format!("{}...", msg.chars().take(27).collect::<String>())
-            } else {
-                msg.clone()
-            };
-            (
-                " Update Error ",
-                vec![
-                    Line::from(Span::styled(format!("  {truncated}"), Theme::error_style())),
-                    Line::from(""),
-                    Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled("[D]", Theme::highlight_style()),
-                        Span::raw(" Dismiss"),
-                    ]),
-                ],
-                Theme::error_style(),
-            )
+fn render_update_notice(
+    frame: &mut Frame,
+    footer_area: Rect,
+    app_state: &AppState,
+    palette: SplashPalette,
+) {
+    let text = match &app_state.update_state {
+        UpdateState::Available(info) => {
+            format!("▲ Update available: {}  [U] Download", info.version)
         }
+        UpdateState::Downloading => "⬇ Downloading update…".to_string(),
+        UpdateState::Staged { version } => {
+            format!("✓ {version} ready  [U] Apply & Restart")
+        }
+        UpdateState::Error(e) => format!("⚠ Update check failed: {e}"),
         _ => return,
     };
+    // Render as a 1-row notice just above the footer separator.
+    if footer_area.y == 0 {
+        return;
+    }
+    let notice_area = Rect::new(
+        footer_area.x.saturating_add(2),
+        footer_area.y.saturating_sub(1),
+        footer_area.width.saturating_sub(4),
+        1,
+    );
+    let notice_style = match &app_state.update_state {
+        UpdateState::Available(_) => Style::default().fg(palette.warning),
+        UpdateState::Staged { .. } => Style::default().fg(palette.accent),
+        UpdateState::Error(_) => Style::default().fg(palette.warning),
+        _ => Style::default().fg(palette.text_muted),
+    };
+    frame.render_widget(
+        Paragraph::new(Span::styled(text, notice_style)).alignment(Alignment::Center),
+        notice_area,
+    );
+}
 
-    frame.render_widget(Clear, notif_area);
-    let paragraph = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .title(Span::styled(
-                    title,
-                    Theme::default_style().add_modifier(Modifier::BOLD),
-                ))
-                .borders(Borders::ALL)
-                .border_style(border_style)
-                .style(Theme::default_style()),
-        )
-        .style(Theme::default_style());
-    frame.render_widget(paragraph, notif_area);
+/// Render the main menu
+pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
+    let palette = Theme::splash_palette();
+
+    // Starfield fills the entire terminal area — no header/footer strip carved out.
+    render_menu_starfield(frame, area, app_state, palette);
+
+    if area.width < MIN_SPLASH_WIDTH || area.height < MIN_SPLASH_HEIGHT {
+        render_compact_menu(frame, area, app_state, palette);
+    } else {
+        render_dashboard(frame, area, app_state, palette);
+    }
 }
 
 #[cfg(test)]
@@ -313,16 +576,14 @@ mod tests {
     use ratatui::buffer::Buffer;
     use ratatui::Terminal;
 
-    /// Extract the first char of a cell's symbol, falling back to a space.
     fn cell_char(buf: &Buffer, x: u16, y: u16) -> char {
         buf.cell((x, y))
             .and_then(|c| c.symbol().chars().next())
             .unwrap_or(' ')
     }
 
-    /// Render the menu into a 100×30 test buffer.
-    fn render_to_buffer() -> Buffer {
-        let backend = TestBackend::new(100, 30);
+    fn render_to_buffer(width: u16, height: u16) -> Buffer {
+        let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| render_menu(frame, frame.area(), &AppState::default()))
@@ -330,65 +591,65 @@ mod tests {
         terminal.backend().buffer().clone()
     }
 
+    fn buffer_text(buf: &Buffer, width: u16, height: u16) -> String {
+        (0..height)
+            .flat_map(|y| (0..width).map(move |x| cell_char(buf, x, y)))
+            .collect()
+    }
+
     #[test]
     fn menu_screen_renders_without_panic() {
-        render_to_buffer();
+        render_to_buffer(100, 30);
     }
 
-    /// Title must appear as separate rows — if all lines collapse to one the
-    /// first row of the title art will NOT appear on line 1 of the buffer.
     #[test]
-    fn title_lines_are_rendered_on_separate_rows() {
-        let buf = render_to_buffer();
-        let rows: Vec<String> = (0..30u16)
-            .map(|y| (0..100u16).map(|x| cell_char(&buf, x, y)).collect())
-            .collect();
-
-        // The first and last title lines start with distinct box-drawing sequences.
-        let first_title_fragment = "███████"; // top of F
-        let last_title_fragment = "╚═╝"; // bottom row of the art
-
-        let has_first = rows.iter().any(|r| r.contains(first_title_fragment));
-        let has_last = rows.iter().any(|r| r.contains(last_title_fragment));
-
-        assert!(
-            has_first,
-            "First title art row not found — title lines may have collapsed"
-        );
-        assert!(
-            has_last,
-            "Last title art row not found — title lines may have collapsed"
-        );
-
-        // They must appear on *different* rows.
-        let first_row = rows.iter().position(|r| r.contains(first_title_fragment));
-        let last_row = rows.iter().position(|r| r.contains(last_title_fragment));
-        assert_ne!(
-            first_row, last_row,
-            "First and last title rows appear on the same line — art collapsed"
-        );
+    fn menu_screen_renders_in_small_terminal() {
+        render_to_buffer(60, 18);
     }
 
-    /// Footer keyboard hints must be visible on the menu screen.
     #[test]
-    fn menu_footer_hints_are_rendered() {
-        let buf = render_to_buffer();
-        let full: String = (0..30u16)
-            .flat_map(|y| (0..100u16).map(move |x| (x, y)))
-            .map(|(x, y)| cell_char(&buf, x, y))
-            .collect();
+    fn production_copy_is_visible() {
+        let buf = render_to_buffer(100, 30);
+        let full = buffer_text(&buf, 100, 30);
+        assert!(
+            full.contains("FARSPACE")
+                || full.contains("F A R S P A C E")
+                || full.contains("███████")
+        );
+        assert!(full.contains("CHART • EXPAND • ENDURE"));
+    }
 
-        assert!(
-            full.contains("[N]"),
-            "Footer hint [N] missing from menu screen"
-        );
-        assert!(
-            full.contains("[L]"),
-            "Footer hint [L] missing from menu screen"
-        );
-        assert!(
-            full.contains("[Q]"),
-            "Footer hint [Q] missing from menu screen"
-        );
+    #[test]
+    fn compact_fallback_contains_core_menu() {
+        let buf = render_to_buffer(60, 18);
+        let full = buffer_text(&buf, 60, 18);
+        assert!(full.contains("FARSPACE"));
+        assert!(full.contains("New Game"));
+        assert!(full.contains("Quit"));
+    }
+
+    #[test]
+    fn prototype_copy_is_removed() {
+        let buf = render_to_buffer(100, 30);
+        let full = buffer_text(&buf, 100, 30);
+        assert!(!full.contains("Prototype"));
+        assert!(!full.contains("TELEMETRY"));
+        assert!(!full.contains("PREVIEW"));
+        assert!(!full.contains("Update"));
+    }
+
+    #[test]
+    fn selected_menu_item_is_rendered() {
+        let app_state = AppState {
+            menu_cursor: 2,
+            ..AppState::default()
+        };
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_menu(frame, frame.area(), &app_state))
+            .unwrap();
+        let full = buffer_text(terminal.backend().buffer(), 100, 30);
+        assert!(full.contains("▶ Options"));
     }
 }

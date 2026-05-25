@@ -25,11 +25,20 @@ Global rules: see `AGENTS.md` at repo root.
 - Only sends `Command` values to `game_core`. Never mutates core state directly.
 - Renders from `Event` values and snapshot views. No reaching into core internals.
 - No game logic in TUI code.
+- Treat `docs/design/ux-splash-screen.md` as canonical visual language for TUI work.
+- Reuse `Theme` palette roles and spacing patterns before adding new colours or visual motifs.
 - All navigation keyboard-first. No mouse-only affordances unless keyboard alternative exists.
 - All layouts use ratatui `Constraint`-based sizing — must be resize-safe.
 - Contextual help (`?`) available on every screen.
 - Command palette (`:`) reachable globally.
 - Minimal terminal feel: inspired by Neovim, K9s, Lazygit.
+
+## Design Language Guardrails
+
+- Visual tone: calm, cinematic, and spacious. Avoid telemetry-heavy density and widget clutter.
+- Composition: centered hierarchy with breathing room; avoid noisy border stacks.
+- Overlays: follow shared modal pattern (`Clear`, rounded border, close on `Esc`).
+- Footer and status treatments should stay subtle and legible.
 
 ## Testing
 

@@ -8,13 +8,14 @@ use crate::components::{
 };
 use crate::keys::KeyMap;
 use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData, OverviewSort};
+use crate::screens::menu::{menu_action_count, MenuAction};
 use crate::screens::research::{
     filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_ERA_FILTER_COUNT,
     RESEARCH_STATUS_FILTER_COUNT,
 };
 use crate::screens::ship_designer::{DesignerMode, DesignerPanel, ShipDesignerState};
 use crate::screens::Screen;
-use crate::update::{UpdateChannel, UpdateInfo, UpdateState};
+use crate::update::{UpdateChannel, UpdateConfirmKind, UpdateInfo, UpdateState};
 use crate::visual_mode::{map_symbol_for_mode, user_config_path, VisualMode};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::{
@@ -40,6 +41,9 @@ pub struct App {
     download_tx: Option<std::sync::mpsc::SyncSender<UpdateInfo>>,
     /// Receives download completion (Ok(version) = staged, Err = failed).
     download_rx: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
+    /// Set to true when the user confirms "apply update and restart".
+    /// The binary crate checks this after `run()` returns and re-execs the process.
+    restart_requested: bool,
 }
 
 /// UI state
@@ -76,6 +80,8 @@ pub struct AppState {
     pub(crate) update_state: UpdateState,
     /// Cursor position on the Settings screen.
     pub(crate) settings_cursor: usize,
+    /// Cursor position on the menu screen.
+    pub(crate) menu_cursor: usize,
 }
 
 /// UI overlay state shared by all screens.
@@ -94,6 +100,10 @@ pub(crate) struct OverlayState {
     pub(crate) battle_report_index: usize,
     /// Toggle between list and detailed inspect mode.
     pub(crate) battle_report_inspect: bool,
+    /// Whether the Settings modal is open.
+    pub(crate) show_settings: bool,
+    /// Update confirmation dialog — `Some` means the dialog is showing.
+    pub(crate) update_confirm: Option<UpdateConfirmKind>,
 }
 
 /// Cross-screen map/system selection state.
@@ -371,12 +381,19 @@ impl App {
             check_rx: None,
             download_tx: None,
             download_rx: None,
+            restart_requested: false,
         }
     }
 
     /// Returns the update channel the user has configured, for use by the binary crate.
     pub fn update_channel(&self) -> UpdateChannel {
         self.state.update_channel
+    }
+
+    /// Returns true if the user confirmed "apply update and restart".
+    /// The binary crate should check this after `run()` returns.
+    pub fn restart_requested(&self) -> bool {
+        self.restart_requested
     }
 
     /// Wire in the update channels from the binary crate's update system.
@@ -521,7 +538,7 @@ impl App {
     }
 
     /// Run the main event loop
-    pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
+    pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> io::Result<bool> {
         while !self.state.quit {
             self.poll_update_channels();
 
@@ -537,7 +554,7 @@ impl App {
             }
         }
 
-        Ok(())
+        Ok(self.restart_requested)
     }
 
     fn poll_update_channels(&mut self) {
@@ -643,11 +660,46 @@ impl App {
             }
         }
 
+        if self.state.overlay.show_settings {
+            crate::screens::settings::render_settings(frame, area, &self.state);
+        }
+
+        if let Some(confirm) = &self.state.overlay.update_confirm {
+            render_update_confirm(frame, area, confirm);
+        }
+
         self.apply_visual_mode_fallback(frame);
     }
 
     /// Handle a key event
     fn handle_key(&mut self, key: KeyEvent) {
+        // Update confirm dialog has highest priority — nothing else should fire underneath it.
+        if self.state.overlay.update_confirm.is_some() {
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    let kind = self.state.overlay.update_confirm.take();
+                    match kind {
+                        Some(UpdateConfirmKind::Download(info)) => {
+                            if let Some(tx) = &self.download_tx {
+                                let _ = tx.try_send(info);
+                                self.state.update_state = UpdateState::Downloading;
+                            }
+                        }
+                        Some(UpdateConfirmKind::ApplyAndRestart { .. }) => {
+                            self.restart_requested = true;
+                            self.state.quit = true;
+                        }
+                        None => {}
+                    }
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    self.state.overlay.update_confirm = None;
+                }
+                _ => {}
+            }
+            return;
+        }
+
         // Handle overlays first
         if self.state.overlay.show_battle_reports {
             match key.code {
@@ -695,6 +747,11 @@ impl App {
                 }
                 _ => {}
             }
+            return;
+        }
+
+        if self.state.overlay.show_settings {
+            self.handle_settings_key(key);
             return;
         }
 
@@ -790,38 +847,75 @@ impl App {
 
     fn handle_menu_key(&mut self, key: KeyEvent) {
         if KeyMap::is_new_game(key) {
-            self.state.active = Screen::EmpireSelect;
-        } else if matches!(key.code, KeyCode::Char('v') | KeyCode::Char('V')) {
+            self.state.menu_cursor = 0;
+            self.activate_menu_action(MenuAction::NewGame);
+        } else if matches!(key.code, KeyCode::Char('j') | KeyCode::Down) {
+            self.state.menu_cursor = (self.state.menu_cursor + 1) % menu_action_count();
+        } else if matches!(key.code, KeyCode::Char('k') | KeyCode::Up) {
+            self.state.menu_cursor = (self.state.menu_cursor
+                + menu_action_count().saturating_sub(1))
+                % menu_action_count();
+        } else if matches!(key.code, KeyCode::Enter) {
+            self.activate_menu_action(MenuAction::from_cursor(self.state.menu_cursor));
+        } else if matches!(
+            key.code,
+            KeyCode::Tab | KeyCode::Char('v') | KeyCode::Char('V')
+        ) {
             self.cycle_visual_mode();
-        } else if matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S')) {
-            self.state.active = Screen::Settings;
-        } else if matches!(key.code, KeyCode::Char('u') | KeyCode::Char('U')) {
-            self.trigger_update_download();
-        } else if matches!(key.code, KeyCode::Char('d') | KeyCode::Char('D')) {
-            self.state.update_state = UpdateState::Dismissed;
+        } else if matches!(
+            key.code,
+            KeyCode::Char('s') | KeyCode::Char('S') | KeyCode::Char('o') | KeyCode::Char('O')
+        ) {
+            self.state.menu_cursor = 2;
+            self.activate_menu_action(MenuAction::Options);
         } else if KeyMap::is_load_game(key) {
-            let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);
-            match self.load_game(&path) {
-                Ok(()) => {
-                    let msg = format!("Load: loaded {}", path.display());
-                    self.state.log.push(msg.clone());
-                    self.state.status_message = Some(msg);
+            self.state.menu_cursor = 1;
+            self.activate_menu_action(MenuAction::LoadGame);
+        } else if matches!(key.code, KeyCode::Char('u') | KeyCode::Char('U')) {
+            // Open update confirm dialog
+            let confirm = match &self.state.update_state {
+                UpdateState::Available(info) => {
+                    Some(UpdateConfirmKind::Download(info.clone()))
                 }
-                Err(e) => {
-                    self.state.log.push(e.clone());
-                    self.state.status_message = Some(e);
+                UpdateState::Staged { version } => {
+                    Some(UpdateConfirmKind::ApplyAndRestart { version: version.clone() })
                 }
+                _ => None,
+            };
+            if let Some(kind) = confirm {
+                self.state.overlay.update_confirm = Some(kind);
             }
+        } else if KeyMap::is_escape(key) {
+            self.state.menu_cursor = 3;
+            self.activate_menu_action(MenuAction::Quit);
         }
     }
 
-    fn trigger_update_download(&mut self) {
-        if let UpdateState::Available(info) = self.state.update_state.clone() {
-            if let Some(tx) = &self.download_tx {
-                if tx.try_send(info).is_ok() {
-                    self.state.update_state = UpdateState::Downloading;
+    fn activate_menu_action(&mut self, action: MenuAction) {
+        match action {
+            MenuAction::NewGame => {
+                self.state.active = Screen::EmpireSelect;
+            }
+            MenuAction::LoadGame => {
+                let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);
+                match self.load_game(&path) {
+                    Ok(()) => {
+                        let msg = format!("Load: loaded {}", path.display());
+                        self.state.log.push(msg.clone());
+                        self.state.status_message = Some(msg);
+                    }
+                    Err(e) => {
+                        self.state.log.push(e.clone());
+                        self.state.status_message = Some(e);
+                    }
                 }
-                // If send fails (worker exited or queue full), remain in Available state
+            }
+            MenuAction::Options => {
+                self.state.overlay.show_settings = true;
+                self.state.settings_cursor = 0;
+            }
+            MenuAction::Quit => {
+                self.state.quit = true;
             }
         }
     }
@@ -831,7 +925,11 @@ impl App {
         match key.code {
             KeyCode::Esc => {
                 let _ = self.persist_config();
-                self.state.active = Screen::Menu;
+                // Close overlay; if somehow on old Settings screen navigate back to Menu
+                self.state.overlay.show_settings = false;
+                if self.state.active == Screen::Settings {
+                    self.state.active = Screen::Menu;
+                }
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 self.state.settings_cursor = (self.state.settings_cursor + 1) % count;
@@ -2939,6 +3037,63 @@ impl Default for App {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn render_update_confirm(
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    confirm: &UpdateConfirmKind,
+) {
+    use ratatui::{
+        layout::{Alignment, Constraint, Direction, Layout},
+        style::{Color, Style},
+        text::Line,
+        widgets::{Block, BorderType, Borders, Clear, Paragraph},
+    };
+
+    let box_width = 50u16.min(area.width.saturating_sub(4));
+    let box_height = 9u16.min(area.height.saturating_sub(4));
+    let x = area.x + (area.width.saturating_sub(box_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(box_height)) / 2;
+    let dialog_area = ratatui::layout::Rect::new(x, y, box_width, box_height);
+
+    frame.render_widget(Clear, dialog_area);
+
+    let block = Block::default()
+        .title(format!(" {} ", confirm.title()))
+        .title_alignment(Alignment::Center)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Cyan))
+        .style(Style::default().bg(Color::Black));
+    let inner = block.inner(dialog_area);
+    frame.render_widget(block, dialog_area);
+
+    let body = confirm.body();
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    frame.render_widget(
+        Paragraph::new(body).alignment(Alignment::Center).style(Style::default().fg(Color::White)),
+        rows[1],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            ratatui::text::Span::styled("[Y] Yes", Style::default().fg(Color::Cyan)),
+            ratatui::text::Span::raw("    "),
+            ratatui::text::Span::styled("[N] No / Esc", Style::default().fg(Color::DarkGray)),
+        ]))
+        .alignment(Alignment::Center),
+        rows[3],
+    );
 }
 
 #[cfg(test)]

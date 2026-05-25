@@ -57,6 +57,18 @@ Rules:
   - Colony / Empire Overview / Research / Diplomacy
 - TUI tests prefer state transitions and render smoke assertions over brittle full snapshots
 
+### Overlay Pattern
+
+Non-game-state dialogs (settings, dispatch, battle reports, update confirm) use the overlay pattern:
+
+1. `OverlayState` in `app.rs` holds a `show_X: bool` or `Option<T>` field.
+2. `handle_key` checks overlays first (highest priority), returns early after handling.
+3. `App::render` renders overlays last — they paint on top of all screens.
+4. Overlays use `Clear` widget + `BorderType::Rounded` + cyan border.
+5. All overlays close on `Esc`.
+
+See `docs/design/ux-splash-screen.md` for the splash layout, palette, and update flow standards.
+
 ## AI Architecture
 
 - AI runs in `game_core::ai` and executes deterministic decision sequence per turn

@@ -12,6 +12,7 @@ Use this index as entrypoint for design and direction docs.
 
 ## System Design
 
+- [Splash Screen & TUI UX Standard](ux-splash-screen.md)
 - [Technology Tree](tech-tree.md)
 - [Planet Specials and Anomalies](planet-specials-and-anomalies.md)
 - [Strategic Resources](strategic-resources.md)

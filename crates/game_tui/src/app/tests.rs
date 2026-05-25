@@ -2993,7 +2993,7 @@ fn menu_s_key_opens_settings_screen() {
     let mut app = App::new();
     app.state.active = Screen::Menu;
     app.handle_key(key(KeyCode::Char('s')));
-    assert_eq!(app.state.active, Screen::Settings);
+    assert!(app.state.overlay.show_settings);
 }
 
 #[test]
@@ -3001,21 +3001,71 @@ fn menu_s_key_uppercase_also_opens_settings() {
     let mut app = App::new();
     app.state.active = Screen::Menu;
     app.handle_key(key(KeyCode::Char('S')));
-    assert_eq!(app.state.active, Screen::Settings);
+    assert!(app.state.overlay.show_settings);
+}
+
+#[test]
+fn menu_o_key_opens_settings_screen() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.handle_key(key(KeyCode::Char('o')));
+    assert!(app.state.overlay.show_settings);
+}
+
+#[test]
+fn menu_enter_starts_new_game_flow() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.state.active, Screen::EmpireSelect);
+}
+
+#[test]
+fn menu_tab_cycles_visual_mode() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    let initial = app.state.visual_mode;
+    app.handle_key(key(KeyCode::Tab));
+    assert_ne!(app.state.visual_mode, initial);
+}
+
+#[test]
+fn menu_down_moves_cursor() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.handle_key(key(KeyCode::Down));
+    assert_eq!(app.state.menu_cursor, 1);
+}
+
+#[test]
+fn menu_enter_activates_selected_option() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.state.menu_cursor = 2;
+    app.handle_key(key(KeyCode::Enter));
+    assert!(app.state.overlay.show_settings);
+}
+
+#[test]
+fn menu_escape_quits() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.handle_key(key(KeyCode::Esc));
+    assert!(app.state.quit);
 }
 
 #[test]
 fn settings_esc_returns_to_menu() {
     let mut app = App::new();
-    app.state.active = Screen::Settings;
+    app.state.overlay.show_settings = true;
     app.handle_key(key(KeyCode::Esc));
-    assert_eq!(app.state.active, Screen::Menu);
+    assert!(!app.state.overlay.show_settings);
 }
 
 #[test]
 fn settings_j_advances_cursor() {
     let mut app = App::new();
-    app.state.active = Screen::Settings;
+    app.state.overlay.show_settings = true;
     app.state.settings_cursor = 0;
     app.handle_key(key(KeyCode::Char('j')));
     assert_eq!(app.state.settings_cursor, 1);
@@ -3024,7 +3074,7 @@ fn settings_j_advances_cursor() {
 #[test]
 fn settings_down_arrow_advances_cursor() {
     let mut app = App::new();
-    app.state.active = Screen::Settings;
+    app.state.overlay.show_settings = true;
     app.state.settings_cursor = 0;
     app.handle_key(key(KeyCode::Down));
     assert_eq!(app.state.settings_cursor, 1);
@@ -3033,7 +3083,7 @@ fn settings_down_arrow_advances_cursor() {
 #[test]
 fn settings_k_retreats_cursor() {
     let mut app = App::new();
-    app.state.active = Screen::Settings;
+    app.state.overlay.show_settings = true;
     app.state.settings_cursor = 2;
     app.handle_key(key(KeyCode::Char('k')));
     assert_eq!(app.state.settings_cursor, 1);
@@ -3042,7 +3092,7 @@ fn settings_k_retreats_cursor() {
 #[test]
 fn settings_up_arrow_retreats_cursor() {
     let mut app = App::new();
-    app.state.active = Screen::Settings;
+    app.state.overlay.show_settings = true;
     app.state.settings_cursor = 1;
     app.handle_key(key(KeyCode::Up));
     assert_eq!(app.state.settings_cursor, 0);
@@ -3125,7 +3175,7 @@ fn settings_enter_cycles_visual_mode_on_first_row() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn menu_d_key_dismisses_available_update() {
+fn menu_d_key_does_not_change_update_state() {
     let mut app = App::new();
     app.state.active = Screen::Menu;
     app.state.update_state = crate::update::UpdateState::Available(crate::update::UpdateInfo {
@@ -3136,19 +3186,19 @@ fn menu_d_key_dismisses_available_update() {
     app.handle_key(key(KeyCode::Char('d')));
     assert!(matches!(
         app.state.update_state,
-        crate::update::UpdateState::Dismissed
+        crate::update::UpdateState::Available(_)
     ));
 }
 
 #[test]
-fn menu_d_key_uppercase_also_dismisses() {
+fn menu_d_key_uppercase_also_leaves_update_state_unchanged() {
     let mut app = App::new();
     app.state.active = Screen::Menu;
     app.state.update_state = crate::update::UpdateState::Error("oops".into());
     app.handle_key(key(KeyCode::Char('D')));
     assert!(matches!(
         app.state.update_state,
-        crate::update::UpdateState::Dismissed
+        crate::update::UpdateState::Error(_)
     ));
 }
 

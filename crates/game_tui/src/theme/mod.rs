@@ -1,9 +1,17 @@
 //! Color theme for the TUI
 
+pub mod capability;
+pub mod gradient;
+pub mod palette;
+
 use game_core::{EmpireId, FleetSupplyState};
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::faction::FogState;
+
+pub use capability::ColorMode;
+pub use gradient::{gradient, lerp_rgb};
+pub use palette::SplashPalette;
 
 /// Theme colors for the UI
 pub struct Theme;
@@ -49,8 +57,16 @@ impl Theme {
         Color::DarkGray
     }
 
+    pub fn color_mode() -> ColorMode {
+        capability::detect_color_mode()
+    }
+
     pub fn space_bg() -> Color {
         Color::Rgb(5, 8, 16)
+    }
+
+    pub fn splash_palette() -> SplashPalette {
+        SplashPalette::for_mode(Self::color_mode())
     }
 
     pub fn fog_color(state: FogState) -> Color {
@@ -101,7 +117,7 @@ impl Theme {
             game_core::SpectralClass::A => Color::White,
             game_core::SpectralClass::F => Color::LightYellow,
             game_core::SpectralClass::G => Color::Yellow,
-            game_core::SpectralClass::K => Color::Rgb(255, 165, 0), // Orange
+            game_core::SpectralClass::K => Color::Rgb(255, 165, 0),
             game_core::SpectralClass::M => Color::Red,
         }
     }
@@ -228,5 +244,10 @@ mod tests {
             Theme::focused_border_style().fg,
             Theme::dim_border_style().fg
         );
+    }
+
+    #[test]
+    fn splash_palette_defaults_to_truecolor() {
+        assert_eq!(Theme::color_mode(), ColorMode::TrueColor);
     }
 }

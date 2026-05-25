@@ -75,6 +75,37 @@ pub enum UpdateState {
     Error(String),
 }
 
+/// What the update confirmation dialog will do when the user presses Y.
+#[derive(Debug, Clone)]
+pub enum UpdateConfirmKind {
+    /// Download and stage the update.
+    Download(UpdateInfo),
+    /// Apply the already-staged update and restart the process.
+    ApplyAndRestart { version: String },
+}
+
+impl UpdateConfirmKind {
+    pub fn title(&self) -> &str {
+        match self {
+            Self::Download(_) => "Download Update?",
+            Self::ApplyAndRestart { .. } => "Apply Update & Restart?",
+        }
+    }
+
+    pub fn body(&self) -> String {
+        match self {
+            Self::Download(info) => format!(
+                "Version {} is available.\nDownload and stage for installation?",
+                info.version
+            ),
+            Self::ApplyAndRestart { version } => format!(
+                "Version {} is staged and ready.\nApply now and restart FARSPACE?",
+                version
+            ),
+        }
+    }
+}
+
 impl UpdateState {
     /// Returns true if a notification widget should be shown on the menu screen.
     pub fn is_notifiable(&self) -> bool {

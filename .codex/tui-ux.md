@@ -23,9 +23,18 @@ Specialist for terminal UI. Handles screens, components, keyboard input, layouts
 - Only sends `Command` values to `game_core`. Never mutates `GameState` directly.
 - Renders from `Event` values and snapshot views only.
 - No game logic in TUI code.
+- Treat `docs/design/ux-splash-screen.md` as canonical visual language for TUI work.
+- Reuse `Theme` palette roles and established spacing/composition patterns before adding new colours or motifs.
 - Keyboard-first. No mouse-only affordances without keyboard alternative.
 - All layouts use ratatui `Constraint`-based sizing — resize-safe.
 - `?` help available on every screen. `:` command palette reachable globally.
+
+## Design Language Guardrails
+
+- Visual tone: calm, cinematic, spacious; avoid telemetry-style density and dashboard clutter.
+- Composition: clear centered hierarchy and breathing room; avoid noisy border stacks.
+- Overlays: follow shared modal pattern (`Clear`, rounded border, close on `Esc`).
+- Keep footer/status accents subtle and readable.
 
 ## Testing
 

@@ -130,6 +130,8 @@ Status labels:
 - Screen modules: Menu, New Game Setup, Sector Overview, Sector Map, System, Colony, Empire Overview, Research, Diplomacy, Ship Designer
 - Global help overlay and command palette implemented
 - Keyboard-first navigation and resize-safe layouts in active use
+- Settings, Galactic Dispatch, Battle Reports, Update Confirm all use the overlay modal pattern (see `docs/design/ux-splash-screen.md`)
+- Splash screen is the canonical UX reference: full-viewport starfield, palette-driven title/tagline/menu/footer, update notification banner
 
 ## Save / Load
 

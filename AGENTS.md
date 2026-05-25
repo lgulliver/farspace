@@ -99,6 +99,9 @@ FARSPACE uses original content only. When adding factions, technologies, ships, 
 - Contextual help (`?`) must be available on every screen.
 - Command palette (`:`) should be reachable globally.
 - Maintain a polished, minimal terminal feel inspired by Neovim, K9s, Lazygit.
+- TUI visual language source of truth: `docs/design/ux-splash-screen.md`.
+- Keep composition calm/cinematic/spacious; avoid telemetry-heavy widget clutter.
+- Reuse `Theme` palette roles and established spacing/composition patterns before adding new motifs.
 - Do not add mouse-only affordances unless keyboard alternatives exist.
 
 ---

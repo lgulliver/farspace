@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.6.2",
+  "checkpoint_id": "e3d04b3e9fc6",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "crates/game_tui/src/screens/sector_map.rs",
+    "crates/game_tui/src/screens/sector_overview.rs",
+    "crates/game_tui/src/screens/system.rs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e3/d04b3e9fc6/0/metadata.json",
+      "transcript": "/e3/d04b3e9fc6/0/full.jsonl",
+      "content_hash": "/e3/d04b3e9fc6/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 4209,
+    "api_call_count": 15
+  }
+}

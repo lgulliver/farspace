@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.6.2",
+  "checkpoint_id": "e3d04b3e9fc6",
+  "session_id": "742af6ee-b65d-4232-b0f7-742587f7c6b3",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-25T20:39:40.468149Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "crates/game_tui/src/screens/sector_map.rs",
+    "crates/game_tui/src/screens/sector_overview.rs",
+    "crates/game_tui/src/screens/system.rs"
+  ],
+  "agent": "Copilot CLI",
+  "model": "auto",
+  "turn_id": "14bf2e89ba9c",
+  "checkpoint_transcript_start": 2211,
+  "transcript_lines_at_start": 2211,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 4209,
+    "api_call_count": 15
+  },
+  "session_metrics": {
+    "turn_count": 16
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-25T20:39:40.39214Z",
+    "agent_lines": 49,
+    "agent_removed": 16,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 49,
+    "total_lines_changed": 65,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

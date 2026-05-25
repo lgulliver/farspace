@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.6.2",
+  "checkpoint_id": "482b4a7dbf9a",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 11,
+  "files_touched": [
+    "crates/game_tui/src/app.rs",
+    "crates/game_tui/src/app/tests.rs",
+    "crates/game_tui/src/components/emblem.rs",
+    "crates/game_tui/src/components/footer.rs",
+    "crates/game_tui/src/components/help.rs",
+    "crates/game_tui/src/components/mod.rs",
+    "crates/game_tui/src/screens/new_game_setup.rs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/48/2b4a7dbf9a/0/metadata.json",
+      "transcript": "/48/2b4a7dbf9a/0/full.jsonl",
+      "content_hash": "/48/2b4a7dbf9a/0/content_hash.txt",
+      "prompt": "/48/2b4a7dbf9a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 57061,
+    "api_call_count": 97
+  }
+}

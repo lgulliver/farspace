@@ -1,8 +1,10 @@
 # FARSPACE
 
+<img width="1248" height="781" alt="image" src="https://github.com/user-attachments/assets/8894e8ee-4d5f-44e0-9aa4-9d37455236a2" />
+
 Deterministic, turn-based 4X space strategy for terminal.
 
-- **Language:** Rust (2021)
+- **Language:** Rust
 - **UI:** `ratatui` + `crossterm`
 - **Simulation:** headless `game_core` with command/event model
 - **Design:** keyboard-first, professional terminal UX

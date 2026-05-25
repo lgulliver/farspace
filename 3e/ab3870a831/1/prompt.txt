@@ -1,0 +1,328 @@
+[📷 ChatGPT Image May 25, 2026, 05_49_04 PM.png]
+
+# Copilot Task: Remove Signal Glyph + Refine Final Splash Composition
+
+The splash screen is much closer now, but one element still feels unnecessary:
+
+Remove the SIGNAL GLYPH entirely.
+
+The splash screen does not need a decorative emblem widget.
+
+Right now it adds visual noise and weakens the clean command-deck composition.
+
+We want the splash screen to feel confident enough to stand on:
+
+- the FARSPACE identity
+- the background atmosphere
+- the typography
+- the menu hierarchy
+- the footer framing
+
+without needing an extra decorative panel.
+
+---
+
+# Updated Visual Direction
+
+The splash should feel like:
+
+- a premium strategy game launcher
+- a futuristic command terminal
+- calm and cinematic
+- spacious but intentional
+- readable from across the room
+- elegant in motionless screenshots
+
+NOT:
+
+- a dashboard prototype
+- a telemetry panel
+- a sci-fi UI experiment
+- a collection of widgets
+
+---
+
+# Required Changes
+
+---
+
+# 1. Remove SIGNAL GLYPH Entirely
+
+Delete:
+
+- SIGNAL GLYPH label
+- emblem rendering
+- emblem widget/panel
+- emblem preview structs if splash-specific
+- placeholder iconography related only to the splash screen
+
+Do NOT replace it with another panel.
+
+We want cleaner composition and stronger focus.
+
+Future empire/faction identity systems can exist elsewhere later.
+
+---
+
+# 2. Rebalance the Layout After Removal
+
+After removing the glyph section:
+
+- tighten vertical spacing
+- pull the menu slightly lower from the logo
+- improve visual flow from:
+  - logo
+  - tagline
+  - menu
+  - footer
+
+The splash should feel centered and balanced.
+
+Avoid leaving a giant empty hole where the glyph used to be.
+
+---
+
+# 3. Restore Strong Title Presence
+
+The FARSPACE logo/title should remain visually dominant.
+
+Requirements:
+
+- large stylized title
+- premium gradient rendering
+- centered upper-third composition
+- strong readability
+- clean spacing around title
+
+The title should immediately communicate:
+
+```text
+This is the game.
+```
+
+Do not reduce it to tiny utility text again.
+
+---
+
+# 4. Keep the Tagline
+
+Official tagline:
+
+```text
+CHART • EXPAND • ENDURE
+```
+
+Keep it directly beneath the title.
+
+Recommended styling:
+
+- smaller than title
+- spaced lettering
+- cyan or muted accent tone
+- subtle horizontal separators optional
+
+Example direction:
+
+```text
+        FARSPACE
+
+   CHART • EXPAND • ENDURE
+```
+
+---
+
+# 5. Improve the Menu Presentation
+
+The menu should become the secondary focal point.
+
+Preferred structure:
+
+```text
+▶ New Game
+  Load Game
+  Options
+  Quit
+```
+
+Selection state should be:
+
+- obvious
+- elegant
+- restrained
+
+Use:
+
+- cyan accent
+- subtle background tint
+- optional bold modifier
+
+Avoid:
+
+- flashing
+- excessive symbols
+- noisy borders
+
+---
+
+# 6. Restore a Proper Footer
+
+Bring back the footer/navigation strip.
+
+The footer should:
+
+- visually anchor the screen
+- separate UI from background
+- reinforce terminal-app polish
+
+Suggested structure:
+
+```text
+Enter Select   ↑↓ Move   ? Help   Esc Quit
+```
+
+with subtle version info aligned right:
+
+```text
+v0.1.0-alpha
+```
+
+Recommended footer style:
+
+- thin separator line
+- muted border glow
+- lower contrast than main UI
+- subtle background tint
+
+---
+
+# 7. Keep Background Atmospheric but Calm
+
+The calmer background direction is correct.
+
+Maintain:
+
+- sparse stars
+- deep navy/black space
+- subtle violet/cyan nebula haze
+
+Further reduce:
+
+- obvious vertical streak repetition
+- dense pixel rain appearance
+- high-frequency visual noise
+
+The background should feel cinematic and distant.
+
+---
+
+# 8. Improve Overall Composition
+
+The screen should now feel like:
+
+```text
+┌──────────────────────────────────────────────────────┐
+│                                                      │
+│                      FARSPACE                        │
+│                                                      │
+│               CHART • EXPAND • ENDURE               │
+│                                                      │
+│                                                      │
+│                    ▶ New Game                        │
+│                      Load Game                       │
+│                      Options                         │
+│                      Quit                            │
+│                                                      │
+├──────────────────────────────────────────────────────┤
+│ Enter Select  ↑↓ Move  ? Help  Esc Quit    v0.1.0   │
+└──────────────────────────────────────────────────────┘
+```
+
+The composition should feel:
+
+- balanced
+- premium
+- intentional
+- uncluttered
+- recognizable
+
+---
+
+# 9. Preserve Resize Behavior
+
+Must still render cleanly at:
+
+- 80x24 minimum
+- 120x36 preferred
+- ultrawide terminals
+
+Fallback remains important.
+
+---
+
+# 10. Maintain Architecture Quality
+
+Keep implementation reusable:
+
+- theme system
+- gradient utilities
+- footer component
+- title renderer
+- menu styling
+
+Do not introduce splash-only hacks.
+
+Maintain clean separation between:
+
+- UI
+- rendering
+- game logic
+
+---
+
+# Acceptance Criteria
+
+- SIGNAL GLYPH is fully removed
+- FARSPACE title is dominant again
+- Footer strip returns
+- Layout feels balanced
+- Menu feels intentional and centered
+- Background remains restrained
+- Splash feels premium and production-ready
+- No prototype/debug/test content remains
+- Existing keyboard navigation still works
+- No new GUI/image dependencies
+- Code compiles cleanly
+
+---
+
+You have not yet marked the task as complete using the task_complete tool. If you were planning, stop planning and start implementing. You aren't done until you have fully completed the task.
+
+IMPORTANT: Do NOT call task_complete if:
+- You have open questions or ambiguities - make good decisions and keep working
+- You encountered an error - try to resolve it or find an alternative approach
+- There are remaining steps - complete them first
+
+Keep working autonomously until the task is truly finished, then call task_complete.
+
+---
+
+the background / title screen doesn't take up the full view port of the terminal. it should.
+
+it seems to have also lost the pop up saying there's a new version available.
+
+Addiitonally, settings should probably be a modal dialog rather than a separate screen
+
+---
+
+I don't think that restart to apply is working for updates. we should also ask the user if they want to install it and if they do, then install it and restart the app.
+
+---
+
+You have not yet marked the task as complete using the task_complete tool. If you were planning, stop planning and start implementing. You aren't done until you have fully completed the task.
+
+IMPORTANT: Do NOT call task_complete if:
+- You have open questions or ambiguities - make good decisions and keep working
+- You encountered an error - try to resolve it or find an alternative approach
+- There are remaining steps - complete them first
+
+Keep working autonomously until the task is truly finished, then call task_complete.

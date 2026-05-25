@@ -3,17 +3,24 @@
   "checkpoint_id": "3eab3870a831",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 3,
+  "checkpoints_count": 8,
   "files_touched": [
+    "crates/farspace/src/main.rs",
     "crates/game_tui/src/app.rs",
     "crates/game_tui/src/app/tests.rs",
     "crates/game_tui/src/components/footer.rs",
     "crates/game_tui/src/screens/menu.rs",
+    "crates/game_tui/src/screens/settings.rs",
     "crates/game_tui/src/theme.rs",
     "crates/game_tui/src/theme/capability.rs",
     "crates/game_tui/src/theme/gradient.rs",
     "crates/game_tui/src/theme/mod.rs",
-    "crates/game_tui/src/theme/palette.rs"
+    "crates/game_tui/src/theme/palette.rs",
+    "crates/game_tui/src/update.rs",
+    "docs/architecture.md",
+    "docs/current-state.md",
+    "docs/design/index.md",
+    "docs/design/ux-splash-screen.md"
   ],
   "sessions": [
     {
@@ -21,13 +28,19 @@
       "transcript": "/3e/ab3870a831/0/full.jsonl",
       "content_hash": "/3e/ab3870a831/0/content_hash.txt",
       "prompt": "/3e/ab3870a831/0/prompt.txt"
+    },
+    {
+      "metadata": "/3e/ab3870a831/1/metadata.json",
+      "transcript": "/3e/ab3870a831/1/full.jsonl",
+      "content_hash": "/3e/ab3870a831/1/content_hash.txt",
+      "prompt": "/3e/ab3870a831/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 766534,
-    "cache_creation_tokens": 0,
-    "cache_read_tokens": 8735232,
-    "output_tokens": 39609,
-    "api_call_count": 80
+    "input_tokens": 4842424,
+    "cache_creation_tokens": 459092,
+    "cache_read_tokens": 12350081,
+    "output_tokens": 60637,
+    "api_call_count": 131
   }
 }

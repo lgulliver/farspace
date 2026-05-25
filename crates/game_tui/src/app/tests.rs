@@ -2822,9 +2822,6 @@ fn test_dispatch_overlay_closes_with_lowercase_n() {
 fn setup_flow_starts_game_from_new_game_setup_screen() {
     let mut app = App::new();
     app.handle_key(key(KeyCode::Char('n')));
-    assert_eq!(app.state.active, Screen::EmpireSelect);
-
-    app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.state.active, Screen::NewGameSetup);
 
     app.handle_key(key(KeyCode::Char('S')));
@@ -2836,9 +2833,6 @@ fn setup_flow_starts_game_from_new_game_setup_screen() {
 fn setup_flow_starts_game_from_new_game_setup_screen_with_lowercase_s() {
     let mut app = App::new();
     app.handle_key(key(KeyCode::Char('n')));
-    assert_eq!(app.state.active, Screen::EmpireSelect);
-
-    app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.state.active, Screen::NewGameSetup);
 
     app.handle_key(key(KeyCode::Char('s')));
@@ -3017,7 +3011,7 @@ fn menu_enter_starts_new_game_flow() {
     let mut app = App::new();
     app.state.active = Screen::Menu;
     app.handle_key(key(KeyCode::Enter));
-    assert_eq!(app.state.active, Screen::EmpireSelect);
+    assert_eq!(app.state.active, Screen::NewGameSetup);
 }
 
 #[test]

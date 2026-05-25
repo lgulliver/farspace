@@ -75,9 +75,9 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Op
             ("[?]", "Help"),
         ],
         Screen::NewGameSetup => vec![
-            ("[j/k]", "Select Field"),
-            ("[h/l]", "Change Value"),
-            ("[Enter]", "Use Field"),
+            ("[↑↓/jk]", "Navigate"),
+            ("[←→/hl]", "Adjust"),
+            ("[Enter]", "Edit/Start"),
             ("[S]", "Start"),
             ("[Esc]", "Back"),
             ("[?]", "Help"),

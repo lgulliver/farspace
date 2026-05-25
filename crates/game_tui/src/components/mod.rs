@@ -2,6 +2,7 @@
 
 pub mod battle_report;
 pub mod dispatch;
+pub mod emblem;
 pub mod footer;
 pub mod header;
 pub mod help;
@@ -10,6 +11,7 @@ pub mod palette;
 
 pub use battle_report::render_battle_reports;
 pub use dispatch::render_dispatch;
+pub use emblem::{render_empire_emblem, EmblemPattern, EmpireEmblem, EmpireEmblemPalette};
 pub use footer::render_footer;
 pub use header::{derive_header_data, render_header, HeaderData};
 pub use help::render_help;

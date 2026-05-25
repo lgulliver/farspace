@@ -77,7 +77,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("l / →", "Increase / cycle right"),
             HelpEntry::Binding("Enter", "Use selected field action"),
             HelpEntry::Binding("S", "Start game immediately"),
-            HelpEntry::Binding("Esc", "Cancel seed edit / Return to empire selection"),
+            HelpEntry::Binding("Esc", "Cancel seed edit / Return to main menu"),
             HelpEntry::Section("Seed editing"),
             HelpEntry::Binding("0-9", "Type seed digits"),
             HelpEntry::Binding("Backspace", "Delete last digit"),

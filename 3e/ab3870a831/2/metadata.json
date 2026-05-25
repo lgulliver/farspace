@@ -1,0 +1,121 @@
+{
+  "cli_version": "0.6.2",
+  "checkpoint_id": "3eab3870a831",
+  "session_id": "83abc00b-285f-4839-a791-ca3e120ce369",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-25T18:57:15.451454Z",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "files_touched": [
+    ".github/agents/tui-ux.agent.md",
+    ".github/copilot-instructions.md",
+    ".gitignore",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "crates/farspace/src/main.rs",
+    "crates/game_tui/src/app.rs",
+    "crates/game_tui/src/app/tests.rs",
+    "crates/game_tui/src/components/footer.rs",
+    "crates/game_tui/src/screens/menu.rs",
+    "crates/game_tui/src/screens/settings.rs",
+    "crates/game_tui/src/theme.rs",
+    "crates/game_tui/src/theme/capability.rs",
+    "crates/game_tui/src/theme/gradient.rs",
+    "crates/game_tui/src/theme/mod.rs",
+    "crates/game_tui/src/theme/palette.rs",
+    "crates/game_tui/src/update.rs",
+    "docs/architecture.md",
+    "docs/current-state.md",
+    "docs/design/index.md",
+    "docs/design/ux-splash-screen.md"
+  ],
+  "agent": "Copilot CLI",
+  "model": "",
+  "turn_id": "aec2d3b55838",
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-25T18:57:15.449274Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 21,
+    "human_removed": 526,
+    "total_committed": 29,
+    "total_lines_changed": 547,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1980,
+      "user_lines_removed": 547,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/agents/entire-search.md": 25,
+        ".claude/settings.json": 84,
+        ".claude/settings.local.json": 8,
+        ".codex/agents/entire-search.toml": 23,
+        ".codex/config.toml": 3,
+        ".codex/hooks.json": 52,
+        ".github/hooks/entire.json": 61,
+        ".gitignore": 1,
+        ".opencode/plugins/entire.ts": 216,
+        "crates/farspace/src/main.rs": 33,
+        "crates/game_tui/src/app.rs": 182,
+        "crates/game_tui/src/app/tests.rs": 62,
+        "crates/game_tui/src/components/footer.rs": 3,
+        "crates/game_tui/src/screens/menu.rs": 530,
+        "crates/game_tui/src/screens/settings.rs": 9,
+        "crates/game_tui/src/theme/capability.rs": 14,
+        "crates/game_tui/src/theme/gradient.rs": 68,
+        "crates/game_tui/src/theme/mod.rs": 253,
+        "crates/game_tui/src/theme/palette.rs": 67,
+        "crates/game_tui/src/update.rs": 31,
+        "docs/architecture.md": 12,
+        "docs/current-state.md": 2,
+        "docs/design/index.md": 1,
+        "docs/design/ux-splash-screen.md": 240
+      },
+      "user_removed_per_file": {
+        "crates/farspace/src/main.rs": 1,
+        "crates/game_tui/src/app.rs": 27,
+        "crates/game_tui/src/app/tests.rs": 12,
+        "crates/game_tui/src/components/footer.rs": 1,
+        "crates/game_tui/src/screens/menu.rs": 269,
+        "crates/game_tui/src/screens/settings.rs": 5,
+        "crates/game_tui/src/theme.rs": 232
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 29,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1986,
+      "agent_lines_removed": 547,
+      "user_added_per_file": {
+        ".claude/agents/new-screen.md": 3,
+        ".claude/agents/tui-ux.md": 9,
+        ".claude/settings.local.json": 8,
+        ".codex/tui-ux.md": 9
+      }
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+lets make sure we also update any agents configured for TUI/UX to stick to our new design language
+
+---
+
+lets also update .gitignore to ingore anything we shouldn't be committing

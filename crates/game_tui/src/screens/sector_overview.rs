@@ -10,7 +10,7 @@ use crate::map_render::{
     MapLayer,
 };
 use crate::screens::Screen;
-use crate::theme::Theme;
+use crate::theme::{lerp_rgb, Theme};
 use crate::viewport::{MapViewport, ScreenPoint, ViewportBounds, WorldPoint};
 use crate::{
     renderer::{
@@ -75,12 +75,21 @@ pub fn render_sector_overview(
 }
 
 fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_state: &AppState) {
+    let palette = Theme::splash_palette();
     let block = Block::default()
         .title(" Galaxy — Sector Overview ")
-        .title_style(Theme::title_style())
+        .title_style(
+            Style::default()
+                .fg(palette.title_primary)
+                .add_modifier(Modifier::BOLD),
+        )
         .borders(Borders::ALL)
-        .border_style(Theme::focused_border_style())
-        .style(Theme::default_style());
+        .border_style(
+            Style::default()
+                .fg(palette.border_hot)
+                .add_modifier(Modifier::BOLD),
+        )
+        .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_a, 0.10)));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -379,13 +388,14 @@ fn render_sector_details(
     game_state: &GameState,
     selected_sector: Option<SectorId>,
 ) {
-    let border_style = Theme::dim_border_style();
+    let palette = Theme::splash_palette();
+    let border_style = Style::default().fg(palette.border_cold);
 
     let block = Block::default()
         .title(" Sector Details ")
         .borders(Borders::ALL)
         .border_style(border_style)
-        .style(Theme::default_style());
+        .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_b, 0.10)));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);

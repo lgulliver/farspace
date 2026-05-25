@@ -15,12 +15,12 @@ use crate::renderer::{
     Canvas, RenderLayer,
 };
 use crate::screens::Screen;
-use crate::theme::Theme;
+use crate::theme::{lerp_rgb, Theme};
 use crate::AppState;
 use game_core::{empire_definition_by_id, ColonySupplyState, FleetKind, GameState};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -109,11 +109,22 @@ fn render_orbital_panel(
     app_state: &AppState,
     game_state: &GameState,
 ) {
+    let palette = Theme::splash_palette();
     let glyphs = glyphs_for_mode(app_state.visual_mode);
     let block = Block::default()
         .title(" System Orbits ")
+        .title_style(
+            Style::default()
+                .fg(palette.title_primary)
+                .add_modifier(Modifier::BOLD),
+        )
         .borders(Borders::ALL)
-        .border_style(Theme::focused_border_style());
+        .border_style(
+            Style::default()
+                .fg(palette.border_hot)
+                .add_modifier(Modifier::BOLD),
+        )
+        .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_a, 0.10)));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -421,10 +432,12 @@ fn render_system_details(
     app_state: &AppState,
     game_state: &GameState,
 ) {
+    let palette = Theme::splash_palette();
     let block = Block::default()
         .title(" Planet Detail ")
         .borders(Borders::ALL)
-        .border_style(Theme::dim_border_style());
+        .border_style(Style::default().fg(palette.border_cold))
+        .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_b, 0.10)));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 

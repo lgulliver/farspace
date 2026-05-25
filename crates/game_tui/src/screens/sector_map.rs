@@ -16,7 +16,7 @@ use crate::map_render::{
     MapLayer,
 };
 use crate::screens::Screen;
-use crate::theme::Theme;
+use crate::theme::{lerp_rgb, Theme};
 use crate::viewport::{MapViewport, ScreenPoint, WorldPoint};
 use crate::{
     renderer::{
@@ -78,6 +78,7 @@ pub fn render_sector_map(
 }
 
 fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_state: &AppState) {
+    let palette = Theme::splash_palette();
     let glyphs = glyphs_for_mode(app_state.visual_mode);
     let sector_name = app_state
         .navigation
@@ -90,10 +91,18 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
 
     let block = Block::default()
         .title(title)
-        .title_style(Theme::title_style())
+        .title_style(
+            Style::default()
+                .fg(palette.title_primary)
+                .add_modifier(Modifier::BOLD),
+        )
         .borders(Borders::ALL)
-        .border_style(Theme::focused_border_style())
-        .style(Theme::default_style());
+        .border_style(
+            Style::default()
+                .fg(palette.border_hot)
+                .add_modifier(Modifier::BOLD),
+        )
+        .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_a, 0.10)));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -530,14 +539,15 @@ fn render_local_legend(frame: &mut Frame, area: Rect, mode: crate::visual_mode::
 }
 
 fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app_state: &AppState) {
+    let palette = Theme::splash_palette();
     let glyphs = glyphs_for_mode(app_state.visual_mode);
-    let border_style = Theme::dim_border_style();
+    let border_style = Style::default().fg(palette.border_cold);
 
     let block = Block::default()
         .title(" Systems ")
         .borders(Borders::ALL)
         .border_style(border_style)
-        .style(Theme::default_style());
+        .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_b, 0.10)));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);

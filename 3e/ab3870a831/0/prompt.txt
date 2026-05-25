@@ -1,0 +1,980 @@
+# Copilot Task: Upgrade Splash Screen with Truecolor TUI Styling
+
+We are upgrading the Rust TUI splash screen to establish a richer visual direction for the game.
+
+---
+
+# Goal
+
+Apply a polished 24-bit truecolor terminal style to the splash screen using our existing Rust TUI stack.
+
+The splash screen should feel closer to a professional terminal app dashboard than a plain ASCII title screen.
+
+Use Ratatui/Crossterm capabilities only.
+
+Do not introduce:
+
+- GUI frameworks
+- SDL
+- curses directly
+- web UI
+- image rendering dependencies
+
+---
+
+# Requirements
+
+## 1. Add color capability support
+
+Create a small color capability layer in `game_tui`, preferably under:
+
+```text
+crates/game_tui/src/theme/
+  capability.rs
+  palette.rs
+  gradient.rs
+```
+
+Implement:
+
+```rust
+pub enum ColorMode {
+    TrueColor,
+    Ansi256,
+    Mono,
+}
+```
+
+For now, default to `TrueColor`, but structure it so terminal detection/fallback can be added later.
+
+---
+
+## 2. Add semantic splash palette
+
+Do not hardcode random RGB values throughout the splash screen.
+
+Create a splash/theme palette with semantic roles.
+
+Example:
+
+```rust
+pub struct SplashPalette {
+    pub void_bg: Color,
+    pub nebula_a: Color,
+    pub nebula_b: Color,
+    pub star_core: Color,
+    pub title_primary: Color,
+    pub title_secondary: Color,
+    pub accent: Color,
+    pub border_hot: Color,
+    pub border_cold: Color,
+    pub text_muted: Color,
+    pub warning: Color,
+}
+```
+
+Use `Color::Rgb(r, g, b)` for truecolor.
+
+---
+
+## 3. Add gradient helpers
+
+Add helpers for generating color ramps:
+
+```rust
+pub fn lerp_rgb(a: Color, b: Color, t: f32) -> Color;
+
+pub fn gradient(
+    a: Color,
+    b: Color,
+    steps: usize,
+) -> Vec<Color>;
+```
+
+Support only `Color::Rgb` initially.
+
+If non-RGB colors are passed, fall back gracefully.
+
+---
+
+## 4. Redesign splash screen visuals
+
+Update the splash screen so it includes:
+
+- Large stylized game title
+- Subtle starfield / nebula background using Unicode glyphs
+- Truecolor gradient border or frame
+- Version/build info
+- “Press Enter to Start”
+- Secondary actions:
+  - `N` New Game
+  - `L` Load Game
+  - `O` Options
+  - `Q` Quit
+- Small footer hint:
+  - `? Help`
+  - `Tab Cycle`
+  - `Esc Back/Quit`
+
+The visual style should use Unicode safely:
+
+```text
+█ ▓ ▒ ░ · ✦ ✧ ◆ ◇ ◈ ▀ ▄ ─ │ ╭ ╮ ╰ ╯
+```
+
+Do not rely on emoji for core layout because terminal support varies.
+
+---
+
+## 5. Add an empire/logo preview area
+
+Since we want to revisit empire logos, add a small placeholder “signal/emblem” panel on the splash screen.
+
+Example:
+
+```text
+╭─ SIGNAL GLYPH ─╮
+│   ◈╱╲◈         │
+│   ╲██╱         │
+│   ╱██╲         │
+│   ◈╲╱◈         │
+╰────────────────╯
+```
+
+This should be rendered as a reusable helper/widget if practical, not embedded as one-off text.
+
+Create a simple enum or struct that can later become data-driven:
+
+```rust
+pub struct EmpireEmblemPreview {
+    pub primary: Color,
+    pub secondary: Color,
+    pub accent: Color,
+}
+```
+
+---
+
+## 6. Keep architecture clean
+
+The splash screen must remain UI-only.
+
+Do not mutate game state directly from rendering code.
+
+Input handling should continue to emit commands/actions through the existing app flow.
+
+---
+
+## 7. Resize behavior
+
+The splash screen must render acceptably at:
+
+- 80x24 minimum
+- 120x36 preferred
+- wider terminals
+
+If the terminal is too small, show a compact fallback:
+
+```text
+FARSPACE
+Press Enter
+```
+
+(or the current canonical game title if different)
+
+---
+
+## 8. Accessibility/fallback
+
+Add a simple path for future fallback modes:
+
+- Truecolor
+- 256-color
+- monochrome/high-contrast
+
+Do not fully implement all modes yet, but avoid making the splash impossible to degrade later.
+
+---
+
+## 9. Tests / validation
+
+Add lightweight tests where appropriate:
+
+- gradient interpolation returns expected colors
+- splash render does not panic at small sizes
+- splash render does not panic at normal sizes
+
+If snapshot tests already exist, update or add one.
+
+---
+
+# Implementation Notes
+
+Prefer building with Ratatui primitives:
+
+- `Block`
+- `Paragraph`
+- `Line`
+- `Span`
+- `Style`
+
+Use `Canvas` only if already used and helpful.
+
+Avoid overengineering.
+
+This is the first step toward a richer TUI theme system, not the final design framework.
+
+---
+
+# Visual Direction
+
+The splash screen should feel like:
+
+- a premium terminal application
+- a sci-fi command console
+- a modern observability dashboard
+- a polished strategy game launcher
+
+NOT:
+
+- a retro-only ASCII toy
+- a plain centered title
+- monochrome ncurses software
+- a noisy cyberpunk gimmick
+
+Aim for:
+
+- controlled color usage
+- subtle gradients
+- readable hierarchy
+- elegant spacing
+- high information density without clutter
+
+---
+
+# Acceptance Criteria
+
+- Splash screen uses truecolor `Color::Rgb`
+- Splash screen has visibly richer color, gradients, and Unicode polish
+- Rendering works at 80x24 and larger
+- Small terminal fallback exists
+- Palette/gradient code is reusable outside the splash screen
+- No game-core dependency on terminal/UI concepts
+- No new GUI/image dependencies
+- Code compiles cleanly
+- Existing navigation/input flow still works
+
+---
+
+# Suggested Future Expansion (Do Not Fully Implement Yet)
+
+Structure the implementation so future work can support:
+
+- animated nebula backgrounds
+- faction-specific themes
+- empire banners
+- tactical alert overlays
+- animated status bars
+- heat-map style galaxy rendering
+- procedural empire emblems
+- theme switching
+- accessibility palettes
+- CRT/dim-terminal simulation modes
+
+Do not implement these fully yet.
+
+Only ensure the architecture does not block them later.
+
+---
+
+# Copilot Task: Polish Splash Screen Into Production UI
+
+The current truecolor splash implementation works, but it still feels like a prototype.
+
+We now want to turn it into the real production splash screen for the game.
+
+The direction is:
+
+- premium terminal application
+- calm and readable
+- cinematic but restrained
+- command-deck aesthetic
+- clean sci-fi strategy identity
+
+---
+
+# Core Identity
+
+Game title:
+
+```text
+FARSPACE
+```
+
+Official tagline:
+
+```text
+CHART • EXPAND • ENDURE
+```
+
+This tagline should appear directly beneath the logo/title.
+
+It is now part of the game identity and should be treated as production copy.
+
+---
+
+# Goals
+
+- Reduce visual clutter
+- Remove test/prototype content
+- Improve visual hierarchy
+- Make the splash feel intentional and polished
+- Keep the truecolor sci-fi TUI direction
+- Ensure excellent readability at normal terminal sizes
+
+---
+
+# Current Problems To Fix
+
+- Background is too noisy/dense
+- Too many visual boxes compete for attention
+- Prototype/debug/test copy still exists
+- Menu contains non-production actions
+- Emblem preview feels disconnected
+- Footer duplicates menu functionality
+- Update toast feels unrelated to splash flow
+- Screen lacks breathing room
+
+---
+
+# Required Changes
+
+---
+
+# 1. Simplify the Background
+
+Keep the starfield and nebula aesthetic, but dramatically reduce noise.
+
+Target changes:
+
+- reduce vertical nebula streak density by ~70%
+- reduce bright star count
+- increase negative space
+- avoid “digital rain” appearance
+- preserve subtle motion/parallax support for future work
+
+The background should support the UI, not compete with it.
+
+Visual direction:
+
+- deep navy/black space
+- sparse stars
+- subtle violet/cyan nebula haze
+- occasional accent particles only
+
+---
+
+# 2. Clean Up the Main Menu
+
+The main menu should contain ONLY production actions:
+
+```text
+New Game
+Load Game
+Options
+Quit
+```
+
+Remove anything prototype/debug-related:
+
+```text
+Cycle Theme
+Dismiss
+Preview
+Prototype
+Telemetry test values
+Update Ready
+Debug labels
+Temporary copy
+```
+
+No fake telemetry.
+
+No placeholder status widgets.
+
+---
+
+# 3. Improve Layout Hierarchy
+
+Move toward one strong central composition instead of many equal-weight panels.
+
+Preferred composition:
+
+```text
+╭────────────────────────────────────────────────────────╮
+│                                                        │
+│                      FARSPACE                          │
+│              CHART • EXPAND • ENDURE                  │
+│                                                        │
+│   ▶ New Game                                           │
+│     Load Game                                          │
+│     Options                                            │
+│     Quit                                               │
+│                                                        │
+│                 SIGNAL GLYPH                           │
+│                    [emblem]                            │
+│                                                        │
+│   Enter Select   ↑↓ Move   ? Help   Esc Quit          │
+│                                                        │
+╰────────────────────────────────────────────────────────╯
+```
+
+Use spacing and typography hierarchy more than borders.
+
+Avoid dashboard fragmentation.
+
+---
+
+# 4. Make Selection State Clear
+
+Focused item should be visually obvious but restrained.
+
+Preferred styles:
+
+```text
+▶ New Game
+```
+
+or:
+
+```text
+› New Game
+```
+
+Selected row should use:
+
+- subtle background tint
+- accent foreground color
+- optional glow/bold modifier
+
+Avoid:
+
+- excessive brackets
+- flashing indicators
+- multiple competing highlight colors
+
+---
+
+# 5. Refine the FARSPACE Logo
+
+Keep the large stylized title rendering.
+
+Requirements:
+
+- clean gradient
+- readable at 80x24
+- no overlapping artifacts
+- more breathing room above/below
+- avoid background stars intersecting title glyphs
+- ensure high contrast on dark terminals
+
+Fallback for smaller terminals:
+
+```text
+FARSPACE
+CHART • EXPAND • ENDURE
+```
+
+---
+
+# 6. Integrate the Signal Glyph Properly
+
+Keep the emblem/signal glyph concept.
+
+Rename section to:
+
+```text
+SIGNAL GLYPH
+```
+
+The emblem should feel like:
+
+- faction symbolism
+- mysterious navigation beacon
+- ancient frontier signal
+- command insignia
+
+NOT:
+
+- debug widget
+- prototype preview
+- decorative filler panel
+
+Keep it compact and elegant.
+
+Avoid excessive borders around it.
+
+---
+
+# 7. Remove Toast/Update UI
+
+Do not show:
+
+- update notifications
+- dismiss prompts
+- staged build notices
+- unrelated popup cards
+
+Version info is acceptable but subtle.
+
+Example:
+
+```text
+v0.2.0-alpha
+```
+
+Place quietly in a footer corner.
+
+---
+
+# 8. Simplify Footer Controls
+
+Use a single concise footer line:
+
+```text
+Enter Select   ↑↓ Move   ? Help   Esc Quit
+```
+
+Do not duplicate full menu actions in another bar.
+
+Footer should feel quiet and secondary.
+
+---
+
+# 9. Use Truecolor With Restraint
+
+Maintain truecolor rendering support.
+
+Use truecolor primarily for:
+
+- logo gradient
+- selection highlight
+- subtle border glow
+- emblem accents
+- sparse nebula coloration
+
+Avoid rainbow overload.
+
+Preferred palette direction:
+
+- background: near-black navy
+- primary: pale cyan
+- secondary: muted blue
+- accent: soft violet OR amber
+- minimal pure white
+- no warning/red UI on splash
+
+The screen should feel cohesive and calm.
+
+---
+
+# 10. Resize Behavior
+
+Must render cleanly at:
+
+- 80x24 minimum
+- 120x36 preferred
+- ultrawide terminals
+
+Smaller fallback layout:
+
+```text
+FARSPACE
+CHART • EXPAND • ENDURE
+
+▶ New Game
+  Load Game
+  Options
+  Quit
+
+Enter Select   ↑↓ Move   Esc Quit
+```
+
+No overlapping panels.
+
+No clipped title art.
+
+---
+
+# 11. Maintain Clean Architecture
+
+Do not couple the splash screen directly to game logic.
+
+The splash remains UI-only.
+
+Input handling should continue using the existing command/event flow.
+
+Theme/palette code should remain reusable for:
+
+- galaxy map
+- colony screens
+- diplomacy
+- combat overlays
+- advisors
+- alerts
+
+---
+
+# 12. Animation Constraints
+
+Subtle animation is acceptable if already supported.
+
+Allowed:
+
+- faint star twinkle
+- slow nebula drift
+- soft menu pulse
+- border shimmer at low frequency
+
+Avoid:
+
+- rapid flashing
+- heavy particle motion
+- distracting animation loops
+
+Animation should feel ambient.
+
+---
+
+# Acceptance Criteria
+
+- No prototype/debug/test content remains
+- Main menu contains only real actions
+- Background is calmer and less noisy
+- Logo/tagline hierarchy feels premium
+- SIGNAL GLYPH feels integrated into the identity
+- Footer is concise
+- Selection state is obvious
+- Splash is readable at 80x24
+- Truecolor styling remains intact
+- Existing keyboard navigation still works
+- No new GUI/image dependencies
+- Code compiles cleanly
+- Architecture remains reusable for future theme work
+
+---
+
+# Future Direction (Do Not Fully Implement Yet)
+
+Keep architecture extensible for future additions:
+
+- animated nebula layers
+- faction-specific themes
+- empire banner systems
+- procedural emblem generation
+- advisor overlays
+- command deck transitions
+- tactical alert states
+- accessibility themes
+- CRT/low-power display modes
+
+Do not implement these fully yet.
+
+Only ensure the architecture does not block them later.
+
+---
+
+# Copilot Task: Remove Signal Glyph + Refine Final Splash Composition
+
+The splash screen is much closer now, but one element still feels unnecessary:
+
+Remove the SIGNAL GLYPH entirely.
+
+The splash screen does not need a decorative emblem widget.
+
+Right now it adds visual noise and weakens the clean command-deck composition.
+
+We want the splash screen to feel confident enough to stand on:
+
+- the FARSPACE identity
+- the background atmosphere
+- the typography
+- the menu hierarchy
+- the footer framing
+
+without needing an extra decorative panel.
+
+---
+
+# Updated Visual Direction
+
+The splash should feel like:
+
+- a premium strategy game launcher
+- a futuristic command terminal
+- calm and cinematic
+- spacious but intentional
+- readable from across the room
+- elegant in motionless screenshots
+
+NOT:
+
+- a dashboard prototype
+- a telemetry panel
+- a sci-fi UI experiment
+- a collection of widgets
+
+---
+
+# Required Changes
+
+---
+
+# 1. Remove SIGNAL GLYPH Entirely
+
+Delete:
+
+- SIGNAL GLYPH label
+- emblem rendering
+- emblem widget/panel
+- emblem preview structs if splash-specific
+- placeholder iconography related only to the splash screen
+
+Do NOT replace it with another panel.
+
+We want cleaner composition and stronger focus.
+
+Future empire/faction identity systems can exist elsewhere later.
+
+---
+
+# 2. Rebalance the Layout After Removal
+
+After removing the glyph section:
+
+- tighten vertical spacing
+- pull the menu slightly lower from the logo
+- improve visual flow from:
+  - logo
+  - tagline
+  - menu
+  - footer
+
+The splash should feel centered and balanced.
+
+Avoid leaving a giant empty hole where the glyph used to be.
+
+---
+
+# 3. Restore Strong Title Presence
+
+The FARSPACE logo/title should remain visually dominant.
+
+Requirements:
+
+- large stylized title
+- premium gradient rendering
+- centered upper-third composition
+- strong readability
+- clean spacing around title
+
+The title should immediately communicate:
+
+```text
+This is the game.
+```
+
+Do not reduce it to tiny utility text again.
+
+---
+
+# 4. Keep the Tagline
+
+Official tagline:
+
+```text
+CHART • EXPAND • ENDURE
+```
+
+Keep it directly beneath the title.
+
+Recommended styling:
+
+- smaller than title
+- spaced lettering
+- cyan or muted accent tone
+- subtle horizontal separators optional
+
+Example direction:
+
+```text
+        FARSPACE
+
+   CHART • EXPAND • ENDURE
+```
+
+---
+
+# 5. Improve the Menu Presentation
+
+The menu should become the secondary focal point.
+
+Preferred structure:
+
+```text
+▶ New Game
+  Load Game
+  Options
+  Quit
+```
+
+Selection state should be:
+
+- obvious
+- elegant
+- restrained
+
+Use:
+
+- cyan accent
+- subtle background tint
+- optional bold modifier
+
+Avoid:
+
+- flashing
+- excessive symbols
+- noisy borders
+
+---
+
+# 6. Restore a Proper Footer
+
+Bring back the footer/navigation strip.
+
+The footer should:
+
+- visually anchor the screen
+- separate UI from background
+- reinforce terminal-app polish
+
+Suggested structure:
+
+```text
+Enter Select   ↑↓ Move   ? Help   Esc Quit
+```
+
+with subtle version info aligned right:
+
+```text
+v0.1.0-alpha
+```
+
+Recommended footer style:
+
+- thin separator line
+- muted border glow
+- lower contrast than main UI
+- subtle background tint
+
+---
+
+# 7. Keep Background Atmospheric but Calm
+
+The calmer background direction is correct.
+
+Maintain:
+
+- sparse stars
+- deep navy/black space
+- subtle violet/cyan nebula haze
+
+Further reduce:
+
+- obvious vertical streak repetition
+- dense pixel rain appearance
+- high-frequency visual noise
+
+The background should feel cinematic and distant.
+
+---
+
+# 8. Improve Overall Composition
+
+The screen should now feel like:
+
+```text
+┌──────────────────────────────────────────────────────┐
+│                                                      │
+│                      FARSPACE                        │
+│                                                      │
+│               CHART • EXPAND • ENDURE               │
+│                                                      │
+│                                                      │
+│                    ▶ New Game                        │
+│                      Load Game                       │
+│                      Options                         │
+│                      Quit                            │
+│                                                      │
+├──────────────────────────────────────────────────────┤
+│ Enter Select  ↑↓ Move  ? Help  Esc Quit    v0.1.0   │
+└──────────────────────────────────────────────────────┘
+```
+
+The composition should feel:
+
+- balanced
+- premium
+- intentional
+- uncluttered
+- recognizable
+
+---
+
+# 9. Preserve Resize Behavior
+
+Must still render cleanly at:
+
+- 80x24 minimum
+- 120x36 preferred
+- ultrawide terminals
+
+Fallback remains important.
+
+---
+
+# 10. Maintain Architecture Quality
+
+Keep implementation reusable:
+
+- theme system
+- gradient utilities
+- footer component
+- title renderer
+- menu styling
+
+Do not introduce splash-only hacks.
+
+Maintain clean separation between:
+
+- UI
+- rendering
+- game logic
+
+---
+
+# Acceptance Criteria
+
+- SIGNAL GLYPH is fully removed
+- FARSPACE title is dominant again
+- Footer strip returns
+- Layout feels balanced
+- Menu feels intentional and centered
+- Background remains restrained
+- Splash feels premium and production-ready
+- No prototype/debug/test content remains
+- Existing keyboard navigation still works
+- No new GUI/image dependencies
+- Code compiles cleanly
+
+[Image #1]

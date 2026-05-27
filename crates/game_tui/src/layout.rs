@@ -53,8 +53,12 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 
 /// Create a fixed-size centered rect
 pub fn centered_fixed(width: u16, height: u16, area: Rect) -> Rect {
-    let x = area.x.saturating_add((area.width.saturating_sub(width)) / 2);
-    let y = area.y.saturating_add((area.height.saturating_sub(height)) / 2);
+    let x = area
+        .x
+        .saturating_add((area.width.saturating_sub(width)) / 2);
+    let y = area
+        .y
+        .saturating_add((area.height.saturating_sub(height)) / 2);
     Rect::new(x, y, width.min(area.width), height.min(area.height))
 }
 

@@ -2,6 +2,7 @@
 
 use crate::theme::{ColorMode, Theme};
 use ratatui::text::{Line, Span};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Offset used to round to nearest integer in `(x + 50) / 100` percentage math.
 const PERCENT_ROUNDING_OFFSET: usize = 50;
@@ -10,7 +11,7 @@ fn truncate_to_width(text: &str, width: usize) -> String {
     let mut out = String::new();
     let mut used = 0usize;
     for ch in text.chars() {
-        let ch_width = Line::from(ch.to_string()).width();
+        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
         if used.saturating_add(ch_width) > width {
             break;
         }
@@ -28,7 +29,7 @@ pub fn meter_line(label: impl Into<String>, percent: u8, total_width: u16) -> Li
 
     let percent = percent.min(100);
     let percent_text = format!("{percent:>3}%");
-    let suffix_width = Line::from(percent_text.clone()).width() + 1;
+    let suffix_width = UnicodeWidthStr::width(percent_text.as_str()) + 1;
     if width <= suffix_width {
         return Line::from(Span::styled(
             truncate_to_width(&percent_text, width),
@@ -40,7 +41,7 @@ pub fn meter_line(label: impl Into<String>, percent: u8, total_width: u16) -> Li
     let max_label = width.saturating_sub(suffix_width + 2);
     label_text = truncate_to_width(&label_text, max_label);
 
-    let label_width = Line::from(label_text.clone()).width();
+    let label_width = UnicodeWidthStr::width(label_text.as_str());
     let bar_width = width.saturating_sub(label_width + suffix_width + 1);
     if bar_width == 0 {
         return Line::from(vec![

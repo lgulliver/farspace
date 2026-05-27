@@ -11,3 +11,4 @@ game_core = { path = "../game_core" }
 game_save = { path = "../game_save" }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
+unicode-width = { workspace = true }

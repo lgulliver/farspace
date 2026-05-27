@@ -25,7 +25,10 @@ pub fn render_brand_header(frame: &mut Frame, area: Rect, compact: bool) {
     let mut spans = vec![Span::styled(brand, Theme::title_style())];
     if !compact && area.width >= 40 {
         spans.push(Span::styled("  │  ", Theme::dim_border_style()));
-        spans.push(Span::styled("CHART • EXPAND • ENDURE", Theme::muted_style()));
+        spans.push(Span::styled(
+            "CHART • EXPAND • ENDURE",
+            Theme::muted_style(),
+        ));
     }
     frame.render_widget(
         Paragraph::new(Line::from(spans)).style(Theme::default_style()),

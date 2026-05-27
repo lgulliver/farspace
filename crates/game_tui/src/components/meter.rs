@@ -7,7 +7,17 @@ use ratatui::text::{Line, Span};
 const PERCENT_ROUNDING_OFFSET: usize = 50;
 
 fn truncate_to_width(text: &str, width: usize) -> String {
-    text.chars().take(width).collect()
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let ch_width = Line::from(ch.to_string()).width();
+        if used.saturating_add(ch_width) > width {
+            break;
+        }
+        out.push(ch);
+        used = used.saturating_add(ch_width);
+    }
+    out
 }
 
 pub fn meter_line(label: impl Into<String>, percent: u8, total_width: u16) -> Line<'static> {
@@ -18,7 +28,7 @@ pub fn meter_line(label: impl Into<String>, percent: u8, total_width: u16) -> Li
 
     let percent = percent.min(100);
     let percent_text = format!("{percent:>3}%");
-    let suffix_width = percent_text.chars().count() + 1;
+    let suffix_width = Line::from(percent_text.clone()).width() + 1;
     if width <= suffix_width {
         return Line::from(Span::styled(
             truncate_to_width(&percent_text, width),
@@ -30,7 +40,8 @@ pub fn meter_line(label: impl Into<String>, percent: u8, total_width: u16) -> Li
     let max_label = width.saturating_sub(suffix_width + 2);
     label_text = truncate_to_width(&label_text, max_label);
 
-    let bar_width = width.saturating_sub(label_text.chars().count() + suffix_width + 1);
+    let label_width = Line::from(label_text.clone()).width();
+    let bar_width = width.saturating_sub(label_width + suffix_width + 1);
     if bar_width == 0 {
         return Line::from(vec![
             Span::styled(label_text, Theme::text_primary_style()),
@@ -73,5 +84,11 @@ mod tests {
         let _ = meter_line("Research", 70, 8);
         let _ = meter_line("Research", 70, 2);
         let _ = meter_line("Research", 70, 0);
+    }
+
+    #[test]
+    fn meter_respects_display_width_for_wide_unicode_labels() {
+        let line = meter_line("進捗", 70, 10);
+        assert!(line.width() <= 10);
     }
 }

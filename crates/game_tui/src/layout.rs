@@ -53,8 +53,8 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 
 /// Create a fixed-size centered rect
 pub fn centered_fixed(width: u16, height: u16, area: Rect) -> Rect {
-    let x = area.x + (area.width.saturating_sub(width)) / 2;
-    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    let x = area.x.saturating_add((area.width.saturating_sub(width)) / 2);
+    let y = area.y.saturating_add((area.height.saturating_sub(height)) / 2);
     Rect::new(x, y, width.min(area.width), height.min(area.height))
 }
 
@@ -68,7 +68,7 @@ pub fn split_sidebar_main(area: Rect, sidebar_width: u16) -> (Rect, Rect) {
     let sidebar_width = sidebar_width.min(area.width);
     let sidebar = Rect::new(area.x, area.y, sidebar_width, area.height);
     let main = Rect::new(
-        area.x + sidebar_width,
+        area.x.saturating_add(sidebar_width),
         area.y,
         area.width.saturating_sub(sidebar_width),
         area.height,
@@ -79,13 +79,21 @@ pub fn split_sidebar_main(area: Rect, sidebar_width: u16) -> (Rect, Rect) {
 /// Split area into main content and detail panel.
 pub fn split_main_detail(area: Rect) -> (Rect, Rect) {
     if area.width < 40 {
-        return (area, Rect::new(area.x + area.width, area.y, 0, area.height));
+        return (
+            area,
+            Rect::new(area.x.saturating_add(area.width), area.y, 0, area.height),
+        );
     }
     let detail_width = ((area.width as u32 * 35) / 100) as u16;
     let detail_width = detail_width.max(24).min(area.width.saturating_sub(20));
     let main_width = area.width.saturating_sub(detail_width);
     let main = Rect::new(area.x, area.y, main_width, area.height);
-    let detail = Rect::new(area.x + main_width, area.y, detail_width, area.height);
+    let detail = Rect::new(
+        area.x.saturating_add(main_width),
+        area.y,
+        detail_width,
+        area.height,
+    );
     (main, detail)
 }
 
@@ -169,5 +177,14 @@ mod tests {
         assert_eq!(main.width + detail.width, area.width);
         assert_eq!(main.height, area.height);
         assert_eq!(detail.height, area.height);
+    }
+
+    #[test]
+    fn split_helpers_handle_large_coordinates_without_overflow() {
+        let area = Rect::new(u16::MAX - 3, 0, 3, 1);
+        let (_sidebar, main) = split_sidebar_main(area, 2);
+        let (_main, detail) = split_main_detail(area);
+        assert!(main.x >= area.x);
+        assert!(detail.x >= area.x);
     }
 }

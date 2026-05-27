@@ -512,10 +512,15 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
             // Calculate research per turn using the same model path as the engine.
             let rp_per_turn = player_research_per_turn(game_state, empire);
 
-            let eta = if rp_per_turn > 0 {
-                let remaining = cost - progress;
+            let eta = if cost > 0 && rp_per_turn > 0 {
+                let remaining = (cost - progress).max(0);
                 let turns = (remaining + rp_per_turn - 1) / rp_per_turn;
                 format!("~{} turns", turns)
+            } else {
+                "∞".to_string()
+            };
+            let cost_text = if cost > 0 {
+                cost.to_string()
             } else {
                 "∞".to_string()
             };
@@ -537,7 +542,7 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
                 inner.width.saturating_sub(1),
             ));
             lines.push(Line::from(Span::styled(
-                format!("{progress}/{cost} rp"),
+                format!("{progress}/{cost_text} rp"),
                 Theme::muted_style(),
             )));
             lines.push(Line::from(vec![

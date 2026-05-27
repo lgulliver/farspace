@@ -17,13 +17,15 @@ fn join_segments(segments: &[String]) -> String {
 }
 
 pub fn render_brand_header(frame: &mut Frame, area: Rect, compact: bool) {
-    let mut spans = vec![Span::styled(BRAND, Theme::title_style())];
-    if !compact {
+    let brand = if compact || area.width < 24 {
+        BRAND_NARROW
+    } else {
+        BRAND
+    };
+    let mut spans = vec![Span::styled(brand, Theme::title_style())];
+    if !compact && area.width >= 40 {
         spans.push(Span::styled("  │  ", Theme::dim_border_style()));
-        spans.push(Span::styled(
-            "CHART • EXPAND • ENDURE",
-            Theme::muted_style(),
-        ));
+        spans.push(Span::styled("CHART • EXPAND • ENDURE", Theme::muted_style()));
     }
     frame.render_widget(
         Paragraph::new(Line::from(spans)).style(Theme::default_style()),
@@ -263,6 +265,22 @@ mod tests {
     fn render_brand_header_no_panic() {
         let backend = TestBackend::new(80, 1);
         let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_brand_header(frame, frame.area(), false);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_brand_header_compact_and_narrow_no_panic() {
+        let backend = TestBackend::new(10, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_brand_header(frame, frame.area(), true);
+            })
+            .unwrap();
         terminal
             .draw(|frame| {
                 render_brand_header(frame, frame.area(), false);

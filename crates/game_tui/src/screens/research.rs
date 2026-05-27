@@ -1,7 +1,10 @@
 //! Research screen
 
-use crate::components::{derive_header_data, render_footer, render_header};
-use crate::layout::{compose_layout, split_horizontal};
+use crate::components::{
+    derive_header_data, meter_line, panel_block, quiet_panel_block, render_footer, render_header,
+    section_heading,
+};
+use crate::layout::{compose_layout, split_main_detail};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
@@ -14,7 +17,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -226,7 +229,7 @@ pub fn render_research(
     render_header(frame, header_area, &header_data);
 
     // Split: 60% list, 40% detail/progress
-    let (list_area, right_area) = split_horizontal(main_area, 60);
+    let (list_area, right_area) = split_main_detail(main_area);
 
     render_tech_list(frame, list_area, app_state, game_state);
     render_research_detail_and_status(frame, right_area, app_state, game_state);
@@ -260,11 +263,7 @@ fn tech_status(game_state: &GameState, tech: &TechRecord) -> TechStatus {
 
 /// Render grouped technologies with status tags.
 fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
-    let block = Block::default()
-        .title(" Technology Tree ")
-        .borders(Borders::ALL)
-        .border_style(Theme::focused_border_style())
-        .style(Theme::default_style());
+    let block = panel_block("Technology Tree", true);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -324,10 +323,7 @@ fn render_tech_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_st
         if domain_techs.is_empty() {
             continue;
         }
-        lines.push(Line::from(Span::styled(
-            format!(" {} ", domain.name()),
-            Theme::title_style(),
-        )));
+        lines.push(section_heading(format!(" {} ", domain.name())));
         for tech in domain_techs {
             let status = tech_status(game_state, tech);
             let is_selected = tech.id == selected_id;
@@ -411,10 +407,7 @@ fn render_selected_tech_detail(
     app_state: &AppState,
     game_state: &GameState,
 ) {
-    let block = Block::default()
-        .title(" Technology Detail ")
-        .borders(Borders::ALL)
-        .style(Theme::default_style());
+    let block = quiet_panel_block("Technology Detail");
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -485,17 +478,14 @@ fn render_selected_tech_detail(
     frame.render_widget(
         Paragraph::new(lines)
             .style(Theme::default_style())
-            .wrap(Wrap { trim: false }),
+            .wrap(ratatui::widgets::Wrap { trim: false }),
         inner,
     );
 }
 
 /// Render active progress and completed-tech summary.
 fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState) {
-    let block = Block::default()
-        .title(" Research Status ")
-        .borders(Borders::ALL)
-        .style(Theme::default_style());
+    let block = quiet_panel_block("Research Status");
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -530,10 +520,8 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
                 "∞".to_string()
             };
 
-            // Progress bar (capped at 20 chars wide)
-            let bar_width = (inner.width.saturating_sub(4) as usize).min(20);
-            let filled = if cost > 0 {
-                ((progress * bar_width as i64) / cost).min(bar_width as i64) as usize
+            let percent = if cost > 0 {
+                ((progress.saturating_mul(100)) / cost).clamp(0, 100) as u8
             } else {
                 0
             };
@@ -542,13 +530,11 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
                 tech.name,
                 Theme::accent_style(),
             )]));
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("[{}{}]", "=".repeat(filled), " ".repeat(bar_width - filled)),
-                    Theme::muted_style(),
-                ),
-                Span::raw(format!(" {}/{} rp", progress, cost)),
-            ]));
+            lines.push(meter_line("Progress", percent, inner.width.saturating_sub(1)));
+            lines.push(Line::from(Span::styled(
+                format!("{progress}/{cost} rp"),
+                Theme::muted_style(),
+            )));
             lines.push(Line::from(vec![
                 Span::styled("ETA: ", Theme::muted_style()),
                 Span::raw(eta),

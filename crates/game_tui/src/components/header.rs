@@ -13,6 +13,34 @@ fn join_segments(segments: &[String]) -> String {
     segments.join(" │ ")
 }
 
+pub fn render_brand_header(frame: &mut Frame, area: Rect, compact: bool) {
+    let mut spans = vec![Span::styled("FARSPACE", Theme::title_style())];
+    if !compact {
+        spans.push(Span::styled("  │  ", Theme::dim_border_style()));
+        spans.push(Span::styled("CHART • EXPAND • ENDURE", Theme::muted_style()));
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)).style(Theme::default_style()),
+        area,
+    );
+}
+
+pub fn render_screen_title_header(
+    frame: &mut Frame,
+    area: Rect,
+    screen_title: impl Into<String>,
+    turn: u32,
+) {
+    let line = Line::from(vec![
+        Span::styled("FARSPACE", Theme::title_style()),
+        Span::styled("  │  ", Theme::dim_border_style()),
+        Span::styled(screen_title.into(), Theme::text_primary_style()),
+        Span::styled("  │  ", Theme::dim_border_style()),
+        Span::styled(format!("Turn {turn}"), Theme::text_secondary_style()),
+    ]);
+    frame.render_widget(Paragraph::new(line).style(Theme::default_style()), area);
+}
+
 /// Snapshot of top-bar values for the player empire.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderData {
@@ -86,6 +114,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, data: &HeaderData) {
     };
 
     let wide_segments = vec![
+        "FARSPACE".to_string(),
         format!("Turn {}", data.turn),
         data.empire_name.clone(),
         format!("Credits: {}", data.credits),
@@ -97,6 +126,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, data: &HeaderData) {
         format!("Maint: {}", data.fleet_maintenance),
     ];
     let medium_segments = vec![
+        "FARSPACE".to_string(),
         format!("T{}", data.turn),
         data.empire_name.clone(),
         format!("Cr {}", data.credits),
@@ -108,6 +138,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, data: &HeaderData) {
         format!("Ma {}", data.fleet_maintenance),
     ];
     let narrow_segments = vec![
+        "FS".to_string(),
         format!("T{}", data.turn),
         format!("Cr {}", data.credits),
         format!("Fd {}", data.food),
@@ -133,6 +164,8 @@ pub fn render_header(frame: &mut Frame, area: Rect, data: &HeaderData) {
 
         let span = if index == 0 {
             Span::styled(format!(" {} ", segment), Theme::header_style())
+        } else if segment == "FARSPACE" || segment == "FS" {
+            Span::styled(segment.clone(), Theme::title_style())
         } else if segment.starts_with(&data.empire_name) {
             Span::styled(segment.clone(), Theme::title_style())
         } else if segment.starts_with("Credits:") || segment.starts_with("Cr ") {
@@ -218,6 +251,28 @@ mod tests {
                     fleet_maintenance: 2,
                 };
                 render_header(frame, area, &data);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_brand_header_no_panic() {
+        let backend = TestBackend::new(80, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_brand_header(frame, frame.area(), false);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_screen_title_header_no_panic() {
+        let backend = TestBackend::new(80, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_screen_title_header(frame, frame.area(), "Sector Map", 42);
             })
             .unwrap();
     }

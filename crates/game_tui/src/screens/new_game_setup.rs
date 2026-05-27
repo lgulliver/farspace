@@ -2,7 +2,8 @@
 
 use crate::app::AppState;
 use crate::components::{
-    render_empire_emblem, render_footer, EmblemPattern, EmpireEmblem, EmpireEmblemPalette,
+    panel_block, render_empire_emblem, render_footer, EmblemPattern, EmpireEmblem,
+    EmpireEmblemPalette,
 };
 use crate::screens::Screen;
 use crate::theme::{gradient, lerp_rgb, SplashPalette, Theme};
@@ -182,10 +183,7 @@ fn render_section_block(
     } else {
         Style::default().fg(palette.border_cold)
     };
-    let block = Block::default()
-        .title(format!(" {title} "))
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+    let block = panel_block(title, active)
         .border_style(border_style)
         .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_b, 0.12)));
     frame.render_widget(block, area);

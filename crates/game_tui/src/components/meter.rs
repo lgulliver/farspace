@@ -51,7 +51,7 @@ pub fn meter_line(label: impl Into<String>, percent: u8, total_width: u16) -> Li
         ]);
     }
 
-    let filled = ((bar_width * usize::from(percent)) + PERCENT_ROUNDING_OFFSET) / 100;
+    let filled = (bar_width.saturating_mul(usize::from(percent)) + PERCENT_ROUNDING_OFFSET) / 100;
     let (filled_glyph, empty_glyph) = if Theme::color_mode() == ColorMode::Mono {
         ('#', '-')
     } else {
@@ -91,5 +91,13 @@ mod tests {
     fn meter_respects_display_width_for_wide_unicode_labels() {
         let line = meter_line("進捗", 70, 10);
         assert!(line.width() <= 10);
+    }
+
+    #[test]
+    fn truncate_to_width_handles_unicode_and_empty() {
+        assert_eq!(truncate_to_width("", 4), "");
+        assert_eq!(truncate_to_width("😀", 1), "");
+        assert_eq!(truncate_to_width("😀", 2), "😀");
+        assert_eq!(truncate_to_width("A😀B", 3), "A😀");
     }
 }

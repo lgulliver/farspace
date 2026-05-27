@@ -527,7 +527,7 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
 
             // Guard against overshoot/overflow in percent math for defensive rendering.
             let percent = if cost > 0 {
-                ((progress.saturating_mul(100)) / cost).clamp(0, 100) as u8
+                ((progress.min(cost).saturating_mul(100)) / cost).clamp(0, 100) as u8
             } else {
                 0
             };

@@ -1,11 +1,11 @@
 //! Main menu screen
 
+use crate::components::render_brand_header;
 use crate::map_render::visual_hash;
 use crate::renderer::{
     starfield::{detail_star_glyph, should_render_star, starfield_detail},
     Canvas,
 };
-use crate::components::render_brand_header;
 use crate::theme::{gradient, lerp_rgb, SplashPalette, Theme};
 use crate::update::UpdateState;
 use crate::AppState;

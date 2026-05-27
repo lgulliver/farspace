@@ -3,6 +3,9 @@
 use crate::theme::{ColorMode, Theme};
 use ratatui::text::{Line, Span};
 
+/// Offset used to round to nearest integer in `(x + 50) / 100` percentage math.
+const PERCENT_ROUNDING_OFFSET: usize = 50;
+
 fn truncate_to_width(text: &str, width: usize) -> String {
     text.chars().take(width).collect()
 }
@@ -36,7 +39,7 @@ pub fn meter_line(label: impl Into<String>, percent: u8, total_width: u16) -> Li
         ]);
     }
 
-    let filled = ((bar_width * usize::from(percent)) + 50) / 100;
+    let filled = ((bar_width * usize::from(percent)) + PERCENT_ROUNDING_OFFSET) / 100;
     let (filled_glyph, empty_glyph) = if Theme::color_mode() == ColorMode::Mono {
         ('#', '-')
     } else {
@@ -51,7 +54,9 @@ pub fn meter_line(label: impl Into<String>, percent: u8, total_width: u16) -> Li
             Theme::accent_style().bg(Theme::panel_bg()),
         ),
         Span::styled(
-            empty_glyph.to_string().repeat(bar_width.saturating_sub(filled)),
+            empty_glyph
+                .to_string()
+                .repeat(bar_width.saturating_sub(filled)),
             Theme::muted_style().bg(Theme::panel_bg()),
         ),
         Span::raw(" "),

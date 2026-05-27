@@ -520,6 +520,7 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
                 "∞".to_string()
             };
 
+            // Guard against overshoot/overflow in percent math for defensive rendering.
             let percent = if cost > 0 {
                 ((progress.saturating_mul(100)) / cost).clamp(0, 100) as u8
             } else {
@@ -530,7 +531,11 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
                 tech.name,
                 Theme::accent_style(),
             )]));
-            lines.push(meter_line("Progress", percent, inner.width.saturating_sub(1)));
+            lines.push(meter_line(
+                "Progress",
+                percent,
+                inner.width.saturating_sub(1),
+            ));
             lines.push(Line::from(Span::styled(
                 format!("{progress}/{cost} rp"),
                 Theme::muted_style(),

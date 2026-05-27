@@ -204,7 +204,9 @@ impl Theme {
 
     /// Default text style
     pub fn default_style() -> Style {
-        Style::default().fg(Self::text_primary()).bg(Self::panel_bg())
+        Style::default()
+            .fg(Self::text_primary())
+            .bg(Self::panel_bg())
     }
 
     /// Highlighted/selected style

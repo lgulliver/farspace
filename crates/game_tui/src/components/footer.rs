@@ -1,8 +1,8 @@
 //! Footer component
 
+use crate::components::key_hint;
 use crate::screens::Screen;
 use crate::theme::Theme;
-use crate::components::key_hint;
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
@@ -14,9 +14,9 @@ fn line_width(line: &Line<'_>) -> usize {
     line.width()
 }
 
-fn push_wrapped_hint_lines<'a>(
-    lines: &mut Vec<Line<'a>>,
-    hints: &'a [(&'a str, &'a str)],
+fn push_wrapped_hint_lines(
+    lines: &mut Vec<Line<'static>>,
+    hints: &[(&'static str, &'static str)],
     max_width: usize,
 ) {
     if hints.is_empty() || max_width == 0 {
@@ -176,7 +176,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Op
     if let Some(context_line) = context {
         lines.push(Line::from(vec![
             Span::styled("Hint: ", Theme::title_style()),
-            Span::styled(context_line, Theme::muted_style()),
+            Span::styled(context_line.to_string(), Theme::muted_style()),
         ]));
     }
 

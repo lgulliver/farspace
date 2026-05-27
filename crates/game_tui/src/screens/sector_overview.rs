@@ -28,7 +28,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -645,7 +645,9 @@ mod tests {
         let area = Rect::new(0, 0, width, height);
         let (_, main, _) = compose_layout(area);
         let (map_area, _) = split_horizontal(main, 55);
-        let block_inner = Block::default().borders(Borders::ALL).inner(map_area);
+        let block_inner = ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .inner(map_area);
         let render_area = Rect::new(
             block_inner.x,
             block_inner.y,

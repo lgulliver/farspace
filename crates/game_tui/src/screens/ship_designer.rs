@@ -1,6 +1,8 @@
 //! Ship Designer screen — hull selection, slot configuration, design management.
 
-use crate::components::{derive_header_data, render_footer, render_header};
+use crate::components::{
+    derive_header_data, panel_block, render_footer, render_header, section_heading,
+};
 use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
@@ -12,7 +14,7 @@ use game_core::{
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -99,20 +101,38 @@ pub fn render_ship_designer(
     let header_data = derive_header_data(game_state);
     render_header(frame, header_area, &header_data);
 
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(28),
-            Constraint::Percentage(44),
-            Constraint::Percentage(28),
-        ])
-        .split(main_area);
+    if main_area.width < 96 {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+            .split(main_area);
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(62), Constraint::Percentage(38)])
+            .split(cols[1]);
+        render_design_list(frame, cols[0], app_state, game_state);
+        render_slot_config(frame, right[0], app_state, game_state);
+        render_stats_panel(frame, right[1], app_state, game_state);
+    } else {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(28),
+                Constraint::Percentage(44),
+                Constraint::Percentage(28),
+            ])
+            .split(main_area);
 
-    render_design_list(frame, cols[0], app_state, game_state);
-    render_slot_config(frame, cols[1], app_state, game_state);
-    render_stats_panel(frame, cols[2], app_state, game_state);
+        render_design_list(frame, cols[0], app_state, game_state);
+        render_slot_config(frame, cols[1], app_state, game_state);
+        render_stats_panel(frame, cols[2], app_state, game_state);
+    }
 
-    render_footer(frame, footer_area, &Screen::ShipDesigner, None);
+    let hint = app_state
+        .status_message
+        .as_deref()
+        .unwrap_or("Tab between panels, Enter to confirm, S to save, D to delete.");
+    render_footer(frame, footer_area, &Screen::ShipDesigner, Some(hint));
 }
 
 // ── Left panel: Design List ───────────────────────────────────────────────────
@@ -120,16 +140,7 @@ pub fn render_ship_designer(
 fn render_design_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let ds = &app_state.ship_designer;
     let focused = ds.panel == DesignerPanel::DesignList;
-    let border_style = if focused {
-        Theme::focused_border_style()
-    } else {
-        Theme::dim_border_style()
-    };
-    let block = Block::default()
-        .title(" Ship Designs ")
-        .borders(Borders::ALL)
-        .border_style(border_style)
-        .style(Theme::default_style());
+    let block = panel_block("Ship Designs", focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -190,16 +201,7 @@ fn render_design_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_
 fn render_slot_config(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let ds = &app_state.ship_designer;
     let focused = ds.panel == DesignerPanel::SlotConfig;
-    let border_style = if focused {
-        Theme::focused_border_style()
-    } else {
-        Theme::dim_border_style()
-    };
-    let block = Block::default()
-        .title(" Slot Configuration ")
-        .borders(Borders::ALL)
-        .border_style(border_style)
-        .style(Theme::default_style());
+    let block = panel_block("Slot Configuration", focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -363,16 +365,7 @@ fn render_slot_config(frame: &mut Frame, area: Rect, app_state: &AppState, game_
 fn render_stats_panel(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
     let ds = &app_state.ship_designer;
     let focused = ds.panel == DesignerPanel::Stats;
-    let border_style = if focused {
-        Theme::focused_border_style()
-    } else {
-        Theme::dim_border_style()
-    };
-    let block = Block::default()
-        .title(" Design Stats ")
-        .borders(Borders::ALL)
-        .border_style(border_style)
-        .style(Theme::default_style());
+    let block = panel_block("Design Console", focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -417,6 +410,22 @@ fn render_stats_panel(frame: &mut Frame, area: Rect, app_state: &AppState, game_
                 };
                 let stats = scratch.derived_stats();
                 push_derived_stats(&mut lines, hull.name, hull.role, &stats);
+                let warnings = design_validation_warnings(hull, &scratch);
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "Validation Warnings",
+                    Theme::title_style(),
+                )));
+                if warnings.is_empty() {
+                    lines.push(Line::from(Span::styled("  None", Theme::success_style())));
+                } else {
+                    for warning in warnings {
+                        lines.push(Line::from(vec![
+                            Span::styled("  ! ", Theme::warning_style()),
+                            Span::styled(warning, Theme::warning_style()),
+                        ]));
+                    }
+                }
             } else {
                 lines.push(Line::from(Span::styled(
                     " No hull selected.",
@@ -426,9 +435,10 @@ fn render_stats_panel(frame: &mut Frame, area: Rect, app_state: &AppState, game_
         }
     }
 
-    lines.push(Line::from(Span::raw("")));
+    lines.push(Line::from(""));
+    lines.push(section_heading("Actions"));
     lines.push(Line::from(vec![Span::styled(
-        " [s] Save  [d] Delete  [Enter] Slots",
+        "[S] Save  [D] Delete  [Enter] Confirm  [Tab] Panel",
         Theme::muted_style(),
     )]));
 
@@ -450,35 +460,57 @@ fn push_derived_stats(
     role: &str,
     stats: &DerivedShipStats,
 ) {
-    lines.push(Line::from(vec![Span::styled(
-        format!(" Hull:  {hull_name}"),
-        Theme::title_style(),
-    )]));
-    lines.push(Line::from(vec![Span::styled(
-        format!(" Role:  {role}"),
-        Theme::default_style(),
-    )]));
+    lines.push(section_heading(format!("Hull {hull_name} · Role {role}")));
     lines.push(Line::from(Span::raw("")));
-    lines.push(Line::from(vec![Span::styled(
-        format!(" ATK:   {}", stats.attack),
-        Theme::default_style(),
-    )]));
-    lines.push(Line::from(vec![Span::styled(
-        format!(" DEF:   {}", stats.defense),
-        Theme::default_style(),
-    )]));
-    lines.push(Line::from(vec![Span::styled(
-        format!(" HP:    {}", stats.hp),
-        Theme::default_style(),
-    )]));
-    lines.push(Line::from(vec![Span::styled(
-        format!(" Cost:  {}pp", stats.production_cost),
-        Theme::default_style(),
-    )]));
-    lines.push(Line::from(vec![Span::styled(
-        format!(" Maint: {}/turn", stats.maintenance),
-        Theme::default_style(),
-    )]));
+    lines.push(Line::from(vec![
+        Span::styled(" ATK:  ", Theme::muted_style()),
+        Span::styled(stats.attack.to_string(), Theme::default_style()),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(" DEF:  ", Theme::muted_style()),
+        Span::styled(stats.defense.to_string(), Theme::default_style()),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(" HP:   ", Theme::muted_style()),
+        Span::styled(stats.hp.to_string(), Theme::default_style()),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(" Cost: ", Theme::muted_style()),
+        Span::styled(
+            format!("{}pp", stats.production_cost),
+            Theme::default_style(),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(" Maint: ", Theme::muted_style()),
+        Span::styled(format!("{}/t", stats.maintenance), Theme::default_style()),
+    ]));
+}
+
+fn design_validation_warnings(hull: &HullTemplate, design: &CustomShipDesign) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if design.components.len() < hull.slots.len() {
+        warnings.push("One or more slots are empty".to_string());
+    }
+    if hull.slots.iter().enumerate().any(|(idx, slot)| {
+        design
+            .components
+            .get(idx)
+            .and_then(|component_id| component_id.def())
+            .is_none_or(|component| component.category != *slot)
+    }) {
+        warnings.push("Component-slot mismatch detected".to_string());
+    }
+    let component_attack: i32 = design
+        .components
+        .iter()
+        .filter_map(|id| id.def())
+        .map(|c| c.attack_modifier)
+        .sum();
+    if component_attack <= 0 {
+        warnings.push("No offensive capability".to_string());
+    }
+    warnings
 }
 
 // ── Helper functions ──────────────────────────────────────────────────────────
@@ -537,7 +569,8 @@ fn build_stat_tag(comp: &ComponentDef) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_core::HullId;
+    use game_core::{Engine, HullId};
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
     #[test]
     fn initial_state_is_browse_mode() {
@@ -589,5 +622,116 @@ mod tests {
         for cat in cats {
             assert!(!slot_category_label(cat).is_empty());
         }
+    }
+
+    fn render_designer_buffer(
+        width: u16,
+        height: u16,
+        app_state: &AppState,
+        game_state: &GameState,
+    ) -> Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_ship_designer(frame, frame.area(), app_state, game_state);
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn buffer_text(buffer: &Buffer) -> String {
+        buffer.content().iter().map(|cell| cell.symbol()).collect()
+    }
+
+    #[test]
+    fn ship_designer_renders_at_80x24_with_footer() {
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
+        let buffer = render_designer_buffer(80, 24, &app_state, &engine.state);
+        let text = buffer_text(&buffer);
+        assert!(text.contains("Ship Designs"));
+        assert!(text.contains("Tab"));
+    }
+
+    #[test]
+    fn ship_designer_renders_at_120x36_with_detail_panels() {
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
+        let buffer = render_designer_buffer(120, 36, &app_state, &engine.state);
+        let text = buffer_text(&buffer);
+        assert!(text.contains("Slot Configuration"));
+        assert!(text.contains("Design Console"));
+    }
+
+    #[test]
+    fn ship_designer_selected_item_is_visible() {
+        let mut state = ShipDesignerState::default();
+        state.begin_new_design();
+        let app_state = AppState {
+            ship_designer: state,
+            ..Default::default()
+        };
+        let engine = Engine::new(42);
+        let buffer = render_designer_buffer(80, 24, &app_state, &engine.state);
+        let text = buffer_text(&buffer);
+        assert!(text.contains(">"));
+    }
+
+    #[test]
+    fn ship_designer_minimal_state_no_panic_at_80x24() {
+        let mut engine = Engine::new(42);
+        engine.state.custom_designs.clear();
+        engine.state.empires.clear();
+        let app_state = AppState::default();
+        let _ = render_designer_buffer(80, 24, &app_state, &engine.state);
+    }
+
+    #[test]
+    fn design_validation_warns_on_empty_slots_and_zero_offense() {
+        let hull = all_hull_templates()
+            .iter()
+            .find(|h| !h.slots.is_empty())
+            .expect("at least one hull with slots");
+        let design = CustomShipDesign {
+            design_id: game_core::CustomDesignId(1),
+            hull_id: hull.hull_id,
+            components: vec![],
+            owner: game_core::EmpireId(1),
+            name: "test".to_string(),
+            obsolete: false,
+        };
+        let warnings = design_validation_warnings(hull, &design);
+        assert!(warnings.iter().any(|w| w.contains("empty")));
+        assert!(warnings.iter().any(|w| w.contains("offensive")));
+    }
+
+    #[test]
+    fn design_validation_warns_on_component_slot_mismatch() {
+        let hull = all_hull_templates()
+            .iter()
+            .find(|h| !h.slots.is_empty())
+            .expect("at least one hull with slots");
+        let wrong_component = [
+            SlotCategory::Weapon,
+            SlotCategory::Defense,
+            SlotCategory::Engine,
+            SlotCategory::MissionModule,
+            SlotCategory::Utility,
+        ]
+        .into_iter()
+        .filter(|cat| *cat != hull.slots[0])
+        .find_map(|cat| components_for_slot(cat).first().map(|c| c.component_id))
+        .expect("alternate slot component exists");
+        let design = CustomShipDesign {
+            design_id: game_core::CustomDesignId(2),
+            hull_id: hull.hull_id,
+            components: vec![wrong_component],
+            owner: game_core::EmpireId(1),
+            name: "test mismatch".to_string(),
+            obsolete: false,
+        };
+        let warnings = design_validation_warnings(hull, &design);
+        assert!(warnings.iter().any(|w| w.contains("mismatch")));
     }
 }

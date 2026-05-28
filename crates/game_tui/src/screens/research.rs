@@ -62,6 +62,7 @@ const ERA_FILTERS: [(&str, Option<TechTier>); 7] = [
 ];
 pub(crate) const RESEARCH_ERA_FILTER_COUNT: usize = ERA_FILTERS.len();
 pub(crate) const RESEARCH_STATUS_FILTER_COUNT: usize = 6; // all + 5 statuses
+const MIN_HEIGHT_FOR_RESEARCH_STATUS: u16 = 14;
 
 fn tech_domain_sort_index(domain: TechDomain) -> usize {
     TECH_DOMAIN_ORDER
@@ -395,10 +396,14 @@ fn render_research_detail_and_status(
     app_state: &AppState,
     game_state: &GameState,
 ) {
-    let chunks =
-        Layout::vertical([Constraint::Percentage(62), Constraint::Percentage(38)]).split(area);
-    render_selected_tech_detail(frame, chunks[0], app_state, game_state);
-    render_research_status(frame, chunks[1], game_state);
+    if area.height < MIN_HEIGHT_FOR_RESEARCH_STATUS {
+        render_selected_tech_detail(frame, area, app_state, game_state);
+    } else {
+        let chunks =
+            Layout::vertical([Constraint::Percentage(68), Constraint::Percentage(32)]).split(area);
+        render_selected_tech_detail(frame, chunks[0], app_state, game_state);
+        render_research_status(frame, chunks[1], game_state);
+    }
 }
 
 fn render_selected_tech_detail(
@@ -407,16 +412,18 @@ fn render_selected_tech_detail(
     app_state: &AppState,
     game_state: &GameState,
 ) {
-    let block = quiet_panel_block("Technology Detail");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
     let ordered = filtered_research_techs(app_state, game_state);
     if ordered.is_empty() {
+        let block = quiet_panel_block("Technology Detail");
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
         frame.render_widget(Paragraph::new("No technology selected."), inner);
         return;
     }
     let tech = ordered[app_state.research.cursor % ordered.len()];
+    let block = quiet_panel_block(format!("Technology Detail · {}", tech.name));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
     let status = tech_status(game_state, tech);
     let empire = game_state.empires.get(&game_state.player_empire);
     let completed = empire
@@ -440,6 +447,23 @@ fn render_selected_tech_detail(
             } else {
                 Span::raw("")
             },
+        ]),
+        Line::from(vec![
+            Span::styled("Active: ", Theme::muted_style()),
+            Span::styled(
+                empire
+                    .and_then(|e| e.research.current_tech)
+                    .and_then(|id| tech_by_id(id).map(|entry| entry.name))
+                    .unwrap_or("None"),
+                Theme::default_style(),
+            ),
+            Span::styled("  Queue: ", Theme::muted_style()),
+            Span::styled(
+                empire
+                    .map(|e| e.research.queue.len().to_string())
+                    .unwrap_or_else(|| "0".to_string()),
+                Theme::default_style(),
+            ),
         ]),
         Line::from(join_tag_spans(tech.tags)),
         Line::from(""),
@@ -466,7 +490,10 @@ fn render_selected_tech_detail(
         }
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("Unlocks", Theme::title_style())));
+    lines.push(Line::from(Span::styled(
+        "Unlock Summary",
+        Theme::title_style(),
+    )));
     if tech.unlocks.is_empty() {
         lines.push(Line::from(Span::styled("  None", Theme::muted_style())));
     } else {
@@ -648,6 +675,22 @@ mod tests {
             .draw(|frame| {
                 let area = frame.area();
                 render_selected_tech_detail(frame, area, app_state, game_state);
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn render_screen_buffer(
+        width: u16,
+        height: u16,
+        app_state: &AppState,
+        game_state: &GameState,
+    ) -> Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_research(frame, frame.area(), app_state, game_state);
             })
             .unwrap();
         terminal.backend().buffer().clone()
@@ -936,5 +979,48 @@ mod tests {
             filtered.iter().map(|tech| tech.id).collect::<Vec<_>>(),
             vec![queued_tech]
         );
+    }
+
+    #[test]
+    fn research_renders_at_80x24_with_footer() {
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
+        let buffer = render_screen_buffer(80, 24, &app_state, &engine.state);
+        let rows = buffer_rows(&buffer).join("\n");
+        assert!(rows.contains("Technology Tree"));
+        assert!(rows.contains("Enter"));
+    }
+
+    #[test]
+    fn research_renders_at_120x36_with_detail_panel() {
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
+        let buffer = render_screen_buffer(120, 36, &app_state, &engine.state);
+        let rows = buffer_rows(&buffer).join("\n");
+        assert!(rows.contains("Technology Detail"));
+        assert!(rows.contains("Esc"));
+    }
+
+    #[test]
+    fn research_selected_item_is_visible() {
+        let engine = Engine::new(42);
+        let app_state = AppState {
+            research: crate::app::ResearchScreenState {
+                cursor: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let buffer = render_screen_buffer(80, 24, &app_state, &engine.state);
+        let rows = buffer_rows(&buffer).join("\n");
+        assert!(rows.contains(">"));
+    }
+
+    #[test]
+    fn research_minimal_state_no_panic_at_80x24() {
+        let mut engine = Engine::new(42);
+        engine.state.empires.clear();
+        let app_state = AppState::default();
+        let _ = render_screen_buffer(80, 24, &app_state, &engine.state);
     }
 }

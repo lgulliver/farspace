@@ -1,7 +1,10 @@
 //! Empire overview screen
 
-use crate::components::{derive_header_data, render_footer, render_header};
-use crate::layout::compose_layout;
+use crate::components::{
+    derive_header_data, meter_line, quiet_panel_block, render_footer, render_header,
+    section_heading,
+};
+use crate::layout::{compose_layout, split_main_detail};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
@@ -13,9 +16,16 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
+
+const MIN_HEIGHT_FOR_FULL_SUMMARY: u16 = 22;
+const COMPACT_SUMMARY_HEIGHT: u16 = 8;
+const FULL_SUMMARY_HEIGHT: u16 = 11;
+const MIN_WIDTH_FOR_SIDE_BY_SIDE: u16 = 96;
+const MIN_HEIGHT_FOR_SIDE_BY_SIDE: u16 = 14;
+const MAX_VICTORY_LINES_IN_SUMMARY: usize = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OverviewSort {
@@ -509,6 +519,14 @@ fn sort_rows(rows: &mut [ColonyOverviewRow], sort: OverviewSort) {
     }
 }
 
+fn ratio_percent(value: usize, total: usize) -> u8 {
+    value
+        .saturating_mul(100)
+        .checked_div(total)
+        .map(|pct| pct.min(100) as u8)
+        .unwrap_or(0)
+}
+
 pub fn render_empire_overview(
     frame: &mut Frame,
     area: Rect,
@@ -526,13 +544,31 @@ pub fn render_empire_overview(
         &app_state.overview.filter,
     );
 
+    let summary_height = if main_area.height < MIN_HEIGHT_FOR_FULL_SUMMARY {
+        COMPACT_SUMMARY_HEIGHT
+    } else {
+        FULL_SUMMARY_HEIGHT
+    };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(12), Constraint::Min(6)])
+        .constraints([Constraint::Length(summary_height), Constraint::Min(6)])
         .split(main_area);
 
     render_summary(frame, chunks[0], &data.summary);
-    render_colony_table(frame, chunks[1], app_state, &data.rows);
+    let compact_content = chunks[1].width < MIN_WIDTH_FOR_SIDE_BY_SIDE
+        || chunks[1].height < MIN_HEIGHT_FOR_SIDE_BY_SIDE;
+    if compact_content {
+        let content = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(62), Constraint::Percentage(38)])
+            .split(chunks[1]);
+        render_colony_table(frame, content[0], app_state, &data.rows);
+        render_colony_detail(frame, content[1], app_state, &data.rows, &data.summary);
+    } else {
+        let (list_area, detail_area) = split_main_detail(chunks[1]);
+        render_colony_table(frame, list_area, app_state, &data.rows);
+        render_colony_detail(frame, detail_area, app_state, &data.rows, &data.summary);
+    }
     let hint = app_state
         .status_message
         .as_deref()
@@ -541,74 +577,61 @@ pub fn render_empire_overview(
 }
 
 fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary) {
-    let block = Block::default()
-        .title(format!(" Empire Summary · {} ", summary.faction_name))
-        .borders(Borders::ALL)
-        .style(Theme::default_style());
+    let block = quiet_panel_block(format!("Strategic Dashboard · {}", summary.faction_name));
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
 
-    let line = Line::from(vec![
-        Span::styled("Faction ", Theme::muted_style()),
-        Span::styled(summary.faction_name.as_str(), Theme::accent_style()),
-        Span::raw("  "),
-        Span::styled(summary.faction_tone.as_str(), Theme::success_style()),
-        Span::raw("  "),
-        Span::styled("Doctrine ", Theme::muted_style()),
-        Span::styled(summary.doctrine_summary.as_str(), Theme::accent_style()),
-        Span::raw("  "),
-        Span::styled("Credits ", Theme::muted_style()),
-        Span::styled(format!("{}", summary.credits), Theme::default_style()),
-        Span::raw("  "),
-        Span::styled("Food ", Theme::muted_style()),
-        Span::styled(format!("{}", summary.food), Theme::default_style()),
-        Span::raw("  "),
-        Span::styled("Science ", Theme::muted_style()),
-        Span::styled(
-            format!("{}/t", summary.science_per_turn),
-            Theme::default_style(),
-        ),
-        Span::raw("  "),
-        Span::styled("Maint ", Theme::muted_style()),
-        Span::styled(
-            format!("{}/t", summary.maintenance_per_turn),
-            Theme::default_style(),
-        ),
-        Span::raw("  "),
-        Span::styled("Research ", Theme::muted_style()),
-        Span::styled(summary.active_research.as_str(), Theme::accent_style()),
-        Span::raw("  "),
-        Span::styled("Fleets ", Theme::muted_style()),
-        Span::styled(format!("{}", summary.fleet_count), Theme::default_style()),
-        Span::raw("  "),
-        Span::styled("Colonies ", Theme::muted_style()),
-        Span::styled(format!("{}", summary.colony_count), Theme::default_style()),
-        Span::raw("  "),
-        Span::styled("Supply Connected/Isolated ", Theme::muted_style()),
-        Span::styled(
-            format!(
-                "{}/{}",
-                summary.connected_colonies, summary.isolated_colonies
+    let threats = summary.isolated_colonies + summary.unrest_colonies;
+    let warning_percent = ratio_percent(threats, summary.colony_count);
+
+    let mut lines = vec![
+        section_heading(format!(
+            "{} · {}",
+            summary.faction_tone, summary.doctrine_summary
+        )),
+        Line::from(vec![
+            Span::styled("Colonies ", Theme::muted_style()),
+            Span::styled(summary.colony_count.to_string(), Theme::accent_style()),
+            Span::styled("  Fleets ", Theme::muted_style()),
+            Span::styled(summary.fleet_count.to_string(), Theme::accent_style()),
+            Span::styled("  Research ", Theme::muted_style()),
+            Span::styled(summary.active_research.as_str(), Theme::default_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("Economy ", Theme::muted_style()),
+            Span::styled(
+                format!(
+                    "Cr {}  Food {}  Sci {}/t  Maint {}/t",
+                    summary.credits,
+                    summary.food,
+                    summary.science_per_turn,
+                    summary.maintenance_per_turn
+                ),
+                Theme::default_style(),
             ),
-            if summary.isolated_colonies > 0 {
-                Theme::warning_style()
-            } else {
-                Theme::default_style()
-            },
+        ]),
+        meter_line(
+            format!(
+                "Supply Connected {}/{}",
+                summary.connected_colonies, summary.colony_count
+            ),
+            ratio_percent(summary.connected_colonies, summary.colony_count),
+            inner.width.saturating_sub(1),
         ),
-        Span::raw("  "),
-        Span::styled("Unrest colonies ", Theme::muted_style()),
-        Span::styled(
-            format!("{}", summary.unrest_colonies),
-            if summary.unrest_colonies > 0 {
-                Theme::warning_style()
-            } else {
-                Theme::success_style()
-            },
+        meter_line(
+            format!("Threats/Warnings {}", threats),
+            warning_percent,
+            inner.width.saturating_sub(1),
         ),
-    ]);
-    let mut lines = vec![line];
-    for (text, style) in &summary.victory_lines {
+    ];
+    for (text, style) in summary
+        .victory_lines
+        .iter()
+        .take(MAX_VICTORY_LINES_IN_SUMMARY)
+    {
         lines.push(Line::from(vec![
             Span::styled("Victory ", Theme::muted_style()),
             Span::styled(text, *style),
@@ -639,10 +662,7 @@ fn render_colony_table(
         )
     };
 
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .style(Theme::default_style());
+    let block = quiet_panel_block(title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -655,32 +675,10 @@ fn render_colony_table(
     }
 
     let mut lines = Vec::new();
-    lines.push(Line::from(vec![
-        Span::styled(" ", Theme::default_style()),
-        Span::styled("System/Planet", Theme::title_style()),
-        Span::raw("  "),
-        Span::styled("Role", Theme::title_style()),
-        Span::raw("  "),
-        Span::styled("Pop/Housing Emp", Theme::title_style()),
-        Span::raw("  "),
-        Span::styled("Stab", Theme::title_style()),
-        Span::raw("  "),
-        Span::styled("Food", Theme::title_style()),
-        Span::raw("  "),
-        Span::styled("EcoInd", Theme::title_style()),
-        Span::raw("  "),
-        Span::styled("Build", Theme::title_style()),
-        Span::raw("  "),
-        Span::styled("Production", Theme::title_style()),
-        Span::raw("  "),
-        Span::styled("ETA", Theme::title_style()),
-        Span::raw("  "),
-        Span::styled("Supply", Theme::title_style()),
-        Span::raw("  "),
-        Span::styled("Order", Theme::title_style()),
-        Span::raw("  "),
-        Span::styled("Warnings", Theme::title_style()),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        " > Selected Colony",
+        Theme::muted_style(),
+    )]));
 
     let selected = app_state.overview.cursor.min(rows.len().saturating_sub(1));
     let max_rows = inner.height.saturating_sub(1) as usize;
@@ -706,59 +704,26 @@ fn render_colony_table(
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "∞".to_string())
         };
-        let warnings = if row.warnings.is_empty() {
-            "-".to_string()
-        } else {
-            row.warnings.join(",")
-        };
-        let supply = row.supply.label();
-        let order = if row.unrest_risk_bp > 0 {
-            format!(
-                "{} ({:.1}%)",
-                row.unrest_state.label(),
-                f64::from(row.unrest_risk_bp) / 100.0
-            )
-        } else {
-            row.unrest_state.label().to_string()
-        };
 
         lines.push(Line::from(vec![
             Span::styled(format!("{} ", prefix), style),
-            Span::styled(format!("{}/{}", row.system, row.planet), style),
-            Span::raw("  "),
-            Span::styled(row.role.as_str(), style),
-            Span::raw("  "),
+            Span::styled(format!("{}/{} ", row.system, row.planet), style),
+            Span::styled(format!("[{}] ", row.role), Theme::muted_style()),
+            Span::styled(format!("P{}/{} ", row.population, row.housing), style),
+            Span::styled(format!("Food {:+} ", row.food_balance), style),
+            Span::styled(format!("Ind {} ", row.economic_industry_output), style),
+            Span::styled(format!("Q:{} ", row.current_production), style),
+            Span::styled(format!("ETA {} ", eta), Theme::muted_style()),
             Span::styled(
-                format!(
-                    "{}/{} e:{} u:{}",
-                    row.population, row.housing, row.employed, row.unemployed
-                ),
-                style,
-            ),
-            Span::raw("  "),
-            Span::styled(format!("{}", row.stability), style),
-            Span::raw("  "),
-            Span::styled(format!("{:+}", row.food_balance), style),
-            Span::raw("  "),
-            Span::styled(format!("{}", row.economic_industry_output), style),
-            Span::raw("  "),
-            Span::styled(format!("{}", row.build_output_per_turn), style),
-            Span::raw("  "),
-            Span::styled(row.current_production.as_str(), style),
-            Span::raw("  "),
-            Span::styled(eta, style),
-            Span::raw("  "),
-            Span::styled(
-                supply,
+                format!("{} ", row.supply.label()),
                 if row.supply == ColonySupplyState::Isolated {
                     Theme::warning_style()
                 } else {
                     style
                 },
             ),
-            Span::raw("  "),
             Span::styled(
-                order,
+                format!("{} ", row.unrest_state.label()),
                 if row.unrest_state.is_unrest() {
                     Theme::error_style()
                 } else if row.unrest_state == ColonyUnrestState::Strained {
@@ -767,9 +732,8 @@ fn render_colony_table(
                     style
                 },
             ),
-            Span::raw("  "),
             Span::styled(
-                warnings,
+                format!("Warn {}", row.warnings.len()),
                 if row.warnings.is_empty() {
                     style
                 } else {
@@ -782,11 +746,104 @@ fn render_colony_table(
     frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
 }
 
+fn render_colony_detail(
+    frame: &mut Frame,
+    area: Rect,
+    app_state: &AppState,
+    rows: &[ColonyOverviewRow],
+    summary: &EmpireOverviewSummary,
+) {
+    let block = quiet_panel_block("Colony Detail");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+    if rows.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No colony selected.").style(Theme::muted_style()),
+            inner,
+        );
+        return;
+    }
+
+    let selected = app_state.overview.cursor.min(rows.len().saturating_sub(1));
+    let row = &rows[selected];
+    let mut lines = vec![
+        section_heading(format!("{}/{}", row.system, row.planet)),
+        Line::from(vec![
+            Span::styled("Role ", Theme::muted_style()),
+            Span::styled(row.role.as_str(), Theme::accent_style()),
+            Span::styled("  Pop ", Theme::muted_style()),
+            Span::raw(format!("{}/{}", row.population, row.housing)),
+            Span::styled("  Employed ", Theme::muted_style()),
+            Span::raw(format!("{}/{}", row.employed, row.population)),
+        ]),
+        Line::from(vec![
+            Span::styled("Economy ", Theme::muted_style()),
+            Span::raw(format!(
+                "Food {:+}  Industry {}  Build {}/t",
+                row.food_balance, row.economic_industry_output, row.build_output_per_turn
+            )),
+        ]),
+        Line::from(vec![
+            Span::styled("Queue ", Theme::muted_style()),
+            Span::styled(row.current_production.as_str(), Theme::default_style()),
+            Span::styled("  ETA ", Theme::muted_style()),
+            Span::raw(
+                row.turns_remaining
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "∞".to_string()),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Threats ", Theme::muted_style()),
+            Span::styled(
+                format!(
+                    "{} · {} ({:.1}%)",
+                    row.supply.label(),
+                    row.unrest_state.label(),
+                    f64::from(row.unrest_risk_bp) / 100.0
+                ),
+                if row.unrest_state.is_unrest() || row.supply == ColonySupplyState::Isolated {
+                    Theme::warning_style()
+                } else {
+                    Theme::default_style()
+                },
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Warnings ", Theme::muted_style()),
+            Span::styled(
+                if row.warnings.is_empty() {
+                    "None".to_string()
+                } else {
+                    row.warnings.join(", ")
+                },
+                if row.warnings.is_empty() {
+                    Theme::success_style()
+                } else {
+                    Theme::warning_style()
+                },
+            ),
+        ]),
+    ];
+    if let Some((victory, style)) = summary.victory_lines.first() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("Victory ", Theme::muted_style()),
+            Span::styled(victory, *style),
+        ]));
+    }
+
+    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use game_core::{Command, EmpireDefinitionId, Engine, VictoryPath};
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
     fn render_to_string(engine: &Engine) -> String {
         let backend = TestBackend::new(140, 30);
@@ -807,6 +864,24 @@ mod tests {
             }
         }
         rendered
+    }
+
+    fn render_overview_buffer(
+        engine: &Engine,
+        app_state: &AppState,
+        width: u16,
+        height: u16,
+    ) -> Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_empire_overview(frame, frame.area(), app_state, &engine.state))
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn buffer_text(buffer: &Buffer) -> String {
+        buffer.content().iter().map(|cell| cell.symbol()).collect()
     }
 
     #[test]
@@ -1072,5 +1147,50 @@ mod tests {
             .expect("unity line should be present");
         assert!(unity_line.contains("[ON]"));
         assert!(!unity_line.contains("[FUTURE]"));
+    }
+
+    #[test]
+    fn empire_overview_renders_at_80x24_with_footer() {
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
+        let buffer = render_overview_buffer(&engine, &app_state, 80, 24);
+        let text = buffer_text(&buffer);
+        assert!(text.contains("Strategic Dashboard"));
+        assert!(text.contains("Enter"));
+    }
+
+    #[test]
+    fn empire_overview_renders_at_120x36_with_detail_panel() {
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
+        let buffer = render_overview_buffer(&engine, &app_state, 120, 36);
+        let text = buffer_text(&buffer);
+        assert!(text.contains("Colony Detail"));
+        assert!(text.contains("Esc"));
+    }
+
+    #[test]
+    fn empire_overview_selected_row_is_visible() {
+        let engine = Engine::new(42);
+        let app_state = AppState {
+            overview: crate::app::EmpireOverviewScreenState {
+                cursor: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let buffer = render_overview_buffer(&engine, &app_state, 80, 24);
+        let text = buffer_text(&buffer);
+        assert!(text.contains("Selected Colony"));
+        assert!(text.contains(">"));
+    }
+
+    #[test]
+    fn empire_overview_minimal_state_no_panic_at_80x24() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        engine.state.colonies.retain(|_, c| c.owner != player);
+        let app_state = AppState::default();
+        let _ = render_overview_buffer(&engine, &app_state, 80, 24);
     }
 }

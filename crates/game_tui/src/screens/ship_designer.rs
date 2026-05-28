@@ -476,7 +476,10 @@ fn push_derived_stats(
     ]));
     lines.push(Line::from(vec![
         Span::styled(" Cost: ", Theme::muted_style()),
-        Span::styled(format!("{}pp", stats.production_cost), Theme::default_style()),
+        Span::styled(
+            format!("{}pp", stats.production_cost),
+            Theme::default_style(),
+        ),
     ]));
     lines.push(Line::from(vec![
         Span::styled(" Maint: ", Theme::muted_style()),

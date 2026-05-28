@@ -365,7 +365,10 @@ fn render_colony_stats(
         ),
         {
             let (food_label, food_pct) = if colony_yield.food_consumed <= 0 {
-                (format!("Food {}/0", colony_yield.food), if colony_yield.food > 0 { 100 } else { 0 })
+                (
+                    format!("Food {}/0", colony_yield.food),
+                    if colony_yield.food > 0 { 100 } else { 0 },
+                )
             } else {
                 (
                     format!("Food {}/{}", colony_yield.food, colony_yield.food_consumed),

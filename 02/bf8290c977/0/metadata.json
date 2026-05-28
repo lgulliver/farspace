@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.6.2",
+  "checkpoint_id": "02bf8290c977",
+  "session_id": "ses_18f619044ffemaFDWMkVfCrlj3",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-28T22:57:56.471638Z",
+  "branch": "copilot/farspace-tui-refresh-pass-3",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "crates/game_tui/src/screens/colony.rs",
+    "crates/game_tui/src/screens/ship_designer.rs"
+  ],
+  "agent": "OpenCode",
+  "model": "deepseek-v4-flash",
+  "turn_id": "bc4a44a359ea",
+  "checkpoint_transcript_start": 79,
+  "transcript_lines_at_start": 79,
+  "token_usage": {
+    "input_tokens": 610,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 596096,
+    "output_tokens": 454,
+    "api_call_count": 5
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-28T22:57:56.45174Z",
+    "agent_lines": 8,
+    "agent_removed": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 8,
+    "total_lines_changed": 10,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

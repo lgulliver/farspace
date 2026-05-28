@@ -2,7 +2,9 @@
 
 use std::{borrow::Cow, collections::BTreeMap};
 
-use crate::components::{derive_header_data, render_footer, render_header, render_log};
+use crate::components::{
+    page_block, quiet_panel_block, render_footer, render_log, render_screen_title_header,
+};
 use crate::faction::{empire_visual, sector_dominant_owner, sector_fog_state, FogState};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::map_render::{
@@ -26,7 +28,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -43,8 +45,7 @@ pub fn render_sector_overview(
 ) {
     let (header_area, main_area, footer_area) = compose_layout(area);
 
-    let header_data = derive_header_data(game_state);
-    render_header(frame, header_area, &header_data);
+    render_screen_title_header(frame, header_area, "Sector Overview", game_state.turn);
 
     let (map_area, right_area) = split_horizontal(main_area, 55);
 
@@ -76,17 +77,10 @@ pub fn render_sector_overview(
 
 fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_state: &AppState) {
     let palette = Theme::splash_palette();
-    let block = Block::default()
-        .title(" Galaxy — Sector Overview ")
+    let block = page_block("Galaxy — Sector Overview")
         .title_style(
             Style::default()
                 .fg(palette.title_primary)
-                .add_modifier(Modifier::BOLD),
-        )
-        .borders(Borders::ALL)
-        .border_style(
-            Style::default()
-                .fg(palette.border_hot)
                 .add_modifier(Modifier::BOLD),
         )
         .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_a, 0.10)));
@@ -391,9 +385,7 @@ fn render_sector_details(
     let palette = Theme::splash_palette();
     let border_style = Style::default().fg(palette.border_cold);
 
-    let block = Block::default()
-        .title(" Sector Details ")
-        .borders(Borders::ALL)
+    let block = quiet_panel_block("Sector Details")
         .border_style(border_style)
         .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_b, 0.10)));
 
@@ -653,7 +645,9 @@ mod tests {
         let area = Rect::new(0, 0, width, height);
         let (_, main, _) = compose_layout(area);
         let (map_area, _) = split_horizontal(main, 55);
-        let block_inner = Block::default().borders(Borders::ALL).inner(map_area);
+        let block_inner = ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .inner(map_area);
         let render_area = Rect::new(
             block_inner.x,
             block_inner.y,

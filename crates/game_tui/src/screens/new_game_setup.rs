@@ -2,7 +2,8 @@
 
 use crate::app::AppState;
 use crate::components::{
-    render_empire_emblem, render_footer, EmblemPattern, EmpireEmblem, EmpireEmblemPalette,
+    panel_block, render_empire_emblem, render_footer, EmblemPattern, EmpireEmblem,
+    EmpireEmblemPalette,
 };
 use crate::screens::Screen;
 use crate::theme::{gradient, lerp_rgb, SplashPalette, Theme};
@@ -11,7 +12,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph, Wrap},
+    widgets::{Block, Paragraph, Wrap},
     Frame,
 };
 
@@ -182,10 +183,7 @@ fn render_section_block(
     } else {
         Style::default().fg(palette.border_cold)
     };
-    let block = Block::default()
-        .title(format!(" {title} "))
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+    let block = panel_block(title, active)
         .border_style(border_style)
         .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_b, 0.12)));
     frame.render_widget(block, area);
@@ -797,8 +795,8 @@ mod tests {
     fn setup_screen_shows_default_enter_hint_for_start() {
         let state = AppState::default();
         let rendered = render_to_string(&state, 100, 40);
-        assert!(rendered.contains("[Enter] Start"));
-        assert!(rendered.contains("[S] Start"));
+        assert!(rendered.contains("Enter Edit / Start"));
+        assert!(rendered.contains("Esc Back"));
     }
 
     #[test]
@@ -811,7 +809,7 @@ mod tests {
             ..AppState::default()
         };
         let rendered = render_to_string(&state, 100, 40);
-        assert!(rendered.contains("[Enter] Edit Seed"));
+        assert!(rendered.contains("Enter Edit Seed"));
     }
 
     #[test]

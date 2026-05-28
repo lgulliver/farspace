@@ -1,5 +1,6 @@
 //! Main menu screen
 
+use crate::components::render_brand_header;
 use crate::map_render::visual_hash;
 use crate::renderer::{
     starfield::{detail_star_glyph, should_render_star, starfield_detail},
@@ -439,25 +440,7 @@ fn render_compact_menu(
         Clear,
         Rect::new(content[0].x, content[0].y, content[0].width, 10),
     );
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled(
-                "FARSPACE",
-                Style::default()
-                    .fg(palette.title_primary)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(Span::styled(
-                TAGLINE,
-                Style::default()
-                    .fg(palette.accent)
-                    .add_modifier(Modifier::BOLD),
-            )),
-        ])
-        .alignment(Alignment::Center)
-        .style(Style::default().bg(palette.void_bg)),
-        content[0],
-    );
+    render_brand_header(frame, content[0], false);
     frame.render_widget(
         Paragraph::new(build_menu_lines(app_state, palette))
             .alignment(Alignment::Center)

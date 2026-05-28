@@ -17,6 +17,86 @@ pub use palette::SplashPalette;
 pub struct Theme;
 
 impl Theme {
+    pub fn panel_bg() -> Color {
+        Self::space_bg()
+    }
+
+    pub fn panel_border() -> Color {
+        match Self::color_mode() {
+            ColorMode::TrueColor => Color::Rgb(80, 104, 138),
+            ColorMode::Ansi256 => Color::DarkGray,
+            ColorMode::Mono => Color::Gray,
+        }
+    }
+
+    pub fn panel_border_focused() -> Color {
+        match Self::color_mode() {
+            ColorMode::TrueColor => Color::Rgb(132, 209, 240),
+            ColorMode::Ansi256 => Color::Cyan,
+            ColorMode::Mono => Color::White,
+        }
+    }
+
+    pub fn title_primary() -> Color {
+        match Self::color_mode() {
+            ColorMode::TrueColor => Color::Rgb(148, 224, 255),
+            ColorMode::Ansi256 => Color::Cyan,
+            ColorMode::Mono => Color::White,
+        }
+    }
+
+    pub fn title_secondary() -> Color {
+        match Self::color_mode() {
+            ColorMode::TrueColor => Color::Rgb(114, 159, 255),
+            ColorMode::Ansi256 => Color::LightBlue,
+            ColorMode::Mono => Color::Gray,
+        }
+    }
+
+    pub fn text_primary() -> Color {
+        Self::fg()
+    }
+
+    pub fn text_secondary() -> Color {
+        match Self::color_mode() {
+            ColorMode::TrueColor => Color::Rgb(172, 186, 212),
+            ColorMode::Ansi256 => Color::Gray,
+            ColorMode::Mono => Color::Gray,
+        }
+    }
+
+    pub fn text_muted() -> Color {
+        Self::muted()
+    }
+
+    pub fn selection_fg() -> Color {
+        Self::bg()
+    }
+
+    pub fn selection_bg() -> Color {
+        Self::accent()
+    }
+
+    pub fn danger() -> Color {
+        Self::error()
+    }
+
+    pub fn good() -> Color {
+        Self::success()
+    }
+
+    pub fn info() -> Color {
+        Self::accent()
+    }
+
+    pub fn text_primary_style() -> Style {
+        Style::default().fg(Self::text_primary())
+    }
+
+    pub fn text_secondary_style() -> Style {
+        Style::default().fg(Self::text_secondary())
+    }
+
     /// Background color
     pub fn bg() -> Color {
         Color::Black
@@ -124,21 +204,23 @@ impl Theme {
 
     /// Default text style
     pub fn default_style() -> Style {
-        Style::default().fg(Self::fg()).bg(Self::space_bg())
+        Style::default()
+            .fg(Self::text_primary())
+            .bg(Self::panel_bg())
     }
 
     /// Highlighted/selected style
     pub fn highlight_style() -> Style {
         Style::default()
-            .fg(Self::bg())
-            .bg(Self::accent())
+            .fg(Self::selection_fg())
+            .bg(Self::selection_bg())
             .add_modifier(Modifier::BOLD)
     }
 
     /// Title style
     pub fn title_style() -> Style {
         Style::default()
-            .fg(Self::accent())
+            .fg(Self::title_primary())
             .add_modifier(Modifier::BOLD)
     }
 
@@ -168,7 +250,7 @@ impl Theme {
 
     /// Muted style
     pub fn muted_style() -> Style {
-        Style::default().fg(Self::muted())
+        Style::default().fg(Self::text_muted())
     }
 
     pub fn fog_style(state: FogState) -> Style {
@@ -187,21 +269,21 @@ impl Theme {
     /// Header style
     pub fn header_style() -> Style {
         Style::default()
-            .fg(Self::fg())
-            .bg(Color::DarkGray)
+            .fg(Self::text_primary())
+            .bg(Self::panel_border())
             .add_modifier(Modifier::BOLD)
     }
 
     /// Border style for a focused/active panel
     pub fn focused_border_style() -> Style {
         Style::default()
-            .fg(Self::accent())
+            .fg(Self::panel_border_focused())
             .add_modifier(Modifier::BOLD)
     }
 
     /// Border style for an unfocused/inactive panel
     pub fn dim_border_style() -> Style {
-        Style::default().fg(Self::muted())
+        Style::default().fg(Self::panel_border())
     }
 }
 

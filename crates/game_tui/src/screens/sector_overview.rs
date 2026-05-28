@@ -1,11 +1,13 @@
 //! Sector overview screen - shows all sectors in the galaxy
 
-use std::{borrow::Cow, collections::BTreeMap};
+use std::collections::BTreeMap;
 
 use crate::components::{
-    page_block, quiet_panel_block, render_footer, render_log, render_screen_title_header,
+    derive_header_data, meter_line, page_block, panel_block, render_footer, render_header,
+    render_log, section_heading,
 };
 use crate::faction::{empire_visual, sector_dominant_owner, sector_fog_state, FogState};
+use crate::glyphs::glyphs_for_mode;
 use crate::layout::{compose_layout, split_horizontal};
 use crate::map_render::{
     push_halo, visual_hash, CellCommand, HaloSpec, LabelCommand, LabelPlacement, LayeredMap,
@@ -36,6 +38,9 @@ use ratatui::{
 const GALAXY_STARFIELD_SALT: u64 = 0xA11;
 const GALAXY_STARFIELD_TWINKLE_SALT_XOR: u64 = 0x73;
 const SELECTION_PULSE_PERIOD: u64 = 3;
+const SELECTED_SECTOR_LABEL_PROTECT: u8 = 10;
+/// Sector-level threat contribution per hostile fleet in the selected sector.
+const THREAT_PER_HOSTILE_FLEET: usize = 25;
 
 pub fn render_sector_overview(
     frame: &mut Frame,
@@ -45,38 +50,49 @@ pub fn render_sector_overview(
 ) {
     let (header_area, main_area, footer_area) = compose_layout(area);
 
-    render_screen_title_header(frame, header_area, "Sector Overview", game_state.turn);
+    let header_data = derive_header_data(game_state);
+    render_header(frame, header_area, &header_data);
 
-    let (map_area, right_area) = split_horizontal(main_area, 55);
+    let (map_area, right_area) = split_horizontal(main_area, 60);
 
     render_sector_map(frame, map_area, game_state, app_state);
 
-    let right_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-        .split(right_area);
-
-    render_sector_details(
-        frame,
-        right_chunks[0],
-        game_state,
-        app_state.navigation.selected_sector,
-    );
-    render_log(
-        frame,
-        right_chunks[1],
-        &app_state.log,
-        app_state.visual_mode,
-    );
+    let compact_right = right_area.width < 32 || right_area.height < 14;
+    if compact_right {
+        render_sector_details(
+            frame,
+            right_area,
+            game_state,
+            app_state.navigation.selected_sector,
+        );
+    } else {
+        let right_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(68), Constraint::Percentage(32)])
+            .split(right_area);
+        render_sector_details(
+            frame,
+            right_chunks[0],
+            game_state,
+            app_state.navigation.selected_sector,
+        );
+        render_log(
+            frame,
+            right_chunks[1],
+            &app_state.log,
+            app_state.visual_mode,
+        );
+    }
 
     let hint = app_state.status_message.as_deref().unwrap_or(
-        "Enter zooms to sector detail. Strategic map shows borders, capitals, fleets, and fog.",
+        "Enter opens Sector Map. Move to inspect ownership, fleets, threat, and known systems.",
     );
     render_footer(frame, footer_area, &Screen::SectorOverview, Some(hint));
 }
 
 fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_state: &AppState) {
     let palette = Theme::splash_palette();
+    let glyphs = glyphs_for_mode(app_state.visual_mode);
     let block = page_block("Galaxy — Sector Overview")
         .title_style(
             Style::default()
@@ -253,7 +269,7 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
             } else {
                 Theme::highlight_style()
             };
-            ('@', style, 10)
+            (glyphs.sector_selected, style, SELECTED_SECTOR_LABEL_PROTECT)
         } else if let Some(owner) = owner {
             let visual = empire_visual(game_state, owner);
             let mut style = Style::default().fg(visual.color);
@@ -354,13 +370,15 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
         render_map_legend(
             frame,
             Rect::new(inner.x, inner.y + inner.height - 1, inner.width, 1),
+            app_state.visual_mode,
         );
     }
 }
 
-fn render_map_legend(frame: &mut Frame, area: Rect) {
+fn render_map_legend(frame: &mut Frame, area: Rect, mode: crate::visual_mode::VisualMode) {
+    let glyphs = glyphs_for_mode(mode);
     let spans = vec![
-        Span::styled("@", Theme::highlight_style()),
+        Span::styled(glyphs.sector_selected.to_string(), Theme::highlight_style()),
         Span::styled(" Selected  ", Theme::dim_border_style()),
         Span::styled("^", Style::default().fg(Color::LightYellow)),
         Span::styled(" Capital  ", Theme::dim_border_style()),
@@ -382,15 +400,12 @@ fn render_sector_details(
     game_state: &GameState,
     selected_sector: Option<SectorId>,
 ) {
-    let palette = Theme::splash_palette();
-    let border_style = Style::default().fg(palette.border_cold);
-
-    let block = quiet_panel_block("Sector Details")
-        .border_style(border_style)
-        .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_b, 0.10)));
-
+    let block = panel_block("Sector Command Detail", true);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
 
     let sector = match selected_sector.and_then(|id| game_state.sectors.get(&id)) {
         Some(s) => s,
@@ -403,108 +418,165 @@ fn render_sector_details(
 
     let owner = sector_dominant_owner(game_state, sector.id);
     let fog = sector_fog_state(game_state, sector.id);
-
-    let mut lines = vec![
-        Line::from(vec![Span::styled(&sector.name, Theme::title_style())]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Visibility: ", Theme::muted_style()),
-            Span::raw(match fog {
-                FogState::Unexplored => "Unexplored",
-                FogState::Explored => "Explored",
-                FogState::Visible => "Visible",
-            }),
-        ]),
-        Line::from(vec![
-            Span::styled("Systems: ", Theme::muted_style()),
-            Span::raw(count_systems_in_sector(game_state, sector.id).to_string()),
-        ]),
-        Line::from(vec![
-            Span::styled("Position: ", Theme::muted_style()),
-            Span::raw(format!("({}, {})", sector.x, sector.y)),
-        ]),
-    ];
-
-    if !matches!(fog, FogState::Unexplored) {
-        if let Some(owner) = owner {
-            let visual = empire_visual(game_state, owner);
-            let owner_name = game_state
-                .empires
-                .get(&owner)
-                .map(|empire| empire.name.as_str())
-                .unwrap_or("Unknown Empire");
-            lines.push(Line::from(vec![
-                Span::styled("Dominant Power: ", Theme::muted_style()),
-                Span::styled(
-                    format!("{} {}", visual.symbol, owner_name),
-                    Style::default().fg(visual.color),
-                ),
-            ]));
-        }
-    }
-
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "Systems in Sector:",
-        Theme::title_style(),
-    )));
-
     let stars_in_sector: Vec<_> = game_state
         .stars
         .values()
         .filter(|s| s.sector == sector.id)
         .collect();
-
-    for star in stars_in_sector {
-        let is_explored = game_state.explored_stars.contains(&star.id);
-        let name: Cow<'_, str> = if is_explored {
-            Cow::Borrowed(star.name.as_str())
-        } else {
-            Cow::Owned("???".to_string())
-        };
-        let mut style = if is_explored {
-            Style::default().fg(Theme::star_color(star.spectral_class))
-        } else {
-            Theme::muted_style()
-        };
-        let owner_symbol = if is_explored {
-            crate::faction::star_owner(game_state, star.id).map(|empire_id| {
-                let visual = empire_visual(game_state, empire_id);
-                style = style.fg(visual.color).add_modifier(Modifier::BOLD);
-                visual.symbol
+    let known_systems = stars_in_sector
+        .iter()
+        .filter(|star| game_state.explored_stars.contains(&star.id))
+        .count();
+    let colony_count = stars_in_sector
+        .iter()
+        .flat_map(|star| star.planets.iter())
+        .filter(|planet| planet.colony.is_some())
+        .count();
+    let fleets_total = game_state
+        .fleets
+        .values()
+        .filter(|fleet| {
+            game_state
+                .stars
+                .get(&fleet.location)
+                .is_some_and(|star| star.sector == sector.id)
+        })
+        .count();
+    let hostile_fleets = if matches!(fog, FogState::Visible) {
+        game_state
+            .fleets
+            .values()
+            .filter(|fleet| {
+                game_state
+                    .stars
+                    .get(&fleet.location)
+                    .is_some_and(|star| star.sector == sector.id)
+                    && fleet.owner != game_state.player_empire
+                    && game_state
+                        .relationship_status(game_state.player_empire, fleet.owner)
+                        .is_hostile_or_war()
             })
-        } else {
-            None
-        };
+            .count()
+    } else {
+        0
+    };
+    let threat_percent = (hostile_fleets.saturating_mul(THREAT_PER_HOSTILE_FLEET)).min(100) as u8;
+    let strategic_notes = strategic_notes(fog, owner, colony_count, fleets_total, hostile_fleets);
+    let owner_text = if matches!(fog, FogState::Unexplored) {
+        "Unknown".to_string()
+    } else {
+        owner
+            .and_then(|owner_id| {
+                game_state.empires.get(&owner_id).map(|empire| {
+                    format!(
+                        "{} {}",
+                        empire_visual(game_state, owner_id).symbol,
+                        empire.name.as_str()
+                    )
+                })
+            })
+            .unwrap_or_else(|| "Unclaimed".to_string())
+    };
+    let visibility = match fog {
+        FogState::Unexplored => "Unexplored",
+        FogState::Explored => "Explored",
+        FogState::Visible => "Visible",
+    };
+
+    let mut lines = vec![
+        section_heading(format!("Sector Name: {}", sector.name)),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Owner: ", Theme::muted_style()),
+            Span::styled(owner_text, Theme::default_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("Visibility: ", Theme::muted_style()),
+            Span::raw(visibility),
+        ]),
+        Line::from(vec![
+            Span::styled("Known Systems: ", Theme::muted_style()),
+            Span::raw(if matches!(fog, FogState::Unexplored) {
+                "?".to_string()
+            } else {
+                format!("{known_systems} / {}", stars_in_sector.len())
+            }),
+        ]),
+        Line::from(vec![
+            Span::styled("Colonies: ", Theme::muted_style()),
+            Span::raw(if matches!(fog, FogState::Unexplored) {
+                "Unknown".to_string()
+            } else {
+                colony_count.to_string()
+            }),
+        ]),
+        Line::from(vec![
+            Span::styled("Fleet Presence: ", Theme::muted_style()),
+            Span::raw(if matches!(fog, FogState::Unexplored) {
+                "Unknown".to_string()
+            } else {
+                fleets_total.to_string()
+            }),
+        ]),
+        meter_line("Threat", threat_percent, inner.width.saturating_sub(1)),
+        Line::from(vec![
+            Span::styled("Strategic Notes: ", Theme::muted_style()),
+            Span::styled(strategic_notes[0].as_str(), Theme::text_primary_style()),
+        ]),
+    ];
+
+    if inner.height > 13 {
         lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(
-                owner_symbol
-                    .unwrap_or(star.spectral_class.as_char())
-                    .to_string(),
-                style,
-            ),
-            Span::raw(" "),
-            Span::styled(
-                name,
-                if is_explored {
-                    Theme::default_style()
-                } else {
-                    Theme::muted_style()
-                },
-            ),
+            Span::styled("  ", Theme::muted_style()),
+            Span::styled(strategic_notes[1].as_str(), Theme::muted_style()),
+        ]));
+    }
+
+    if inner.height > 16 {
+        lines.push(Line::from(vec![
+            Span::styled("Position: ", Theme::muted_style()),
+            Span::raw(format!("({}, {})", sector.x, sector.y)),
         ]));
     }
 
     frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
 }
 
-fn count_systems_in_sector(game_state: &GameState, sector_id: SectorId) -> usize {
-    game_state
-        .stars
-        .values()
-        .filter(|s| s.sector == sector_id)
-        .count()
+fn strategic_notes(
+    fog: FogState,
+    owner: Option<game_core::EmpireId>,
+    colonies: usize,
+    fleets: usize,
+    hostile_fleets: usize,
+) -> [String; 2] {
+    if matches!(fog, FogState::Unexplored) {
+        return [
+            "Long-range scans incomplete.".to_string(),
+            "Send scouts before committing fleets.".to_string(),
+        ];
+    }
+    if hostile_fleets > 0 {
+        return [
+            format!("Hostile contacts detected ({hostile_fleets})."),
+            "Reinforce supply and keep strike groups nearby.".to_string(),
+        ];
+    }
+    if colonies == 0 && owner.is_none() {
+        return [
+            "Open frontier sector.".to_string(),
+            "Candidate for expansion and survey operations.".to_string(),
+        ];
+    }
+    if fleets > 0 {
+        return [
+            "Friendly traffic active.".to_string(),
+            "Use as staging lane for adjacent sectors.".to_string(),
+        ];
+    }
+    [
+        "Stable command space.".to_string(),
+        "Monitor lanes and keep scouts rotating.".to_string(),
+    ]
 }
 
 fn sector_star_counts(game_state: &GameState) -> BTreeMap<SectorId, usize> {
@@ -644,7 +716,7 @@ mod tests {
     fn overview_viewport(width: u16, height: u16) -> (Rect, MapViewport) {
         let area = Rect::new(0, 0, width, height);
         let (_, main, _) = compose_layout(area);
-        let (map_area, _) = split_horizontal(main, 55);
+        let (map_area, _) = split_horizontal(main, 60);
         let block_inner = ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::ALL)
             .inner(map_area);
@@ -691,6 +763,16 @@ mod tests {
         let engine = Engine::new(42);
         let app_state = AppState::default();
         render_to_buffer(&app_state, &engine.state, 40, 15);
+    }
+
+    #[test]
+    fn sector_overview_renders_at_80x24_with_footer() {
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
+        let buf = render_to_buffer(&app_state, &engine.state, 80, 24);
+        let text = buffer_text(&buf, Rect::new(0, 0, 80, 24));
+        assert!(text.contains("Enter"));
+        assert!(text.contains("Sector Map"));
     }
 
     #[test]
@@ -817,7 +899,40 @@ mod tests {
         let cell = buf
             .cell((render_area.x + pos.x, render_area.y + pos.y))
             .unwrap();
-        assert_eq!(cell.symbol(), "@");
+        assert_eq!(
+            cell.symbol(),
+            glyphs_for_mode(app_state.visual_mode)
+                .sector_selected
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn selected_sector_remains_visible_at_80x24() {
+        let engine = Engine::new(42);
+        let selected_sector = engine.state.sectors.keys().next().copied().unwrap();
+        let app_state = AppState {
+            navigation: crate::app::NavigationState {
+                selected_sector: Some(selected_sector),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let buf = render_to_buffer(&app_state, &engine.state, 80, 24);
+        let (render_area, viewport) = overview_viewport(80, 24);
+        let sector = engine.state.sectors.get(&selected_sector).unwrap();
+        let pos = viewport
+            .world_to_screen_cell(WorldPoint::new(sector.x as f64, sector.y as f64))
+            .unwrap();
+        let cell = buf
+            .cell((render_area.x + pos.x, render_area.y + pos.y))
+            .unwrap();
+        assert_eq!(
+            cell.symbol(),
+            glyphs_for_mode(app_state.visual_mode)
+                .sector_selected
+                .to_string()
+        );
     }
 
     #[test]

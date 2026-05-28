@@ -5,7 +5,10 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
-use crate::components::{derive_header_data, render_footer, render_header, render_log};
+use crate::components::{
+    derive_header_data, meter_line, page_block, panel_block, render_footer, render_header,
+    render_log, section_heading,
+};
 use crate::faction::{
     empire_visual, star_fog_state, star_is_capital, star_owner, visible_star_ids, FogState,
 };
@@ -32,7 +35,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -41,6 +44,11 @@ const SECTOR_STARFIELD_SALT: u64 = 0xB22;
 const SECTOR_STARFIELD_TWINKLE_SALT_XOR: u64 = 0x91;
 const SELECTION_PULSE_PERIOD: u64 = 3;
 const TRANSIT_ANIMATION_PERIOD: u64 = 3;
+/// System-level threat contribution per hostile fleet at selected system.
+const THREAT_PER_HOSTILE_FLEET_SYSTEM: usize = 35;
+/// Minimum panel size to render expanded system list under summary.
+const MIN_SYSTEM_PANEL_HEIGHT: u16 = 16;
+const MIN_SYSTEM_PANEL_WIDTH: u16 = 38;
 
 pub fn render_sector_map(
     frame: &mut Frame,
@@ -53,22 +61,26 @@ pub fn render_sector_map(
     let header_data = derive_header_data(game_state);
     render_header(frame, header_area, &header_data);
 
-    let (map_area, right_area) = split_horizontal(main_area, 55);
+    let (map_area, right_area) = split_horizontal(main_area, 60);
 
     render_local_map(frame, map_area, game_state, app_state);
 
-    let right_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-        .split(right_area);
-
-    render_system_list(frame, right_chunks[0], game_state, app_state);
-    render_log(
-        frame,
-        right_chunks[1],
-        &app_state.log,
-        app_state.visual_mode,
-    );
+    let compact_right = right_area.width < 32 || right_area.height < 14;
+    if compact_right {
+        render_system_list(frame, right_area, game_state, app_state);
+    } else {
+        let right_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(68), Constraint::Percentage(32)])
+            .split(right_area);
+        render_system_list(frame, right_chunks[0], game_state, app_state);
+        render_log(
+            frame,
+            right_chunks[1],
+            &app_state.log,
+            app_state.visual_mode,
+        );
+    }
 
     let hint = app_state
         .status_message
@@ -87,22 +99,13 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
         .map(|s| s.name.as_str())
         .unwrap_or("Unknown");
 
-    let title = format!(" {} — Systems ", sector_name);
+    let title = format!("{sector_name} — Systems");
 
-    let block = Block::default()
-        .title(title)
-        .title_style(
-            Style::default()
-                .fg(palette.title_primary)
-                .add_modifier(Modifier::BOLD),
-        )
-        .borders(Borders::ALL)
-        .border_style(
-            Style::default()
-                .fg(palette.border_hot)
-                .add_modifier(Modifier::BOLD),
-        )
-        .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_a, 0.10)));
+    let block = page_block(title).style(Style::default().bg(lerp_rgb(
+        palette.void_bg,
+        palette.nebula_a,
+        0.10,
+    )));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -539,18 +542,14 @@ fn render_local_legend(frame: &mut Frame, area: Rect, mode: crate::visual_mode::
 }
 
 fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app_state: &AppState) {
-    let palette = Theme::splash_palette();
     let glyphs = glyphs_for_mode(app_state.visual_mode);
-    let border_style = Style::default().fg(palette.border_cold);
-
-    let block = Block::default()
-        .title(" Systems ")
-        .borders(Borders::ALL)
-        .border_style(border_style)
-        .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_b, 0.10)));
+    let block = panel_block("Selected System", true);
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
 
     let sector_id = match app_state.navigation.selected_sector {
         Some(id) => id,
@@ -577,14 +576,130 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
     }
 
     let fleets = fleets_at_star(game_state, sector_id);
-    let mut lines = Vec::new();
-    lines.push(Line::from(vec![Span::styled(
-        "Sector Systems:",
-        Theme::title_style(),
-    )]));
-    lines.push(Line::from(""));
+    let selected_star = app_state
+        .navigation
+        .selected_star
+        .and_then(|id| stars_in_sector.iter().find(|star| star.id == id).copied())
+        .or_else(|| stars_in_sector.first().copied());
+    let mut lines = vec![section_heading("Operational Summary"), Line::from("")];
+
+    if let Some(star) = selected_star {
+        let fog = star_fog_state(game_state, &visible_stars, star.id);
+        let owner = if matches!(fog, FogState::Unexplored) {
+            None
+        } else {
+            star_owner(game_state, star.id)
+        };
+        let colonies = star
+            .planets
+            .iter()
+            .filter(|planet| planet.colony.is_some())
+            .count();
+        let fleets_here = fleets.get(&star.id).copied().unwrap_or_default();
+        let surveyed = star.planets.iter().filter(|planet| planet.surveyed).count();
+        let survey_label = if matches!(fog, FogState::Unexplored) {
+            "Unknown".to_string()
+        } else {
+            format!("{surveyed}/{} surveyed", star.planets.len())
+        };
+        let hostile_here = if matches!(fog, FogState::Visible) {
+            game_state
+                .fleets
+                .values()
+                .filter(|fleet| {
+                    fleet.location == star.id
+                        && fleet.owner != game_state.player_empire
+                        && game_state
+                            .relationship_status(game_state.player_empire, fleet.owner)
+                            .is_hostile_or_war()
+                })
+                .count()
+        } else {
+            0
+        };
+        let threat_percent =
+            (hostile_here.saturating_mul(THREAT_PER_HOSTILE_FLEET_SYSTEM)).min(100) as u8;
+
+        lines.extend([
+            Line::from(vec![
+                Span::styled("System: ", Theme::muted_style()),
+                Span::styled(
+                    if matches!(fog, FogState::Unexplored) {
+                        "Unknown".to_string()
+                    } else {
+                        star.name.clone()
+                    },
+                    if app_state.navigation.selected_star == Some(star.id) {
+                        Theme::highlight_style()
+                    } else {
+                        Theme::text_primary_style()
+                    },
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Class: ", Theme::muted_style()),
+                Span::raw(if matches!(fog, FogState::Unexplored) {
+                    "?".to_string()
+                } else {
+                    star.spectral_class.as_char().to_string()
+                }),
+                Span::styled("   Owner: ", Theme::muted_style()),
+                Span::styled(
+                    owner
+                        .and_then(|owner_id| {
+                            game_state.empires.get(&owner_id).map(|empire| {
+                                format!(
+                                    "{} {}",
+                                    empire_visual(game_state, owner_id).symbol,
+                                    empire.name
+                                )
+                            })
+                        })
+                        .unwrap_or_else(|| "Unclaimed".to_string()),
+                    Theme::default_style(),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Planets: ", Theme::muted_style()),
+                Span::raw(star.planets.len().to_string()),
+                Span::styled("   Colonies: ", Theme::muted_style()),
+                Span::raw(if matches!(fog, FogState::Unexplored) {
+                    "?".to_string()
+                } else {
+                    colonies.to_string()
+                }),
+                Span::styled("   Fleets: ", Theme::muted_style()),
+                Span::raw(if matches!(fog, FogState::Unexplored) {
+                    "?".to_string()
+                } else {
+                    fleets_here.to_string()
+                }),
+            ]),
+            Line::from(vec![
+                Span::styled("Survey: ", Theme::muted_style()),
+                Span::raw(survey_label),
+            ]),
+            meter_line("Threat", threat_percent, inner.width.saturating_sub(1)),
+            Line::from(vec![
+                Span::styled("Actions: ", Theme::muted_style()),
+                Span::styled(
+                    "Enter inspect · C colony · S scout · M move",
+                    Theme::muted_style(),
+                ),
+            ]),
+        ]);
+    }
+
+    let compact = inner.height < MIN_SYSTEM_PANEL_HEIGHT || inner.width < MIN_SYSTEM_PANEL_WIDTH;
+    if !compact {
+        lines.push(Line::from(""));
+        lines.push(section_heading("Systems in Sector"));
+    }
 
     for star in &stars_in_sector {
+        if compact && lines.len() >= inner.height as usize {
+            break;
+        }
         let is_selected = app_state.navigation.selected_star == Some(star.id);
         let fog = star_fog_state(game_state, &visible_stars, star.id);
         let owner = if matches!(fog, FogState::Unexplored) {
@@ -650,7 +765,9 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
                 Theme::fleet_supply_style(supply),
             ));
         }
-        lines.push(Line::from(spans));
+        if !compact {
+            lines.push(Line::from(spans));
+        }
     }
 
     frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
@@ -876,8 +993,10 @@ mod tests {
     fn map_render_area(width: u16, height: u16) -> Rect {
         let area = Rect::new(0, 0, width, height);
         let (_, main, _) = compose_layout(area);
-        let (map_area, _) = split_horizontal(main, 55);
-        let block_inner = Block::default().borders(Borders::ALL).inner(map_area);
+        let (map_area, _) = split_horizontal(main, 60);
+        let block_inner = ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .inner(map_area);
         Rect::new(
             block_inner.x,
             block_inner.y,
@@ -913,6 +1032,15 @@ mod tests {
     fn sector_map_small_terminal_does_not_panic() {
         let (app_state, game_state) = create_app_with_sector();
         render_to_buffer(&app_state, &game_state, 40, 15);
+    }
+
+    #[test]
+    fn sector_map_renders_at_80x24_with_footer() {
+        let (app_state, game_state) = create_app_with_sector();
+        let buf = render_to_buffer(&app_state, &game_state, 80, 24);
+        let text = buffer_text(&buf, Rect::new(0, 0, 80, 24));
+        assert!(text.contains("Enter"));
+        assert!(text.contains("System"));
     }
 
     #[test]
@@ -1070,6 +1198,28 @@ mod tests {
             );
         }
         assert_eq!(cell.bg, Theme::accent());
+    }
+
+    #[test]
+    fn selected_star_remains_visible_at_80x24() {
+        let (app_state, game_state) = create_app_with_sector();
+        let star_id = app_state.navigation.selected_star.unwrap();
+        let buf = render_to_buffer(&app_state, &game_state, 80, 24);
+        let render_area = map_render_area(80, 24);
+        let viewport = sector_viewport(&game_state, &app_state, 80, 24);
+        let star = game_state.stars.get(&star_id).unwrap();
+        let pos = viewport
+            .world_to_screen_cell(WorldPoint::new(star.x as f64, star.y as f64))
+            .unwrap();
+        let cell = buf
+            .cell((render_area.x + pos.x, render_area.y + pos.y))
+            .unwrap();
+        assert_eq!(
+            cell.symbol(),
+            glyphs_for_mode(app_state.visual_mode)
+                .star_selected
+                .to_string()
+        );
     }
 
     #[test]

@@ -99,7 +99,7 @@ fn render_local_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_s
         .map(|s| s.name.as_str())
         .unwrap_or("Unknown");
 
-    let title = format!(" {} — Systems ", sector_name);
+    let title = format!("{sector_name} — Systems");
 
     let block = page_block(title).style(Style::default().bg(lerp_rgb(
         palette.void_bg,
@@ -602,17 +602,21 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
         } else {
             format!("{surveyed}/{} surveyed", star.planets.len())
         };
-        let hostile_here = game_state
-            .fleets
-            .values()
-            .filter(|fleet| {
-                fleet.location == star.id
-                    && fleet.owner != game_state.player_empire
-                    && game_state
-                        .relationship_status(game_state.player_empire, fleet.owner)
-                        .is_hostile_or_war()
-            })
-            .count();
+        let hostile_here = if matches!(fog, FogState::Visible) {
+            game_state
+                .fleets
+                .values()
+                .filter(|fleet| {
+                    fleet.location == star.id
+                        && fleet.owner != game_state.player_empire
+                        && game_state
+                            .relationship_status(game_state.player_empire, fleet.owner)
+                            .is_hostile_or_war()
+                })
+                .count()
+        } else {
+            0
+        };
         let threat_percent =
             (hostile_here.saturating_mul(THREAT_PER_HOSTILE_FLEET_SYSTEM)).min(100) as u8;
 

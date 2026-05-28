@@ -7,6 +7,7 @@ use crate::components::{
     render_log, section_heading,
 };
 use crate::faction::{empire_visual, sector_dominant_owner, sector_fog_state, FogState};
+use crate::glyphs::glyphs_for_mode;
 use crate::layout::{compose_layout, split_horizontal};
 use crate::map_render::{
     push_halo, visual_hash, CellCommand, HaloSpec, LabelCommand, LabelPlacement, LayeredMap,
@@ -91,6 +92,7 @@ pub fn render_sector_overview(
 
 fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_state: &AppState) {
     let palette = Theme::splash_palette();
+    let glyphs = glyphs_for_mode(app_state.visual_mode);
     let block = page_block("Galaxy — Sector Overview")
         .title_style(
             Style::default()
@@ -267,7 +269,7 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
             } else {
                 Theme::highlight_style()
             };
-            ('◆', style, SELECTED_SECTOR_LABEL_PROTECT)
+            (glyphs.sector_selected, style, SELECTED_SECTOR_LABEL_PROTECT)
         } else if let Some(owner) = owner {
             let visual = empire_visual(game_state, owner);
             let mut style = Style::default().fg(visual.color);
@@ -368,13 +370,15 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
         render_map_legend(
             frame,
             Rect::new(inner.x, inner.y + inner.height - 1, inner.width, 1),
+            app_state.visual_mode,
         );
     }
 }
 
-fn render_map_legend(frame: &mut Frame, area: Rect) {
+fn render_map_legend(frame: &mut Frame, area: Rect, mode: crate::visual_mode::VisualMode) {
+    let glyphs = glyphs_for_mode(mode);
     let spans = vec![
-        Span::styled("◆", Theme::highlight_style()),
+        Span::styled(glyphs.sector_selected.to_string(), Theme::highlight_style()),
         Span::styled(" Selected  ", Theme::dim_border_style()),
         Span::styled("^", Style::default().fg(Color::LightYellow)),
         Span::styled(" Capital  ", Theme::dim_border_style()),
@@ -438,20 +442,24 @@ fn render_sector_details(
                 .is_some_and(|star| star.sector == sector.id)
         })
         .count();
-    let hostile_fleets = game_state
-        .fleets
-        .values()
-        .filter(|fleet| {
-            game_state
-                .stars
-                .get(&fleet.location)
-                .is_some_and(|star| star.sector == sector.id)
-                && fleet.owner != game_state.player_empire
-                && game_state
-                    .relationship_status(game_state.player_empire, fleet.owner)
-                    .is_hostile_or_war()
-        })
-        .count();
+    let hostile_fleets = if matches!(fog, FogState::Visible) {
+        game_state
+            .fleets
+            .values()
+            .filter(|fleet| {
+                game_state
+                    .stars
+                    .get(&fleet.location)
+                    .is_some_and(|star| star.sector == sector.id)
+                    && fleet.owner != game_state.player_empire
+                    && game_state
+                        .relationship_status(game_state.player_empire, fleet.owner)
+                        .is_hostile_or_war()
+            })
+            .count()
+    } else {
+        0
+    };
     let threat_percent = (hostile_fleets.saturating_mul(THREAT_PER_HOSTILE_FLEET)).min(100) as u8;
     let strategic_notes = strategic_notes(fog, owner, colony_count, fleets_total, hostile_fleets);
     let owner_text = if matches!(fog, FogState::Unexplored) {
@@ -891,7 +899,12 @@ mod tests {
         let cell = buf
             .cell((render_area.x + pos.x, render_area.y + pos.y))
             .unwrap();
-        assert_eq!(cell.symbol(), "◆");
+        assert_eq!(
+            cell.symbol(),
+            glyphs_for_mode(app_state.visual_mode)
+                .sector_selected
+                .to_string()
+        );
     }
 
     #[test]
@@ -914,7 +927,12 @@ mod tests {
         let cell = buf
             .cell((render_area.x + pos.x, render_area.y + pos.y))
             .unwrap();
-        assert_eq!(cell.symbol(), "◆");
+        assert_eq!(
+            cell.symbol(),
+            glyphs_for_mode(app_state.visual_mode)
+                .sector_selected
+                .to_string()
+        );
     }
 
     #[test]

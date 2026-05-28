@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.6.2",
+  "checkpoint_id": "9d5d7e113de2",
+  "strategy": "manual-commit",
+  "branch": "copilot/farspace-tui-refresh-pass-3",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "crates/game_tui/src/screens/colony.rs",
+    "crates/game_tui/src/screens/empire_overview.rs",
+    "crates/game_tui/src/screens/ship_designer.rs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9d/5d7e113de2/0/metadata.json",
+      "transcript": "/9d/5d7e113de2/0/full.jsonl",
+      "content_hash": "/9d/5d7e113de2/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 53537,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4858112,
+    "output_tokens": 7109,
+    "api_call_count": 40
+  }
+}

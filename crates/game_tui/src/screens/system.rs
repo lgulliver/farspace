@@ -2,7 +2,10 @@
 
 use std::{borrow::Cow, f32::consts::PI};
 
-use crate::components::{derive_header_data, render_footer, render_header, render_log};
+use crate::components::{
+    derive_header_data, page_block, panel_block, render_footer, render_header, render_log,
+    section_heading,
+};
 use crate::glyphs::glyphs_for_mode;
 use crate::layout::{compose_layout, split_horizontal};
 use crate::renderer::{
@@ -22,7 +25,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -37,20 +40,30 @@ pub fn render_system(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
     let header_data = derive_header_data(game_state);
     render_header(frame, header_area, &header_data);
 
-    let (left, right) = split_horizontal(main_area, 55);
+    let (left, right) = split_horizontal(main_area, 60);
     render_orbital_panel(frame, left, app_state, game_state);
 
-    let right_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
-        .split(right);
-    render_system_details(frame, right_chunks[0], app_state, game_state);
-    render_log(
-        frame,
-        right_chunks[1],
-        &app_state.log,
-        app_state.visual_mode,
-    );
+    let compact_right = right.width < 36 || right.height < 14;
+    if compact_right {
+        render_system_details(frame, right, app_state, game_state);
+    } else {
+        let right_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(6),
+                Constraint::Percentage(50),
+                Constraint::Percentage(24),
+            ])
+            .split(right);
+        render_system_summary(frame, right_chunks[0], app_state, game_state);
+        render_system_details(frame, right_chunks[1], app_state, game_state);
+        render_log(
+            frame,
+            right_chunks[2],
+            &app_state.log,
+            app_state.visual_mode,
+        );
+    }
 
     let hint = app_state.status_message.as_deref().unwrap_or(
         "Survey with S, colonize with C, invade with I, and watch fleet supply in roster.",
@@ -111,22 +124,18 @@ fn render_orbital_panel(
 ) {
     let palette = Theme::splash_palette();
     let glyphs = glyphs_for_mode(app_state.visual_mode);
-    let block = Block::default()
-        .title(" System Orbits ")
+    let block = page_block("System Orbits")
         .title_style(
             Style::default()
                 .fg(palette.title_primary)
                 .add_modifier(Modifier::BOLD),
         )
-        .borders(Borders::ALL)
-        .border_style(
-            Style::default()
-                .fg(palette.border_hot)
-                .add_modifier(Modifier::BOLD),
-        )
         .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_a, 0.10)));
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
 
     let star = match selected_star(app_state, game_state) {
         Some(star) => star,
@@ -139,14 +148,9 @@ fn render_orbital_panel(
         }
     };
 
-    let mut lines = vec![Line::from(vec![
-        Span::styled(format!("{} ", glyphs.star), Theme::title_style()),
-        Span::styled(star.name.as_str(), Theme::title_style()),
-        Span::styled(
-            format!(" [{}]", star.spectral_class.as_char()),
-            Style::default().fg(Theme::star_color(star.spectral_class)),
-        ),
-    ])];
+    let mut lines = vec![
+        section_heading(format!("{} {} [{}]", glyphs.star, star.name, star.spectral_class.as_char())),
+    ];
     lines.push(Line::from(""));
 
     let split_height = (inner.height / 2)
@@ -432,14 +436,12 @@ fn render_system_details(
     app_state: &AppState,
     game_state: &GameState,
 ) {
-    let palette = Theme::splash_palette();
-    let block = Block::default()
-        .title(" Planet Detail ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(palette.border_cold))
-        .style(Style::default().bg(lerp_rgb(palette.void_bg, palette.nebula_b, 0.10)));
+    let block = panel_block("Planet Detail", true);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
 
     let star = match selected_star(app_state, game_state) {
         Some(star) => star,
@@ -950,6 +952,15 @@ fn render_system_detail_facts(
     }
 
     lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("Actions: ", Theme::muted_style()),
+        Span::styled(
+            "Enter colony · S survey · C colonize · I invade · F fleet",
+            Theme::muted_style(),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("Fleets:", Theme::title_style())));
     if fleets_here.is_empty() {
         lines.push(Line::from(Span::styled("  None", Theme::muted_style())));
@@ -1065,6 +1076,67 @@ fn render_system_detail_facts(
     frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), area);
 }
 
+fn render_system_summary(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
+    let block = panel_block("System Summary", false);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let Some(star) = selected_star(app_state, game_state) else {
+        frame.render_widget(
+            Paragraph::new("No system selected").style(Theme::muted_style()),
+            inner,
+        );
+        return;
+    };
+    let colonies = star.planets.iter().filter(|planet| planet.colony.is_some()).count();
+    let surveyed = star.planets.iter().filter(|planet| planet.surveyed).count();
+    let fleets_here = game_state
+        .fleets
+        .values()
+        .filter(|fleet| {
+            fleet.location == star.id
+                && !game_state.fleet_missions.contains_key(&fleet.id)
+                && !game_state.scout_missions.contains_key(&fleet.id)
+        })
+        .count();
+    let owner = star
+        .planets
+        .iter()
+        .find_map(|planet| planet.colony)
+        .and_then(|colony_id| game_state.colonies.get(&colony_id))
+        .and_then(|colony| game_state.empires.get(&colony.owner))
+        .map(|empire| empire.name.as_str())
+        .unwrap_or("Unclaimed");
+
+    frame.render_widget(
+        Paragraph::new(vec![
+            section_heading(format!("System: {}", star.name)),
+            Line::from(vec![
+                Span::styled("Star Class: ", Theme::muted_style()),
+                Span::styled(
+                    star.spectral_class.as_char().to_string(),
+                    Style::default().fg(Theme::star_color(star.spectral_class)),
+                ),
+                Span::styled("   Survey: ", Theme::muted_style()),
+                Span::raw(format!("{surveyed}/{}", star.planets.len())),
+            ]),
+            Line::from(vec![
+                Span::styled("Owner: ", Theme::muted_style()),
+                Span::raw(owner),
+                Span::styled("   Fleets: ", Theme::muted_style()),
+                Span::raw(fleets_here.to_string()),
+                Span::styled("   Colonies: ", Theme::muted_style()),
+                Span::raw(colonies.to_string()),
+            ]),
+        ])
+        .style(Theme::default_style()),
+        inner,
+    );
+}
+
 fn survey_style(survey_state: &str) -> Style {
     match survey_state {
         "Surveyed" => Theme::accent_style(),
@@ -1126,6 +1198,43 @@ mod tests {
             },
             ..Default::default()
         };
+        terminal
+            .draw(|frame| render_system(frame, frame.area(), &app_state, &engine.state))
+            .unwrap();
+    }
+
+    #[test]
+    fn system_screen_renders_at_80x24_with_footer() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let engine = Engine::new(42);
+        let app_state = AppState {
+            navigation: crate::app::NavigationState {
+                selected_star: engine.state.stars.keys().next().copied(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        terminal
+            .draw(|frame| render_system(frame, frame.area(), &app_state, &engine.state))
+            .unwrap();
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(rendered.contains("Enter"));
+        assert!(rendered.contains("Survey"));
+    }
+
+    #[test]
+    fn system_screen_handles_missing_selection_without_panic() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
         terminal
             .draw(|frame| render_system(frame, frame.area(), &app_state, &engine.state))
             .unwrap();

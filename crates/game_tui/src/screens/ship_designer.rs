@@ -1,7 +1,7 @@
 //! Ship Designer screen — hull selection, slot configuration, design management.
 
 use crate::components::{
-    derive_header_data, meter_line, panel_block, render_footer, render_header, section_heading,
+    derive_header_data, panel_block, render_footer, render_header, section_heading,
 };
 use crate::layout::compose_layout;
 use crate::screens::Screen;
@@ -462,33 +462,26 @@ fn push_derived_stats(
 ) {
     lines.push(section_heading(format!("Hull {hull_name} · Role {role}")));
     lines.push(Line::from(Span::raw("")));
-    lines.push(meter_line(
-        format!("ATK {}", stats.attack),
-        clamp_to_100(stats.attack),
-        36,
-    ));
-    lines.push(meter_line(
-        format!("DEF {}", stats.defense),
-        clamp_to_100(stats.defense),
-        36,
-    ));
-    lines.push(meter_line(
-        format!("HP {}", stats.hp),
-        clamp_to_100(stats.hp),
-        36,
-    ));
-    lines.push(Line::from(vec![Span::styled(
-        format!(" Cost:  {}pp", stats.production_cost),
-        Theme::default_style(),
-    )]));
-    lines.push(Line::from(vec![Span::styled(
-        format!(" Maint: {}/turn", stats.maintenance),
-        Theme::default_style(),
-    )]));
-}
-
-fn clamp_to_100(value: u32) -> u8 {
-    value.min(100) as u8
+    lines.push(Line::from(vec![
+        Span::styled(" ATK:  ", Theme::muted_style()),
+        Span::styled(stats.attack.to_string(), Theme::default_style()),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(" DEF:  ", Theme::muted_style()),
+        Span::styled(stats.defense.to_string(), Theme::default_style()),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(" HP:   ", Theme::muted_style()),
+        Span::styled(stats.hp.to_string(), Theme::default_style()),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(" Cost: ", Theme::muted_style()),
+        Span::styled(format!("{}pp", stats.production_cost), Theme::default_style()),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(" Maint: ", Theme::muted_style()),
+        Span::styled(format!("{}/t", stats.maintenance), Theme::default_style()),
+    ]));
 }
 
 fn design_validation_warnings(hull: &HullTemplate, design: &CustomShipDesign) -> Vec<String> {
@@ -505,12 +498,14 @@ fn design_validation_warnings(hull: &HullTemplate, design: &CustomShipDesign) ->
     }) {
         warnings.push("Component-slot mismatch detected".to_string());
     }
-    let stats = design.derived_stats();
-    if stats.attack <= 0 {
+    let component_attack: i32 = design
+        .components
+        .iter()
+        .filter_map(|id| id.def())
+        .map(|c| c.attack_modifier)
+        .sum();
+    if component_attack <= 0 {
         warnings.push("No offensive capability".to_string());
-    }
-    if stats.hp <= 0 {
-        warnings.push("Hull integrity is zero".to_string());
     }
     warnings
 }
@@ -705,6 +700,7 @@ mod tests {
         };
         let warnings = design_validation_warnings(hull, &design);
         assert!(warnings.iter().any(|w| w.contains("empty")));
+        assert!(warnings.iter().any(|w| w.contains("offensive")));
     }
 
     #[test]

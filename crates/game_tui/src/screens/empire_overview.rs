@@ -1,7 +1,7 @@
 //! Empire overview screen
 
 use crate::components::{
-    derive_header_data, meter_line, panel_block, quiet_panel_block, render_footer, render_header,
+    derive_header_data, meter_line, quiet_panel_block, render_footer, render_header,
     section_heading,
 };
 use crate::layout::{compose_layout, split_main_detail};
@@ -520,11 +520,11 @@ fn sort_rows(rows: &mut [ColonyOverviewRow], sort: OverviewSort) {
 }
 
 fn ratio_percent(value: usize, total: usize) -> u8 {
-    if total == 0 {
-        0
-    } else {
-        ((value.saturating_mul(100) / total).min(100)) as u8
-    }
+    value
+        .saturating_mul(100)
+        .checked_div(total)
+        .map(|pct| pct.min(100) as u8)
+        .unwrap_or(0)
 }
 
 pub fn render_empire_overview(
@@ -662,7 +662,7 @@ fn render_colony_table(
         )
     };
 
-    let block = panel_block(title, true);
+    let block = quiet_panel_block(title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 

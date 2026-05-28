@@ -37,11 +37,11 @@ const MIN_HEIGHT_FOR_FULL_COLONY_LAYOUT: u16 = 24;
 const MIN_HEIGHT_FOR_JOB_DETAILS: u16 = 22;
 
 fn ratio_percent_u64(value: u64, total: u64) -> u8 {
-    if total == 0 {
-        0
-    } else {
-        ((value.saturating_mul(100) / total).min(100)) as u8
-    }
+    value
+        .saturating_mul(100)
+        .checked_div(total)
+        .map(|pct| pct.min(100) as u8)
+        .unwrap_or(0)
 }
 
 fn ratio_percent_i64(value: i64, total: i64) -> u8 {
@@ -302,7 +302,6 @@ fn render_colony_stats(
     let housing_cap = workforce.housing;
     let industry = colony_yield.industry;
     let research_out = colony_yield.science;
-    let food_balance = colony_yield.food - colony_yield.food_consumed;
     let total_maint = colony_yield.maintenance;
     let supply = game_state.colony_supply_state(colony.id);
     let blockade_empire: Option<EmpireId> = game_state.colony_blockade_state(colony.id);
@@ -364,19 +363,17 @@ fn render_colony_stats(
             colony.stability.min(100),
             inner.width.saturating_sub(1),
         ),
-        meter_line(
-            format!("Food {:+}/t", food_balance),
-            if colony_yield.food_consumed <= 0 {
-                if colony_yield.food > 0 {
-                    100
-                } else {
-                    0
-                }
+        {
+            let (food_label, food_pct) = if colony_yield.food_consumed <= 0 {
+                (format!("Food {}/0", colony_yield.food), if colony_yield.food > 0 { 100 } else { 0 })
             } else {
-                ratio_percent_i64(colony_yield.food, colony_yield.food_consumed)
-            },
-            inner.width.saturating_sub(1),
-        ),
+                (
+                    format!("Food {}/{}", colony_yield.food, colony_yield.food_consumed),
+                    ratio_percent_i64(colony_yield.food, colony_yield.food_consumed),
+                )
+            };
+            meter_line(food_label, food_pct, inner.width.saturating_sub(1))
+        },
         meter_line(
             format!("Industry {}/t", industry),
             colony.prod_pct.min(100),

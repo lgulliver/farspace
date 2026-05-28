@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.6.2",
+  "checkpoint_id": "eabc0ba99f0f",
+  "strategy": "manual-commit",
+  "branch": "copilot/farspace-tui-refresh-pass-2",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "crates/game_tui/src/glyphs.rs",
+    "crates/game_tui/src/screens/sector_map.rs",
+    "crates/game_tui/src/screens/sector_overview.rs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ea/bc0ba99f0f/0/metadata.json",
+      "transcript": "/ea/bc0ba99f0f/0/full.jsonl",
+      "content_hash": "/ea/bc0ba99f0f/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 76389,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1714048,
+    "output_tokens": 5909,
+    "api_call_count": 33
+  }
+}

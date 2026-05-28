@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.6.2",
+  "checkpoint_id": "eabc0ba99f0f",
+  "session_id": "ses_18f619044ffemaFDWMkVfCrlj3",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-28T22:07:26.734587Z",
+  "branch": "copilot/farspace-tui-refresh-pass-2",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "crates/game_tui/src/glyphs.rs",
+    "crates/game_tui/src/screens/sector_overview.rs",
+    "crates/game_tui/src/screens/sector_map.rs"
+  ],
+  "agent": "OpenCode",
+  "model": "",
+  "turn_id": "4993ad3c90c4",
+  "token_usage": {
+    "input_tokens": 76389,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1714048,
+    "output_tokens": 5909,
+    "api_call_count": 33
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-28T22:07:26.72493Z",
+    "agent_lines": 430,
+    "agent_removed": 161,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 430,
+    "total_lines_changed": 591,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

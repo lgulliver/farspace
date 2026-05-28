@@ -62,6 +62,7 @@ const ERA_FILTERS: [(&str, Option<TechTier>); 7] = [
 ];
 pub(crate) const RESEARCH_ERA_FILTER_COUNT: usize = ERA_FILTERS.len();
 pub(crate) const RESEARCH_STATUS_FILTER_COUNT: usize = 6; // all + 5 statuses
+const MIN_HEIGHT_FOR_RESEARCH_STATUS: u16 = 14;
 
 fn tech_domain_sort_index(domain: TechDomain) -> usize {
     TECH_DOMAIN_ORDER
@@ -395,7 +396,7 @@ fn render_research_detail_and_status(
     app_state: &AppState,
     game_state: &GameState,
 ) {
-    if area.height < 14 {
+    if area.height < MIN_HEIGHT_FOR_RESEARCH_STATUS {
         render_selected_tech_detail(frame, area, app_state, game_state);
     } else {
         let chunks =
@@ -420,7 +421,7 @@ fn render_selected_tech_detail(
         return;
     }
     let tech = ordered[app_state.research.cursor % ordered.len()];
-    let block = panel_block(format!("Technology Detail · {}", tech.name), true);
+    let block = quiet_panel_block(format!("Technology Detail · {}", tech.name));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let status = tech_status(game_state, tech);
@@ -489,7 +490,10 @@ fn render_selected_tech_detail(
         }
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("Unlock Summary", Theme::title_style())));
+    lines.push(Line::from(Span::styled(
+        "Unlock Summary",
+        Theme::title_style(),
+    )));
     if tech.unlocks.is_empty() {
         lines.push(Line::from(Span::styled("  None", Theme::muted_style())));
     } else {

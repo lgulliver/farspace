@@ -20,6 +20,13 @@ use ratatui::{
     Frame,
 };
 
+const MIN_HEIGHT_FOR_FULL_SUMMARY: u16 = 22;
+const COMPACT_SUMMARY_HEIGHT: u16 = 8;
+const FULL_SUMMARY_HEIGHT: u16 = 11;
+const MIN_WIDTH_FOR_SIDE_BY_SIDE: u16 = 96;
+const MIN_HEIGHT_FOR_SIDE_BY_SIDE: u16 = 14;
+const MAX_VICTORY_LINES_IN_SUMMARY: usize = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OverviewSort {
     #[default]
@@ -512,6 +519,14 @@ fn sort_rows(rows: &mut [ColonyOverviewRow], sort: OverviewSort) {
     }
 }
 
+fn ratio_percent(value: usize, total: usize) -> u8 {
+    if total == 0 {
+        0
+    } else {
+        ((value.saturating_mul(100) / total).min(100)) as u8
+    }
+}
+
 pub fn render_empire_overview(
     frame: &mut Frame,
     area: Rect,
@@ -529,14 +544,19 @@ pub fn render_empire_overview(
         &app_state.overview.filter,
     );
 
-    let summary_height = if main_area.height < 22 { 8 } else { 11 };
+    let summary_height = if main_area.height < MIN_HEIGHT_FOR_FULL_SUMMARY {
+        COMPACT_SUMMARY_HEIGHT
+    } else {
+        FULL_SUMMARY_HEIGHT
+    };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(summary_height), Constraint::Min(6)])
         .split(main_area);
 
     render_summary(frame, chunks[0], &data.summary);
-    let compact_content = chunks[1].width < 96 || chunks[1].height < 14;
+    let compact_content = chunks[1].width < MIN_WIDTH_FOR_SIDE_BY_SIDE
+        || chunks[1].height < MIN_HEIGHT_FOR_SIDE_BY_SIDE;
     if compact_content {
         let content = Layout::default()
             .direction(Direction::Vertical)
@@ -565,11 +585,7 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
     }
 
     let threats = summary.isolated_colonies + summary.unrest_colonies;
-    let warning_percent = if summary.colony_count == 0 {
-        0
-    } else {
-        ((threats.saturating_mul(100) / summary.colony_count).min(100)) as u8
-    };
+    let warning_percent = ratio_percent(threats, summary.colony_count);
 
     let mut lines = vec![
         section_heading(format!(
@@ -589,7 +605,10 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
             Span::styled(
                 format!(
                     "Cr {}  Food {}  Sci {}/t  Maint {}/t",
-                    summary.credits, summary.food, summary.science_per_turn, summary.maintenance_per_turn
+                    summary.credits,
+                    summary.food,
+                    summary.science_per_turn,
+                    summary.maintenance_per_turn
                 ),
                 Theme::default_style(),
             ),
@@ -599,11 +618,7 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
                 "Supply Connected {}/{}",
                 summary.connected_colonies, summary.colony_count
             ),
-            if summary.colony_count == 0 {
-                0
-            } else {
-                ((summary.connected_colonies.saturating_mul(100) / summary.colony_count).min(100)) as u8
-            },
+            ratio_percent(summary.connected_colonies, summary.colony_count),
             inner.width.saturating_sub(1),
         ),
         meter_line(
@@ -612,7 +627,11 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
             inner.width.saturating_sub(1),
         ),
     ];
-    for (text, style) in summary.victory_lines.iter().take(2) {
+    for (text, style) in summary
+        .victory_lines
+        .iter()
+        .take(MAX_VICTORY_LINES_IN_SUMMARY)
+    {
         lines.push(Line::from(vec![
             Span::styled("Victory ", Theme::muted_style()),
             Span::styled(text, *style),
@@ -657,7 +676,7 @@ fn render_colony_table(
 
     let mut lines = Vec::new();
     lines.push(Line::from(vec![Span::styled(
-        " > Selected colony command target",
+        " > Selected Colony",
         Theme::muted_style(),
     )]));
 
@@ -690,10 +709,7 @@ fn render_colony_table(
             Span::styled(format!("{} ", prefix), style),
             Span::styled(format!("{}/{} ", row.system, row.planet), style),
             Span::styled(format!("[{}] ", row.role), Theme::muted_style()),
-            Span::styled(
-                format!("P{}/{} ", row.population, row.housing),
-                style,
-            ),
+            Span::styled(format!("P{}/{} ", row.population, row.housing), style),
             Span::styled(format!("Food {:+} ", row.food_balance), style),
             Span::styled(format!("Ind {} ", row.economic_industry_output), style),
             Span::styled(format!("Q:{} ", row.current_production), style),
@@ -1157,7 +1173,7 @@ mod tests {
     fn empire_overview_selected_row_is_visible() {
         let engine = Engine::new(42);
         let app_state = AppState {
-            overview: crate::app::OverviewScreenState {
+            overview: crate::app::EmpireOverviewScreenState {
                 cursor: 0,
                 ..Default::default()
             },
@@ -1165,7 +1181,7 @@ mod tests {
         };
         let buffer = render_overview_buffer(&engine, &app_state, 80, 24);
         let text = buffer_text(&buffer);
-        assert!(text.contains("Selected colony command target"));
+        assert!(text.contains("Selected Colony"));
         assert!(text.contains(">"));
     }
 

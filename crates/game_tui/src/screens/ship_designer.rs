@@ -412,7 +412,10 @@ fn render_stats_panel(frame: &mut Frame, area: Rect, app_state: &AppState, game_
                 push_derived_stats(&mut lines, hull.name, hull.role, &stats);
                 let warnings = design_validation_warnings(hull, &scratch);
                 lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("Validation Warnings", Theme::title_style())));
+                lines.push(Line::from(Span::styled(
+                    "Validation Warnings",
+                    Theme::title_style(),
+                )));
                 if warnings.is_empty() {
                     lines.push(Line::from(Span::styled("  None", Theme::success_style())));
                 } else {
@@ -461,17 +464,17 @@ fn push_derived_stats(
     lines.push(Line::from(Span::raw("")));
     lines.push(meter_line(
         format!("ATK {}", stats.attack),
-        stat_percent(stats.attack),
+        clamp_to_100(stats.attack),
         36,
     ));
     lines.push(meter_line(
         format!("DEF {}", stats.defense),
-        stat_percent(stats.defense),
+        clamp_to_100(stats.defense),
         36,
     ));
     lines.push(meter_line(
         format!("HP {}", stats.hp),
-        stat_percent(stats.hp),
+        clamp_to_100(stats.hp),
         36,
     ));
     lines.push(Line::from(vec![Span::styled(
@@ -484,8 +487,8 @@ fn push_derived_stats(
     )]));
 }
 
-fn stat_percent(value: i64) -> u8 {
-    value.clamp(0, 100) as u8
+fn clamp_to_100(value: u32) -> u8 {
+    value.min(100) as u8
 }
 
 fn design_validation_warnings(hull: &HullTemplate, design: &CustomShipDesign) -> Vec<String> {
@@ -493,18 +496,13 @@ fn design_validation_warnings(hull: &HullTemplate, design: &CustomShipDesign) ->
     if design.components.len() < hull.slots.len() {
         warnings.push("One or more slots are empty".to_string());
     }
-    if hull
-        .slots
-        .iter()
-        .enumerate()
-        .any(|(idx, slot)| {
-            design
-                .components
-                .get(idx)
-                .and_then(|component_id| component_id.def())
-                .is_none_or(|component| component.slot != *slot)
-        })
-    {
+    if hull.slots.iter().enumerate().any(|(idx, slot)| {
+        design
+            .components
+            .get(idx)
+            .and_then(|component_id| component_id.def())
+            .is_none_or(|component| component.category != *slot)
+    }) {
         warnings.push("Component-slot mismatch detected".to_string());
     }
     let stats = design.derived_stats();
@@ -689,5 +687,52 @@ mod tests {
         engine.state.empires.clear();
         let app_state = AppState::default();
         let _ = render_designer_buffer(80, 24, &app_state, &engine.state);
+    }
+
+    #[test]
+    fn design_validation_warns_on_empty_slots_and_zero_offense() {
+        let hull = all_hull_templates()
+            .iter()
+            .find(|h| !h.slots.is_empty())
+            .expect("at least one hull with slots");
+        let design = CustomShipDesign {
+            design_id: game_core::CustomDesignId(1),
+            hull_id: hull.hull_id,
+            components: vec![],
+            owner: game_core::EmpireId(1),
+            name: "test".to_string(),
+            obsolete: false,
+        };
+        let warnings = design_validation_warnings(hull, &design);
+        assert!(warnings.iter().any(|w| w.contains("empty")));
+    }
+
+    #[test]
+    fn design_validation_warns_on_component_slot_mismatch() {
+        let hull = all_hull_templates()
+            .iter()
+            .find(|h| !h.slots.is_empty())
+            .expect("at least one hull with slots");
+        let wrong_component = [
+            SlotCategory::Weapon,
+            SlotCategory::Defense,
+            SlotCategory::Engine,
+            SlotCategory::MissionModule,
+            SlotCategory::Utility,
+        ]
+        .into_iter()
+        .filter(|cat| *cat != hull.slots[0])
+        .find_map(|cat| components_for_slot(cat).first().map(|c| c.component_id))
+        .expect("alternate slot component exists");
+        let design = CustomShipDesign {
+            design_id: game_core::CustomDesignId(2),
+            hull_id: hull.hull_id,
+            components: vec![wrong_component],
+            owner: game_core::EmpireId(1),
+            name: "test mismatch".to_string(),
+            obsolete: false,
+        };
+        let warnings = design_validation_warnings(hull, &design);
+        assert!(warnings.iter().any(|w| w.contains("mismatch")));
     }
 }

@@ -31,6 +31,26 @@ use ratatui::{
 const MIN_PORTRAIT_HEIGHT_FOR_COMPACT: u16 = 10;
 /// Height (rows) reserved for the caption block below the portrait canvas.
 const PORTRAIT_CAPTION_HEIGHT: u16 = 2;
+const MIN_WIDTH_FOR_FULL_COLONY_LAYOUT: u16 = 100;
+const MIN_HEIGHT_FOR_FULL_COLONY_LAYOUT: u16 = 24;
+/// Minimum panel height needed before rendering extended job details.
+const MIN_HEIGHT_FOR_JOB_DETAILS: u16 = 22;
+
+fn ratio_percent_u64(value: u64, total: u64) -> u8 {
+    if total == 0 {
+        0
+    } else {
+        ((value.saturating_mul(100) / total).min(100)) as u8
+    }
+}
+
+fn ratio_percent_i64(value: i64, total: i64) -> u8 {
+    if total <= 0 {
+        0
+    } else {
+        ((value.saturating_mul(100) / total).clamp(0, 100)) as u8
+    }
+}
 
 /// Render the colony detail screen
 pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
@@ -39,7 +59,8 @@ pub fn render_colony(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
     let header_data = derive_header_data(game_state);
     render_header(frame, header_area, &header_data);
 
-    let compact = main_area.width < 100 || main_area.height < 24;
+    let compact = main_area.width < MIN_WIDTH_FOR_FULL_COLONY_LAYOUT
+        || main_area.height < MIN_HEIGHT_FOR_FULL_COLONY_LAYOUT;
     if compact {
         let (left_area, right_area) = split_horizontal(main_area, 52);
         render_colony_stats(frame, left_area, app_state, game_state);
@@ -298,8 +319,10 @@ fn render_colony_stats(
                 .map(|e| e.research.completed.as_slice())
                 .unwrap_or(&[]);
             let visible_specials = game_core::visible_specials_for_empire(p, completed_techs).len();
-            let visible_anomalies = game_core::visible_anomalies_for_empire(p, completed_techs).len();
-            let visible_resources = game_core::visible_resources_for_empire(p, completed_techs).len();
+            let visible_anomalies =
+                game_core::visible_anomalies_for_empire(p, completed_techs).len();
+            let visible_resources =
+                game_core::visible_resources_for_empire(p, completed_techs).len();
             format!(
                 "{} special  {} resource  {} anomaly",
                 visible_specials, visible_resources, visible_anomalies
@@ -333,11 +356,7 @@ fn render_colony_stats(
         ]),
         meter_line(
             format!("Population {}/{}", colony.population, housing_cap),
-            if housing_cap == 0 {
-                0
-            } else {
-                ((colony.population.saturating_mul(100) / housing_cap).min(100)) as u8
-            },
+            ratio_percent_u64(colony.population, housing_cap),
             inner.width.saturating_sub(1),
         ),
         meter_line(
@@ -348,10 +367,13 @@ fn render_colony_stats(
         meter_line(
             format!("Food {:+}/t", food_balance),
             if colony_yield.food_consumed <= 0 {
-                if colony_yield.food > 0 { 100 } else { 0 }
+                if colony_yield.food > 0 {
+                    100
+                } else {
+                    0
+                }
             } else {
-                ((colony_yield.food.saturating_mul(100) / colony_yield.food_consumed).clamp(0, 100))
-                    as u8
+                ratio_percent_i64(colony_yield.food, colony_yield.food_consumed)
             },
             inner.width.saturating_sub(1),
         ),
@@ -508,7 +530,7 @@ fn render_colony_stats(
         }
     }
 
-    if inner.height > 22 {
+    if inner.height > MIN_HEIGHT_FOR_JOB_DETAILS {
         let mut job_lines = Vec::new();
         for assignment in &workforce.assignments {
             if assignment.total_slots == 0 && assignment.filled == 0 {
@@ -711,7 +733,7 @@ fn render_production_queue(
                 if cost == 0 {
                     100
                 } else {
-                    ((accumulated.saturating_mul(100) / cost).min(100)) as u8
+                    ratio_percent_u64(accumulated, cost)
                 },
                 inner.width.saturating_sub(1),
             ));
@@ -911,8 +933,8 @@ fn render_build_picker(
 mod tests {
     use super::*;
     use game_core::Engine;
-    use ratatui::buffer::Buffer;
     use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
     use ratatui::Terminal;
 
@@ -1005,7 +1027,7 @@ mod tests {
             .map(|c| c.symbol())
             .collect();
         assert!(content.contains("Surface View"));
-        assert!(content.contains("Supply:"));
+        assert!(content.contains("Supply "));
         assert!(content.contains("Connected"));
     }
 

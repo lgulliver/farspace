@@ -30,6 +30,7 @@ use ratatui::{
 };
 
 const ORBIT_SELECTION_PULSE_PERIOD: u64 = 5;
+const FOREIGN_SETTLEMENT_LABEL: &str = "Foreign settlement";
 /// Rows above the planet sprite top at which the orbit number label is drawn.
 /// Placing it here keeps the label clear of the bottom selection bracket (z=120),
 /// which sits one row below the sprite bottom.
@@ -50,9 +51,9 @@ pub fn render_system(frame: &mut Frame, area: Rect, app_state: &AppState, game_s
         let right_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(6),
-                Constraint::Percentage(50),
-                Constraint::Percentage(24),
+                Constraint::Length(5),
+                Constraint::Min(14),
+                Constraint::Length(8),
             ])
             .split(right);
         render_system_summary(frame, right_chunks[0], app_state, game_state);
@@ -148,9 +149,12 @@ fn render_orbital_panel(
         }
     };
 
-    let mut lines = vec![
-        section_heading(format!("{} {} [{}]", glyphs.star, star.name, star.spectral_class.as_char())),
-    ];
+    let mut lines = vec![section_heading(format!(
+        "{} {} [{}]",
+        glyphs.star,
+        star.name,
+        star.spectral_class.as_char()
+    ))];
     lines.push(Line::from(""));
 
     let split_height = (inner.height / 2)
@@ -613,7 +617,10 @@ fn render_selected_planet_hero(
             } else {
                 lines.push(Line::from(vec![
                     Span::styled("Colony ", Theme::muted_style()),
-                    Span::styled("Foreign settlement -- details hidden", Theme::muted_style()),
+                    Span::styled(
+                        format!("{FOREIGN_SETTLEMENT_LABEL} -- details hidden"),
+                        Theme::muted_style(),
+                    ),
                 ]));
             }
         }
@@ -696,6 +703,13 @@ fn render_system_detail_facts(
         lines.push(Line::from(vec![
             Span::styled("Class: ", Theme::muted_style()),
             Span::raw(planet.class.name()),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("Signature: ", Theme::muted_style()),
+            Span::styled(
+                planet_signature(planet, survey_state),
+                Theme::accent_style(),
+            ),
         ]));
         lines.push(Line::from(vec![
             Span::styled("Size: ", Theme::muted_style()),
@@ -847,7 +861,7 @@ fn render_system_detail_facts(
             } else {
                 if game_state.player_knows_empire(colony.owner) {
                     format!(
-                        "Foreign colony ({})",
+                        "{FOREIGN_SETTLEMENT_LABEL} ({})",
                         game_state
                             .empires
                             .get(&colony.owner)
@@ -855,7 +869,7 @@ fn render_system_detail_facts(
                             .unwrap_or("unknown owner")
                     )
                 } else {
-                    "Foreign colony".to_string()
+                    FOREIGN_SETTLEMENT_LABEL.to_string()
                 }
             }
         } else {
@@ -1076,7 +1090,12 @@ fn render_system_detail_facts(
     frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), area);
 }
 
-fn render_system_summary(frame: &mut Frame, area: Rect, app_state: &AppState, game_state: &GameState) {
+fn render_system_summary(
+    frame: &mut Frame,
+    area: Rect,
+    app_state: &AppState,
+    game_state: &GameState,
+) {
     let block = panel_block("System Summary", false);
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -1091,7 +1110,11 @@ fn render_system_summary(frame: &mut Frame, area: Rect, app_state: &AppState, ga
         );
         return;
     };
-    let colonies = star.planets.iter().filter(|planet| planet.colony.is_some()).count();
+    let colonies = star
+        .planets
+        .iter()
+        .filter(|planet| planet.colony.is_some())
+        .count();
     let surveyed = star.planets.iter().filter(|planet| planet.surveyed).count();
     let fleets_here = game_state
         .fleets
@@ -1107,8 +1130,17 @@ fn render_system_summary(frame: &mut Frame, area: Rect, app_state: &AppState, ga
         .iter()
         .find_map(|planet| planet.colony)
         .and_then(|colony_id| game_state.colonies.get(&colony_id))
-        .and_then(|colony| game_state.empires.get(&colony.owner))
-        .map(|empire| empire.name.as_str())
+        .map(|colony| colony.owner)
+        .and_then(|owner_id| {
+            if can_show_colony_details(game_state, owner_id) {
+                game_state
+                    .empires
+                    .get(&owner_id)
+                    .map(|empire| empire.name.as_str())
+            } else {
+                Some(FOREIGN_SETTLEMENT_LABEL)
+            }
+        })
         .unwrap_or("Unclaimed");
 
     frame.render_widget(
@@ -1437,7 +1469,7 @@ mod tests {
         };
 
         let rendered = render_to_string(&engine, &app_state);
-        assert!(rendered.contains("Foreign colony"));
+        assert!(rendered.contains("Foreign settlement"));
         assert!(!rendered.contains("Hidden Dominion"));
     }
 

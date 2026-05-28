@@ -1,6 +1,6 @@
 //! Sector overview screen - shows all sectors in the galaxy
 
-use std::{borrow::Cow, collections::BTreeMap};
+use std::collections::BTreeMap;
 
 use crate::components::{
     derive_header_data, meter_line, page_block, panel_block, render_footer, render_header,
@@ -37,6 +37,9 @@ use ratatui::{
 const GALAXY_STARFIELD_SALT: u64 = 0xA11;
 const GALAXY_STARFIELD_TWINKLE_SALT_XOR: u64 = 0x73;
 const SELECTION_PULSE_PERIOD: u64 = 3;
+const SELECTED_SECTOR_LABEL_PROTECT: u8 = 10;
+/// Sector-level threat contribution per hostile fleet in the selected sector.
+const THREAT_PER_HOSTILE_FLEET: usize = 25;
 
 pub fn render_sector_overview(
     frame: &mut Frame,
@@ -55,7 +58,12 @@ pub fn render_sector_overview(
 
     let compact_right = right_area.width < 32 || right_area.height < 14;
     if compact_right {
-        render_sector_details(frame, right_area, game_state, app_state.navigation.selected_sector);
+        render_sector_details(
+            frame,
+            right_area,
+            game_state,
+            app_state.navigation.selected_sector,
+        );
     } else {
         let right_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -259,7 +267,7 @@ fn render_sector_map(frame: &mut Frame, area: Rect, game_state: &GameState, app_
             } else {
                 Theme::highlight_style()
             };
-            ('◆', style, 10)
+            ('◆', style, SELECTED_SECTOR_LABEL_PROTECT)
         } else if let Some(owner) = owner {
             let visual = empire_visual(game_state, owner);
             let mut style = Style::default().fg(visual.color);
@@ -444,19 +452,23 @@ fn render_sector_details(
                     .is_hostile_or_war()
         })
         .count();
-    let threat_percent = (hostile_fleets.saturating_mul(25)).min(100) as u8;
+    let threat_percent = (hostile_fleets.saturating_mul(THREAT_PER_HOSTILE_FLEET)).min(100) as u8;
     let strategic_notes = strategic_notes(fog, owner, colony_count, fleets_total, hostile_fleets);
-    let owner_text = owner
-        .and_then(|owner_id| {
-            game_state.empires.get(&owner_id).map(|empire| {
-                format!(
-                    "{} {}",
-                    empire_visual(game_state, owner_id).symbol,
-                    empire.name.as_str()
-                )
+    let owner_text = if matches!(fog, FogState::Unexplored) {
+        "Unknown".to_string()
+    } else {
+        owner
+            .and_then(|owner_id| {
+                game_state.empires.get(&owner_id).map(|empire| {
+                    format!(
+                        "{} {}",
+                        empire_visual(game_state, owner_id).symbol,
+                        empire.name.as_str()
+                    )
+                })
             })
-        })
-        .unwrap_or_else(|| "Unclaimed".to_string());
+            .unwrap_or_else(|| "Unclaimed".to_string())
+    };
     let visibility = match fog {
         FogState::Unexplored => "Unexplored",
         FogState::Explored => "Explored",
@@ -557,14 +569,6 @@ fn strategic_notes(
         "Stable command space.".to_string(),
         "Monitor lanes and keep scouts rotating.".to_string(),
     ]
-}
-
-fn count_systems_in_sector(game_state: &GameState, sector_id: SectorId) -> usize {
-    game_state
-        .stars
-        .values()
-        .filter(|s| s.sector == sector_id)
-        .count()
 }
 
 fn sector_star_counts(game_state: &GameState) -> BTreeMap<SectorId, usize> {
@@ -704,7 +708,7 @@ mod tests {
     fn overview_viewport(width: u16, height: u16) -> (Rect, MapViewport) {
         let area = Rect::new(0, 0, width, height);
         let (_, main, _) = compose_layout(area);
-        let (map_area, _) = split_horizontal(main, 55);
+        let (map_area, _) = split_horizontal(main, 60);
         let block_inner = ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::ALL)
             .inner(map_area);

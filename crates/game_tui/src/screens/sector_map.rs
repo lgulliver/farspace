@@ -44,6 +44,11 @@ const SECTOR_STARFIELD_SALT: u64 = 0xB22;
 const SECTOR_STARFIELD_TWINKLE_SALT_XOR: u64 = 0x91;
 const SELECTION_PULSE_PERIOD: u64 = 3;
 const TRANSIT_ANIMATION_PERIOD: u64 = 3;
+/// System-level threat contribution per hostile fleet at selected system.
+const THREAT_PER_HOSTILE_FLEET_SYSTEM: usize = 35;
+/// Minimum panel size to render expanded system list under summary.
+const MIN_SYSTEM_PANEL_HEIGHT: u16 = 16;
+const MIN_SYSTEM_PANEL_WIDTH: u16 = 38;
 
 pub fn render_sector_map(
     frame: &mut Frame,
@@ -574,7 +579,7 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
     let selected_star = app_state
         .navigation
         .selected_star
-        .and_then(|id| stars_in_sector.iter().find(|star| star.id == id))
+        .and_then(|id| stars_in_sector.iter().find(|star| star.id == id).copied())
         .or_else(|| stars_in_sector.first().copied());
     let mut lines = vec![section_heading("Operational Summary"), Line::from("")];
 
@@ -585,7 +590,11 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
         } else {
             star_owner(game_state, star.id)
         };
-        let colonies = star.planets.iter().filter(|planet| planet.colony.is_some()).count();
+        let colonies = star
+            .planets
+            .iter()
+            .filter(|planet| planet.colony.is_some())
+            .count();
         let fleets_here = fleets.get(&star.id).copied().unwrap_or_default();
         let surveyed = star.planets.iter().filter(|planet| planet.surveyed).count();
         let survey_label = if matches!(fog, FogState::Unexplored) {
@@ -604,7 +613,8 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
                         .is_hostile_or_war()
             })
             .count();
-        let threat_percent = (hostile_here.saturating_mul(35)).min(100) as u8;
+        let threat_percent =
+            (hostile_here.saturating_mul(THREAT_PER_HOSTILE_FLEET_SYSTEM)).min(100) as u8;
 
         lines.extend([
             Line::from(vec![
@@ -634,7 +644,11 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
                     owner
                         .and_then(|owner_id| {
                             game_state.empires.get(&owner_id).map(|empire| {
-                                format!("{} {}", empire_visual(game_state, owner_id).symbol, empire.name)
+                                format!(
+                                    "{} {}",
+                                    empire_visual(game_state, owner_id).symbol,
+                                    empire.name
+                                )
                             })
                         })
                         .unwrap_or_else(|| "Unclaimed".to_string()),
@@ -664,12 +678,15 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
             meter_line("Threat", threat_percent, inner.width.saturating_sub(1)),
             Line::from(vec![
                 Span::styled("Actions: ", Theme::muted_style()),
-                Span::styled("Enter inspect · C colony · S scout · M move", Theme::muted_style()),
+                Span::styled(
+                    "Enter inspect · C colony · S scout · M move",
+                    Theme::muted_style(),
+                ),
             ]),
         ]);
     }
 
-    let compact = inner.height < 16 || inner.width < 38;
+    let compact = inner.height < MIN_SYSTEM_PANEL_HEIGHT || inner.width < MIN_SYSTEM_PANEL_WIDTH;
     if !compact {
         lines.push(Line::from(""));
         lines.push(section_heading("Systems in Sector"));
@@ -972,8 +989,10 @@ mod tests {
     fn map_render_area(width: u16, height: u16) -> Rect {
         let area = Rect::new(0, 0, width, height);
         let (_, main, _) = compose_layout(area);
-        let (map_area, _) = split_horizontal(main, 55);
-        let block_inner = Block::default().borders(Borders::ALL).inner(map_area);
+        let (map_area, _) = split_horizontal(main, 60);
+        let block_inner = ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .inner(map_area);
         Rect::new(
             block_inner.x,
             block_inner.y,

@@ -140,8 +140,42 @@ Six specialised agents scope work to individual crates. Each agent mirrors a cra
 | `arch-guard` | all crates (review only) | `.claude/agents/`, `.codex/`, `.github/instructions/` |
 
 Claude Code agents: `.claude/agents/*.md`
+OpenCode agents: `.opencode/agents/*.md`
 Codex context: `.codex/*.md`
 Copilot path-scoped instructions: `.github/instructions/*.instructions.md`
+
+### OpenCode agent team
+
+| Agent | Mode | Scope |
+|---|---|---|
+| `orchestrator` | primary | Full project — routes tasks, enforces invariants |
+| `core-sim` | subagent | `crates/game_core/` |
+| `tui-ux` | subagent | `crates/game_tui/` |
+| `content-balance` | subagent | `crates/game_content/` |
+| `persistence` | subagent | `crates/game_save/` |
+| `test-coverage` | subagent | All crates (tests only) |
+| `arch-guard` | subagent | All crates (read-only review) |
+
+### OpenCode commands
+
+| Command | Purpose |
+|---|---|
+| `/check-boundaries` | Audit all crate boundary violations |
+| `/check-determinism <path>` | Audit for SystemTime/HashMap/RNG violations |
+| `/new-command <Name>` | Scaffold command variant + validation + events + tests |
+| `/new-migration <desc>` | Bump CURRENT_VERSION + migration arm + tests |
+| `/new-screen <Name>` | Scaffold TUI screen with nav, help, resize layout |
+| `/scaffold-content <ship\|tech\|trait> <Name>` | New content with original IP |
+| `/review` | Full PR review: boundaries + determinism + tests + scope |
+
+### OpenCode skills (loaded on demand by agents)
+
+| Skill | Purpose |
+|---|---|
+| `arch-boundaries` | Crate dependency rules reference |
+| `determinism-rules` | Seeded RNG, BTreeMap, no wall-clock rules |
+| `content-policy` | Original IP rules and naming guidance |
+| `tui-standards` | Keyboard-first, resize-safe, theme usage rules |
 
 ### Skills (slash commands — Claude Code)
 

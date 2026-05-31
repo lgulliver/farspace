@@ -17,7 +17,7 @@ farspace.sav
 
 # Local assistant/tool state
 .entire/
-.opencode/
+.opencode/node_modules/
 .rtk/
 .claude/settings.json
 .claude/settings.local.json

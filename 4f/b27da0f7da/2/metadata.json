@@ -1,0 +1,63 @@
+{
+  "cli_version": "0.6.3",
+  "checkpoint_id": "4fb27da0f7da",
+  "session_id": "ses_180b75a64ffeSeU95MsmSZwxiq",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-31T19:11:26.620359Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/releases/v0.3.0.md"
+  ],
+  "agent": "OpenCode",
+  "model": "gpt-5.4-mini-fast",
+  "turn_id": "c00b68bb9691",
+  "token_usage": {
+    "input_tokens": 122160,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1457152,
+    "output_tokens": 5256,
+    "api_call_count": 19
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-31T19:11:26.609265Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 1201,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1201,
+    "total_lines_changed": 1209,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 240,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".omo/run-continuation/ses_180b90728ffeZ1a6VhO7zLTsxp.json": 11,
+        "docs/releases/v0.3.0.md": 229
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 3,
+      "user_lines_removed": 3,
+      "agent_lines_added": 240,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".omo/run-continuation/ses_180b90728ffeZ1a6VhO7zLTsxp.json": 3
+      },
+      "user_removed_per_file": {
+        ".omo/run-continuation/ses_180b90728ffeZ1a6VhO7zLTsxp.json": 3
+      }
+    }
+  ]
+}

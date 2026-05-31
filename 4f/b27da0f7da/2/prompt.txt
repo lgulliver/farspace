@@ -1,0 +1,14 @@
+[CONTEXT] FARSPACE 4X game TUI, need to understand TUI screens for trade route visualization.
+[GOAL] Understand how TUI screens are structured, especially Sector Map with overlays, and how new info is added to existing screens.
+[DOWNSTREAM] Add trade route rendering to Sector Map (trade overlay), trade income to Empire Overview, trade contribution to Colony/System view, trade info to Diplomacy screen, trade events to Turn Report.
+[REQUEST] Very thorough exploration of:
+1. `crates/game_tui/src/screens/sector_map/` - how sector map renders stars/lanes, overlay system
+2. `crates/game_tui/src/screens/empire_overview/` - how empire overview shows economy info
+3. `crates/game_tui/src/screens/colony/` or colony screen
+4. `crates/game_tui/src/screens/diplomacy/` - diplomacy screen structure
+5. `crates/game_tui/src/screens/turn_report/` - how turn report events display
+6. `crates/game_tui/src/app.rs` - screen dispatch, overlay handling, command routing
+7. `crates/game_tui/src/screens/mod.rs` - screen module organization
+8. How the help overlay (`?`) works and is populated
+Return file paths, key rendering functions, and how data flows from GameState to TUI.
+<!-- OMO_INTERNAL_INITIATOR -->

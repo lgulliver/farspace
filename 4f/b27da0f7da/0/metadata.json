@@ -1,0 +1,136 @@
+{
+  "cli_version": "0.6.3",
+  "checkpoint_id": "4fb27da0f7da",
+  "session_id": "84b0c948-2096-4e50-9b60-592cc3cd721d",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-31T19:11:24.382496Z",
+  "branch": "main",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "crates/game_core/src/ai.rs",
+    "crates/game_core/src/balance.rs",
+    "crates/game_core/src/dispatch.rs",
+    "crates/game_core/src/engine.rs",
+    "crates/game_core/src/engine/setup.rs",
+    "crates/game_core/src/engine/tests.rs",
+    "crates/game_core/src/events.rs",
+    "crates/game_core/src/lib.rs",
+    "crates/game_core/src/state.rs",
+    "crates/game_core/src/state/tests.rs",
+    "crates/game_save/src/migrate.rs",
+    "crates/game_save/src/schema.rs",
+    "crates/game_tui/src/components/help.rs",
+    "crates/game_tui/src/screens/empire_overview.rs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-4-6",
+  "turn_id": "19877c7d1cbb",
+  "token_usage": {
+    "input_tokens": 2028,
+    "cache_creation_tokens": 82463,
+    "cache_read_tokens": 3198523,
+    "output_tokens": 30861,
+    "api_call_count": 56
+  },
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-31T19:11:24.374967Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 8,
+    "total_committed": 0,
+    "total_lines_changed": 8,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 3739,
+      "user_lines_removed": 8,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".omo/run-continuation/ses_180b90728ffeZ1a6VhO7zLTsxp.json": 10,
+        "config/default.yaml": 5,
+        "crates/game_core/src/ai.rs": 16,
+        "crates/game_core/src/balance.rs": 38,
+        "crates/game_core/src/dispatch.rs": 72,
+        "crates/game_core/src/engine.rs": 59,
+        "crates/game_core/src/engine/setup.rs": 10,
+        "crates/game_core/src/engine/tests.rs": 8,
+        "crates/game_core/src/events.rs": 56,
+        "crates/game_core/src/lib.rs": 5,
+        "crates/game_core/src/state.rs": 295,
+        "crates/game_core/src/state/tests.rs": 348,
+        "crates/game_save/src/migrate.rs": 6,
+        "crates/game_save/src/schema.rs": 1,
+        "crates/game_tui/src/components/help.rs": 1,
+        "crates/game_tui/src/screens/empire_overview.rs": 36,
+        "docs/design/trade-networks-and-civilian-shipping.md": 266,
+        "docs/releases/v0.3.0.md": 229,
+        "knexfile.js": 17,
+        "package-lock.json": 1901,
+        "package.json": 32,
+        "src/controllers/Controller.js": 43,
+        "src/controllers/UserController.js": 44,
+        "src/db/migrations.js": 29,
+        "src/db/migrations/20210408002953_create_tables.js": 13,
+        "src/db/seeds/01-users.js": 12,
+        "src/main.js": 29,
+        "src/middleware/extender.js": 26,
+        "src/middleware/validation.js": 36,
+        "src/models/Model.js": 18,
+        "src/models/User.js": 55,
+        "src/models/index.js": 8,
+        "src/router/index.js": 8,
+        "src/router/user.js": 7
+      },
+      "user_removed_per_file": {
+        "crates/game_core/src/engine.rs": 2,
+        "crates/game_core/src/events.rs": 1,
+        "crates/game_core/src/lib.rs": 4,
+        "crates/game_save/src/schema.rs": 1
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1446,
+      "agent_lines_removed": 8
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1480,
+      "agent_lines_removed": 8
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1480,
+      "agent_lines_removed": 8
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1480,
+      "agent_lines_removed": 8
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1480,
+      "agent_lines_removed": 8
+    }
+  ]
+}

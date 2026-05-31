@@ -99,6 +99,11 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("r", "Open research screen"),
             HelpEntry::Binding("D", "Open diplomacy screen"),
             HelpEntry::Binding("E / T", "End turn (AI acts automatically)"),
+            HelpEntry::Section("Command Advisor"),
+            HelpEntry::Note("Turn Brief lists this turn's priorities, highest severity first"),
+            HelpEntry::Note(
+                "Footer advisor line names the top recommendation and the key to act on it",
+            ),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
             HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),

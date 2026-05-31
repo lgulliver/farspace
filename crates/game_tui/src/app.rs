@@ -19,6 +19,9 @@ use crate::screens::Screen;
 use crate::update::{UpdateChannel, UpdateConfirmKind, UpdateInfo, UpdateState};
 use crate::visual_mode::{map_symbol_for_mode, user_config_path, VisualMode};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use game_core::advisor::{
+    AdvisorContext, AdvisorEngine, AdvisorOutput, AdvisorPreferences, PlayerKnowledge,
+};
 use game_core::{
     empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, ComponentId,
     Engine, Event as CoreEvent, FleetFormation, FleetId, FleetKind, FleetRole, GalaxySize,
@@ -76,6 +79,13 @@ pub struct AppState {
     pub(crate) transition: TransitionState,
     /// Status line shown in contextual footer hints.
     pub(crate) status_message: Option<String>,
+    /// Latest deterministic advisor guidance, recomputed on new game and each
+    /// turn end. Drives the turn brief and contextual advisor strip.
+    pub(crate) advisor_output: AdvisorOutput,
+    /// What the player has already seen/dismissed; gates one-shot tutorial tips.
+    pub(crate) advisor_knowledge: PlayerKnowledge,
+    /// Advisor display preferences (enabled, muted categories, message cap).
+    pub(crate) advisor_prefs: AdvisorPreferences,
     pub(crate) ship_designer: ShipDesignerState,
     /// Terminal glyph mode for rendering text and icons.
     pub(crate) visual_mode: VisualMode,
@@ -467,12 +477,30 @@ impl App {
 
         self.engine = Some(engine);
         self.state.active = Screen::SectorOverview;
+        self.recompute_advisor(&[]);
         // Subtle entry transition into the campaign. Inert under reduced motion.
         if !self.state.reduced_motion {
             self.state
                 .transition
                 .start(ScreenTransition::Fade, CAMPAIGN_ENTRY_TRANSITION_TICKS);
         }
+    }
+
+    /// Recompute advisor guidance from current game state and the given events.
+    /// No-op when no game is loaded. Deterministic: same state + events ⇒ same
+    /// guidance.
+    fn recompute_advisor(&mut self, events: &[CoreEvent]) {
+        let Some(engine) = &self.engine else {
+            self.state.advisor_output = AdvisorOutput::default();
+            return;
+        };
+        self.state.advisor_output = AdvisorEngine::new().evaluate(&AdvisorContext {
+            state: &engine.state,
+            events,
+            knowledge: &self.state.advisor_knowledge,
+            preferences: &self.state.advisor_prefs,
+            turn: engine.state.turn,
+        });
     }
 
     /// Save the current game to the given path. Returns an error message on failure.
@@ -497,6 +525,7 @@ impl App {
         self.state.navigation.selected_star = selected_star;
         self.state.navigation.selected_planet_index = 0;
         self.state.active = Screen::SectorOverview;
+        self.recompute_advisor(&[]);
         Ok(())
     }
 
@@ -2193,6 +2222,8 @@ impl App {
         for event in &events {
             self.push_core_event_to_log(event);
         }
+
+        self.recompute_advisor(&events);
 
         if let Some(report) = end_turn_report {
             self.push_status(LogEntryKind::TurnReport, report);

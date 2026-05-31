@@ -297,6 +297,44 @@ fn menu_selected_row_shows_glyph_marker() {
 }
 
 #[test]
+fn advisor_guidance_is_deterministic_for_same_seed() {
+    let mut a = App::new();
+    a.new_game(42);
+    let mut b = App::new();
+    b.new_game(42);
+    assert_eq!(
+        a.state.advisor_output, b.state.advisor_output,
+        "advisor guidance must be reproducible for identical seed + state"
+    );
+}
+
+#[test]
+fn sector_overview_footer_falls_back_to_advisor_when_no_status() {
+    let backend = TestBackend::new(120, 36);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let mut app = App::new();
+    app.new_game(42);
+    // Clear the new-game status so the advisor line becomes the footer hint.
+    app.state.status_message = None;
+    // Only meaningful when the fresh game actually produced guidance.
+    if let Some(expected) = crate::components::advisor_strip_text(&app.state.advisor_output) {
+        terminal.draw(|frame| app.render(frame)).unwrap();
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        let head: String = expected.chars().take(12).collect();
+        assert!(
+            rendered.contains(head.trim()),
+            "footer should surface the advisor recommendation when no status is set"
+        );
+    }
+}
+
+#[test]
 fn quit_flag_set_on_q() {
     let mut app = App::new();
     assert!(!app.state.quit);

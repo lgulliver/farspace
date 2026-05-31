@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use crate::components::{
-    derive_header_data, meter_line, page_block, panel_block, render_footer, render_header,
-    render_log, section_heading,
+    advisor_strip_text, derive_header_data, meter_line, page_block, panel_block, render_footer,
+    render_header, render_log, render_turn_brief, section_heading,
 };
 use crate::faction::{empire_visual, sector_dominant_owner, sector_fog_state, FogState};
 use crate::glyphs::glyphs_for_mode;
@@ -65,6 +65,34 @@ pub fn render_sector_overview(
             game_state,
             app_state.navigation.selected_sector,
         );
+    } else if right_area.height >= 20 {
+        // Tall right column: details, turn brief, then event log.
+        let right_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(52),
+                Constraint::Length(6),
+                Constraint::Min(4),
+            ])
+            .split(right_area);
+        render_sector_details(
+            frame,
+            right_chunks[0],
+            game_state,
+            app_state.navigation.selected_sector,
+        );
+        render_turn_brief(
+            frame,
+            right_chunks[1],
+            &app_state.advisor_output,
+            app_state.visual_mode,
+        );
+        render_log(
+            frame,
+            right_chunks[2],
+            &app_state.log,
+            app_state.visual_mode,
+        );
     } else {
         let right_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -84,9 +112,14 @@ pub fn render_sector_overview(
         );
     }
 
-    let hint = app_state.status_message.as_deref().unwrap_or(
-        "Enter opens Sector Map. Move to inspect ownership, fleets, threat, and known systems.",
-    );
+    let advisor_hint = advisor_strip_text(&app_state.advisor_output);
+    let hint = app_state
+        .status_message
+        .as_deref()
+        .or(advisor_hint.as_deref())
+        .unwrap_or(
+            "Enter opens Sector Map. Move to inspect ownership, fleets, threat, and known systems.",
+        );
     render_footer(frame, footer_area, &Screen::SectorOverview, Some(hint));
 }
 

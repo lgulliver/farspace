@@ -35,58 +35,60 @@ pub fn render_target_to_text(
     let mut terminal = Terminal::new(backend).unwrap();
     let mut app_state = seeded_app_state(state);
 
-    terminal.draw(|frame| {
-        let area = frame.area();
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
 
-        let screen = match target {
-            E2eRenderTarget::Screen(screen)
-            | E2eRenderTarget::HelpOverlay(screen)
-            | E2eRenderTarget::DispatchOverlay { screen, .. }
-            | E2eRenderTarget::BattleReportsOverlay { screen, .. }
-            | E2eRenderTarget::PaletteOverlay { screen, .. } => *screen,
-        };
+            let screen = match target {
+                E2eRenderTarget::Screen(screen)
+                | E2eRenderTarget::HelpOverlay(screen)
+                | E2eRenderTarget::DispatchOverlay { screen, .. }
+                | E2eRenderTarget::BattleReportsOverlay { screen, .. }
+                | E2eRenderTarget::PaletteOverlay { screen, .. } => *screen,
+            };
 
-        app_state.active = screen;
-        screen.render(frame, area, &app_state, Some(state));
+            app_state.active = screen;
+            screen.render(frame, area, &app_state, Some(state));
 
-        match target {
-            E2eRenderTarget::Screen(_) => {}
-            E2eRenderTarget::HelpOverlay(screen) => {
-                render_help(frame, area, screen);
-            }
-            E2eRenderTarget::PaletteOverlay { input, .. } => {
-                render_palette(frame, area, input, app_state.visual_mode);
-            }
-            E2eRenderTarget::DispatchOverlay { history_index, .. } => {
-                if !state.galactic_dispatches.is_empty() {
-                    let idx =
-                        (*history_index).min(state.galactic_dispatches.len().saturating_sub(1));
-                    render_dispatch(
+            match target {
+                E2eRenderTarget::Screen(_) => {}
+                E2eRenderTarget::HelpOverlay(screen) => {
+                    render_help(frame, area, screen);
+                }
+                E2eRenderTarget::PaletteOverlay { input, .. } => {
+                    render_palette(frame, area, input, app_state.visual_mode);
+                }
+                E2eRenderTarget::DispatchOverlay { history_index, .. } => {
+                    if !state.galactic_dispatches.is_empty() {
+                        let idx =
+                            (*history_index).min(state.galactic_dispatches.len().saturating_sub(1));
+                        render_dispatch(
+                            frame,
+                            area,
+                            &state.galactic_dispatches[idx],
+                            idx,
+                            state.galactic_dispatches.len(),
+                            app_state.visual_mode,
+                        );
+                    }
+                }
+                E2eRenderTarget::BattleReportsOverlay {
+                    report_index,
+                    inspect,
+                    ..
+                } => {
+                    render_battle_reports(
                         frame,
                         area,
-                        &state.galactic_dispatches[idx],
-                        idx,
-                        state.galactic_dispatches.len(),
+                        &state.battle_reports,
+                        *report_index,
+                        *inspect,
                         app_state.visual_mode,
                     );
                 }
             }
-            E2eRenderTarget::BattleReportsOverlay {
-                report_index,
-                inspect,
-                ..
-            } => {
-                render_battle_reports(
-                    frame,
-                    area,
-                    &state.battle_reports,
-                    *report_index,
-                    *inspect,
-                    app_state.visual_mode,
-                );
-            }
-        }
-    }).unwrap();
+        })
+        .unwrap();
 
     Ok(buffer_to_text(terminal.backend().buffer(), width, height))
 }

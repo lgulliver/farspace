@@ -192,7 +192,9 @@ fn render_design_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_
         }
     }
 
-    let paragraph = Paragraph::new(lines).style(Theme::default_style());
+    let paragraph = Paragraph::new(lines)
+        .style(Theme::default_style())
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
 
@@ -356,7 +358,9 @@ fn render_slot_config(frame: &mut Frame, area: Rect, app_state: &AppState, game_
         }
     }
 
-    let paragraph = Paragraph::new(lines).style(Theme::default_style());
+    let paragraph = Paragraph::new(lines)
+        .style(Theme::default_style())
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
 
@@ -442,7 +446,9 @@ fn render_stats_panel(frame: &mut Frame, area: Rect, app_state: &AppState, game_
         Theme::muted_style(),
     )]));
 
-    let paragraph = Paragraph::new(lines).style(Theme::default_style());
+    let paragraph = Paragraph::new(lines)
+        .style(Theme::default_style())
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
 

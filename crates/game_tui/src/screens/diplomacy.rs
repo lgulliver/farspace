@@ -194,7 +194,9 @@ fn render_empire_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_
         Theme::muted_style(),
     )]));
 
-    let paragraph = Paragraph::new(lines).style(Theme::default_style());
+    let paragraph = Paragraph::new(lines)
+        .style(Theme::default_style())
+        .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, list_inner);
     render_empire_detail(frame, detail_inner, selected_empire, game_state);
 }

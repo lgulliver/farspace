@@ -40,6 +40,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::Research => " Research Help ",
         Screen::Diplomacy => " Diplomacy Help ",
         Screen::ShipDesigner => " Ship Designer Help ",
+        Screen::SectorGovernance => " Sector Governance Help ",
         Screen::Settings => " Settings Help ",
     };
 
@@ -197,6 +198,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ),
             HelpEntry::Binding("R", "Set rally point — navigate to a star and press R"),
             HelpEntry::Binding("X", "Clear rally point for this colony"),
+            HelpEntry::Binding("A", "Toggle automation (manual ↔ sector-guided)"),
+            HelpEntry::Note("Sector-guided colonies auto-queue a build when their queue is empty"),
             HelpEntry::Note("Colony panel shows Connected/Isolated supply state"),
             HelpEntry::Note("Order states: Calm, Strained, Unrest, Revolt Risk"),
             HelpEntry::Note("Pops auto-fill jobs by colony role and shortage priority"),
@@ -233,8 +236,10 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Note(
                 "'Blockaded' warning = hostile fleet in orbit (no food, -50% yield, -stability)",
             ),
+            HelpEntry::Note("Governance line shows colonized sectors and automated colony count"),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
+            HelpEntry::Binding("G", "Open Sector Governance"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
             HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),
             HelpEntry::Binding("B", "Open Battle Reports"),
@@ -324,6 +329,34 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Section("Global"),
             HelpEntry::Binding("W", "Open ship designer from any game screen"),
             HelpEntry::Binding("?", "Toggle this help"),
+        ],
+        Screen::SectorGovernance => vec![
+            HelpEntry::Section("Navigation"),
+            HelpEntry::Binding("j / ↓", "Select next sector"),
+            HelpEntry::Binding("k / ↑", "Select previous sector"),
+            HelpEntry::Section("Actions"),
+            HelpEntry::Binding("D", "Cycle the selected sector's directive"),
+            HelpEntry::Binding(
+                "A",
+                "Toggle sector-guided automation for the sector's colonies",
+            ),
+            HelpEntry::Note(
+                "Directives bias automation suggestions; they never override an explicit queue",
+            ),
+            HelpEntry::Note(
+                "Sector-guided colonies with an empty queue get a deterministic build each turn",
+            ),
+            HelpEntry::Binding("e / t", "End turn"),
+            HelpEntry::Section("Global"),
+            HelpEntry::Binding("O / V", "Open empire overview / victory"),
+            HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),
+            HelpEntry::Binding("B", "Open Battle Reports"),
+            HelpEntry::Binding(
+                ":",
+                "Command palette (save · load · visual-mode · dispatch · news)",
+            ),
+            HelpEntry::Binding("?", "Toggle this help"),
+            HelpEntry::Binding("Esc", "Return to Sector Map"),
         ],
         Screen::Settings => vec![
             HelpEntry::Section("Navigation"),

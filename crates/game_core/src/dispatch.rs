@@ -1025,6 +1025,8 @@ mod tests {
             next_battle_report_id: 1,
             battle_reports: Default::default(),
             empire_intel: Default::default(),
+            sector_directives: Default::default(),
+            colony_automation: Default::default(),
         }
     }
     // Cadence behaviour

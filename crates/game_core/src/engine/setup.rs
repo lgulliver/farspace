@@ -295,6 +295,8 @@ impl Engine {
             next_battle_report_id: 1,
             battle_reports: std::collections::VecDeque::new(),
             empire_intel: std::collections::BTreeMap::new(),
+            sector_directives: std::collections::BTreeMap::new(),
+            colony_automation: std::collections::BTreeMap::new(),
         };
 
         // Generate initial ship designs for all AI empires

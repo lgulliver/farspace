@@ -79,7 +79,9 @@ pub fn render_settings(frame: &mut Frame, area: Rect, app_state: &AppState) {
     let inner = block.inner(panel);
     frame.render_widget(block, panel);
 
-    let paragraph = Paragraph::new(settings_lines(app_state)).style(Theme::default_style());
+    let paragraph = Paragraph::new(settings_lines(app_state))
+        .style(Theme::default_style())
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
 

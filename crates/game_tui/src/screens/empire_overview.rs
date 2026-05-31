@@ -71,6 +71,8 @@ pub struct EmpireOverviewSummary {
     pub connected_colonies: usize,
     pub isolated_colonies: usize,
     pub unrest_colonies: usize,
+    pub governed_sectors: usize,
+    pub automated_colonies: usize,
     pub victory_lines: Vec<(String, Style)>,
 }
 
@@ -280,6 +282,10 @@ pub fn derive_empire_overview(
     let fleet_maintenance =
         ((fleet_count as i64) + (fleet_count as i64 * fleet_maintenance_modifier)).max(0);
     let maintenance_per_turn = colony_maintenance + fleet_maintenance;
+    let governance =
+        crate::screens::sector_governance::derive_sector_governance(game_state, empire_id);
+    let governed_sectors = governance.rows.len();
+    let automated_colonies: usize = governance.rows.iter().map(|r| r.automated_count).sum();
     let victory_lines = build_victory_lines(game_state, empire_id);
 
     EmpireOverviewData {
@@ -309,6 +315,8 @@ pub fn derive_empire_overview(
             connected_colonies,
             isolated_colonies,
             unrest_colonies,
+            governed_sectors,
+            automated_colonies,
             victory_lines,
         },
         rows,
@@ -626,6 +634,22 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
             warning_percent,
             inner.width.saturating_sub(1),
         ),
+        Line::from(vec![
+            Span::styled("Governance ", Theme::muted_style()),
+            Span::styled(
+                format!("Sectors {}", summary.governed_sectors),
+                Theme::accent_style(),
+            ),
+            Span::styled("  Automated ", Theme::muted_style()),
+            Span::styled(
+                format!(
+                    "{}/{} colonies",
+                    summary.automated_colonies, summary.colony_count
+                ),
+                Theme::default_style(),
+            ),
+            Span::styled("  (G: manage)", Theme::dim_border_style()),
+        ]),
     ];
     for (text, style) in summary
         .victory_lines
@@ -637,7 +661,12 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
             Span::styled(text, *style),
         ]));
     }
-    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(Theme::default_style())
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
 }
 
 fn render_colony_table(
@@ -836,7 +865,12 @@ fn render_colony_detail(
         ]));
     }
 
-    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(Theme::default_style())
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
 }
 
 #[cfg(test)]
@@ -894,6 +928,36 @@ mod tests {
             "",
         );
         assert_eq!(data.summary.colony_count, 1);
+    }
+
+    #[test]
+    fn overview_summarizes_sector_governance() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        let colony = ColonyId(1);
+        let sector = engine.state.colony_sector(colony).unwrap();
+        engine.apply_turn(vec![
+            Command::SetSectorDirective {
+                sector,
+                directive: game_core::SectorDirective::Industrial,
+            },
+            Command::SetColonyAutomation {
+                colony,
+                automation: game_core::ColonyAutomation::SectorGuided,
+            },
+        ]);
+        let data = derive_empire_overview(&engine.state, player, OverviewSort::Name, "");
+        assert!(data.summary.governed_sectors >= 1);
+        assert_eq!(data.summary.automated_colonies, 1);
+    }
+
+    #[test]
+    fn overview_renders_governance_summary_line() {
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
+        let buffer = render_overview_buffer(&engine, &app_state, 120, 36);
+        let text = buffer_text(&buffer);
+        assert!(text.contains("Governance"));
     }
 
     #[test]

@@ -572,7 +572,12 @@ fn render_sector_details(
         ]));
     }
 
-    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(Theme::default_style())
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
 }
 
 fn strategic_notes(

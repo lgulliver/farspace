@@ -130,6 +130,7 @@ pub fn render_palette(frame: &mut Frame, area: Rect, input: &str, mode: VisualMo
                 .border_style(Theme::focused_border_style())
                 .style(Theme::default_style()),
         )
+        .wrap(ratatui::widgets::Wrap { trim: false })
         .style(Theme::default_style());
 
     frame.render_widget(paragraph, popup_area);
@@ -196,6 +197,31 @@ mod tests {
                 render_palette(frame, area, "save", VisualMode::Unicode);
             })
             .unwrap();
+    }
+
+    #[test]
+    fn render_palette_wraps_long_command_line() {
+        // Regression: long content must wrap instead of clipping at the panel
+        // edge. In a narrow terminal the "Commands: …" line is far wider than
+        // the popup, so the trailing keyword only survives if the paragraph
+        // wraps. Without wrapping it would be clipped and absent.
+        let backend = TestBackend::new(40, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render_palette(frame, area, "", VisualMode::Ascii);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let rendered: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+
+        assert!(
+            rendered.contains("news"),
+            "trailing command keyword should wrap into view, got:\n{rendered}"
+        );
     }
 
     #[test]

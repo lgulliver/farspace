@@ -14,6 +14,7 @@ use crate::screens::research::{
     filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_ERA_FILTER_COUNT,
     RESEARCH_STATUS_FILTER_COUNT,
 };
+use crate::screens::sector_governance::{derive_sector_governance, SectorGovernanceRow};
 use crate::screens::ship_designer::{DesignerMode, DesignerPanel, ShipDesignerState};
 use crate::screens::Screen;
 use crate::update::{UpdateChannel, UpdateConfirmKind, UpdateInfo, UpdateState};
@@ -23,9 +24,10 @@ use game_core::advisor::{
     AdvisorContext, AdvisorEngine, AdvisorOutput, AdvisorPreferences, PlayerKnowledge,
 };
 use game_core::{
-    empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, ComponentId,
-    Engine, Event as CoreEvent, FleetFormation, FleetId, FleetKind, FleetRole, GalaxySize,
-    OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId, TreatyType,
+    empire_definition_by_id, tech_by_id, BuildingType, ColonyAutomation, ColonyId, ColonyRole,
+    Command, ComponentId, Engine, Event as CoreEvent, FleetFormation, FleetId, FleetKind,
+    FleetRole, GalaxySize, OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId,
+    TreatyType,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -95,6 +97,7 @@ pub struct AppState {
     pub(crate) colony: ColonyScreenState,
     pub(crate) research: ResearchScreenState,
     pub(crate) overview: EmpireOverviewScreenState,
+    pub(crate) governance: SectorGovernanceScreenState,
     pub(crate) diplomacy: DiplomacyScreenState,
     pub(crate) new_game_setup: NewGameSetupState,
     pub(crate) log: EventLog,
@@ -236,6 +239,13 @@ pub(crate) struct EmpireOverviewScreenState {
     pub(crate) filter: String,
     /// Whether filter input mode is active on the overview screen.
     pub(crate) filter_input: bool,
+}
+
+/// Sector governance screen state.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SectorGovernanceScreenState {
+    /// Cursor index for the selected sector row.
+    pub(crate) cursor: usize,
 }
 
 /// New Game Setup screen state.
@@ -1083,6 +1093,12 @@ impl App {
             return;
         }
 
+        // 'G' opens Sector Governance from any game screen
+        if key.code == KeyCode::Char('G') && self.engine.is_some() {
+            self.state.active = Screen::SectorGovernance;
+            return;
+        }
+
         // Screen-specific handling
         match self.state.active {
             Screen::Menu => self.handle_menu_key(key),
@@ -1097,6 +1113,7 @@ impl App {
             Screen::Research => self.handle_research_key(key),
             Screen::Diplomacy => self.handle_diplomacy_key(key),
             Screen::ShipDesigner => self.handle_ship_designer_key(key),
+            Screen::SectorGovernance => self.handle_sector_governance_key(key),
         }
     }
 
@@ -1662,6 +1679,10 @@ impl App {
             // X: clear rally point for the active colony
             KeyCode::Char('X') => {
                 self.clear_rally_point();
+            }
+            // A: toggle this colony's automation mode (manual ↔ sector-guided)
+            KeyCode::Char('A') | KeyCode::Char('a') => {
+                self.toggle_colony_automation();
             }
             // End turn from colony screen
             _ => {
@@ -2667,6 +2688,92 @@ impl App {
         });
     }
 
+    /// Toggle the active colony's automation mode (manual ↔ sector-guided).
+    fn toggle_colony_automation(&mut self) {
+        let colony_id = match self.state.colony.selected_colony {
+            Some(id) => id,
+            None => {
+                let msg = "Unavailable: toggle automation — no colony selected.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            }
+        };
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        let automation = engine.state.colony_automation_mode(colony_id).toggled();
+        self.dispatch_command(Command::SetColonyAutomation {
+            colony: colony_id,
+            automation,
+        });
+    }
+
+    fn handle_sector_governance_key(&mut self, key: KeyEvent) {
+        let rows = self
+            .engine
+            .as_ref()
+            .map(|engine| derive_sector_governance(&engine.state, engine.state.player_empire).rows)
+            .unwrap_or_default();
+        match key.code {
+            KeyCode::Esc => {
+                self.state.active = Screen::SectorMap;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if !rows.is_empty() {
+                    self.state.governance.cursor = (self.state.governance.cursor + 1) % rows.len();
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if !rows.is_empty() {
+                    self.state.governance.cursor =
+                        (self.state.governance.cursor + rows.len().saturating_sub(1)) % rows.len();
+                }
+            }
+            KeyCode::Char('D') | KeyCode::Char('d') => self.cycle_sector_directive(&rows),
+            KeyCode::Char('A') | KeyCode::Char('a') => self.toggle_sector_automation(&rows),
+            _ => {
+                if KeyMap::is_end_turn(key) && key.code != KeyCode::Enter {
+                    self.end_turn();
+                }
+            }
+        }
+    }
+
+    /// Advance the selected sector's directive to the next value in the cycle.
+    fn cycle_sector_directive(&mut self, rows: &[SectorGovernanceRow]) {
+        let cursor = self.state.governance.cursor;
+        let Some(row) = rows.get(cursor) else {
+            return;
+        };
+        let directive = row.directive.next();
+        self.dispatch_command(Command::SetSectorDirective {
+            sector: row.sector_id,
+            directive,
+        });
+    }
+
+    /// Toggle sector-guided automation for every colony in the selected sector.
+    /// If all colonies are already sector-guided, switch them back to manual.
+    fn toggle_sector_automation(&mut self, rows: &[SectorGovernanceRow]) {
+        let cursor = self.state.governance.cursor;
+        let Some(row) = rows.get(cursor) else {
+            return;
+        };
+        let target = if row.automated_count == row.colony_count {
+            ColonyAutomation::Manual
+        } else {
+            ColonyAutomation::SectorGuided
+        };
+        let colony_ids: Vec<ColonyId> = row.colonies.iter().map(|c| c.colony_id).collect();
+        for colony in colony_ids {
+            self.dispatch_command(Command::SetColonyAutomation {
+                colony,
+                automation: target,
+            });
+        }
+    }
+
     /// Confirm the selected star as the rally point for `pending_rally_colony`.
     fn confirm_rally_point(&mut self) {
         let colony_id = match self.state.colony.pending_rally_colony.take() {
@@ -3399,6 +3506,7 @@ fn render_update_confirm(
     frame.render_widget(
         Paragraph::new(body)
             .alignment(Alignment::Center)
+            .wrap(ratatui::widgets::Wrap { trim: true })
             .style(Style::default().fg(Color::White)),
         rows[1],
     );

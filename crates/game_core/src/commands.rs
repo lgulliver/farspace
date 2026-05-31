@@ -1,8 +1,9 @@
 //! Commands that can be issued to the game engine
 
 use crate::state::{
-    BuildItem, ColonyId, ColonyRole, ComponentId, CustomDesignId, DiplomaticResponse, EmpireId,
-    FleetFormation, FleetId, FleetOrder, FleetRole, HullId, StarId, TechId, TreatyType,
+    BuildItem, ColonyAutomation, ColonyId, ColonyRole, ComponentId, CustomDesignId,
+    DiplomaticResponse, EmpireId, FleetFormation, FleetId, FleetOrder, FleetRole, HullId,
+    SectorDirective, SectorId, StarId, TechId, TreatyType,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -59,6 +60,16 @@ pub enum Command {
     },
     /// Assign a specialisation role to a player-owned colony
     SetColonyRole { colony: ColonyId, role: ColonyRole },
+    /// Assign a strategic automation directive to a sector
+    SetSectorDirective {
+        sector: SectorId,
+        directive: SectorDirective,
+    },
+    /// Set build-queue automation mode for a player-owned colony
+    SetColonyAutomation {
+        colony: ColonyId,
+        automation: ColonyAutomation,
+    },
     /// Set the rally point for a colony — newly produced ships will auto-route here
     SetRallyPoint { colony: ColonyId, star: StarId },
     /// Clear the rally point for a colony — newly produced ships will remain at their build star
@@ -213,6 +224,30 @@ mod tests {
             hull_id: HullId(1),
             components: vec![ComponentId(20), ComponentId(32)],
             name: Some("Test Scout".to_string()),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn set_sector_directive_serialization() {
+        let cmd = Command::SetSectorDirective {
+            sector: SectorId(2),
+            directive: SectorDirective::Industrial,
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn set_colony_automation_serialization() {
+        let cmd = Command::SetColonyAutomation {
+            colony: ColonyId(3),
+            automation: ColonyAutomation::SectorGuided,
         };
         let json = serde_json::to_string(&cmd).unwrap();
         let parsed: Command = serde_json::from_str(&json).unwrap();

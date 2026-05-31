@@ -431,6 +431,19 @@ fn end_turn_report_includes_victory_milestones() {
 }
 
 #[test]
+fn end_turn_report_counts_automation_actions() {
+    let report = App::build_end_turn_report(
+        5,
+        &[game_core::Event::ColonyAutomationQueued {
+            colony: game_core::ColonyId(1),
+            item: game_core::BuildItem::SurfaceStructure(game_core::BuildingType::FabricationYard),
+            directive: game_core::SectorDirective::Industrial,
+        }],
+    );
+    assert!(report.contains("automation queued 1"));
+}
+
+#[test]
 fn end_turn_report_highlights_unrest_changes() {
     let report = App::build_end_turn_report(
         12,
@@ -1063,7 +1076,7 @@ fn end_turn_report_handles_empty_event_list() {
     let report = App::build_end_turn_report(3, &[]);
     assert_eq!(
         report,
-        "Turn 3 global summary (all empires): explored 0, surveyed 0, discoveries 0, colonized 0, research 0, queued starts 0, arrivals 0, combats 0, retreats 0, invasions won 0, invasions failed 0, treaties 0, wars 0, peaces 0, intel gains 0, victory milestones 0, victories 0, unrest worsened 0, revolt risk 0, warnings 0, isolated 0, reconnected 0, errors 0."
+        "Turn 3 global summary (all empires): explored 0, surveyed 0, discoveries 0, colonized 0, research 0, queued starts 0, arrivals 0, combats 0, retreats 0, invasions won 0, invasions failed 0, treaties 0, wars 0, peaces 0, intel gains 0, victory milestones 0, victories 0, unrest worsened 0, revolt risk 0, automation queued 0, warnings 0, isolated 0, reconnected 0, errors 0."
     );
 }
 
@@ -3638,4 +3651,122 @@ fn friendly_load_error_maps_variants_to_human_text() {
         "denied",
     )));
     assert!(perm.contains("permission denied"));
+}
+
+#[test]
+fn g_key_opens_sector_governance() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorMap;
+
+    app.handle_key(key(KeyCode::Char('G')));
+
+    assert_eq!(app.state.active, Screen::SectorGovernance);
+}
+
+#[test]
+fn governance_esc_returns_to_sector_map() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorGovernance;
+
+    app.handle_key(key(KeyCode::Esc));
+
+    assert_eq!(app.state.active, Screen::SectorMap);
+}
+
+#[test]
+fn governance_d_cycles_selected_sector_directive() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorGovernance;
+    app.state.governance.cursor = 0;
+
+    let player = app.engine.as_ref().unwrap().state.player_empire;
+    let rows = derive_sector_governance(&app.engine.as_ref().unwrap().state, player).rows;
+    let sector = rows[0].sector_id;
+    let before = app.engine.as_ref().unwrap().state.sector_directive(sector);
+    let expected = before.next();
+
+    app.handle_key(key(KeyCode::Char('D')));
+
+    let after = app.engine.as_ref().unwrap().state.sector_directive(sector);
+    assert_eq!(after, expected);
+    assert_ne!(after, before);
+}
+
+#[test]
+fn governance_a_toggles_sector_automation_for_all_colonies() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorGovernance;
+    app.state.governance.cursor = 0;
+
+    let player = app.engine.as_ref().unwrap().state.player_empire;
+    let rows = derive_sector_governance(&app.engine.as_ref().unwrap().state, player).rows;
+    let colony_ids: Vec<_> = rows[0].colonies.iter().map(|c| c.colony_id).collect();
+
+    // First press enables sector-guided automation for every colony.
+    app.handle_key(key(KeyCode::Char('A')));
+    for colony in &colony_ids {
+        assert_eq!(
+            app.engine
+                .as_ref()
+                .unwrap()
+                .state
+                .colony_automation_mode(*colony),
+            game_core::ColonyAutomation::SectorGuided
+        );
+    }
+
+    // Second press toggles them back to manual.
+    app.handle_key(key(KeyCode::Char('A')));
+    for colony in &colony_ids {
+        assert_eq!(
+            app.engine
+                .as_ref()
+                .unwrap()
+                .state
+                .colony_automation_mode(*colony),
+            game_core::ColonyAutomation::Manual
+        );
+    }
+}
+
+#[test]
+fn colony_a_key_toggles_colony_automation() {
+    let mut app = App::new();
+    app.new_game(42);
+    let colony_id = game_core::ColonyId(1);
+    app.state.active = Screen::Colony;
+    app.state.colony.selected_colony = Some(colony_id);
+
+    assert_eq!(
+        app.engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colony_automation_mode(colony_id),
+        game_core::ColonyAutomation::Manual
+    );
+
+    app.handle_key(key(KeyCode::Char('A')));
+    assert_eq!(
+        app.engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colony_automation_mode(colony_id),
+        game_core::ColonyAutomation::SectorGuided
+    );
+
+    app.handle_key(key(KeyCode::Char('A')));
+    assert_eq!(
+        app.engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colony_automation_mode(colony_id),
+        game_core::ColonyAutomation::Manual
+    );
 }

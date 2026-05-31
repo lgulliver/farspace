@@ -770,7 +770,12 @@ fn render_system_list(frame: &mut Frame, area: Rect, game_state: &GameState, app
         }
     }
 
-    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), inner);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(Theme::default_style())
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
 }
 
 fn render_known_lanes_in_sector(

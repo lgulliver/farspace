@@ -2068,6 +2068,111 @@ pub struct RoleModifiers {
     pub maintenance: i64,
 }
 
+/// Strategic focus assigned to a sector, biasing colony build automation.
+///
+/// Directives are **advisory**: they bias which build item an automated colony
+/// queues when its queue is empty, but they never modify yields directly and
+/// never override an explicit player queue.  Defaults to `Balanced`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum SectorDirective {
+    /// No bias — general-purpose infrastructure order.
+    #[default]
+    Balanced,
+    /// Prefer industrial production buildings.
+    Industrial,
+    /// Prefer research buildings.
+    Research,
+    /// Prefer food production buildings.
+    Agricultural,
+    /// Prefer orbital shipyards, then production.
+    Military,
+    /// Prefer production, then logistics infrastructure.
+    Economic,
+    /// Prioritise food/housing relief to address unrest.
+    Stabilization,
+}
+
+impl SectorDirective {
+    /// All directives in display order.
+    pub fn all() -> &'static [SectorDirective] {
+        &[
+            SectorDirective::Balanced,
+            SectorDirective::Industrial,
+            SectorDirective::Research,
+            SectorDirective::Agricultural,
+            SectorDirective::Military,
+            SectorDirective::Economic,
+            SectorDirective::Stabilization,
+        ]
+    }
+
+    /// Short display name for this directive.
+    pub fn name(&self) -> &'static str {
+        match self {
+            SectorDirective::Balanced => "Balanced",
+            SectorDirective::Industrial => "Industrial",
+            SectorDirective::Research => "Research",
+            SectorDirective::Agricultural => "Agricultural",
+            SectorDirective::Military => "Military",
+            SectorDirective::Economic => "Economic",
+            SectorDirective::Stabilization => "Stabilization",
+        }
+    }
+
+    /// One-line description of the automation bias this directive applies.
+    pub fn description(&self) -> &'static str {
+        match self {
+            SectorDirective::Balanced => "No bias; general-purpose infrastructure",
+            SectorDirective::Industrial => "Prefers production buildings",
+            SectorDirective::Research => "Prefers research buildings",
+            SectorDirective::Agricultural => "Prefers food buildings",
+            SectorDirective::Military => "Prefers orbital shipyards",
+            SectorDirective::Economic => "Prefers production, then logistics",
+            SectorDirective::Stabilization => "Addresses food, housing and unrest",
+        }
+    }
+
+    /// Return the next directive in cycle order (wraps to the first).
+    pub fn next(&self) -> SectorDirective {
+        let all = SectorDirective::all();
+        let idx = all.iter().position(|d| d == self).unwrap_or(0);
+        all[(idx + 1) % all.len()]
+    }
+}
+
+/// Whether a colony's production queue is player-controlled or sector-guided.
+///
+/// Defaults to `Manual`.  `SectorGuided` colonies have their empty build queue
+/// filled deterministically by the engine, biased by their sector directive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum ColonyAutomation {
+    /// The player controls the build queue; the engine never modifies it.
+    #[default]
+    Manual,
+    /// The engine queues builds when the queue is empty, biased by directive.
+    SectorGuided,
+}
+
+impl ColonyAutomation {
+    /// Short display name for this automation mode.
+    pub fn name(&self) -> &'static str {
+        match self {
+            ColonyAutomation::Manual => "Manual",
+            ColonyAutomation::SectorGuided => "Sector-guided",
+        }
+    }
+
+    /// Return the toggled automation mode.
+    pub fn toggled(&self) -> ColonyAutomation {
+        match self {
+            ColonyAutomation::Manual => ColonyAutomation::SectorGuided,
+            ColonyAutomation::SectorGuided => ColonyAutomation::Manual,
+        }
+    }
+}
+
 /// A colony on a planet
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -3425,6 +3530,12 @@ pub struct GameState {
     /// Persisted intelligence state per known foreign empire.
     #[cfg_attr(feature = "serde", serde(default))]
     pub empire_intel: BTreeMap<EmpireId, EmpireIntel>,
+    /// Strategic directive assigned to each sector.  Absent entries are `Balanced`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sector_directives: BTreeMap<SectorId, SectorDirective>,
+    /// Build-queue automation mode per colony.  Absent entries are `Manual`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub colony_automation: BTreeMap<ColonyId, ColonyAutomation>,
 }
 
 impl GameState {
@@ -3522,6 +3633,36 @@ impl GameState {
             .get(&colony_id)
             .copied()
             .unwrap_or_else(|| self.colony_unrest_state(colony_id).base_rebellion_risk_bp())
+    }
+
+    /// The sector a colony belongs to, derived from the star it orbits.
+    pub fn colony_sector(&self, colony_id: ColonyId) -> Option<SectorId> {
+        let star_id = self.colonies.get(&colony_id)?.star;
+        self.stars.get(&star_id).map(|star| star.sector)
+    }
+
+    /// All colony IDs whose star belongs to `sector_id`, in sorted order.
+    pub fn colonies_in_sector(&self, sector_id: SectorId) -> Vec<ColonyId> {
+        crate::deterministic::sorted_colony_ids(&self.colonies)
+            .into_iter()
+            .filter(|&id| self.colony_sector(id) == Some(sector_id))
+            .collect()
+    }
+
+    /// The directive assigned to a sector (defaults to `Balanced`).
+    pub fn sector_directive(&self, sector_id: SectorId) -> SectorDirective {
+        self.sector_directives
+            .get(&sector_id)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// The automation mode for a colony (defaults to `Manual`).
+    pub fn colony_automation_mode(&self, colony_id: ColonyId) -> ColonyAutomation {
+        self.colony_automation
+            .get(&colony_id)
+            .copied()
+            .unwrap_or_default()
     }
 
     pub fn fleet_supply_state(&self, fleet_id: FleetId) -> FleetSupplyState {
@@ -4279,6 +4420,8 @@ impl PartialEq for GameState {
             && self.next_battle_report_id == other.next_battle_report_id
             && self.battle_reports == other.battle_reports
             && self.empire_intel == other.empire_intel
+            && self.sector_directives == other.sector_directives
+            && self.colony_automation == other.colony_automation
     }
 }
 
@@ -4354,6 +4497,8 @@ impl Default for GameState {
             next_battle_report_id: 1,
             battle_reports: VecDeque::new(),
             empire_intel: BTreeMap::new(),
+            sector_directives: BTreeMap::new(),
+            colony_automation: BTreeMap::new(),
         }
     }
 }

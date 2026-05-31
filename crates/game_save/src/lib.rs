@@ -340,8 +340,8 @@ fn format_modified_time(time: std::time::SystemTime) -> Option<String> {
 mod tests {
     use super::*;
     use game_core::{
-        Command, DifficultyLevel, EmpireDefinitionId, Engine, Fleet, FleetId, FleetKind,
-        GalaxySize, RelationshipStatus, ScenarioSetup,
+        ColonyAutomation, ColonyId, Command, DifficultyLevel, EmpireDefinitionId, Engine, Fleet,
+        FleetId, FleetKind, GalaxySize, RelationshipStatus, ScenarioSetup, SectorDirective,
     };
 
     #[test]
@@ -396,6 +396,41 @@ mod tests {
         assert_eq!(
             original.colony_unrest_causes, loaded.colony_unrest_causes,
             "unrest causes should survive save/load"
+        );
+    }
+
+    #[test]
+    fn save_load_preserves_sector_directives_and_automation() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let sector = engine
+            .state
+            .colony_sector(colony_id)
+            .expect("player colony must have a sector");
+
+        engine.apply_turn(vec![
+            Command::SetSectorDirective {
+                sector,
+                directive: SectorDirective::Research,
+            },
+            Command::SetColonyAutomation {
+                colony: colony_id,
+                automation: ColonyAutomation::SectorGuided,
+            },
+        ]);
+
+        let saved = save(&engine.state).expect("Save should succeed");
+        let loaded = load(&saved).expect("Load should succeed");
+
+        assert_eq!(
+            loaded.sector_directive(sector),
+            SectorDirective::Research,
+            "sector directive should survive save/load"
+        );
+        assert_eq!(
+            loaded.colony_automation_mode(colony_id),
+            ColonyAutomation::SectorGuided,
+            "colony automation mode should survive save/load"
         );
     }
 

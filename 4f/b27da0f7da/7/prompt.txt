@@ -1,0 +1,11 @@
+[CONTEXT] FARSPACE 4X game, need to understand economy/yield model for trade network integration.
+[GOAL] Understand how economy yields are computed, what fields exist on colony/game state for credits, industry, science, food, maintenance.
+[DOWNSTREAM] Add trade value as new yield component that integrates with existing yield model.
+[REQUEST] Very thorough exploration of:
+1. `crates/game_core/src/economy/` - all files, yield computation, colony yield model
+2. How credits income works, where it's summed
+3. How colony yields are aggregated at empire level
+4. Any existing "trade" related fields or concepts
+5. The TurnReport/Event system that reports economic changes
+Return file paths, key structs/fn signatures, and the yield computation flow.
+<!-- OMO_INTERNAL_INITIATOR -->

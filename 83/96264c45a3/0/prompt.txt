@@ -1,0 +1,23 @@
+Uninstall oh-my-opencode following the removal instructions here
+
+https://omo.dev/docs
+
+---
+
+what we should do now for the farspace project though is create a best in class team of agents, commands and skills for opencode, along with an orchestrator agent
+
+---
+
+no we need to use models available to opencode go
+
+---
+
+why not flash over pro?
+
+---
+
+yes
+
+---
+
+commit and push all changes

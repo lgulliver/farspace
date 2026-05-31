@@ -187,18 +187,21 @@ fn check_latest(channel: UpdateChannel) -> anyhow::Result<Option<UpdateInfo>> {
         return Ok(None); // unsupported platform
     }
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(10))
-        .timeout_read(std::time::Duration::from_secs(30))
-        .build();
+    let agent = ureq::Agent::new_with_config(
+        ureq::config::Config::builder()
+            .timeout_connect(Some(std::time::Duration::from_secs(10)))
+            .timeout_global(Some(std::time::Duration::from_secs(30)))
+            .build(),
+    );
 
     let response: Vec<GhRelease> = agent
         .get(GITHUB_API)
-        .set("User-Agent", &format!("farspace/{CURRENT_VERSION}"))
-        .set("Accept", "application/vnd.github+json")
+        .header("User-Agent", &format!("farspace/{CURRENT_VERSION}"))
+        .header("Accept", "application/vnd.github+json")
         .call()
         .map_err(|e| anyhow::anyhow!("update check request failed: {e}"))?
-        .into_json()
+        .into_body()
+        .read_json()
         .map_err(|e| anyhow::anyhow!("update check response parse failed: {e}"))?;
 
     let release = match response
@@ -237,17 +240,19 @@ fn check_latest(channel: UpdateChannel) -> anyhow::Result<Option<UpdateInfo>> {
 pub fn download_and_stage(info: &UpdateInfo) -> anyhow::Result<PathBuf> {
     let staging = staged_path()?;
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(10))
-        .timeout_read(std::time::Duration::from_secs(300))
-        .build();
+    let agent = ureq::Agent::new_with_config(
+        ureq::config::Config::builder()
+            .timeout_connect(Some(std::time::Duration::from_secs(10)))
+            .timeout_global(Some(std::time::Duration::from_secs(300)))
+            .build(),
+    );
 
     let response = agent
         .get(&info.download_url)
-        .set("User-Agent", &format!("farspace/{CURRENT_VERSION}"))
+        .header("User-Agent", &format!("farspace/{CURRENT_VERSION}"))
         .call()?;
 
-    let mut reader = response.into_reader();
+    let mut reader = response.into_body().into_reader();
     let mut file = std::fs::File::create(&staging)?;
     std::io::copy(&mut reader, &mut file)?;
 

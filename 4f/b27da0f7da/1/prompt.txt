@@ -1,0 +1,11 @@
+[CONTEXT] FARSPACE 4X game, need to understand strategic resources and sector governance for trade integration.
+[GOAL] Understand how strategic resources work (discovery, empire access, extraction), sector governance (automation, hubs), and colony development/buildings.
+[DOWNSTREAM] Trade route capacity derives from population, colony development, trade structures, sector hubs, diplomacy treaties, strategic resources.
+[REQUEST] Very thorough exploration of:
+1. `crates/game_core/src/strategic_resources/` or similar - resource discovery, empire_access tracking
+2. `crates/game_core/src/sector/` or sector governance module
+3. How colony buildings/structures work - trade structures
+4. Colony development levels and role system
+5. How sector hubs are defined and how they affect systems
+Return file paths, key structs, and flow for resource access and sector hub mechanics.
+<!-- OMO_INTERNAL_INITIATOR -->

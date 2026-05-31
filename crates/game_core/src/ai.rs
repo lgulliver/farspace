@@ -2229,16 +2229,16 @@ mod tests {
         // AI scout missions must target unexplored stars
         for mission in engine.state.scout_missions.values() {
             let fleet = engine.state.fleets.get(&mission.fleet);
-            if let Some(f) = fleet {
-                if f.owner == ai {
-                    assert!(
-                        !engine
-                            .state
-                            .ai_explored_stars
-                            .contains(&mission.destination),
-                        "AI must not scout an already-explored star"
-                    );
-                }
+            if let Some(f) = fleet
+                && f.owner == ai
+            {
+                assert!(
+                    !engine
+                        .state
+                        .ai_explored_stars
+                        .contains(&mission.destination),
+                    "AI must not scout an already-explored star"
+                );
             }
         }
 
@@ -3096,10 +3096,10 @@ mod tests {
             let colony = engine.state.colonies.get(&ai_colony_id).unwrap();
             let star_id = colony.star;
             let planet_index = colony.planet_index;
-            if let Some(star) = engine.state.stars.get_mut(&star_id) {
-                if let Some(planet) = star.planets.get_mut(planet_index) {
-                    planet.class = PlanetClass::Oceanic;
-                }
+            if let Some(star) = engine.state.stars.get_mut(&star_id)
+                && let Some(planet) = star.planets.get_mut(planet_index)
+            {
+                planet.class = PlanetClass::Oceanic;
             }
         }
 
@@ -3896,10 +3896,10 @@ mod tests {
                 rally_point: None,
             },
         );
-        if let Some(star) = engine.state.stars.get_mut(&far_star) {
-            if let Some(planet) = star.planets.get_mut(0) {
-                planet.colony = Some(frontier_colony_id);
-            }
+        if let Some(star) = engine.state.stars.get_mut(&far_star)
+            && let Some(planet) = star.planets.get_mut(0)
+        {
+            planet.colony = Some(frontier_colony_id);
         }
         let combat_fleet_id = FleetId(9_002);
         engine.state.fleets.insert(

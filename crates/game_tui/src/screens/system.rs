@@ -1286,10 +1286,10 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let mut engine = Engine::new(42);
         let star_id = engine.state.stars.keys().next().copied().unwrap();
-        if let Some(star) = engine.state.stars.get_mut(&star_id) {
-            if let Some(planet) = star.planets.get_mut(0) {
-                planet.surveyed = false;
-            }
+        if let Some(star) = engine.state.stars.get_mut(&star_id)
+            && let Some(planet) = star.planets.get_mut(0)
+        {
+            planet.surveyed = false;
         }
         let app_state = AppState {
             navigation: crate::app::NavigationState {
@@ -1326,11 +1326,11 @@ mod tests {
         let mut engine = Engine::new(42);
         let star_id = engine.state.stars.keys().next().copied().unwrap();
         engine.state.explored_stars.insert(star_id);
-        if let Some(star) = engine.state.stars.get_mut(&star_id) {
-            if let Some(planet) = star.planets.get_mut(0) {
-                planet.surveyed = true;
-                planet.class = game_core::PlanetClass::Terran;
-            }
+        if let Some(star) = engine.state.stars.get_mut(&star_id)
+            && let Some(planet) = star.planets.get_mut(0)
+        {
+            planet.surveyed = true;
+            planet.class = game_core::PlanetClass::Terran;
         }
         let app_state = AppState {
             navigation: crate::app::NavigationState {
@@ -1488,10 +1488,10 @@ mod tests {
         let mut engine = Engine::new(42);
         let star_id = engine.state.stars.keys().next().copied().unwrap();
         engine.state.explored_stars.insert(star_id);
-        if let Some(star) = engine.state.stars.get_mut(&star_id) {
-            if let Some(planet) = star.planets.get_mut(0) {
-                planet.surveyed = false;
-            }
+        if let Some(star) = engine.state.stars.get_mut(&star_id)
+            && let Some(planet) = star.planets.get_mut(0)
+        {
+            planet.surveyed = false;
         }
         let science_fleet = game_core::FleetId(999);
         engine.state.fleets.insert(

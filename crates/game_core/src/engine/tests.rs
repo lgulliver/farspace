@@ -23,10 +23,10 @@ fn give_colony_shipyard(engine: &mut Engine, colony_id: ColonyId) {
 /// Unlock Habitat Seeding (TechId 2) for the player empire.
 fn unlock_habitat_seeding(engine: &mut Engine) {
     let empire_id = engine.state.player_empire;
-    if let Some(empire) = engine.state.empires.get_mut(&empire_id) {
-        if !empire.research.completed.contains(&TechId(2)) {
-            empire.research.completed.push(TechId(2));
-        }
+    if let Some(empire) = engine.state.empires.get_mut(&empire_id)
+        && !empire.research.completed.contains(&TechId(2))
+    {
+        empire.research.completed.push(TechId(2));
     }
 }
 
@@ -3159,12 +3159,12 @@ fn colonize_event_ordering_is_deterministic() {
     // Place two colonizer fleets at different explored stars
     for (fid, star) in [(col_a, star_a), (col_b, star_b)] {
         // Ensure the star has a habitable unowned planet
-        if let Some(star_data) = engine.state.stars.get_mut(&star) {
-            if let Some(planet) = star_data.planets.get_mut(0) {
-                planet.habitable = true;
-                planet.colony = None;
-                planet.surveyed = true;
-            }
+        if let Some(star_data) = engine.state.stars.get_mut(&star)
+            && let Some(planet) = star_data.planets.get_mut(0)
+        {
+            planet.habitable = true;
+            planet.colony = None;
+            planet.surveyed = true;
         }
         engine.state.fleets.insert(
             fid,
@@ -5894,10 +5894,10 @@ fn credits_income_is_zero_when_prod_pct_is_zero() {
 /// Helper: unlock Orbital Engineering (TechId 7) for the player empire.
 fn unlock_orbital_engineering(engine: &mut Engine) {
     let empire_id = engine.state.player_empire;
-    if let Some(empire) = engine.state.empires.get_mut(&empire_id) {
-        if !empire.research.completed.contains(&TechId(7)) {
-            empire.research.completed.push(TechId(7));
-        }
+    if let Some(empire) = engine.state.empires.get_mut(&empire_id)
+        && !empire.research.completed.contains(&TechId(7))
+    {
+        empire.research.completed.push(TechId(7));
     }
 }
 
@@ -6767,10 +6767,10 @@ fn colony_ark_can_colonize() {
         .iter()
         .position(|p| p.habitable && p.colony.is_none())
         .unwrap();
-    if let Some(star) = engine.state.stars.get_mut(&star_id) {
-        if let Some(planet) = star.planets.get_mut(planet_index) {
-            planet.surveyed = true;
-        }
+    if let Some(star) = engine.state.stars.get_mut(&star_id)
+        && let Some(planet) = star.planets.get_mut(planet_index)
+    {
+        planet.surveyed = true;
     }
 
     let ark_id = FleetId(902);
@@ -8392,11 +8392,11 @@ fn survey_completion_event_ordering_is_deterministic() {
     // Inject two science ships at the target star.
     for &(fleet_id, planet_idx) in &[(FleetId(9993), 0usize), (FleetId(9994), 1usize)] {
         // Ensure the planet is unsurveyed and habitable.
-        if let Some(star) = engine.state.stars.get_mut(&target) {
-            if let Some(planet) = star.planets.get_mut(planet_idx) {
-                planet.surveyed = false;
-                planet.habitable = true;
-            }
+        if let Some(star) = engine.state.stars.get_mut(&target)
+            && let Some(planet) = star.planets.get_mut(planet_idx)
+        {
+            planet.surveyed = false;
+            planet.habitable = true;
         }
         engine.state.fleets.insert(
             fleet_id,
@@ -8448,11 +8448,11 @@ fn survey_completion_event_ordering_is_deterministic() {
         .expect("need a non-home explored star");
 
     for &(fleet_id, planet_idx) in &[(FleetId(9993), 0usize), (FleetId(9994), 1usize)] {
-        if let Some(star) = engine2.state.stars.get_mut(&target2) {
-            if let Some(planet) = star.planets.get_mut(planet_idx) {
-                planet.surveyed = false;
-                planet.habitable = true;
-            }
+        if let Some(star) = engine2.state.stars.get_mut(&target2)
+            && let Some(planet) = star.planets.get_mut(planet_idx)
+        {
+            planet.surveyed = false;
+            planet.habitable = true;
         }
         engine2.state.fleets.insert(
             fleet_id,
@@ -9031,10 +9031,10 @@ fn add_far_player_colony(engine: &mut Engine) -> ColonyId {
             rally_point: None,
         },
     );
-    if let Some(star) = engine.state.stars.get_mut(&far_star) {
-        if let Some(planet) = star.planets.get_mut(0) {
-            planet.colony = Some(colony_id);
-        }
+    if let Some(star) = engine.state.stars.get_mut(&far_star)
+        && let Some(planet) = star.planets.get_mut(0)
+    {
+        planet.colony = Some(colony_id);
     }
     colony_id
 }

@@ -3,7 +3,7 @@
   "checkpoint_id": "4fb27da0f7da",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 8,
+  "checkpoints_count": 9,
   "files_touched": [
     "crates/game_core/src/ai.rs",
     "crates/game_core/src/balance.rs",
@@ -45,13 +45,19 @@
       "transcript": "/4f/b27da0f7da/3/full.jsonl",
       "content_hash": "/4f/b27da0f7da/3/content_hash.txt",
       "prompt": "/4f/b27da0f7da/3/prompt.txt"
+    },
+    {
+      "metadata": "/4f/b27da0f7da/4/metadata.json",
+      "transcript": "/4f/b27da0f7da/4/full.jsonl",
+      "content_hash": "/4f/b27da0f7da/4/content_hash.txt",
+      "prompt": "/4f/b27da0f7da/4/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 360608,
+    "input_tokens": 449919,
     "cache_creation_tokens": 82463,
-    "cache_read_tokens": 7077947,
-    "output_tokens": 46348,
-    "api_call_count": 112
+    "cache_read_tokens": 8038971,
+    "output_tokens": 50330,
+    "api_call_count": 129
   }
 }

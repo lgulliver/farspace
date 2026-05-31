@@ -1,0 +1,11 @@
+[CONTEXT] FARSPACE 4X game, need to understand AI system for trade-aware AI decisions.
+[GOAL] Understand how AI makes decisions, especially doctrine/weighting systems, and how to add trade-aware behavior.
+[DOWNSTREAM] Merchant AI doctrines value trade hubs; militarist doctrines target trade routes; isolationists prefer internal trade.
+[REQUEST] Very thorough exploration of:
+1. `crates/game_core/src/ai/` - all files, doctrine system, weighting system
+2. How AI empire profiles work
+3. How AI evaluates systems/colonies for value and targeting
+4. How AI doctrines influence decisions
+5. How AI decisions integrate with turn processing
+Return file paths, key structs, and AI decision flow architecture.
+<!-- OMO_INTERNAL_INITIATOR -->

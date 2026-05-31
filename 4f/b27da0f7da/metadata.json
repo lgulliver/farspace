@@ -3,7 +3,7 @@
   "checkpoint_id": "4fb27da0f7da",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 12,
+  "checkpoints_count": 14,
   "files_touched": [
     "crates/game_core/src/ai.rs",
     "crates/game_core/src/balance.rs",
@@ -19,6 +19,7 @@
     "crates/game_save/src/schema.rs",
     "crates/game_tui/src/components/help.rs",
     "crates/game_tui/src/screens/empire_overview.rs",
+    "docs/design/trade-networks-and-civilian-shipping.md",
     "docs/releases/v0.3.0.md"
   ],
   "sessions": [
@@ -69,13 +70,19 @@
       "transcript": "/4f/b27da0f7da/7/full.jsonl",
       "content_hash": "/4f/b27da0f7da/7/content_hash.txt",
       "prompt": "/4f/b27da0f7da/7/prompt.txt"
+    },
+    {
+      "metadata": "/4f/b27da0f7da/8/metadata.json",
+      "transcript": "/4f/b27da0f7da/8/full.jsonl",
+      "content_hash": "/4f/b27da0f7da/8/content_hash.txt",
+      "prompt": "/4f/b27da0f7da/8/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 775225,
+    "input_tokens": 1121633,
     "cache_creation_tokens": 82463,
-    "cache_read_tokens": 13042747,
-    "output_tokens": 67525,
-    "api_call_count": 206
+    "cache_read_tokens": 55198523,
+    "output_tokens": 114561,
+    "api_call_count": 376
   }
 }

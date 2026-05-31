@@ -1,0 +1,135 @@
+[analyze-mode]
+ANALYSIS MODE. Gather context before diving deep:
+
+CONTEXT GATHERING (parallel):
+- 1-2 explore agents (codebase patterns, implementations)
+- 1-2 librarian agents (if external library involved)
+- Direct tools: Grep, AST-grep, LSP for targeted searches
+
+IF COMPLEX - DO NOT STRUGGLE ALONE. Consult specialists:
+- **Oracle**: Conventional problems (architecture, debugging, complex logic)
+- **Artistry**: Non-conventional problems (different approach needed)
+
+SYNTHESIZE findings before proceeding.
+---
+MANDATORY delegate_task params: ALWAYS include load_skills and run_in_background when calling delegate_task. Evaluate available skills before dispatch - pass task-appropriate skills when relevant, pass [] ONLY when no skill matches the task domain.
+Example: delegate_task(subagent_type="explore", prompt="...", run_in_background=true, load_skills=[])
+
+---
+
+Implement Trade Networks and Civilian Shipping v1.
+
+Before coding:
+- pull/rebase latest
+- review trade/supply, fleet logistics, sector governance, diplomacy, strategic resources, blockades, piracy/minor factions if present, economy, save/load, Turn Report, Galactic Dispatch, and TUI sector/empire screens
+- follow AGENTS.md, .github/copilot-instructions.md, docs/skills/*, and docs/design/*
+- preserve deterministic behavior
+- avoid unrelated refactors
+
+Primary goals:
+- Make the galaxy feel economically alive
+- Make trade routes visible and strategically meaningful
+- Give blockades, diplomacy, resources, and sectors stronger economic impact
+- Prepare for piracy, embargoes, and civilian logistics later
+
+Scope:
+- Add trade network model
+- Add civilian shipping abstraction
+- Connected colonies generate trade value
+- Trade routes connect colonies, sector hubs, capital worlds, and trade partners
+- Trade routes can be disrupted by:
+  - blockades
+  - war zones
+  - hostile fleets
+  - out-of-supply systems
+- Trade value contributes to credits and possibly prosperity/victory progress
+- Persist trade-relevant state in save/load if not fully derived
+
+Recommended v1 model:
+- Keep civilian shipping abstract
+- No individual freighter micromanagement
+- No real-time pathing
+- No market prices
+- Trade routes are deterministic derived links
+- Show routes visually but do not require manual route creation
+- Trade route capacity can derive from:
+  - population
+  - colony development
+  - trade structures
+  - sector hubs
+  - diplomacy treaties
+  - strategic resources
+
+Diplomacy integration:
+- Trade Accord improves trade value between empires
+- War cancels or disrupts trade routes
+- Closed borders may block foreign trade if modeled
+
+Blockade/logistics integration:
+- Blockaded systems lose or reduce trade value
+- Hostile fleets may disrupt route safety
+- Out-of-supply colonies may contribute reduced trade
+
+AI integration:
+- Merchant doctrines value trade hubs and safe routes
+- Militarist/raider doctrines may target trade routes during war
+- Isolationists prefer internal trade and secure borders
+
+Do not add:
+- manual freighter control
+- commodity markets
+- dynamic prices
+- detailed import/export goods
+- civilian ship tactical movement
+- piracy system yet, unless already trivial
+- trade route micromanagement
+
+Requirements:
+- game_core remains headless
+- deterministic trade calculation
+- stable route ordering
+- no global RNG
+- no wall-clock logic
+- positive and negative tests
+- replay/fingerprint stability preserved
+- existing sector automation, espionage, unrest, logistics, diplomacy, economy, and TUI tests remain green
+- coverage remains >=80%
+
+Tests required:
+- connected colonies generate trade value
+- disconnected colonies produce reduced/no trade
+- blockade disrupts trade route
+- war disrupts foreign trade
+- trade accord increases trade value if implemented
+- trade route ordering is deterministic
+- merchant AI values trade systems deterministically
+- save/load preserves or re-derives trade state
+- Turn Report highlights major trade disruptions
+- coverage stays >=80%
+
+TUI requirements:
+- Sector Map shows trade routes when trade overlay is active
+- Empire Overview shows trade income and disruptions
+- Colony/System View shows trade contribution
+- Diplomacy screen shows trade accords and trade value if applicable
+- Turn Report shows disrupted/restored trade
+- Help overlay updated
+
+Documentation:
+- Create/update docs/design/trade-networks-and-civilian-shipping.md
+
+After implementation:
+- run fmt, clippy, tests, coverage
+- summarize trade model, diplomacy/blockade integration, AI behavior, TUI changes, tests, and limitations
+
+---
+
+what models are the agents using
+
+---
+
+yes
+
+---
+
+ok we need to stop here and uninstall oh my opencode. these models are not what we have access to or want to use

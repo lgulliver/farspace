@@ -1,0 +1,71 @@
+{
+  "cli_version": "0.6.3",
+  "checkpoint_id": "4fb27da0f7da",
+  "session_id": "ses_180b90728ffeZ1a6VhO7zLTsxp",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-31T19:11:33.160968Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "crates/game_core/src/ai.rs",
+    "crates/game_core/src/balance.rs",
+    "crates/game_core/src/dispatch.rs",
+    "crates/game_core/src/engine.rs",
+    "crates/game_core/src/engine/setup.rs",
+    "crates/game_core/src/engine/tests.rs",
+    "crates/game_core/src/events.rs",
+    "crates/game_core/src/lib.rs",
+    "crates/game_core/src/state.rs",
+    "crates/game_core/src/state/tests.rs",
+    "crates/game_save/src/migrate.rs",
+    "crates/game_save/src/schema.rs",
+    "crates/game_tui/src/components/help.rs",
+    "crates/game_tui/src/screens/empire_overview.rs",
+    "docs/design/trade-networks-and-civilian-shipping.md"
+  ],
+  "agent": "OpenCode",
+  "model": "deepseek-v4-flash",
+  "turn_id": "48ac5cf1c4d0",
+  "token_usage": {
+    "input_tokens": 346408,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 42155776,
+    "output_tokens": 47036,
+    "api_call_count": 170
+  },
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-31T19:11:33.114324Z",
+    "agent_lines": 1217,
+    "agent_removed": 8,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1217,
+    "total_lines_changed": 1225,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 239,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".omo/run-continuation/ses_180b90728ffeZ1a6VhO7zLTsxp.json": 10,
+        "docs/releases/v0.3.0.md": 229
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 505,
+      "agent_lines_removed": 0
+    }
+  ]
+}

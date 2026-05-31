@@ -782,7 +782,10 @@ impl App {
     }
 
     /// Run the main event loop
-    pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> io::Result<bool> {
+    pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> io::Result<bool>
+    where
+        io::Error: From<B::Error>,
+    {
         while !self.state.quit {
             self.poll_update_channels();
 

@@ -32,7 +32,7 @@ pub fn render_target_to_text(
     height: u16,
 ) -> std::io::Result<String> {
     let backend = TestBackend::new(width, height);
-    let mut terminal = Terminal::new(backend)?;
+    let mut terminal = Terminal::new(backend).unwrap();
     let mut app_state = seeded_app_state(state);
 
     terminal.draw(|frame| {
@@ -86,7 +86,7 @@ pub fn render_target_to_text(
                 );
             }
         }
-    })?;
+    }).unwrap();
 
     Ok(buffer_to_text(terminal.backend().buffer(), width, height))
 }

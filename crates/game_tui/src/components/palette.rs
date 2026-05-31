@@ -4,10 +4,10 @@ use crate::layout::centered_fixed;
 use crate::theme::Theme;
 use crate::{glyphs::glyphs_for_mode, visual_mode::VisualMode};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
-    Frame,
 };
 
 /// Commands accepted by the command palette.
@@ -151,8 +151,8 @@ pub fn render_palette(frame: &mut Frame, area: Rect, input: &str, mode: VisualMo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     #[test]
     fn render_palette_no_panic() {

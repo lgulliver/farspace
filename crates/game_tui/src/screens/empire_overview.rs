@@ -1,5 +1,6 @@
 //! Empire overview screen
 
+use crate::AppState;
 use crate::components::{
     derive_header_data, meter_line, quiet_panel_block, render_footer, render_header,
     section_heading,
@@ -7,17 +8,16 @@ use crate::components::{
 use crate::layout::{compose_layout, split_main_detail};
 use crate::screens::Screen;
 use crate::theme::Theme;
-use crate::AppState;
 use game_core::{
-    all_techs, yield_model, Colony, ColonyId, ColonySupplyState, ColonyUnrestState, EmpireId,
-    GameState, StarId, VictoryProgressValue,
+    Colony, ColonyId, ColonySupplyState, ColonyUnrestState, EmpireId, GameState, StarId,
+    VictoryProgressValue, all_techs, yield_model,
 };
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 const MIN_HEIGHT_FOR_FULL_SUMMARY: u16 = 22;
@@ -877,7 +877,7 @@ fn render_colony_detail(
 mod tests {
     use super::*;
     use game_core::{Command, EmpireDefinitionId, Engine, VictoryPath};
-    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 
     fn render_to_string(engine: &Engine) -> String {
         let backend = TestBackend::new(140, 30);

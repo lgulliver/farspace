@@ -396,7 +396,7 @@ dependencies = [
 
 [[package]]
 name = "farspace"
-version = "0.1.0"
+version = "0.3.0-alpha.1"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -500,14 +500,14 @@ dependencies = [
 
 [[package]]
 name = "game_content"
-version = "0.1.0"
+version = "0.3.0-alpha.1"
 dependencies = [
  "game_core",
 ]
 
 [[package]]
 name = "game_core"
-version = "0.1.0"
+version = "0.3.0-alpha.1"
 dependencies = [
  "rand",
  "rand_chacha",
@@ -517,7 +517,7 @@ dependencies = [
 
 [[package]]
 name = "game_e2e"
-version = "0.1.0"
+version = "0.3.0-alpha.1"
 dependencies = [
  "anyhow",
  "game_core",
@@ -531,7 +531,7 @@ dependencies = [
 
 [[package]]
 name = "game_save"
-version = "0.1.0"
+version = "0.3.0-alpha.1"
 dependencies = [
  "game_core",
  "serde",
@@ -541,7 +541,7 @@ dependencies = [
 
 [[package]]
 name = "game_tui"
-version = "0.1.0"
+version = "0.3.0-alpha.1"
 dependencies = [
  "crossterm",
  "game_core",

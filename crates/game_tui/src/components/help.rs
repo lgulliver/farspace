@@ -4,11 +4,11 @@ use crate::layout::centered_rect;
 use crate::screens::Screen;
 use crate::theme::Theme;
 use ratatui::{
+    Frame,
     layout::Rect,
     symbols::border::ROUNDED,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
-    Frame,
 };
 
 /// A help binding entry: either a key→description pair or a section separator.
@@ -418,8 +418,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     #[test]
     fn render_help_menu() {

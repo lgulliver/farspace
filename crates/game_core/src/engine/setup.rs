@@ -1,7 +1,7 @@
 use super::*;
 use crate::victory::evaluate_victory_end_turn;
-use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use rand::seq::SliceRandom;
 use rand_chacha::ChaCha8Rng;
 
 impl Engine {
@@ -161,21 +161,21 @@ impl Engine {
             );
         }
 
-        if let Some(star) = stars.get_mut(&home_star_id) {
-            if let Some(planet) = star.planets.get_mut(0) {
-                planet.colony = Some(player_colony_id);
-                planet.surveyed = true;
-            }
+        if let Some(star) = stars.get_mut(&home_star_id)
+            && let Some(planet) = star.planets.get_mut(0)
+        {
+            planet.colony = Some(player_colony_id);
+            planet.surveyed = true;
         }
 
         for (i, _ai_empire_id) in ai_empire_ids.iter().enumerate() {
             let ai_colony_id = ColonyId(2 + i as u64);
             let ai_home_star_id = ai_home_star_ids[i];
-            if let Some(star) = stars.get_mut(&ai_home_star_id) {
-                if let Some(planet) = star.planets.get_mut(0) {
-                    planet.colony = Some(ai_colony_id);
-                    planet.surveyed = true;
-                }
+            if let Some(star) = stars.get_mut(&ai_home_star_id)
+                && let Some(planet) = star.planets.get_mut(0)
+            {
+                planet.colony = Some(ai_colony_id);
+                planet.surveyed = true;
             }
         }
 

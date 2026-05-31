@@ -5,10 +5,10 @@ use crate::theme::Theme;
 use crate::{glyphs::glyphs_for_mode, visual_mode::VisualMode};
 use game_core::{DispatchCategory, DispatchSeverity, GalacticDispatch};
 use ratatui::{
+    Frame,
     layout::Rect,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
-    Frame,
 };
 
 /// Render the Galactic Dispatch modal overlay.
@@ -162,8 +162,8 @@ pub fn render_dispatch(
 mod tests {
     use super::*;
     use game_core::{DispatchCategory, DispatchItem, DispatchSeverity, GalacticDispatch};
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     fn make_dispatch_with_items() -> GalacticDispatch {
         GalacticDispatch {

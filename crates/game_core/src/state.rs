@@ -1185,8 +1185,7 @@ impl StrategicResource {
             StrategicResource::QuantumCrystals => StrategicResourceRecord {
                 resource_id: 1,
                 name: "Quantum Crystals",
-                description:
-                    "Phase-stable crystal lattices that amplify defensive field harmonics.",
+                description: "Phase-stable crystal lattices that amplify defensive field harmonics.",
                 rarity: StrategicResourceRarity::Rare,
                 category: StrategicResourceCategory::Exotic,
                 discovery_requirements: ResourceDiscoveryRequirements {
@@ -2256,11 +2255,7 @@ impl Colony {
 
     /// Human-readable stability state.
     pub fn unrest_label(&self) -> &'static str {
-        if self.is_unrest() {
-            "Unrest"
-        } else {
-            "Stable"
-        }
+        if self.is_unrest() { "Unrest" } else { "Stable" }
     }
 }
 
@@ -3316,15 +3311,15 @@ impl ScenarioSetup {
                 self.ai_empire_count
             ));
         }
-        if let Some(n) = self.sector_count_override {
-            if !(2..=8).contains(&n) {
-                return Err(format!("Sector count must be 2–8, got {}", n));
-            }
+        if let Some(n) = self.sector_count_override
+            && !(2..=8).contains(&n)
+        {
+            return Err(format!("Sector count must be 2–8, got {}", n));
         }
-        if let Some(def_id) = self.player_empire_def {
-            if empire_definition_by_id(def_id).is_none() {
-                return Err(format!("Unknown player empire definition id {}", def_id.0));
-            }
+        if let Some(def_id) = self.player_empire_def
+            && empire_definition_by_id(def_id).is_none()
+        {
+            return Err(format!("Unknown player empire definition id {}", def_id.0));
         }
         let mut seen_paths = BTreeSet::new();
         for condition in &self.victory_settings.conditions {
@@ -3753,11 +3748,11 @@ impl GameState {
                 extended_range += Self::FLEET_SUPPLY_HUB_BONUS;
             }
 
-            if let Some(lane) = HyperspaceLane::new(colony.star, star_id) {
-                if self.empire_can_use_trade_lane(empire_id, lane) {
-                    full_range += Self::FLEET_SUPPLY_LANE_BONUS;
-                    extended_range += Self::FLEET_EXTENDED_LANE_BONUS;
-                }
+            if let Some(lane) = HyperspaceLane::new(colony.star, star_id)
+                && self.empire_can_use_trade_lane(empire_id, lane)
+            {
+                full_range += Self::FLEET_SUPPLY_LANE_BONUS;
+                extended_range += Self::FLEET_EXTENDED_LANE_BONUS;
             }
 
             if !connected {
@@ -3825,20 +3820,20 @@ impl GameState {
         if extraction.blocked_by_blockade && self.colony_blockade_state(colony_id).is_some() {
             return false;
         }
-        if let Some(required) = extraction.required_surface_building {
-            if !colony.buildings.contains(&required) {
-                return false;
-            }
+        if let Some(required) = extraction.required_surface_building
+            && !colony.buildings.contains(&required)
+        {
+            return false;
         }
-        if let Some(required) = extraction.required_orbital_structure {
-            if !colony.orbital_installations.contains(&required) {
-                return false;
-            }
+        if let Some(required) = extraction.required_orbital_structure
+            && !colony.orbital_installations.contains(&required)
+        {
+            return false;
         }
-        if let Some(required_tech) = extraction.required_tech {
-            if !completed_techs.contains(&required_tech) {
-                return false;
-            }
+        if let Some(required_tech) = extraction.required_tech
+            && !completed_techs.contains(&required_tech)
+        {
+            return false;
         }
         true
     }
@@ -3947,14 +3942,14 @@ impl GameState {
             0
         };
 
-        if let Some(design_id) = self.fleet_custom_designs.get(&fleet_id) {
-            if let Some(design) = self.custom_designs.get(design_id) {
-                let stats = design.derived_stats();
-                offensive = offensive.saturating_add(stats.attack);
-                defensive = defensive.saturating_add(stats.defense.saturating_add(stats.hp / 5));
-                invasion_capability = invasion_capability.saturating_add(stats.invasion_strength);
-                survey_capability = survey_capability.saturating_add(stats.survey_effectiveness);
-            }
+        if let Some(design_id) = self.fleet_custom_designs.get(&fleet_id)
+            && let Some(design) = self.custom_designs.get(design_id)
+        {
+            let stats = design.derived_stats();
+            offensive = offensive.saturating_add(stats.attack);
+            defensive = defensive.saturating_add(stats.defense.saturating_add(stats.hp / 5));
+            invasion_capability = invasion_capability.saturating_add(stats.invasion_strength);
+            survey_capability = survey_capability.saturating_add(stats.survey_effectiveness);
         }
 
         match role {
@@ -4326,10 +4321,10 @@ impl GameState {
         empire_colonies: &[(ColonyId, StarId)],
     ) -> Option<StarId> {
         let home_star = self.empires.get(&empire_id).map(|e| e.home_star);
-        if let Some(home_star) = home_star {
-            if empire_colonies.iter().any(|(_, star)| *star == home_star) {
-                return Some(home_star);
-            }
+        if let Some(home_star) = home_star
+            && empire_colonies.iter().any(|(_, star)| *star == home_star)
+        {
+            return Some(home_star);
         }
         empire_colonies.iter().map(|(_, star)| *star).next()
     }
@@ -4358,10 +4353,10 @@ impl GameState {
             return true;
         }
 
-        if let Some(lane) = HyperspaceLane::new(from, to) {
-            if self.empire_can_use_trade_lane(empire_id, lane) {
-                return true;
-            }
+        if let Some(lane) = HyperspaceLane::new(from, to)
+            && self.empire_can_use_trade_lane(empire_id, lane)
+        {
+            return true;
         }
 
         let (Some(a), Some(b)) = (self.stars.get(&from), self.stars.get(&to)) else {

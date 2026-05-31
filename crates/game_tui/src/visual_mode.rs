@@ -111,11 +111,7 @@ fn unicode_fallback(ch: char) -> char {
     let is_private_use = ('\u{e000}'..='\u{f8ff}').contains(&ch)
         || ('\u{f0000}'..='\u{ffffd}').contains(&ch)
         || ('\u{100000}'..='\u{10fffd}').contains(&ch);
-    if is_private_use {
-        '?'
-    } else {
-        ch
-    }
+    if is_private_use { '?' } else { ch }
 }
 
 fn ascii_fallback(ch: char) -> char {

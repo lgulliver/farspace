@@ -287,8 +287,7 @@ pub fn all_techs() -> &'static [TechRecord] {
         TechRecord {
             id: TechId(3),
             name: "Neutrino Sensors",
-            description:
-                "Deep-penetrating sensor arrays that detect matter through interference patterns.",
+            description: "Deep-penetrating sensor arrays that detect matter through interference patterns.",
             domain: TechDomain::Exploration,
             tier: TechTier::I,
             prerequisites: &[],
@@ -351,8 +350,7 @@ pub fn all_techs() -> &'static [TechRecord] {
         TechRecord {
             id: TechId::ORBITAL_ENGINEERING,
             name: "Orbital Engineering",
-            description:
-                "Advanced construction techniques for assembling large structures in orbit.",
+            description: "Advanced construction techniques for assembling large structures in orbit.",
             domain: TechDomain::Engineering,
             tier: TechTier::II,
             prerequisites: &[TechId(5)],
@@ -451,8 +449,7 @@ pub fn all_techs() -> &'static [TechRecord] {
         TechRecord {
             id: TechId::RAPID_TRANSIT,
             name: "Rapid Transit Drives",
-            description:
-                "Compact high-efficiency drives cut reconnaissance mission duration significantly.",
+            description: "Compact high-efficiency drives cut reconnaissance mission duration significantly.",
             domain: TechDomain::Exploration,
             tier: TechTier::II,
             prerequisites: &[TechId::VOID_PROPULSION],
@@ -467,8 +464,7 @@ pub fn all_techs() -> &'static [TechRecord] {
         TechRecord {
             id: TechId::ADVANCED_SURVEY,
             name: "Advanced Survey Array",
-            description:
-                "Integrated multi-spectrum sensor platforms accelerate deep planetary profiling.",
+            description: "Integrated multi-spectrum sensor platforms accelerate deep planetary profiling.",
             domain: TechDomain::Exploration,
             tier: TechTier::III,
             prerequisites: &[TechId::SURVEY_DRONES],
@@ -483,8 +479,7 @@ pub fn all_techs() -> &'static [TechRecord] {
         TechRecord {
             id: TechId::COLONIAL_VANGUARD,
             name: "Colonial Vanguard Protocol",
-            description:
-                "Integrated habitat prefabrication and seed-vault logistics support larger founding expeditions.",
+            description: "Integrated habitat prefabrication and seed-vault logistics support larger founding expeditions.",
             domain: TechDomain::Biology,
             tier: TechTier::III,
             prerequisites: &[TechId::HABITAT_SEEDING, TechId::COLONIAL_LOGISTICS],
@@ -499,8 +494,7 @@ pub fn all_techs() -> &'static [TechRecord] {
         TechRecord {
             id: TechId::PERIMETER_DEFENSE,
             name: "Perimeter Defense Doctrine",
-            description:
-                "Modular point-defense batteries and intercept patterns provide local system security.",
+            description: "Modular point-defense batteries and intercept patterns provide local system security.",
             domain: TechDomain::Military,
             tier: TechTier::II,
             prerequisites: &[TechId::KINETIC_BARRIERS],
@@ -518,8 +512,7 @@ pub fn all_techs() -> &'static [TechRecord] {
         TechRecord {
             id: TechId::STRIKE_DOCTRINE,
             name: "Long-Range Strike Doctrine",
-            description:
-                "Stand-off kinetic projectors optimised for high-tempo engagement protocols.",
+            description: "Stand-off kinetic projectors optimised for high-tempo engagement protocols.",
             domain: TechDomain::Military,
             tier: TechTier::III,
             prerequisites: &[TechId::BATTLE_DOCTRINE],
@@ -534,8 +527,7 @@ pub fn all_techs() -> &'static [TechRecord] {
         TechRecord {
             id: TechId::FLEET_COORDINATION,
             name: "Fleet Coordination",
-            description:
-                "Multi-vessel engagement frameworks enable coordinated heavy combat operations.",
+            description: "Multi-vessel engagement frameworks enable coordinated heavy combat operations.",
             domain: TechDomain::Military,
             tier: TechTier::III,
             prerequisites: &[TechId::BATTLE_DOCTRINE],
@@ -700,8 +692,7 @@ pub fn all_techs() -> &'static [TechRecord] {
         TechRecord {
             id: TechId(29),
             name: "Megastructure Assembly",
-            description:
-                "Inter-domain assembly choreography enables civilization-scale orbital projects.",
+            description: "Inter-domain assembly choreography enables civilization-scale orbital projects.",
             domain: TechDomain::Engineering,
             tier: TechTier::VI,
             prerequisites: &[TechId(28), TechId(59), TechId::LANE_STABILIZATION],
@@ -1011,7 +1002,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             unlocks: &[],
             cost: 470,
             rarity: TechRarity::Breakthrough,
-            tags: &[TechTag::Terraforming, TechTag::Growth, TechTag::PopulationJobsFuture],
+            tags: &[
+                TechTag::Terraforming,
+                TechTag::Growth,
+                TechTag::PopulationJobsFuture,
+            ],
             future_hook: true,
             display_order: 49,
             ai_weight: 1,
@@ -1045,7 +1040,11 @@ pub fn all_techs() -> &'static [TechRecord] {
             unlocks: &[],
             cost: 780,
             rarity: TechRarity::Dangerous,
-            tags: &[TechTag::Terraforming, TechTag::Megastructure, TechTag::Crisis],
+            tags: &[
+                TechTag::Terraforming,
+                TechTag::Megastructure,
+                TechTag::Crisis,
+            ],
             future_hook: true,
             display_order: 51,
             ai_weight: 0,

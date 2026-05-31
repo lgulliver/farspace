@@ -2,18 +2,18 @@
 
 use crate::app::AppState;
 use crate::components::{
-    panel_block, render_empire_emblem, render_footer, EmblemPattern, EmpireEmblem,
-    EmpireEmblemPalette,
+    EmblemPattern, EmpireEmblem, EmpireEmblemPalette, panel_block, render_empire_emblem,
+    render_footer,
 };
 use crate::screens::Screen;
-use crate::theme::{gradient, lerp_rgb, SplashPalette, Theme};
-use game_core::{all_empire_definitions, GalaxySize, VictoryPath, VictorySettings};
+use crate::theme::{SplashPalette, Theme, gradient, lerp_rgb};
+use game_core::{GalaxySize, VictoryPath, VictorySettings, all_empire_definitions};
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Paragraph, Wrap},
-    Frame,
 };
 
 /// Index of each editable setup field in `AppState::setup_cursor`.
@@ -611,7 +611,7 @@ pub fn render_new_game_setup(frame: &mut Frame, area: Rect, app_state: &AppState
 mod tests {
     use super::*;
     use crate::app::NewGameSetupState;
-    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 
     fn cell_char(buf: &Buffer, x: u16, y: u16) -> char {
         buf.cell((x, y))

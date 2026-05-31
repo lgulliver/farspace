@@ -4,32 +4,32 @@ mod logging;
 
 use crate::animation::{ScreenTransition, TransitionState};
 use crate::components::{
-    render_battle_reports, render_dispatch, render_help, render_palette, EventLog, LogEntryKind,
-    PaletteCommand,
+    EventLog, LogEntryKind, PaletteCommand, render_battle_reports, render_dispatch, render_help,
+    render_palette,
 };
 use crate::keys::KeyMap;
-use crate::screens::empire_overview::{derive_empire_overview, EmpireOverviewData, OverviewSort};
-use crate::screens::menu::{menu_action_count, MenuAction};
-use crate::screens::research::{
-    filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_ERA_FILTER_COUNT,
-    RESEARCH_STATUS_FILTER_COUNT,
-};
-use crate::screens::sector_governance::{derive_sector_governance, SectorGovernanceRow};
-use crate::screens::ship_designer::{DesignerMode, DesignerPanel, ShipDesignerState};
 use crate::screens::Screen;
+use crate::screens::empire_overview::{EmpireOverviewData, OverviewSort, derive_empire_overview};
+use crate::screens::menu::{MenuAction, menu_action_count};
+use crate::screens::research::{
+    RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_ERA_FILTER_COUNT, RESEARCH_STATUS_FILTER_COUNT,
+    filtered_research_techs,
+};
+use crate::screens::sector_governance::{SectorGovernanceRow, derive_sector_governance};
+use crate::screens::ship_designer::{DesignerMode, DesignerPanel, ShipDesignerState};
 use crate::update::{UpdateChannel, UpdateConfirmKind, UpdateInfo, UpdateState};
-use crate::visual_mode::{map_symbol_for_mode, user_config_path, VisualMode};
+use crate::visual_mode::{VisualMode, map_symbol_for_mode, user_config_path};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use game_core::advisor::{
     AdvisorContext, AdvisorEngine, AdvisorOutput, AdvisorPreferences, PlayerKnowledge,
 };
 use game_core::{
-    empire_definition_by_id, tech_by_id, BuildingType, ColonyAutomation, ColonyId, ColonyRole,
-    Command, ComponentId, Engine, Event as CoreEvent, FleetFormation, FleetId, FleetKind,
-    FleetRole, GalaxySize, OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId,
-    TreatyType,
+    BuildingType, ColonyAutomation, ColonyId, ColonyRole, Command, ComponentId, Engine,
+    Event as CoreEvent, FleetFormation, FleetId, FleetKind, FleetRole, GalaxySize,
+    OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId, TreatyType,
+    empire_definition_by_id, tech_by_id,
 };
-use ratatui::{backend::Backend, Frame, Terminal};
+use ratatui::{Frame, Terminal, backend::Backend};
 use std::io;
 use std::path::Path;
 use std::time::Duration;
@@ -793,12 +793,11 @@ impl App {
             self.state.tick_count = self.state.tick_count.wrapping_add(1);
             self.state.transition.advance();
 
-            if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
-                        self.handle_key(key);
-                    }
-                }
+            if event::poll(Duration::from_millis(100))?
+                && let Event::Key(key) = event::read()?
+                && key.kind == KeyEventKind::Press
+            {
+                self.handle_key(key);
             }
         }
 
@@ -806,45 +805,45 @@ impl App {
     }
 
     fn poll_update_channels(&mut self) {
-        if let Some(rx) = &self.check_rx {
-            if let Ok(result) = rx.try_recv() {
-                self.check_rx = None;
-                match result {
-                    Ok(Some(info)) => {
-                        if self.state.auto_update {
-                            if let Some(tx) = &self.download_tx {
-                                if tx.try_send(info.clone()).is_ok() {
-                                    self.state.update_state = UpdateState::Downloading;
-                                } else {
-                                    self.state.update_state = UpdateState::Available(info);
-                                }
+        if let Some(rx) = &self.check_rx
+            && let Ok(result) = rx.try_recv()
+        {
+            self.check_rx = None;
+            match result {
+                Ok(Some(info)) => {
+                    if self.state.auto_update {
+                        if let Some(tx) = &self.download_tx {
+                            if tx.try_send(info.clone()).is_ok() {
+                                self.state.update_state = UpdateState::Downloading;
                             } else {
                                 self.state.update_state = UpdateState::Available(info);
                             }
                         } else {
                             self.state.update_state = UpdateState::Available(info);
                         }
+                    } else {
+                        self.state.update_state = UpdateState::Available(info);
                     }
-                    Ok(None) => {
-                        self.state.update_state = UpdateState::Idle;
-                    }
-                    Err(e) => {
-                        self.state.update_state = UpdateState::Error(e);
-                    }
+                }
+                Ok(None) => {
+                    self.state.update_state = UpdateState::Idle;
+                }
+                Err(e) => {
+                    self.state.update_state = UpdateState::Error(e);
                 }
             }
         }
 
-        if let Some(rx) = &self.download_rx {
-            if let Ok(result) = rx.try_recv() {
-                self.download_rx = None;
-                match result {
-                    Ok(version) => {
-                        self.state.update_state = UpdateState::Staged { version };
-                    }
-                    Err(err) => {
-                        self.state.update_state = UpdateState::Error(err);
-                    }
+        if let Some(rx) = &self.download_rx
+            && let Ok(result) = rx.try_recv()
+        {
+            self.download_rx = None;
+            match result {
+                Ok(version) => {
+                    self.state.update_state = UpdateState::Staged { version };
+                }
+                Err(err) => {
+                    self.state.update_state = UpdateState::Error(err);
                 }
             }
         }
@@ -874,38 +873,38 @@ impl App {
             );
         }
 
-        if self.state.overlay.show_dispatch {
-            if let Some(engine) = &self.engine {
-                let dispatches = &engine.state.galactic_dispatches;
-                if !dispatches.is_empty() {
-                    let idx = self
-                        .state
-                        .overlay
-                        .dispatch_history_index
-                        .min(dispatches.len().saturating_sub(1));
-                    render_dispatch(
-                        frame,
-                        area,
-                        &dispatches[idx],
-                        idx,
-                        dispatches.len(),
-                        self.state.visual_mode,
-                    );
-                }
-            }
-        }
-
-        if self.state.overlay.show_battle_reports {
-            if let Some(engine) = &self.engine {
-                render_battle_reports(
+        if self.state.overlay.show_dispatch
+            && let Some(engine) = &self.engine
+        {
+            let dispatches = &engine.state.galactic_dispatches;
+            if !dispatches.is_empty() {
+                let idx = self
+                    .state
+                    .overlay
+                    .dispatch_history_index
+                    .min(dispatches.len().saturating_sub(1));
+                render_dispatch(
                     frame,
                     area,
-                    &engine.state.battle_reports,
-                    self.state.overlay.battle_report_index,
-                    self.state.overlay.battle_report_inspect,
+                    &dispatches[idx],
+                    idx,
+                    dispatches.len(),
                     self.state.visual_mode,
                 );
             }
+        }
+
+        if self.state.overlay.show_battle_reports
+            && let Some(engine) = &self.engine
+        {
+            render_battle_reports(
+                frame,
+                area,
+                &engine.state.battle_reports,
+                self.state.overlay.battle_report_index,
+                self.state.overlay.battle_report_inspect,
+                self.state.visual_mode,
+            );
         }
 
         if self.state.overlay.show_settings {
@@ -1864,29 +1863,27 @@ impl App {
                 .navigation
                 .selected_planet_index
                 .min(star.planets.len().saturating_sub(1));
-            if let Some(colony_id) = star.planets[selected_planet].colony {
-                if let Some(colony) = engine.state.colonies.get(&colony_id) {
-                    if colony.owner == engine.state.player_empire {
-                        self.state.colony.selected_colony = Some(colony_id);
-                        self.state.colony.build_cursor = 0;
-                        self.state.active = Screen::Colony;
-                        return true;
-                    }
-                }
+            if let Some(colony_id) = star.planets[selected_planet].colony
+                && let Some(colony) = engine.state.colonies.get(&colony_id)
+                && colony.owner == engine.state.player_empire
+            {
+                self.state.colony.selected_colony = Some(colony_id);
+                self.state.colony.build_cursor = 0;
+                self.state.active = Screen::Colony;
+                return true;
             }
         }
 
         // Fallback: find the first planet at this star that has a player-owned colony.
         for planet in &star.planets {
-            if let Some(colony_id) = planet.colony {
-                if let Some(colony) = engine.state.colonies.get(&colony_id) {
-                    if colony.owner == engine.state.player_empire {
-                        self.state.colony.selected_colony = Some(colony_id);
-                        self.state.colony.build_cursor = 0;
-                        self.state.active = Screen::Colony;
-                        return true;
-                    }
-                }
+            if let Some(colony_id) = planet.colony
+                && let Some(colony) = engine.state.colonies.get(&colony_id)
+                && colony.owner == engine.state.player_empire
+            {
+                self.state.colony.selected_colony = Some(colony_id);
+                self.state.colony.build_cursor = 0;
+                self.state.active = Screen::Colony;
+                return true;
             }
         }
 
@@ -2313,15 +2310,14 @@ impl App {
             let cur = self.state.ship_designer.component_cursor;
             let new_cursor = ((cur as i32 + delta).rem_euclid(count as i32)) as usize;
             self.state.ship_designer.component_cursor = new_cursor;
-            if let Some(comp) = comps.get(new_cursor) {
-                if let Some(slot) = self
+            if let Some(comp) = comps.get(new_cursor)
+                && let Some(slot) = self
                     .state
                     .ship_designer
                     .current_components
                     .get_mut(slot_idx)
-                {
-                    *slot = comp.component_id;
-                }
+            {
+                *slot = comp.component_id;
             }
         }
     }
@@ -2350,13 +2346,13 @@ impl App {
                                 .unwrap_or_default()
                         })
                         .unwrap_or_default();
-                    if let Some(tech) = h.required_tech {
-                        if !completed.contains(&tech) {
-                            self.push_error_status(
-                                "Hull not yet unlocked — research required tech first.".to_string(),
-                            );
-                            return;
-                        }
+                    if let Some(tech) = h.required_tech
+                        && !completed.contains(&tech)
+                    {
+                        self.push_error_status(
+                            "Hull not yet unlocked — research required tech first.".to_string(),
+                        );
+                        return;
                     }
                     self.state.ship_designer.begin_edit_slots(h);
                 }
@@ -2513,15 +2509,15 @@ impl App {
         if let Some(report) = end_turn_report {
             self.push_status(LogEntryKind::TurnReport, report);
             // Auto-show dispatch if a new one was generated this turn
-            if let Some(engine) = &self.engine {
-                if !engine.state.galactic_dispatches.is_empty() {
-                    let last_idx = engine.state.galactic_dispatches.len().saturating_sub(1);
-                    let last_dispatch = &engine.state.galactic_dispatches[last_idx];
-                    // last_dispatch.turn is the completed_turn; state.turn has been incremented
-                    if last_dispatch.turn + 1 == engine.state.turn {
-                        self.state.overlay.dispatch_history_index = last_idx;
-                        self.state.overlay.show_dispatch = true;
-                    }
+            if let Some(engine) = &self.engine
+                && !engine.state.galactic_dispatches.is_empty()
+            {
+                let last_idx = engine.state.galactic_dispatches.len().saturating_sub(1);
+                let last_dispatch = &engine.state.galactic_dispatches[last_idx];
+                // last_dispatch.turn is the completed_turn; state.turn has been incremented
+                if last_dispatch.turn + 1 == engine.state.turn {
+                    self.state.overlay.dispatch_history_index = last_idx;
+                    self.state.overlay.show_dispatch = true;
                 }
             }
             return;

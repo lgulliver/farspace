@@ -4,10 +4,10 @@ use crate::components::key_hint;
 use crate::screens::Screen;
 use crate::theme::Theme;
 use ratatui::{
+    Frame,
     layout::Rect,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
-    Frame,
 };
 
 fn line_width(line: &Line<'_>) -> usize {
@@ -184,8 +184,8 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Op
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     #[test]
     fn render_footer_menu() {

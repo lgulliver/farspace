@@ -96,10 +96,10 @@ impl CustomShipDesign {
         };
 
         // Check hull tech requirement
-        if let Some(tech) = hull.required_tech {
-            if !completed_techs.contains(&tech) {
-                return Err("Hull tech not unlocked");
-            }
+        if let Some(tech) = hull.required_tech
+            && !completed_techs.contains(&tech)
+        {
+            return Err("Hull tech not unlocked");
         }
 
         // Component count must equal slot count exactly — no partial or over-configured designs
@@ -118,15 +118,15 @@ impl CustomShipDesign {
                 return Err("Component category does not match slot");
             }
 
-            if let Some(tech) = comp.required_tech {
-                if !completed_techs.contains(&tech) {
-                    return Err("Component tech not unlocked");
-                }
+            if let Some(tech) = comp.required_tech
+                && !completed_techs.contains(&tech)
+            {
+                return Err("Component tech not unlocked");
             }
-            if let Some(resource) = comp.required_resource {
-                if !available_resources.contains(&resource) {
-                    return Err("Component resource not available");
-                }
+            if let Some(resource) = comp.required_resource
+                && !available_resources.contains(&resource)
+            {
+                return Err("Component resource not available");
             }
         }
 

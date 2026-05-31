@@ -1,7 +1,7 @@
 use crate::events::Event;
 use crate::state::{
-    tech_by_id, EmpireId, GameState, RelationshipStatus, TechId, VictoryCondition, VictoryPath,
-    VictoryProgress, VictoryProgressValue, VictorySettings, VictoryStatus,
+    EmpireId, GameState, RelationshipStatus, TechId, VictoryCondition, VictoryPath,
+    VictoryProgress, VictoryProgressValue, VictorySettings, VictoryStatus, tech_by_id,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -672,17 +672,17 @@ pub fn evaluate_victory_end_turn(state: &mut GameState, completed_turn: u32) -> 
         }
     }
 
-    if status.winner.is_none() {
-        if let Some((winner, path)) = choose_winner(&evaluations) {
-            status.winner = Some(winner);
-            status.winning_path = Some(path);
-            status.turn_achieved = Some(completed_turn);
-            events.push(Event::VictoryAchieved {
-                winner,
-                path,
-                turn: completed_turn,
-            });
-        }
+    if status.winner.is_none()
+        && let Some((winner, path)) = choose_winner(&evaluations)
+    {
+        status.winner = Some(winner);
+        status.winning_path = Some(path);
+        status.turn_achieved = Some(completed_turn);
+        events.push(Event::VictoryAchieved {
+            winner,
+            path,
+            turn: completed_turn,
+        });
     }
 
     state.victory_status = status;

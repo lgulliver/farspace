@@ -148,10 +148,12 @@ mod tests {
         assert!(!UpdateState::Checking.is_notifiable());
         assert!(!UpdateState::Dismissed.is_notifiable());
         assert!(UpdateState::Downloading.is_notifiable());
-        assert!(UpdateState::Staged {
-            version: "v1".into()
-        }
-        .is_notifiable());
+        assert!(
+            UpdateState::Staged {
+                version: "v1".into()
+            }
+            .is_notifiable()
+        );
         assert!(UpdateState::Error("x".into()).is_notifiable());
     }
 }

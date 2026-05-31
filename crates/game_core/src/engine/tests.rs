@@ -48,9 +48,11 @@ fn end_turn_advances_turn_counter() {
     let events = engine.apply_turn(vec![Command::EndTurn]);
 
     assert_eq!(engine.state.turn, initial_turn + 1);
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::TurnAdvanced { new_turn } if *new_turn == initial_turn + 1)));
+    assert!(
+        events.iter().any(
+            |e| matches!(e, Event::TurnAdvanced { new_turn } if *new_turn == initial_turn + 1)
+        )
+    );
 }
 
 #[test]
@@ -82,9 +84,11 @@ fn end_turn_processes_colony_production() {
         .credits;
 
     assert!(final_credits > initial_credits);
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::ColonyProduced { .. })));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ColonyProduced { .. }))
+    );
 }
 
 #[test]
@@ -99,9 +103,11 @@ fn set_colony_focus_valid() {
     }]);
 
     assert!(!events.iter().any(|e| e.is_error()));
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::ColonyFocusSet { colony } if *colony == colony_id)));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ColonyFocusSet { colony } if *colony == colony_id))
+    );
 
     let colony = engine.state.colonies.get(&colony_id).unwrap();
     assert_eq!(colony.prod_pct, 70);
@@ -236,9 +242,11 @@ fn cancel_build_valid() {
     }]);
 
     assert!(!events.iter().any(|e| e.is_error()));
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::BuildCancelled { colony } if *colony == colony_id)));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::BuildCancelled { colony } if *colony == colony_id))
+    );
 
     let colony = engine.state.colonies.get(&colony_id).unwrap();
     assert!(colony.build_queue.is_empty());
@@ -756,9 +764,11 @@ fn select_research_valid_emits_research_selected() {
     let events = engine.apply_turn(vec![Command::SelectResearch { tech: tech_id }]);
 
     assert!(!events.iter().any(|e| e.is_error()));
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::ResearchSelected { tech } if *tech == tech_id)));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ResearchSelected { tech } if *tech == tech_id))
+    );
 
     let empire = engine
         .state
@@ -843,9 +853,11 @@ fn completed_prerequisite_unlocks_dependent_research_selection() {
         !events.iter().any(|e| e.is_error()),
         "tech should be selectable once prerequisites are completed"
     );
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::ResearchSelected { tech } if *tech == TechId(6))));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ResearchSelected { tech } if *tech == TechId(6)))
+    );
 }
 
 #[test]
@@ -857,9 +869,11 @@ fn queue_research_valid_emits_event() {
     let events = engine.apply_turn(vec![Command::QueueResearch { tech: tech_id }]);
 
     assert!(!events.iter().any(|e| e.is_error()));
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::ResearchQueued { tech } if *tech == tech_id)));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ResearchQueued { tech } if *tech == tech_id))
+    );
     let empire = engine
         .state
         .empires
@@ -965,9 +979,11 @@ fn completion_auto_starts_queued_research() {
     }
 
     assert!(!completion_events.is_empty());
-    assert!(completion_events
-        .iter()
-        .any(|e| matches!(e, Event::QueuedResearchStarted { tech } if *tech == tech_b)));
+    assert!(
+        completion_events
+            .iter()
+            .any(|e| matches!(e, Event::QueuedResearchStarted { tech } if *tech == tech_b))
+    );
     assert!(completion_events.iter().any(|e| {
         matches!(
             e,
@@ -1025,9 +1041,11 @@ fn completion_skips_locked_queued_research_and_starts_next() {
             if *tech == locked && reason.contains("prerequisites")
         )
     }));
-    assert!(completion_events
-        .iter()
-        .any(|e| matches!(e, Event::QueuedResearchStarted { tech } if *tech == fallback)));
+    assert!(
+        completion_events
+            .iter()
+            .any(|e| matches!(e, Event::QueuedResearchStarted { tech } if *tech == fallback))
+    );
 }
 
 #[test]
@@ -1065,7 +1083,7 @@ fn research_progress_accumulates_on_end_turn() {
 
 #[test]
 fn research_completes_when_cost_reached() {
-    use crate::state::{all_techs, TechId};
+    use crate::state::{TechId, all_techs};
     let mut engine = Engine::new(42);
     let colony_id = ColonyId(1);
     let tech_id = TechId(1); // Void Propulsion, cost 50
@@ -1286,7 +1304,7 @@ fn switching_tech_resets_progress() {
 
 #[test]
 fn overflow_can_complete_queued_tech_in_same_turn_with_transition_events() {
-    use crate::state::{all_techs, TechId};
+    use crate::state::{TechId, all_techs};
     let mut engine = Engine::new(42);
     let tech_a = TechId(1);
     let tech_b = TechId(3);
@@ -1312,12 +1330,16 @@ fn overflow_can_complete_queued_tech_in_same_turn_with_transition_events() {
     }
 
     let events = engine.apply_turn(vec![Command::EndTurn]);
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::ResearchCompleted { tech } if *tech == tech_a)));
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::ResearchCompleted { tech } if *tech == tech_b)));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ResearchCompleted { tech } if *tech == tech_a))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ResearchCompleted { tech } if *tech == tech_b))
+    );
     assert!(events.iter().any(|e| {
         matches!(
             e,
@@ -1349,7 +1371,7 @@ fn overflow_can_complete_queued_tech_in_same_turn_with_transition_events() {
 
 #[test]
 fn overflow_science_carries_to_next_research() {
-    use crate::state::{all_techs, TechId};
+    use crate::state::{TechId, all_techs};
     let mut engine = Engine::new(42);
     let colony_id = ColonyId(1);
 
@@ -1439,7 +1461,7 @@ fn overflow_science_carries_to_next_research() {
 
 #[test]
 fn overflow_is_zero_when_tech_completes_exactly() {
-    use crate::state::{all_techs, TechId};
+    use crate::state::{TechId, all_techs};
     let mut engine = Engine::new(42);
     let colony_id = ColonyId(1);
 
@@ -3512,9 +3534,11 @@ fn economy_positive_food_surplus_accumulates() {
     for _ in 0..6 {
         engine.apply_turn(vec![Command::EndTurn]);
     }
-    assert!(engine.state.colonies[&colony_id]
-        .buildings
-        .contains(&BuildingType::AquacultureBay));
+    assert!(
+        engine.state.colonies[&colony_id]
+            .buildings
+            .contains(&BuildingType::AquacultureBay)
+    );
 
     let food_before = engine.state.empires[&empire_id].food;
     engine.apply_turn(vec![Command::EndTurn]);
@@ -4386,9 +4410,11 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
     let events = engine.apply_turn(vec![Command::EndTurn]);
 
     // SystemExplored should fire
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::SystemExplored { star } if *star == ai_star_id)));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::SystemExplored { star } if *star == ai_star_id))
+    );
 
     // FirstContact should fire for the AI empire
     assert!(
@@ -5291,14 +5317,18 @@ fn combat_generates_structured_battle_report_with_phases() {
         !report.phases.is_empty(),
         "phase summaries should be present"
     );
-    assert!(report
-        .phases
-        .iter()
-        .any(|phase| matches!(phase.phase, crate::state::CombatPhase::OpeningVolley)));
-    assert!(report
-        .phases
-        .iter()
-        .any(|phase| matches!(phase.phase, crate::state::CombatPhase::Resolution)));
+    assert!(
+        report
+            .phases
+            .iter()
+            .any(|phase| matches!(phase.phase, crate::state::CombatPhase::OpeningVolley))
+    );
+    assert!(
+        report
+            .phases
+            .iter()
+            .any(|phase| matches!(phase.phase, crate::state::CombatPhase::Resolution))
+    );
 }
 
 #[test]
@@ -5352,10 +5382,12 @@ fn battle_report_records_supply_state_for_logistics_penalties() {
         .expect("battle report should be recorded");
     assert_eq!(report.supply_a, FleetSupplyState::OutOfSupply);
     assert_eq!(report.supply_b, FleetSupplyState::OutOfSupply);
-    assert!(report
-        .phases
-        .iter()
-        .any(|phase| phase.note.contains("supply Out of Supply vs Out of Supply")));
+    assert!(
+        report
+            .phases
+            .iter()
+            .any(|phase| phase.note.contains("supply Out of Supply vs Out of Supply"))
+    );
 }
 
 #[test]
@@ -6224,9 +6256,11 @@ fn scout_allowed_when_shipyard_present() {
         "Scout must be accepted with a Shipyard, got errors: {:?}",
         events
     );
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::BuildQueued { item, .. } if *item == BuildItem::Scout)),);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::BuildQueued { item, .. } if *item == BuildItem::Scout)),
+    );
 }
 
 #[test]
@@ -6295,9 +6329,11 @@ fn cannot_queue_ship_without_required_tech() {
         item: BuildItem::Ship(ShipDesignId::COLONY),
     }]);
 
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::Error { message } if message.contains("Habitat Seeding"))));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Error { message } if message.contains("Habitat Seeding")))
+    );
 }
 
 #[test]
@@ -6312,9 +6348,11 @@ fn science_ship_unlock_requires_survey_drones() {
         colony: colony_id,
         item: BuildItem::Ship(ShipDesignId::SCIENCE),
     }]);
-    assert!(locked_events
-        .iter()
-        .any(|e| matches!(e, Event::Error { message } if message.contains("Survey Drones"))));
+    assert!(
+        locked_events
+            .iter()
+            .any(|e| matches!(e, Event::Error { message } if message.contains("Survey Drones")))
+    );
 
     engine
         .state
@@ -8214,7 +8252,7 @@ fn ancient_ruins_not_duplicated_on_re_survey() {
     {
         let star = engine.state.stars.get_mut(&target).unwrap();
         star.planets[0].surveyed = false; // allow re-survey
-                                          // ancient_ruins_collected stays true
+        // ancient_ruins_collected stays true
     }
 
     let science_fleet_id = FleetId(9992);
@@ -8566,9 +8604,11 @@ fn clear_rally_point_works() {
     );
 
     let events = engine.apply_turn(vec![Command::ClearRallyPoint { colony: colony_id }]);
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::RallyPointCleared { colony } if *colony == colony_id)));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::RallyPointCleared { colony } if *colony == colony_id))
+    );
     assert_eq!(
         engine.state.colonies.get(&colony_id).unwrap().rally_point,
         None
@@ -8764,10 +8804,12 @@ fn fleet_order_set_hold() {
         order: FleetOrder::Hold,
     }]);
 
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::FleetOrderSet { fleet, order }
-                if *fleet == fleet_id && *order == FleetOrder::Hold)));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::FleetOrderSet { fleet, order }
+                if *fleet == fleet_id && *order == FleetOrder::Hold))
+    );
     assert_eq!(
         engine.state.fleet_orders.get(&fleet_id).copied(),
         Some(FleetOrder::Hold)
@@ -8786,13 +8828,17 @@ fn fleet_order_move_to_system_starts_mission() {
         order: FleetOrder::MoveToSystem(destination),
     }]);
 
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::FleetOrderSet { .. })));
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::FleetDeparted { fleet, to, .. }
-                if *fleet == fleet_id && *to == destination)));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::FleetOrderSet { .. }))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::FleetDeparted { fleet, to, .. }
+                if *fleet == fleet_id && *to == destination))
+    );
     assert!(engine.state.fleet_missions.contains_key(&fleet_id));
 }
 
@@ -9016,9 +9062,11 @@ fn isolated_colony_applies_penalties() {
         produced.2, 0,
         "isolated colonies should not share empire food"
     );
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::ColonyIsolated { colony } if *colony == colony_id)));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ColonyIsolated { colony } if *colony == colony_id))
+    );
     assert_eq!(
         engine.state.colonies[&colony_id].stability,
         100 - ISOLATED_STABILITY_PENALTY
@@ -9097,9 +9145,11 @@ fn colony_reconnection_event_emitted_after_lane_unlock() {
     let far_star = engine.state.colonies[&colony_id].star;
 
     let first_turn_events = engine.apply_turn(vec![Command::EndTurn]);
-    assert!(first_turn_events
-        .iter()
-        .any(|e| matches!(e, Event::ColonyIsolated { colony } if *colony == colony_id)));
+    assert!(
+        first_turn_events
+            .iter()
+            .any(|e| matches!(e, Event::ColonyIsolated { colony } if *colony == colony_id))
+    );
 
     let lane = HyperspaceLane::new(home_star, far_star).expect("distinct stars");
     engine.state.hyperspace_lanes.insert(lane);
@@ -9114,9 +9164,11 @@ fn colony_reconnection_event_emitted_after_lane_unlock() {
         .push(TechId::HYPERSPACE_CARTOGRAPHY);
 
     let second_turn_events = engine.apply_turn(vec![Command::EndTurn]);
-    assert!(second_turn_events
-        .iter()
-        .any(|e| matches!(e, Event::ColonyReconnected { colony } if *colony == colony_id)));
+    assert!(
+        second_turn_events
+            .iter()
+            .any(|e| matches!(e, Event::ColonyReconnected { colony } if *colony == colony_id))
+    );
 }
 
 // ── Scenario Setup / Engine::new_from_setup tests ─────────────────────
@@ -9347,7 +9399,7 @@ fn new_from_setup_invalid_ai_count_panics() {
 #[test]
 fn player_can_select_valid_empire() {
     use crate::state::{
-        all_empire_definitions, DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup,
+        DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup, all_empire_definitions,
     };
     let def_id = EmpireDefinitionId(2); // Sylvaran Accord
     let setup = ScenarioSetup {
@@ -9549,9 +9601,9 @@ fn different_seeds_can_produce_different_ai_empire_definitions() {
         seen.len()
     };
     assert!(
-            unique_count >= 2,
-            "Different seeds must yield at least some variance in AI empire assignments (got {unique_count} unique)"
-        );
+        unique_count >= 2,
+        "Different seeds must yield at least some variance in AI empire assignments (got {unique_count} unique)"
+    );
 }
 
 #[test]
@@ -10481,10 +10533,12 @@ fn housing_shortage_increases_unrest() {
         .population = 10;
 
     engine.apply_turn(vec![Command::EndTurn]);
-    assert!(engine
-        .state
-        .colony_unrest_causes(colony_id)
-        .contains(&crate::state::UnrestCause::HousingShortage));
+    assert!(
+        engine
+            .state
+            .colony_unrest_causes(colony_id)
+            .contains(&crate::state::UnrestCause::HousingShortage)
+    );
 }
 
 #[test]
@@ -10508,10 +10562,12 @@ fn blockade_increases_unrest() {
 
     let mut engine = Engine::from_state(state);
     engine.apply_turn(vec![Command::EndTurn]);
-    assert!(engine
-        .state
-        .colony_unrest_causes(colony_id)
-        .contains(&crate::state::UnrestCause::Blockade));
+    assert!(
+        engine
+            .state
+            .colony_unrest_causes(colony_id)
+            .contains(&crate::state::UnrestCause::Blockade)
+    );
 }
 
 #[test]
@@ -10649,10 +10705,12 @@ fn overextension_contributes_to_unrest() {
         engine.state.colonies.insert(new_id, colony);
     }
     engine.apply_turn(vec![Command::EndTurn]);
-    assert!(engine
-        .state
-        .colony_unrest_causes(ColonyId(1))
-        .contains(&crate::state::UnrestCause::Overextension));
+    assert!(
+        engine
+            .state
+            .colony_unrest_causes(ColonyId(1))
+            .contains(&crate::state::UnrestCause::Overextension)
+    );
 }
 
 #[test]
@@ -10716,15 +10774,18 @@ fn first_contact_creates_diplomatic_communication() {
     assert!(events.iter().any(
         |event| matches!(event, Event::FirstContact { with_empire } if *with_empire == ai_id)
     ));
-    assert!(engine
-        .state
-        .diplomacy_pending_communications
-        .iter()
-        .any(|message| {
-            message.communication_type == crate::state::DiplomaticCommunicationType::FirstContact
-                && message.sending_empire == ai_id
-                && message.receiving_empire == engine.state.player_empire
-        }));
+    assert!(
+        engine
+            .state
+            .diplomacy_pending_communications
+            .iter()
+            .any(|message| {
+                message.communication_type
+                    == crate::state::DiplomaticCommunicationType::FirstContact
+                    && message.sending_empire == ai_id
+                    && message.receiving_empire == engine.state.player_empire
+            })
+    );
 }
 
 #[test]
@@ -10828,9 +10889,11 @@ fn peace_treaty_ends_war_and_starts_truce() {
     assert!(events.iter().any(
         |event| matches!(event, Event::PeaceSigned { with_empire, .. } if *with_empire == ai_id)
     ));
-    assert!(engine
-        .state
-        .has_active_treaty(ai_id, crate::state::TreatyType::Truce));
+    assert!(
+        engine
+            .state
+            .has_active_treaty(ai_id, crate::state::TreatyType::Truce)
+    );
     assert_eq!(
         engine
             .state
@@ -10901,9 +10964,11 @@ fn accept_peace_requires_pending_offer() {
     assert!(events.iter().any(|event| {
         matches!(event, Event::Error { message } if message.contains("No pending peace offer"))
     }));
-    assert!(!engine
-        .state
-        .has_active_treaty(ai_id, crate::state::TreatyType::Truce));
+    assert!(
+        !engine
+            .state
+            .has_active_treaty(ai_id, crate::state::TreatyType::Truce)
+    );
 }
 
 #[test]
@@ -10922,9 +10987,11 @@ fn accept_non_aggression_requires_pending_proposal() {
             Event::Error { message } if message.contains("No pending non-aggression proposal")
         )
     }));
-    assert!(!engine
-        .state
-        .has_active_treaty(ai_id, crate::state::TreatyType::NonAggressionPact));
+    assert!(
+        !engine
+            .state
+            .has_active_treaty(ai_id, crate::state::TreatyType::NonAggressionPact)
+    );
 }
 
 #[test]
@@ -10986,9 +11053,11 @@ fn ai_declares_war_deterministically() {
     engine_b.process_ai_diplomacy_with_events(&mut events_b);
 
     assert_eq!(events_a, events_b);
-    assert!(events_a
-        .iter()
-        .any(|event| matches!(event, Event::WarDeclared { .. })));
+    assert!(
+        events_a
+            .iter()
+            .any(|event| matches!(event, Event::WarDeclared { .. }))
+    );
 }
 
 #[test]
@@ -11381,9 +11450,11 @@ fn successful_invasion_transfers_ownership_and_sets_unrest() {
         planet_index: 0,
     }]);
 
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::InvasionSucceeded { colony, .. } if *colony == colony_id)));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::InvasionSucceeded { colony, .. } if *colony == colony_id))
+    );
     let colony = &engine.state.colonies[&colony_id];
     assert_eq!(colony.owner, player_id);
     assert_eq!(colony.stability, CAPTURED_UNREST_STABILITY);
@@ -11409,9 +11480,11 @@ fn failed_invasion_preserves_ownership() {
         planet_index: 0,
     }]);
 
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, Event::InvasionFailed { .. })));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::InvasionFailed { .. }))
+    );
     assert_eq!(engine.state.colonies[&colony_id].owner, enemy_id);
 }
 
@@ -12066,12 +12139,16 @@ fn fleet_role_and_formation_assignment_commands_are_deterministic() {
         engine.state.fleet_formation_for(fleet_id),
         crate::state::FleetFormation::Aggressive
     );
-    assert!(events_a
-        .iter()
-        .any(|e| matches!(e, Event::FleetRoleChanged { fleet, .. } if *fleet == fleet_id)));
-    assert!(events_a
-        .iter()
-        .any(|e| matches!(e, Event::FleetFormationChanged { fleet, .. } if *fleet == fleet_id)));
+    assert!(
+        events_a
+            .iter()
+            .any(|e| matches!(e, Event::FleetRoleChanged { fleet, .. } if *fleet == fleet_id))
+    );
+    assert!(
+        events_a
+            .iter()
+            .any(|e| matches!(e, Event::FleetFormationChanged { fleet, .. } if *fleet == fleet_id))
+    );
     assert_eq!(
         events_a
             .iter()

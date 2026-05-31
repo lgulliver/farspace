@@ -4,18 +4,18 @@
 //!   Left  (~33%)  — scrollable faction list with coloured symbol + name
 //!   Right (~67%)  — faction detail: shared emblem, lore, playstyle, effects
 
-use crate::components::{panel_block, render_empire_emblem, render_footer, EmpireEmblem};
+use crate::AppState;
+use crate::components::{EmpireEmblem, panel_block, render_empire_emblem, render_footer};
 use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
-use crate::AppState;
-use game_core::{all_empire_definitions, EmpireDefinitionId, EmpireId};
+use game_core::{EmpireDefinitionId, EmpireId, all_empire_definitions};
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
-    Frame,
 };
 
 // ── Faction colour lookup (all 8 factions) ────────────────────────────────────
@@ -301,7 +301,7 @@ fn word_wrap(text: &str, width: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
 
     fn render_to_buffer(width: u16, height: u16) -> ratatui::buffer::Buffer {
         render_to_buffer_with(width, height, &AppState::default())

@@ -2,7 +2,7 @@ use ratatui::{layout::Rect, style::Color};
 
 use crate::renderer::{
     glyphs::{DENSITY_RAMP_UNICODE, STARFIELD_RAMP},
-    sprite::{detail_for_area, DetailLevel},
+    sprite::{DetailLevel, detail_for_area},
 };
 
 pub fn detail_star_glyph(hash: u64, detail: DetailLevel) -> char {

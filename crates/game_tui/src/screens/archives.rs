@@ -8,11 +8,11 @@ use crate::components::chrome::{key_hint, page_block};
 use crate::theme::Theme;
 use game_save::SaveSlotSummary;
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Modifier,
     text::{Line, Span},
     widgets::{Clear, Paragraph, Wrap},
-    Frame,
 };
 
 /// Threshold (inner width) above which a detail side-panel is shown.
@@ -362,7 +362,7 @@ fn render_help_box(frame: &mut Frame, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
     use std::path::PathBuf;
 
     fn summary(name: &str, readable: bool) -> SaveSlotSummary {

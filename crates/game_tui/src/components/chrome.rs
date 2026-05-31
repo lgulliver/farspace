@@ -52,7 +52,7 @@ pub fn key_hint(key: &'static str, label: &'static str) -> Vec<Span<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::{backend::TestBackend, layout::Rect, Terminal};
+    use ratatui::{Terminal, backend::TestBackend, layout::Rect};
 
     #[test]
     fn panel_block_uses_focused_style_when_focused() {

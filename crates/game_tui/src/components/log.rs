@@ -4,11 +4,11 @@ use crate::glyphs::glyphs_for_mode;
 use crate::theme::Theme;
 use crate::visual_mode::VisualMode;
 use ratatui::{
+    Frame,
     layout::Rect,
     style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
-    Frame,
 };
 
 /// Event log storage
@@ -231,8 +231,8 @@ pub fn render_log(frame: &mut Frame, area: Rect, log: &EventLog, mode: VisualMod
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     fn test_style(entry: &str) -> Style {
         let lower = entry.to_ascii_lowercase();

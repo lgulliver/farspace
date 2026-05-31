@@ -9,11 +9,11 @@ use crate::theme::Theme;
 use crate::visual_mode::VisualMode;
 use game_core::advisor::{AdvisorAction, AdvisorOutput, AdvisorSeverity, ScreenRef};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::Style,
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
-    Frame,
 };
 
 /// UI-facing alert severity vocabulary. Drives glyph + style so important
@@ -170,7 +170,7 @@ mod tests {
         AdvisorCategory, AdvisorMessage, AdvisorMessageId, AdvisorMessageKey, AdvisorPersona,
         AdvisorRuleId, AdvisorTarget,
     };
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
 
     fn message(severity: AdvisorSeverity, title: &str, body: &str) -> AdvisorMessage {
         AdvisorMessage {

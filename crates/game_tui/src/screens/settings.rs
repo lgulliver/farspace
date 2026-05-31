@@ -1,13 +1,13 @@
 //! Settings modal overlay — update channel, auto-update toggle, visual mode.
 
+use crate::AppState;
 use crate::components::{key_hint, panel_block, section_heading};
 use crate::theme::Theme;
-use crate::AppState;
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
     widgets::{Clear, Paragraph},
-    Frame,
 };
 
 const NUM_SETTINGS: usize = 3;
@@ -149,7 +149,7 @@ pub fn settings_cursor_count() -> usize {
 mod tests {
     use super::*;
     use crate::AppState;
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
 
     #[test]
     fn settings_renders_without_panic() {

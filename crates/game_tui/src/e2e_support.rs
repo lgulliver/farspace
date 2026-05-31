@@ -1,10 +1,10 @@
+use crate::AppState;
 use crate::components::{render_battle_reports, render_dispatch, render_help, render_palette};
 use crate::screens::Screen;
 use crate::visual_mode::VisualMode;
-use crate::AppState;
 use game_core::GameState;
-use ratatui::backend::TestBackend;
 use ratatui::Terminal;
+use ratatui::backend::TestBackend;
 
 #[derive(Debug, Clone)]
 pub enum E2eRenderTarget {

@@ -1,7 +1,7 @@
 //! Save file migration
 
-use crate::schema::{SaveFile, CURRENT_VERSION};
 use crate::SaveError;
+use crate::schema::{CURRENT_VERSION, SaveFile};
 
 /// Migrate a save file to the current version
 pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
@@ -304,14 +304,18 @@ mod tests {
 
         let migrated = migrate(save).expect("v37 migration should succeed");
 
-        assert!(migrated
-            .state
-            .empire_intel
-            .contains_key(&game_core::EmpireId(1)));
-        assert!(!migrated
-            .state
-            .empire_intel
-            .contains_key(&game_core::EmpireId(2)));
+        assert!(
+            migrated
+                .state
+                .empire_intel
+                .contains_key(&game_core::EmpireId(1))
+        );
+        assert!(
+            !migrated
+                .state
+                .empire_intel
+                .contains_key(&game_core::EmpireId(2))
+        );
     }
 
     #[test]
@@ -831,8 +835,8 @@ mod tests {
     #[test]
     fn blockade_state_round_trip_via_save_load() {
         use game_core::{
-            state::{Fleet, FleetId, FleetKind, RelationshipStatus},
             ColonyId, Empire, EmpireId, StarId,
+            state::{Fleet, FleetId, FleetKind, RelationshipStatus},
         };
 
         // Build a game state with a war-status enemy fleet at a player colony star

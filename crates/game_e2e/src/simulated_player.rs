@@ -1,6 +1,6 @@
 use game_core::{
-    available_tech_ids, BuildItem, BuildingType, ColonyId, ColonyRole, Command, DiplomaticResponse,
-    EmpireId, FleetId, FleetKind, FleetRole, GameState, StarId, TechId,
+    BuildItem, BuildingType, ColonyId, ColonyRole, Command, DiplomaticResponse, EmpireId, FleetId,
+    FleetKind, FleetRole, GameState, StarId, TechId, available_tech_ids,
 };
 use rand::Rng;
 use rand_chacha::ChaCha8Rng;
@@ -237,16 +237,16 @@ impl SimulatedPlayer for BalancedExplorerPlayer {
             });
         }
 
-        if observation.active_research.is_none() {
-            if let Some(tech) = observation.available_research.first() {
-                actions.push(Command::SelectResearch { tech: *tech });
-            }
+        if observation.active_research.is_none()
+            && let Some(tech) = observation.available_research.first()
+        {
+            actions.push(Command::SelectResearch { tech: *tech });
         }
 
-        if observation.available_research.len() > 1 {
-            if let Some(tech) = observation.available_research.get(1) {
-                actions.push(Command::QueueResearch { tech: *tech });
-            }
+        if observation.available_research.len() > 1
+            && let Some(tech) = observation.available_research.get(1)
+        {
+            actions.push(Command::QueueResearch { tech: *tech });
         }
 
         for colony in observation.colonies_without_queue.iter().take(2) {
@@ -263,49 +263,48 @@ impl SimulatedPlayer for BalancedExplorerPlayer {
             });
         }
 
-        if observation.turn.is_multiple_of(5) {
-            if let Some(colony) = observation.colonies_role_candidates.first() {
-                let role = match (observation.turn / 5) % 3 {
-                    0 => ColonyRole::Balanced,
-                    1 => ColonyRole::Industrial,
-                    _ => ColonyRole::Scientific,
-                };
-                actions.push(Command::SetColonyRole {
-                    colony: *colony,
-                    role,
-                });
-                actions.push(Command::SetColonyFocus {
-                    colony: *colony,
-                    prod_pct: if matches!(role, ColonyRole::Industrial) {
-                        70
-                    } else if matches!(role, ColonyRole::Scientific) {
-                        30
-                    } else {
-                        50
-                    },
-                    research_pct: if matches!(role, ColonyRole::Scientific) {
-                        70
-                    } else if matches!(role, ColonyRole::Industrial) {
-                        30
-                    } else {
-                        50
-                    },
-                });
-            }
+        if observation.turn.is_multiple_of(5)
+            && let Some(colony) = observation.colonies_role_candidates.first()
+        {
+            let role = match (observation.turn / 5) % 3 {
+                0 => ColonyRole::Balanced,
+                1 => ColonyRole::Industrial,
+                _ => ColonyRole::Scientific,
+            };
+            actions.push(Command::SetColonyRole {
+                colony: *colony,
+                role,
+            });
+            actions.push(Command::SetColonyFocus {
+                colony: *colony,
+                prod_pct: if matches!(role, ColonyRole::Industrial) {
+                    70
+                } else if matches!(role, ColonyRole::Scientific) {
+                    30
+                } else {
+                    50
+                },
+                research_pct: if matches!(role, ColonyRole::Scientific) {
+                    70
+                } else if matches!(role, ColonyRole::Industrial) {
+                    30
+                } else {
+                    50
+                },
+            });
         }
 
-        if let Some((fleet, location)) = observation.idle_colonizers.first() {
-            if let Some((star, planet_index)) = observation
+        if let Some((fleet, location)) = observation.idle_colonizers.first()
+            && let Some((star, planet_index)) = observation
                 .colonizable_planets
                 .iter()
                 .find(|(star, _)| star == location)
-            {
-                actions.push(Command::Colonize {
-                    fleet: *fleet,
-                    star: *star,
-                    planet_index: *planet_index,
-                });
-            }
+        {
+            actions.push(Command::Colonize {
+                fleet: *fleet,
+                star: *star,
+                planet_index: *planet_index,
+            });
         }
 
         for (fleet, location) in observation.idle_science_fleets.iter().take(1) {
@@ -336,15 +335,14 @@ impl SimulatedPlayer for BalancedExplorerPlayer {
             });
         }
 
-        if observation.turn.is_multiple_of(8) {
-            if let Some(fleet) = observation.idle_player_fleets.first() {
-                if rng.gen_bool(0.5) {
-                    actions.push(Command::SetFleetRole {
-                        fleet: *fleet,
-                        role: FleetRole::ExplorationFleet,
-                    });
-                }
-            }
+        if observation.turn.is_multiple_of(8)
+            && let Some(fleet) = observation.idle_player_fleets.first()
+            && rng.gen_bool(0.5)
+        {
+            actions.push(Command::SetFleetRole {
+                fleet: *fleet,
+                role: FleetRole::ExplorationFleet,
+            });
         }
 
         actions

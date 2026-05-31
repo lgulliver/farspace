@@ -4,7 +4,7 @@ use crate::advisor::{
     AdvisorMessageKey, AdvisorPersona, AdvisorRuleId, AdvisorSeverity, AdvisorTarget, MechanicId,
     TutorialId,
 };
-use crate::state::{available_tech_ids, Colony, StarId};
+use crate::state::{Colony, StarId, available_tech_ids};
 
 pub const TUTORIAL_FIRST_COLONY: TutorialId = TutorialId("advisor.tutorial.first_colony");
 pub const TUTORIAL_FIRST_RESEARCH: TutorialId = TutorialId("advisor.tutorial.first_research");

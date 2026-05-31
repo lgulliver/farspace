@@ -5,7 +5,7 @@
 mod migrate;
 mod schema;
 
-pub use schema::{SaveFile, SaveMetadata, CURRENT_VERSION};
+pub use schema::{CURRENT_VERSION, SaveFile, SaveMetadata};
 
 use game_core::state::GameState;
 use thiserror::Error;
@@ -496,9 +496,11 @@ mod tests {
             star: target_star,
             planet_index: 0,
         }]);
-        assert!(invasion_events
-            .iter()
-            .any(|e| matches!(e, game_core::Event::InvasionSucceeded { .. })));
+        assert!(
+            invasion_events
+                .iter()
+                .any(|e| matches!(e, game_core::Event::InvasionSucceeded { .. }))
+        );
         assert_eq!(engine.state.colonies[&target_colony_id].owner, player_id);
 
         let saved = save(&engine.state).expect("save should succeed");
@@ -812,7 +814,7 @@ mod tests {
 
     #[test]
     fn save_load_preserves_derived_available_tech_state() {
-        use game_core::{available_tech_ids, TechId};
+        use game_core::{TechId, available_tech_ids};
 
         let mut engine = Engine::new(42);
         let player = engine.state.player_empire;
@@ -914,10 +916,12 @@ mod tests {
             engine.state.known_hyperspace_lanes,
             loaded.known_hyperspace_lanes
         );
-        assert!(loaded.empires[&player]
-            .research
-            .completed
-            .contains(&TechId::HYPERSPACE_CARTOGRAPHY));
+        assert!(
+            loaded.empires[&player]
+                .research
+                .completed
+                .contains(&TechId::HYPERSPACE_CARTOGRAPHY)
+        );
     }
 
     #[test]
@@ -2289,10 +2293,12 @@ mod tests {
         assert_eq!(stored.galaxy_size, GalaxySize::Large);
         assert_eq!(stored.ai_empire_count, 2);
         assert_eq!(loaded.ai_empires.len(), 2);
-        assert!(!stored
-            .victory_settings
-            .enabled_paths
-            .contains(&game_core::VictoryPath::Unity));
+        assert!(
+            !stored
+                .victory_settings
+                .enabled_paths
+                .contains(&game_core::VictoryPath::Unity)
+        );
     }
 
     #[test]
@@ -2316,13 +2322,15 @@ mod tests {
             Some(game_core::VictoryPath::Discovery)
         );
         assert_eq!(loaded.victory_status.turn_achieved, Some(9));
-        assert!(loaded
-            .scenario
-            .as_ref()
-            .expect("scenario should be present")
-            .victory_settings
-            .enabled_paths
-            .contains(&game_core::VictoryPath::Unity));
+        assert!(
+            loaded
+                .scenario
+                .as_ref()
+                .expect("scenario should be present")
+                .victory_settings
+                .enabled_paths
+                .contains(&game_core::VictoryPath::Unity)
+        );
     }
 
     #[test]

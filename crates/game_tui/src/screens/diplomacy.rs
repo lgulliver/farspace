@@ -1,24 +1,24 @@
 //! Diplomacy screen — shows known empires and their relationship status
 
+use crate::AppState;
 use crate::components::{
-    derive_header_data, panel_block, quiet_panel_block, render_empire_emblem, render_footer,
-    render_header, EmpireEmblem,
+    EmpireEmblem, derive_header_data, panel_block, quiet_panel_block, render_empire_emblem,
+    render_footer, render_header,
 };
 use crate::layout::centered_rect;
 use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
-use crate::AppState;
 use game_core::{
-    empire_definition_by_id, DiplomaticCommunicationType, DiplomaticResponse, GameState,
-    IntelLevel, RelationshipStatus,
+    DiplomaticCommunicationType, DiplomaticResponse, GameState, IntelLevel, RelationshipStatus,
+    empire_definition_by_id,
 };
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
-    Frame,
 };
 
 /// Map a revealed relationship status to a coarse, honest threat reading.
@@ -465,11 +465,11 @@ fn render_empire_detail(
         Theme::muted_style(),
     )));
 
-    if let (Some(emblem_area), Some(def_id)) = (emblem_area, empire_def_id) {
-        if let Some(def) = empire_definition_by_id(def_id) {
-            let emblem = EmpireEmblem::from_empire_index(def_id.0 as usize, def.symbol);
-            render_empire_emblem(frame, emblem_area, &emblem);
-        }
+    if let (Some(emblem_area), Some(def_id)) = (emblem_area, empire_def_id)
+        && let Some(def) = empire_definition_by_id(def_id)
+    {
+        let emblem = EmpireEmblem::from_empire_index(def_id.0 as usize, def.symbol);
+        render_empire_emblem(frame, emblem_area, &emblem);
     }
 
     frame.render_widget(
@@ -620,7 +620,7 @@ mod tests {
     use super::*;
     use crate::AppState;
     use game_core::{EmpireDefinitionId, Engine};
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
 
     fn render_to_string(engine: &Engine) -> String {
         let app_state = AppState::default();

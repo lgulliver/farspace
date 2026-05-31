@@ -1,20 +1,20 @@
 //! Main menu screen
 
+use crate::AppState;
 use crate::components::render_brand_header;
 use crate::map_render::visual_hash;
 use crate::renderer::{
-    starfield::{detail_star_glyph, should_render_star, starfield_detail},
     Canvas,
+    starfield::{detail_star_glyph, should_render_star, starfield_detail},
 };
-use crate::theme::{gradient, lerp_rgb, SplashPalette, Theme};
+use crate::theme::{SplashPalette, Theme, gradient, lerp_rgb};
 use crate::update::UpdateState;
-use crate::AppState;
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
-    Frame,
 };
 
 const MENU_STARFIELD_SALT: u64 = 0x4D45_4E55;
@@ -565,9 +565,9 @@ pub fn render_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
-    use ratatui::Terminal;
 
     fn cell_char(buf: &Buffer, x: u16, y: u16) -> char {
         buf.cell((x, y))

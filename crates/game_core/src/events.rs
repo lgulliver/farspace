@@ -1067,8 +1067,12 @@ impl Event {
                     ),
                     (false, false) => format!(
                         "Fleet {} (Empire {}) at {}% integrity; Fleet {} (Empire {}) at {}% integrity",
-                        fleet_a.0, empire_a.0, integrity_a_remaining,
-                        fleet_b.0, empire_b.0, integrity_b_remaining
+                        fleet_a.0,
+                        empire_a.0,
+                        integrity_a_remaining,
+                        fleet_b.0,
+                        empire_b.0,
+                        integrity_b_remaining
                     ),
                 };
                 format!(

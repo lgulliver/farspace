@@ -9,7 +9,7 @@ pub mod starfield;
 pub use canvas::Canvas;
 pub use layers::RenderLayer;
 pub use planet_art::{
-    colony_portrait, planet_kind_from_class, planet_sprite, portrait_input_from_colony,
-    ColonyPortraitInput, PlanetVisualKind,
+    ColonyPortraitInput, PlanetVisualKind, colony_portrait, planet_kind_from_class, planet_sprite,
+    portrait_input_from_colony,
 };
 pub use sprite::{AlphaMode, DetailLevel, Sprite, SpriteCell, SpriteFrame};

@@ -21,7 +21,7 @@
 //!
 //! * **Maintenance** — sum of per-building and per-orbital-structure costs
 
-use crate::state::{planet_yield_effect, BuildingType, Colony, ColonyRole, Planet}; // ColonyRole applied via colony.role.modifiers()
+use crate::state::{BuildingType, Colony, ColonyRole, Planet, planet_yield_effect}; // ColonyRole applied via colony.role.modifiers()
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -985,11 +985,12 @@ mod tests {
         let y1 = calculate_yield(&colony, None);
         let y2 = calculate_yield(&colony, None);
         assert_eq!(y1.workforce.assignments, y2.workforce.assignments);
-        assert!(y1
-            .workforce
-            .assignments
-            .iter()
-            .any(|a| a.job == JobType::Researcher && a.total_slots > 0));
+        assert!(
+            y1.workforce
+                .assignments
+                .iter()
+                .any(|a| a.job == JobType::Researcher && a.total_slots > 0)
+        );
     }
 
     #[test]

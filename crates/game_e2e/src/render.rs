@@ -2,7 +2,7 @@ use crate::assertions::validate_render_text;
 use crate::report::{E2eFailureCategory, E2eRunReport, E2eSeverity, RenderSnapshot};
 use anyhow::{Context, Result};
 use game_core::{Engine, GameState};
-use game_tui::e2e_support::{render_target_to_text, E2eRenderTarget};
+use game_tui::e2e_support::{E2eRenderTarget, render_target_to_text};
 use game_tui::screens::Screen;
 use serde_json::json;
 use std::fs;

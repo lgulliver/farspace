@@ -1,21 +1,22 @@
 //! Ship Designer screen — hull selection, slot configuration, design management.
 
+use crate::AppState;
 use crate::components::{
     derive_header_data, panel_block, render_footer, render_header, section_heading,
 };
 use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
-use crate::AppState;
 use game_core::{
-    all_hull_templates, components_for_slot, is_component_available, ComponentDef, ComponentId,
-    CustomShipDesign, DerivedShipStats, FleetKind, GameState, HullTemplate, SlotCategory, TechId,
+    ComponentDef, ComponentId, CustomShipDesign, DerivedShipStats, FleetKind, GameState,
+    HullTemplate, SlotCategory, TechId, all_hull_templates, components_for_slot,
+    is_component_available,
 };
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 // ── State types ──────────────────────────────────────────────────────────────
@@ -240,24 +241,24 @@ fn render_slot_config(frame: &mut Frame, area: Rect, app_state: &AppState, game_
                     .filter(|d| d.owner == player && !d.obsolete)
                     .collect();
                 let design_idx = (ds.selected_design_idx - 1).min(existing.len().saturating_sub(1));
-                if let Some(design) = existing.get(design_idx) {
-                    if let Some(hull) = design.hull_id.template() {
-                        lines.push(Line::from(Span::styled(
-                            format!(" Hull: {}", hull.name),
-                            Theme::title_style(),
-                        )));
-                        lines.push(Line::from(Span::raw("")));
-                        for (slot_idx, cat) in hull.slots.iter().enumerate() {
-                            let comp_id = design.components.get(slot_idx).copied();
-                            let comp_name = comp_id
-                                .and_then(|c| c.def())
-                                .map(|d| d.name)
-                                .unwrap_or("(empty)");
-                            lines.push(Line::from(vec![Span::styled(
-                                format!(" [{}] {}", slot_category_label(*cat), comp_name),
-                                Theme::default_style(),
-                            )]));
-                        }
+                if let Some(design) = existing.get(design_idx)
+                    && let Some(hull) = design.hull_id.template()
+                {
+                    lines.push(Line::from(Span::styled(
+                        format!(" Hull: {}", hull.name),
+                        Theme::title_style(),
+                    )));
+                    lines.push(Line::from(Span::raw("")));
+                    for (slot_idx, cat) in hull.slots.iter().enumerate() {
+                        let comp_id = design.components.get(slot_idx).copied();
+                        let comp_name = comp_id
+                            .and_then(|c| c.def())
+                            .map(|d| d.name)
+                            .unwrap_or("(empty)");
+                        lines.push(Line::from(vec![Span::styled(
+                            format!(" [{}] {}", slot_category_label(*cat), comp_name),
+                            Theme::default_style(),
+                        )]));
                     }
                 }
             }
@@ -576,7 +577,7 @@ fn build_stat_tag(comp: &ComponentDef) -> String {
 mod tests {
     use super::*;
     use game_core::{Engine, HullId};
-    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 
     #[test]
     fn initial_state_is_browse_mode() {

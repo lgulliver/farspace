@@ -2,6 +2,7 @@
 
 use std::{borrow::Cow, f32::consts::PI};
 
+use crate::AppState;
 use crate::components::{
     derive_header_data, page_block, panel_block, render_footer, render_header, render_log,
     section_heading,
@@ -9,24 +10,23 @@ use crate::components::{
 use crate::glyphs::glyphs_for_mode;
 use crate::layout::{compose_layout, split_horizontal};
 use crate::renderer::{
+    Canvas, RenderLayer,
     palette::ColorToken,
     planet_art::{
-        colony_portrait, planet_kind_from_class, planet_sprite, portrait_input_from_colony,
-        star_sprite, PlanetVisualKind,
+        PlanetVisualKind, colony_portrait, planet_kind_from_class, planet_sprite,
+        portrait_input_from_colony, star_sprite,
     },
-    sprite::{detail_for_area, DetailLevel},
-    Canvas, RenderLayer,
+    sprite::{DetailLevel, detail_for_area},
 };
 use crate::screens::Screen;
-use crate::theme::{lerp_rgb, Theme};
-use crate::AppState;
-use game_core::{empire_definition_by_id, ColonySupplyState, FleetKind, GameState};
+use crate::theme::{Theme, lerp_rgb};
+use game_core::{ColonySupplyState, FleetKind, GameState, empire_definition_by_id};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 const ORBIT_SELECTION_PULSE_PERIOD: u64 = 5;
@@ -885,86 +885,85 @@ fn render_system_detail_facts(
         Span::raw(colony_line),
     ]));
 
-    if let Some(colony_id) = planet.colony {
-        if let Some(colony) = game_state.colonies.get(&colony_id) {
-            if can_show_colony_details(game_state, colony.owner) {
-                let supply = game_state.colony_supply_state(colony.id);
-                let planet_ref = game_state
-                    .stars
-                    .get(&colony.star)
-                    .and_then(|s| s.planets.get(colony.planet_index));
-                let y = game_core::yield_model::calculate_yield(colony, planet_ref);
-                lines.push(Line::from(vec![
-                    Span::styled("Trade:  ", Theme::muted_style()),
-                    Span::styled(
-                        supply.label(),
-                        if supply == ColonySupplyState::Isolated {
-                            Theme::warning_style()
-                        } else {
-                            Theme::accent_style()
-                        },
+    if let Some(colony_id) = planet.colony
+        && let Some(colony) = game_state.colonies.get(&colony_id)
+    {
+        if can_show_colony_details(game_state, colony.owner) {
+            let supply = game_state.colony_supply_state(colony.id);
+            let planet_ref = game_state
+                .stars
+                .get(&colony.star)
+                .and_then(|s| s.planets.get(colony.planet_index));
+            let y = game_core::yield_model::calculate_yield(colony, planet_ref);
+            lines.push(Line::from(vec![
+                Span::styled("Trade:  ", Theme::muted_style()),
+                Span::styled(
+                    supply.label(),
+                    if supply == ColonySupplyState::Isolated {
+                        Theme::warning_style()
+                    } else {
+                        Theme::accent_style()
+                    },
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("Economy:", Theme::muted_style()),
+                Span::styled(
+                    format!(
+                        " F {:+}  I {}  S {}  C {}",
+                        y.food - y.food_consumed,
+                        y.industry,
+                        y.science,
+                        y.credits
                     ),
-                ]));
-                lines.push(Line::from(vec![
-                    Span::styled("Economy:", Theme::muted_style()),
-                    Span::styled(
-                        format!(
-                            " F {:+}  I {}  S {}  C {}",
-                            y.food - y.food_consumed,
-                            y.industry,
-                            y.science,
-                            y.credits
-                        ),
-                        Theme::accent_style(),
+                    Theme::accent_style(),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("Housing:", Theme::muted_style()),
+                Span::styled(
+                    format!(
+                        " {} / {}  unemployed {}",
+                        y.workforce.population, y.workforce.housing, y.workforce.unemployed
                     ),
-                ]));
-                lines.push(Line::from(vec![
-                    Span::styled("Housing:", Theme::muted_style()),
-                    Span::styled(
-                        format!(
-                            " {} / {}  unemployed {}",
-                            y.workforce.population, y.workforce.housing, y.workforce.unemployed
-                        ),
-                        if y.workforce.unemployed > 0 || y.workforce.housing_deficit > 0 {
-                            Theme::warning_style()
-                        } else {
-                            Theme::accent_style()
-                        },
-                    ),
-                ]));
-            } else {
-                lines.push(Line::from(vec![
-                    Span::styled("Trade:  ", Theme::muted_style()),
-                    Span::styled("Hidden by limited intel", Theme::muted_style()),
-                ]));
-                lines.push(Line::from(vec![
-                    Span::styled("Economy:", Theme::muted_style()),
-                    Span::styled("Hidden by limited intel", Theme::muted_style()),
-                ]));
-            }
+                    if y.workforce.unemployed > 0 || y.workforce.housing_deficit > 0 {
+                        Theme::warning_style()
+                    } else {
+                        Theme::accent_style()
+                    },
+                ),
+            ]));
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled("Trade:  ", Theme::muted_style()),
+                Span::styled("Hidden by limited intel", Theme::muted_style()),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("Economy:", Theme::muted_style()),
+                Span::styled("Hidden by limited intel", Theme::muted_style()),
+            ]));
         }
     }
 
-    if let Some(colony_id) = planet.colony {
-        if let Some(colony) = game_state.colonies.get(&colony_id) {
-            if colony.owner == game_state.player_empire {
-                let rally_text = match colony.rally_point {
-                    Some(star_id) => {
-                        let sname = game_state
-                            .stars
-                            .get(&star_id)
-                            .map(|s| s.name.as_str())
-                            .unwrap_or("Unknown");
-                        format!("{} ({})", sname, star_id.0)
-                    }
-                    None => "None".to_string(),
-                };
-                lines.push(Line::from(vec![
-                    Span::styled("Rally:  ", Theme::muted_style()),
-                    Span::styled(rally_text, Theme::accent_style()),
-                ]));
+    if let Some(colony_id) = planet.colony
+        && let Some(colony) = game_state.colonies.get(&colony_id)
+        && colony.owner == game_state.player_empire
+    {
+        let rally_text = match colony.rally_point {
+            Some(star_id) => {
+                let sname = game_state
+                    .stars
+                    .get(&star_id)
+                    .map(|s| s.name.as_str())
+                    .unwrap_or("Unknown");
+                format!("{} ({})", sname, star_id.0)
             }
-        }
+            None => "None".to_string(),
+        };
+        lines.push(Line::from(vec![
+            Span::styled("Rally:  ", Theme::muted_style()),
+            Span::styled(rally_text, Theme::accent_style()),
+        ]));
     }
 
     lines.push(Line::from(""));
@@ -1021,10 +1020,11 @@ fn render_system_detail_facts(
             } else {
                 "Foreign Fleet".to_string()
             };
-            if owns_fleet && matches!(fleet.kind, FleetKind::Science | FleetKind::SurveyCutter) {
-                if let Some(mission) = game_state.survey_missions.get(&fleet.id) {
-                    name.push_str(&format!(" (Surveying orbit {})", mission.planet_index + 1));
-                }
+            if owns_fleet
+                && matches!(fleet.kind, FleetKind::Science | FleetKind::SurveyCutter)
+                && let Some(mission) = game_state.survey_missions.get(&fleet.id)
+            {
+                name.push_str(&format!(" (Surveying orbit {})", mission.planet_index + 1));
             }
             let mut fleet_line = vec![
                 Span::raw(format!("{} {} ", prefix, name)),
@@ -1206,7 +1206,7 @@ mod tests {
     use game_core::{
         EmpireIntel, Engine, Fleet, FleetId, FleetKind, IntelLevel, RelationshipStatus,
     };
-    use ratatui::{backend::TestBackend, layout::Rect, Terminal};
+    use ratatui::{Terminal, backend::TestBackend, layout::Rect};
 
     fn render_to_string(engine: &Engine, app_state: &AppState) -> String {
         let backend = TestBackend::new(120, 40);

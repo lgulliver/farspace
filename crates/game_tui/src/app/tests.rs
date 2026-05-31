@@ -1,7 +1,7 @@
 use super::*;
 use crossterm::event::{KeyCode, KeyModifiers};
-use ratatui::backend::TestBackend;
 use ratatui::Terminal;
+use ratatui::backend::TestBackend;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static TEST_FILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -1104,11 +1104,12 @@ fn dispatch_command_end_turn_sets_summary_status() {
     app.dispatch_command(Command::EndTurn);
 
     assert_eq!(app.engine.as_ref().unwrap().state.turn, initial_turn + 1);
-    assert!(app
-        .state
-        .status_message
-        .as_deref()
-        .is_some_and(|message| message.starts_with("Turn 2 global summary")));
+    assert!(
+        app.state
+            .status_message
+            .as_deref()
+            .is_some_and(|message| message.starts_with("Turn 2 global summary"))
+    );
 }
 
 #[test]
@@ -2437,8 +2438,8 @@ fn colonize_key_with_colonizer_succeeds() {
 #[test]
 fn sector_overview_renders_with_colonizer_fleet_present() {
     use game_core::FleetKind;
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     let backend = TestBackend::new(120, 40);
     let mut terminal = Terminal::new(backend).unwrap();
@@ -3093,11 +3094,12 @@ fn command_palette_core_commands_save_load_and_dispatch_work() {
     app.end_turn();
     let turn_before_save = app.engine.as_ref().unwrap().state.turn;
     app.execute_palette_command_with_path(PaletteCommand::Save, &save_path);
-    assert!(app
-        .state
-        .status_message
-        .as_deref()
-        .is_some_and(|msg| msg.contains("Save: wrote")));
+    assert!(
+        app.state
+            .status_message
+            .as_deref()
+            .is_some_and(|msg| msg.contains("Save: wrote"))
+    );
 
     app.end_turn();
     assert!(app.engine.as_ref().unwrap().state.turn > turn_before_save);

@@ -5,10 +5,10 @@ use crate::theme::Theme;
 use crate::{glyphs::glyphs_for_mode, visual_mode::VisualMode};
 use game_core::BattleReport;
 use ratatui::{
+    Frame,
     layout::Rect,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
-    Frame,
 };
 use std::{collections::VecDeque, ops::Range};
 
@@ -183,7 +183,7 @@ mod tests {
         BattleReport, CombatPhase, CombatPhaseSummary, EmpireId, FleetFormation, FleetId,
         FleetKind, FleetRole, FleetSupplyState, StarId,
     };
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
     use std::collections::VecDeque;
 
     #[test]

@@ -16,14 +16,14 @@ pub mod ship_designer;
 pub mod system;
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Rect},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 
-use crate::theme::Theme;
 use crate::AppState;
+use crate::theme::Theme;
 use game_core::GameState;
 
 /// Active screen in the application
@@ -155,7 +155,7 @@ fn render_unavailable_screen(frame: &mut Frame, area: Rect, screen_name: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
 
     #[test]
     fn game_screen_without_game_state_renders_fallback() {

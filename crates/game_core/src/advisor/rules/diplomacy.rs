@@ -157,9 +157,11 @@ mod tests {
 
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].title, "Intel thin on 2 empires");
-        assert!(out[0]
-            .body
-            .contains("Aurora Combine (Contacted), Brass League (Basic)"));
+        assert!(
+            out[0]
+                .body
+                .contains("Aurora Combine (Contacted), Brass League (Basic)")
+        );
         assert!(!out[0].body.contains("Clear Skies Pact"));
     }
 }

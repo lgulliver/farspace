@@ -39,10 +39,9 @@ impl AdvisorRule for TreasuryDepletionRiskRule {
                     empire: event_empire,
                     ..
                 } = event
+                    && *event_empire == ctx.state.player_empire
                 {
-                    if *event_empire == ctx.state.player_empire {
-                        return Some(empire.credits - 1);
-                    }
+                    return Some(empire.credits - 1);
                 }
                 None
             });

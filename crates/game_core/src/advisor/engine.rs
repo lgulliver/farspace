@@ -1,4 +1,5 @@
 use crate::advisor::rules::{
+    AdvisorRule,
     colony::{
         ColonyFoodDeficitRule, ColonyUnrestRule, IdleColonyProductionRule, UndefendedColonyRule,
     },
@@ -10,7 +11,6 @@ use crate::advisor::rules::{
         FirstColonyManagementRule, FirstFleetRule, FirstIdleColonyRule, FirstResearchChoiceRule,
         FirstUnexploredNearbySystemRule,
     },
-    AdvisorRule,
 };
 use crate::advisor::{
     AdvisorMessage, AdvisorOutput, AdvisorPreferences, AdvisorSeverity, PlayerKnowledge,
@@ -385,10 +385,12 @@ mod tests {
             turn: state.turn,
         });
         assert_eq!(output.active.len(), 2);
-        assert!(output
-            .active
-            .iter()
-            .all(|m| m.severity == AdvisorSeverity::Critical));
+        assert!(
+            output
+                .active
+                .iter()
+                .all(|m| m.severity == AdvisorSeverity::Critical)
+        );
     }
 
     #[test]

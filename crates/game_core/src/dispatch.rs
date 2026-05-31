@@ -806,31 +806,30 @@ pub fn generate_dispatch(
             }
 
             Event::ColonyUnrestChanged { colony, to, .. } => {
-                if let Some(colony_record) = state.colonies.get(colony) {
-                    if colony_record.owner == state.player_empire {
-                        let severity = match to {
-                            crate::state::ColonyUnrestState::Calm => DispatchSeverity::Notice,
-                            crate::state::ColonyUnrestState::Strained => DispatchSeverity::Notable,
-                            crate::state::ColonyUnrestState::Unrest => DispatchSeverity::Urgent,
-                            crate::state::ColonyUnrestState::RevoltRisk => {
-                                DispatchSeverity::Historic
-                            }
-                        };
-                        let headline = match to {
-                            crate::state::ColonyUnrestState::Calm => {
-                                "Colonial Order Restored".to_string()
-                            }
-                            crate::state::ColonyUnrestState::Strained => {
-                                "Colonial Tensions Rising".to_string()
-                            }
-                            crate::state::ColonyUnrestState::Unrest => {
-                                "Colonial Unrest Escalates".to_string()
-                            }
-                            crate::state::ColonyUnrestState::RevoltRisk => {
-                                "Major Revolt Risk Reported".to_string()
-                            }
-                        };
-                        items.push(item(
+                if let Some(colony_record) = state.colonies.get(colony)
+                    && colony_record.owner == state.player_empire
+                {
+                    let severity = match to {
+                        crate::state::ColonyUnrestState::Calm => DispatchSeverity::Notice,
+                        crate::state::ColonyUnrestState::Strained => DispatchSeverity::Notable,
+                        crate::state::ColonyUnrestState::Unrest => DispatchSeverity::Urgent,
+                        crate::state::ColonyUnrestState::RevoltRisk => DispatchSeverity::Historic,
+                    };
+                    let headline = match to {
+                        crate::state::ColonyUnrestState::Calm => {
+                            "Colonial Order Restored".to_string()
+                        }
+                        crate::state::ColonyUnrestState::Strained => {
+                            "Colonial Tensions Rising".to_string()
+                        }
+                        crate::state::ColonyUnrestState::Unrest => {
+                            "Colonial Unrest Escalates".to_string()
+                        }
+                        crate::state::ColonyUnrestState::RevoltRisk => {
+                            "Major Revolt Risk Reported".to_string()
+                        }
+                    };
+                    items.push(item(
                             DispatchCategory::Economy,
                             severity,
                             headline,
@@ -839,7 +838,6 @@ pub fn generate_dispatch(
                             Some(colony_record.star),
                             Some(colony_record.planet_index),
                         ));
-                    }
                 }
             }
 

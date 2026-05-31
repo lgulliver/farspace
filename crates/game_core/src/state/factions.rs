@@ -436,8 +436,14 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         military_modifiers: EmpireMilitaryModifiers::none(),
         ai_profile: EmpireAiProfile::new(
             &[TechDomain::Engineering, TechDomain::Economy],
-            false, false, false, false,
-            false, false, false, true, // prefers_defensive_ships: patrol corvettes for security
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true, // prefers_defensive_ships: patrol corvettes for security
         ),
         doctrine_weights: &[
             EmpireDoctrineWeight {
@@ -471,8 +477,14 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         },
         ai_profile: EmpireAiProfile::new(
             &[TechDomain::Exploration, TechDomain::Economy],
-            false, false, false, false,
-            true, false, false, false, // prefers_fast_scouts: pathfinder identity
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            false,
+            false, // prefers_fast_scouts: pathfinder identity
         ),
         doctrine_weights: &[
             EmpireDoctrineWeight {
@@ -492,8 +504,7 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
     EmpireDefinition {
         id: EmpireDefinitionId(2),
         name: "Sylvaran Accord",
-        short_description:
-            "A biosphere-first collective that values growth and ecological balance.",
+        short_description: "A biosphere-first collective that values growth and ecological balance.",
         tone: "Patient ecological stewards",
         symbol: '✿',
         trait_modifiers: EmpireTraitModifiers {
@@ -513,8 +524,14 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         military_modifiers: EmpireMilitaryModifiers::none(),
         ai_profile: EmpireAiProfile::new(
             &[TechDomain::Biology, TechDomain::Economy],
-            false, false, true, false,
-            false, true, false, false, // prefers_colony_arks: population-first doctrine
+            false,
+            false,
+            true,
+            false,
+            false,
+            true,
+            false,
+            false, // prefers_colony_arks: population-first doctrine
         ),
         doctrine_weights: &[
             EmpireDoctrineWeight {
@@ -530,8 +547,7 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
     EmpireDefinition {
         id: EmpireDefinitionId(3),
         name: "Thalori Exchange",
-        short_description:
-            "A merchant alliance that turned commerce into a form of galactic power.",
+        short_description: "A merchant alliance that turned commerce into a form of galactic power.",
         tone: "Opportunistic commercial brokers",
         symbol: '◈',
         trait_modifiers: EmpireTraitModifiers {
@@ -551,8 +567,14 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         military_modifiers: EmpireMilitaryModifiers::none(),
         ai_profile: EmpireAiProfile::new(
             &[TechDomain::Economy, TechDomain::Engineering],
-            false, false, true, false,
-            false, false, false, true, // prefers_defensive_ships: trade-lane security corvettes
+            false,
+            false,
+            true,
+            false,
+            false,
+            false,
+            false,
+            true, // prefers_defensive_ships: trade-lane security corvettes
         ),
         doctrine_weights: &[
             EmpireDoctrineWeight {
@@ -593,8 +615,14 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
         },
         ai_profile: EmpireAiProfile::new(
             &[TechDomain::Military, TechDomain::Engineering],
-            false, true, false, true,
-            false, false, true, false, // prefers_combat_ships: militarist warfleet doctrine
+            false,
+            true,
+            false,
+            true,
+            false,
+            false,
+            true,
+            false, // prefers_combat_ships: militarist warfleet doctrine
         ),
         doctrine_weights: &[
             EmpireDoctrineWeight {
@@ -610,8 +638,7 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
     EmpireDefinition {
         id: EmpireDefinitionId(5),
         name: "Elarith Confluence",
-        short_description:
-            "A technocratic council that views scientific advancement as the highest law.",
+        short_description: "A technocratic council that views scientific advancement as the highest law.",
         tone: "Measured technocracy",
         symbol: '⟁',
         trait_modifiers: EmpireTraitModifiers {
@@ -628,9 +655,19 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             ..EmpireMilitaryModifiers::none()
         },
         ai_profile: EmpireAiProfile::new(
-            &[TechDomain::Exploration, TechDomain::Biology, TechDomain::Economy],
-            true, false, true, false,
-            true, false, false, false, // prefers_fast_scouts + prefers_science_ships
+            &[
+                TechDomain::Exploration,
+                TechDomain::Biology,
+                TechDomain::Economy,
+            ],
+            true,
+            false,
+            true,
+            false,
+            true,
+            false,
+            false,
+            false, // prefers_fast_scouts + prefers_science_ships
         ),
         doctrine_weights: &[
             EmpireDoctrineWeight {
@@ -650,8 +687,7 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
     EmpireDefinition {
         id: EmpireDefinitionId(6),
         name: "Terran Concord",
-        short_description:
-            "An open Terran union that treats science, dialogue, and exploration as shared civic duties.",
+        short_description: "An open Terran union that treats science, dialogue, and exploration as shared civic duties.",
         tone: "Optimistic, pluralist, science-forward federation",
         symbol: '☼',
         trait_modifiers: EmpireTraitModifiers {
@@ -665,8 +701,7 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             PlaystyleTag::Scientific,
             PlaystyleTag::Expansionist,
         ],
-        playstyle_summary:
-            "Cooperative explorers that open with better relations, lean into research, and keep colonies stable before committing to war.",
+        playstyle_summary: "Cooperative explorers that open with better relations, lean into research, and keep colonies stable before committing to war.",
         diplomacy_profile: EmpireDiplomacyProfile {
             first_contact_status: RelationshipStatus::Neutral,
             resting_status: RelationshipStatus::Neutral,
@@ -679,9 +714,19 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             ..EmpireMilitaryModifiers::none()
         },
         ai_profile: EmpireAiProfile::new(
-            &[TechDomain::Exploration, TechDomain::Economy, TechDomain::Biology],
-            true, false, true, false,
-            true, false, false, false, // prefers_fast_scouts: exploration mandate
+            &[
+                TechDomain::Exploration,
+                TechDomain::Economy,
+                TechDomain::Biology,
+            ],
+            true,
+            false,
+            true,
+            false,
+            true,
+            false,
+            false,
+            false, // prefers_fast_scouts: exploration mandate
         ),
         doctrine_weights: &[
             EmpireDoctrineWeight {
@@ -701,8 +746,7 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
     EmpireDefinition {
         id: EmpireDefinitionId(7),
         name: "Terran Dominion",
-        short_description:
-            "A hardline Terran hierarchy that secures frontier order through rapid militarisation and coercive expansion.",
+        short_description: "A hardline Terran hierarchy that secures frontier order through rapid militarisation and coercive expansion.",
         tone: "Authoritarian, expansionist, order-through-force empire",
         symbol: '▲',
         trait_modifiers: EmpireTraitModifiers {
@@ -716,8 +760,7 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
             PlaystyleTag::Industrial,
             PlaystyleTag::Expansionist,
         ],
-        playstyle_summary:
-            "Militarised colonisers that accept worse first contact, cheaper war logistics, and faster escalation when borders tighten.",
+        playstyle_summary: "Militarised colonisers that accept worse first contact, cheaper war logistics, and faster escalation when borders tighten.",
         diplomacy_profile: EmpireDiplomacyProfile {
             first_contact_status: RelationshipStatus::Tense,
             resting_status: RelationshipStatus::Tense,
@@ -738,8 +781,14 @@ static EMPIRE_DEFINITIONS: [EmpireDefinition; 8] = [
                 TechDomain::Engineering,
                 TechDomain::Exploration,
             ],
-            false, true, false, true,
-            false, true, true, false, // prefers_colony_arks + prefers_combat_ships
+            false,
+            true,
+            false,
+            true,
+            false,
+            true,
+            true,
+            false, // prefers_colony_arks + prefers_combat_ships
         ),
         doctrine_weights: &[
             EmpireDoctrineWeight {

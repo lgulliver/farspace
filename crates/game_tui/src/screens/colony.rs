@@ -1,5 +1,6 @@
 //! Colony detail screen
 
+use crate::AppState;
 use crate::components::{
     derive_header_data, meter_line, panel_block, quiet_panel_block, render_footer, render_header,
     section_heading,
@@ -7,24 +8,23 @@ use crate::components::{
 use crate::glyphs::glyphs_for_mode;
 use crate::layout::{compose_layout, split_horizontal};
 use crate::renderer::{
+    Canvas, RenderLayer,
     palette::ColorToken,
     planet_art::{colony_portrait, portrait_input_from_colony},
     sprite::DetailLevel,
-    Canvas, RenderLayer,
 };
 use crate::screens::Screen;
 use crate::theme::Theme;
-use crate::AppState;
 use game_core::{
-    yield_model, BuildItem, BuildingType, ColonyRole, ColonySupplyState, EmpireId, GameState,
-    OrbitalStructureType, TechId,
+    BuildItem, BuildingType, ColonyRole, ColonySupplyState, EmpireId, GameState,
+    OrbitalStructureType, TechId, yield_model,
 };
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 
 /// Minimum portrait canvas height (rows) needed to reach Compact detail level.
@@ -468,73 +468,72 @@ fn render_colony_stats(
     }
 
     // Show active specials/resources/anomalies for this colonized, surveyed planet.
-    if let Some(p) = planet {
-        if p.surveyed
-            && (!p.specials.is_empty() || !p.resources.is_empty() || !p.anomalies.is_empty())
-        {
-            let completed_techs = game_state
-                .empires
-                .get(&colony.owner)
-                .map(|e| e.research.completed.as_slice())
-                .unwrap_or(&[]);
-            let visible_specials = game_core::visible_specials_for_empire(p, completed_techs);
-            let visible_anomalies = game_core::visible_anomalies_for_empire(p, completed_techs);
-            let visible_resources = game_core::visible_resources_for_empire(p, completed_techs);
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "Active Effects:",
-                Theme::title_style(),
-            )));
-            for special in &visible_specials {
-                lines.push(Line::from(vec![
-                    Span::styled(format!("  {} ", glyphs.special), Theme::accent_style()),
-                    Span::styled(special.name(), Theme::default_style()),
-                    Span::styled(
-                        format!(
-                            " ({}, {}, {})",
-                            special.rarity().label(),
-                            special.category().label(),
-                            special.effect_summary()
-                        ),
-                        Theme::muted_style(),
+    if let Some(p) = planet
+        && p.surveyed
+        && (!p.specials.is_empty() || !p.resources.is_empty() || !p.anomalies.is_empty())
+    {
+        let completed_techs = game_state
+            .empires
+            .get(&colony.owner)
+            .map(|e| e.research.completed.as_slice())
+            .unwrap_or(&[]);
+        let visible_specials = game_core::visible_specials_for_empire(p, completed_techs);
+        let visible_anomalies = game_core::visible_anomalies_for_empire(p, completed_techs);
+        let visible_resources = game_core::visible_resources_for_empire(p, completed_techs);
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Active Effects:",
+            Theme::title_style(),
+        )));
+        for special in &visible_specials {
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {} ", glyphs.special), Theme::accent_style()),
+                Span::styled(special.name(), Theme::default_style()),
+                Span::styled(
+                    format!(
+                        " ({}, {}, {})",
+                        special.rarity().label(),
+                        special.category().label(),
+                        special.effect_summary()
                     ),
-                ]));
-            }
-            for anomaly in &visible_anomalies {
-                lines.push(Line::from(vec![
-                    Span::styled(format!("  {} ", glyphs.anomaly), Theme::warning_style()),
-                    Span::styled(anomaly.name(), Theme::default_style()),
-                    Span::styled(
-                        format!(
-                            " ({}, {}, {})",
-                            anomaly.rarity().label(),
-                            anomaly.category().label(),
-                            anomaly.formatted_risk()
-                        ),
-                        Theme::muted_style(),
+                    Theme::muted_style(),
+                ),
+            ]));
+        }
+        for anomaly in &visible_anomalies {
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {} ", glyphs.anomaly), Theme::warning_style()),
+                Span::styled(anomaly.name(), Theme::default_style()),
+                Span::styled(
+                    format!(
+                        " ({}, {}, {})",
+                        anomaly.rarity().label(),
+                        anomaly.category().label(),
+                        anomaly.formatted_risk()
                     ),
-                ]));
-            }
-            for resource in &visible_resources {
-                let extracted = if game_state.colony_can_extract_resource(colony.id, *resource) {
-                    "active"
-                } else {
-                    "offline"
-                };
-                lines.push(Line::from(vec![
-                    Span::styled(format!("  {} ", glyphs.resource), Theme::accent_style()),
-                    Span::styled(resource.name(), Theme::default_style()),
-                    Span::styled(
-                        format!(
-                            " ({}, {}, {})",
-                            resource.rarity().label(),
-                            resource.category().label(),
-                            extracted
-                        ),
-                        Theme::muted_style(),
+                    Theme::muted_style(),
+                ),
+            ]));
+        }
+        for resource in &visible_resources {
+            let extracted = if game_state.colony_can_extract_resource(colony.id, *resource) {
+                "active"
+            } else {
+                "offline"
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {} ", glyphs.resource), Theme::accent_style()),
+                Span::styled(resource.name(), Theme::default_style()),
+                Span::styled(
+                    format!(
+                        " ({}, {}, {})",
+                        resource.rarity().label(),
+                        resource.category().label(),
+                        extracted
                     ),
-                ]));
-            }
+                    Theme::muted_style(),
+                ),
+            ]));
         }
     }
 
@@ -951,10 +950,10 @@ fn render_build_picker(
 mod tests {
     use super::*;
     use game_core::Engine;
+    use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
-    use ratatui::Terminal;
 
     fn make_app_state_with_colony(engine: &Engine) -> AppState {
         // Find the first player colony

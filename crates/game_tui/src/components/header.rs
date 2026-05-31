@@ -1,12 +1,12 @@
 //! Header component
 
 use crate::theme::Theme;
-use game_core::{fleet_maintenance_for_empire, tech_by_id, GameState};
+use game_core::{GameState, fleet_maintenance_for_empire, tech_by_id};
 use ratatui::{
+    Frame,
     layout::Rect,
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 const BRAND: &str = "FARSPACE";
@@ -237,8 +237,8 @@ pub fn render_header(frame: &mut Frame, area: Rect, data: &HeaderData) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     #[test]
     fn render_header_no_panic() {

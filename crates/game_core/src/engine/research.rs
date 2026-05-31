@@ -53,10 +53,10 @@ impl Engine {
         }
 
         if let Some(empire) = self.state.empires.get_mut(&empire_id) {
-            if let Some(active_tech) = empire.research.current_tech {
-                if active_tech != tech_id {
-                    empire.research.progress = 0;
-                }
+            if let Some(active_tech) = empire.research.current_tech
+                && active_tech != tech_id
+            {
+                empire.research.progress = 0;
             }
             empire.research.current_tech = Some(tech_id);
             empire.research.queue.retain(|queued| *queued != tech_id);

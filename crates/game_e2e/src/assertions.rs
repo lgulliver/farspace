@@ -1,5 +1,5 @@
 use crate::report::{E2eFailureCategory, E2eRunReport, E2eSeverity};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use game_core::{
     Command, DiplomaticCommunicationType, Engine, Event, GameState, RelationshipStatus,
 };

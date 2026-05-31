@@ -10,33 +10,33 @@ use crate::components::{
     render_log, section_heading,
 };
 use crate::faction::{
-    empire_visual, star_fog_state, star_is_capital, star_owner, visible_star_ids, FogState,
+    FogState, empire_visual, star_fog_state, star_is_capital, star_owner, visible_star_ids,
 };
-use crate::glyphs::{glyphs_for_mode, GlyphSet};
+use crate::glyphs::{GlyphSet, glyphs_for_mode};
 use crate::layout::{compose_layout, split_horizontal};
 use crate::map_render::{
-    push_halo, visual_hash, CellCommand, HaloSpec, LabelCommand, LabelPlacement, LayeredMap,
-    MapLayer,
+    CellCommand, HaloSpec, LabelCommand, LabelPlacement, LayeredMap, MapLayer, push_halo,
+    visual_hash,
 };
 use crate::screens::Screen;
-use crate::theme::{lerp_rgb, Theme};
+use crate::theme::{Theme, lerp_rgb};
 use crate::viewport::{MapViewport, ScreenPoint, WorldPoint};
 use crate::{
+    AppState,
     renderer::{
         sprite::DetailLevel,
         starfield::{
             detail_star_glyph, should_render_star, star_magnitude_color, starfield_detail,
         },
     },
-    AppState,
 };
 use game_core::{GameState, SectorId, StarId, TechId};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 // Distinct salt keeps sector-view starfield noise stable but separate from galaxy-view noise.
@@ -919,7 +919,7 @@ mod tests {
     use super::*;
     use crate::glyphs::glyphs_for_mode;
     use game_core::Engine;
-    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 
     fn create_app_with_sector() -> (AppState, GameState) {
         let engine = Engine::new(42);

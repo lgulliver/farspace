@@ -16,14 +16,14 @@
 use crate::engine::travel_turns_with_lanes;
 use crate::events::Event;
 use crate::state::{
-    all_techs, empire_definition_by_id, is_tech_available, visible_anomalies_for_empire,
-    visible_specials_for_empire, AiDoctrine, BuildItem, BuildingType, Colony, ColonyId, ColonyRole,
-    ComponentId, CustomDesignId, CustomShipDesign, EmpireId, FleetFormation, FleetId, FleetKind,
-    FleetRole, FleetSupplyState, GameState, OrbitalStructureType, PlanetAnomaly, PlanetClass,
-    PlanetSpecial, PlaystyleTag, ScoutMission, ShipDesignId, SlotCategory, StarId,
-    StrategicResource, StrategicResourceCategory, TechDomain, TechId, TechTag, VictoryPath,
+    AiDoctrine, BuildItem, BuildingType, Colony, ColonyId, ColonyRole, ComponentId, CustomDesignId,
+    CustomShipDesign, EmpireId, FleetFormation, FleetId, FleetKind, FleetRole, FleetSupplyState,
+    GameState, OrbitalStructureType, PlanetAnomaly, PlanetClass, PlanetSpecial, PlaystyleTag,
+    ScoutMission, ShipDesignId, SlotCategory, StarId, StrategicResource, StrategicResourceCategory,
+    TechDomain, TechId, TechTag, VictoryPath, all_techs, empire_definition_by_id,
+    is_tech_available, visible_anomalies_for_empire, visible_specials_for_empire,
 };
-use crate::yield_model::{calculate_yield_with_context, YieldContext};
+use crate::yield_model::{YieldContext, calculate_yield_with_context};
 
 const FUTURE_PENALTY_MULTIPLIER: i32 = 12;
 const FOOD_CRISIS_SCORE_BONUS: i32 = 18;
@@ -245,10 +245,10 @@ fn ai_select_research(state: &mut GameState, empire_id: EmpireId, events: &mut V
 
     if let Some(empire) = state.empires.get_mut(&empire_id) {
         // Only reset progress when switching away from a different active tech
-        if let Some(active) = empire.research.current_tech {
-            if active != tech_id {
-                empire.research.progress = 0;
-            }
+        if let Some(active) = empire.research.current_tech
+            && active != tech_id
+        {
+            empire.research.progress = 0;
         }
         empire.research.current_tech = Some(tech_id);
         empire.research.queue = queue;
@@ -497,10 +497,9 @@ fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::T
         scenario
             .victory_settings
             .condition_for(VictoryPath::Ascendancy)
-    }) {
-        if victory_tech_ids.contains(&tech.id) {
-            score += victory_pref(VictoryPath::Ascendancy) * 2;
-        }
+    }) && victory_tech_ids.contains(&tech.id)
+    {
+        score += victory_pref(VictoryPath::Ascendancy) * 2;
     }
 
     score
@@ -1375,10 +1374,10 @@ fn ai_colonize(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Even
         state.colonies.insert(colony_id, new_colony);
 
         // Update planet reference
-        if let Some(star) = state.stars.get_mut(&star_id) {
-            if let Some(planet) = star.planets.get_mut(planet_index) {
-                planet.colony = Some(colony_id);
-            }
+        if let Some(star) = state.stars.get_mut(&star_id)
+            && let Some(planet) = star.planets.get_mut(planet_index)
+        {
+            planet.colony = Some(colony_id);
         }
 
         // Consume the colonizer fleet
@@ -1643,10 +1642,10 @@ pub fn ai_generate_designs(state: &mut GameState, empire_id: EmpireId) {
 
     for hull in hulls {
         // Skip if hull requires tech not yet unlocked
-        if let Some(req) = hull.required_tech {
-            if !completed_techs.contains(&req) {
-                continue;
-            }
+        if let Some(req) = hull.required_tech
+            && !completed_techs.contains(&req)
+        {
+            continue;
         }
         // Skip if already have a design for this hull
         if existing_hulls.contains(&hull.hull_id) {
@@ -1795,8 +1794,8 @@ mod tests {
     use super::*;
     use crate::engine::Engine;
     use crate::state::{
-        all_empire_definitions, BuildingType, EmpireDefinitionId, EmpireId, FleetKind, PlanetClass,
-        TechId,
+        BuildingType, EmpireDefinitionId, EmpireId, FleetKind, PlanetClass, TechId,
+        all_empire_definitions,
     };
 
     /// Helper: get the AI empire ID from an engine, panicking if absent.
@@ -2099,11 +2098,13 @@ mod tests {
             .push(crate::state::OrbitalStructureType::Shipyard);
 
         // Ensure no colonizer exists
-        assert!(!engine
-            .state
-            .fleets
-            .values()
-            .any(|f| f.owner == ai && f.kind == FleetKind::Colonizer));
+        assert!(
+            !engine
+                .state
+                .fleets
+                .values()
+                .any(|f| f.owner == ai && f.kind == FleetKind::Colonizer)
+        );
 
         // Colony ship design requires Habitat Seeding.
         engine
@@ -2383,11 +2384,13 @@ mod tests {
         let ai = ai_id(&engine);
 
         // No colonizer for AI initially
-        assert!(!engine
-            .state
-            .fleets
-            .values()
-            .any(|f| f.owner == ai && f.kind == FleetKind::Colonizer));
+        assert!(
+            !engine
+                .state
+                .fleets
+                .values()
+                .any(|f| f.owner == ai && f.kind == FleetKind::Colonizer)
+        );
 
         let colonies_before = engine
             .state
@@ -3216,7 +3219,7 @@ mod tests {
     fn scientific_ai_prefers_research_domain_tech() {
         // Elarith Confluence (id=5, Scientific) should pick a research-domain tech
         // sooner than a non-scientific empire would when cost is equal.
-        use crate::state::{empire_definition_by_id, PlaystyleTag};
+        use crate::state::{PlaystyleTag, empire_definition_by_id};
         // Find the Elarith Confluence def — it has the Scientific tag.
         let sci_def = all_empire_definitions()
             .iter()

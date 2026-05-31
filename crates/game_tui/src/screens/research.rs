@@ -1,5 +1,6 @@
 //! Research screen
 
+use crate::AppState;
 use crate::components::{
     derive_header_data, meter_line, panel_block, quiet_panel_block, render_footer, render_header,
     section_heading,
@@ -7,18 +8,17 @@ use crate::components::{
 use crate::layout::{compose_layout, split_main_detail};
 use crate::screens::Screen;
 use crate::theme::Theme;
-use crate::AppState;
 use game_core::state::{TechRarity, TechTag};
 use game_core::{
-    all_techs, is_tech_available, tech_by_id, tech_yield_bonus_per_colony, Empire, GameState,
-    TechDomain, TechRecord, TechTier, YieldType,
+    Empire, GameState, TechDomain, TechRecord, TechTier, YieldType, all_techs, is_tech_available,
+    tech_by_id, tech_yield_bonus_per_colony,
 };
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -660,10 +660,10 @@ fn player_research_per_turn(game_state: &GameState, empire: &Empire) -> i64 {
 mod tests {
     use super::*;
     use game_core::Engine;
-    use game_core::{all_techs, TechId};
+    use game_core::{TechId, all_techs};
+    use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
-    use ratatui::Terminal;
 
     fn render_detail_buffer(
         width: u16,

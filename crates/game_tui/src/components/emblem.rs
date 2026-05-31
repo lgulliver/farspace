@@ -1,12 +1,12 @@
 //! Reusable empire emblem renderer for premium setup / identity screens.
 
-use game_core::{all_empire_definitions, EmpireDefinition};
+use game_core::{EmpireDefinition, all_empire_definitions};
 use ratatui::{
+    Frame,
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
-    Frame,
 };
 
 use crate::theme::Theme;
@@ -259,7 +259,7 @@ pub fn resolve_empire_emblem_for_definition(def: &EmpireDefinition) -> EmpireEmb
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
 
     fn render_at(width: u16, height: u16) {
         let backend = TestBackend::new(width.max(1), height.max(1));

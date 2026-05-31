@@ -8,7 +8,6 @@ use crate::deterministic::sorted_colony_ids;
 use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hyperspace_lanes};
 use crate::state::{
-    all_techs, empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
     AiDoctrine, BattleReport, BuildItem, BuildingType, Colony, ColonyAutomation, ColonyId,
     ColonyRole, ColonySupplyState, ColonyUnrestState, CombatPhase, CombatPhaseSummary, ComponentId,
     CustomDesignId, CustomShipDesign, DiplomaticCommunication, DiplomaticCommunicationType,
@@ -17,7 +16,8 @@ use crate::state::{
     FleetOrder, FleetRole, FleetSupplyState, GameState, HullId, HyperspaceLane, IntelLevel,
     IntelSource, OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup,
     ScoutMission, SectorDirective, SectorId, ShipDesignId, StarId, StrategicResource,
-    SurveyMission, TechId, TreatyType, UnrestCause, YieldType,
+    SurveyMission, TechId, TreatyType, UnrestCause, YieldType, all_techs, empire_definition_by_id,
+    is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
@@ -1696,10 +1696,10 @@ impl Engine {
                     food_deficit.min(MAX_ISOLATED_FOOD_DEFICIT_STABILITY_PENALTY as i64) as u8,
                 );
             }
-            if pressure_penalty > 0 {
-                if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
-                    colony.stability = colony.stability.saturating_sub(pressure_penalty);
-                }
+            if pressure_penalty > 0
+                && let Some(colony) = self.state.colonies.get_mut(&colony_id)
+            {
+                colony.stability = colony.stability.saturating_sub(pressure_penalty);
             }
 
             let unrest_eval = self
@@ -1837,10 +1837,10 @@ impl Engine {
 
                 // Drain the completed prefix in one O(n) pass.
                 let n_completed = completed_items.len();
-                if n_completed > 0 {
-                    if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
-                        colony.build_queue.drain(..n_completed);
-                    }
+                if n_completed > 0
+                    && let Some(colony) = self.state.colonies.get_mut(&colony_id)
+                {
+                    colony.build_queue.drain(..n_completed);
                 }
 
                 for current_item in completed_items {
@@ -3728,14 +3728,14 @@ impl Engine {
             return;
         }
 
-        if let BuildItem::Ship(design_id) = item {
-            if design_id.record().is_none() {
-                events.push(Event::error(format!(
-                    "Cannot build ship — design {} is invalid",
-                    design_id.0
-                )));
-                return;
-            }
+        if let BuildItem::Ship(design_id) = item
+            && design_id.record().is_none()
+        {
+            events.push(Event::error(format!(
+                "Cannot build ship — design {} is invalid",
+                design_id.0
+            )));
+            return;
         }
 
         if let BuildItem::CustomShip(design_id) = item {
@@ -4282,10 +4282,10 @@ impl Engine {
         self.state.colonies.insert(colony_id, new_colony);
 
         // Update the planet's colony reference
-        if let Some(star) = self.state.stars.get_mut(&star_id) {
-            if let Some(planet) = star.planets.get_mut(planet_index) {
-                planet.colony = Some(colony_id);
-            }
+        if let Some(star) = self.state.stars.get_mut(&star_id)
+            && let Some(planet) = star.planets.get_mut(planet_index)
+        {
+            planet.colony = Some(colony_id);
         }
 
         // Consume the colonizer fleet.
@@ -4566,64 +4566,57 @@ impl Engine {
             .map(|empire| empire.research.completed.clone())
             .unwrap_or_default();
 
-        if let Some(star) = self.state.stars.get_mut(&star_id) {
-            if let Some(planet) = star.planets.get_mut(planet_index) {
-                if !planet.surveyed {
-                    planet.surveyed = true;
+        if let Some(star) = self.state.stars.get_mut(&star_id)
+            && let Some(planet) = star.planets.get_mut(planet_index)
+            && !planet.surveyed
+        {
+            planet.surveyed = true;
 
-                    // Emit one-time Ancient Ruins discovery event (deterministic, no duplicates).
-                    let has_ruins = planet
-                        .specials
-                        .contains(&crate::state::PlanetSpecial::AncientRuins);
-                    let already_collected = planet.ancient_ruins_collected;
-                    if has_ruins && !already_collected {
-                        planet.ancient_ruins_collected = true;
-                        events.push(Event::AncientRuinsDiscovered {
-                            star: star_id,
-                            planet_index,
-                        });
-                    }
+            // Emit one-time Ancient Ruins discovery event (deterministic, no duplicates).
+            let has_ruins = planet
+                .specials
+                .contains(&crate::state::PlanetSpecial::AncientRuins);
+            let already_collected = planet.ancient_ruins_collected;
+            if has_ruins && !already_collected {
+                planet.ancient_ruins_collected = true;
+                events.push(Event::AncientRuinsDiscovered {
+                    star: star_id,
+                    planet_index,
+                });
+            }
 
-                    for special in
-                        crate::state::visible_specials_for_empire(planet, &completed_techs)
-                    {
-                        if special != crate::state::PlanetSpecial::AncientRuins
-                            && special.is_major_discovery()
-                        {
-                            events.push(Event::PlanetSpecialDiscovered {
-                                star: star_id,
-                                planet_index,
-                                special,
-                            });
-                        }
-                    }
-
-                    for anomaly in
-                        crate::state::visible_anomalies_for_empire(planet, &completed_techs)
-                    {
-                        events.push(Event::AnomalyDetected {
-                            star: star_id,
-                            planet_index,
-                            anomaly,
-                        });
-                    }
-
-                    for resource in
-                        crate::state::visible_resources_for_empire(planet, &completed_techs)
-                    {
-                        events.push(Event::StrategicResourceDiscovered {
-                            star: star_id,
-                            planet_index,
-                            resource,
-                        });
-                    }
-
-                    events.push(Event::PlanetSurveyCompleted {
+            for special in crate::state::visible_specials_for_empire(planet, &completed_techs) {
+                if special != crate::state::PlanetSpecial::AncientRuins
+                    && special.is_major_discovery()
+                {
+                    events.push(Event::PlanetSpecialDiscovered {
                         star: star_id,
                         planet_index,
+                        special,
                     });
                 }
             }
+
+            for anomaly in crate::state::visible_anomalies_for_empire(planet, &completed_techs) {
+                events.push(Event::AnomalyDetected {
+                    star: star_id,
+                    planet_index,
+                    anomaly,
+                });
+            }
+
+            for resource in crate::state::visible_resources_for_empire(planet, &completed_techs) {
+                events.push(Event::StrategicResourceDiscovered {
+                    star: star_id,
+                    planet_index,
+                    resource,
+                });
+            }
+
+            events.push(Event::PlanetSurveyCompleted {
+                star: star_id,
+                planet_index,
+            });
         }
     }
 

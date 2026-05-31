@@ -1,20 +1,20 @@
 //! Sector governance and automation screen.
 
+use crate::AppState;
 use crate::components::{
     derive_header_data, quiet_panel_block, render_footer, render_header, section_heading,
 };
 use crate::layout::{compose_layout, split_main_detail};
 use crate::screens::Screen;
 use crate::theme::Theme;
-use crate::AppState;
 use game_core::{
-    yield_model, ColonyAutomation, ColonyId, EmpireId, GameState, SectorDirective, SectorId,
+    ColonyAutomation, ColonyId, EmpireId, GameState, SectorDirective, SectorId, yield_model,
 };
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 const MIN_WIDTH_FOR_SIDE_BY_SIDE: u16 = 90;
@@ -355,7 +355,7 @@ fn render_sector_detail(
 mod tests {
     use super::*;
     use game_core::{Command, Engine};
-    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 
     fn render_buffer(engine: &Engine, app_state: &AppState, width: u16, height: u16) -> Buffer {
         let backend = TestBackend::new(width, height);

@@ -14,7 +14,7 @@ use game_core::{Command, Engine, Event};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use report::{E2eCommandTrace, E2eFailureCategory, E2eRunReport, E2eSeverity};
-use scenario::{build_scenario_setup, E2eScenario};
+use scenario::{E2eScenario, build_scenario_setup};
 use serde_json::json;
 use simulated_player::{
     BalancedExplorerPlayer, PlayerObservation, SimulatedPlayer, SimulatedPlayerPolicy,

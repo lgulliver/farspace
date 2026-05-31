@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::theme::Theme;
-use game_core::{empire_definition_by_id, EmpireId, GameState, SectorId, StarId};
+use game_core::{EmpireId, GameState, SectorId, StarId, empire_definition_by_id};
 use ratatui::style::Color;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -280,6 +280,9 @@ fn menu_selected_row_shows_glyph_marker() {
     let mut app = App::new();
     app.state.active = Screen::Menu;
     app.state.menu_cursor = 0;
+    // Pin Unicode so the assertion is independent of any persisted config that
+    // other tests may have written; Ascii mode downgrades the marker to '>'.
+    app.state.visual_mode = crate::visual_mode::VisualMode::Unicode;
     terminal.draw(|frame| app.render(frame)).unwrap();
 
     let rendered: String = terminal
@@ -3170,6 +3173,8 @@ fn menu_o_key_opens_settings_screen() {
 fn menu_enter_starts_new_game_flow() {
     let mut app = App::new();
     app.state.active = Screen::Menu;
+    // Cursor 0 is now Continue; move to New Game before activating.
+    app.state.menu_cursor = 1;
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.state.active, Screen::NewGameSetup);
 }
@@ -3195,7 +3200,8 @@ fn menu_down_moves_cursor() {
 fn menu_enter_activates_selected_option() {
     let mut app = App::new();
     app.state.active = Screen::Menu;
-    app.state.menu_cursor = 2;
+    // Options now sits at cursor index 3 (after Continue, New Game, Load Game).
+    app.state.menu_cursor = 3;
     app.handle_key(key(KeyCode::Enter));
     assert!(app.state.overlay.show_settings);
 }
@@ -3480,4 +3486,156 @@ fn update_channel_getter_reflects_configured_channel() {
     let mut app = App::new();
     app.state.update_channel = crate::update::UpdateChannel::Nightly;
     assert_eq!(app.update_channel(), crate::update::UpdateChannel::Nightly);
+}
+
+fn fake_summary(name: &str, readable: bool) -> game_save::SaveSlotSummary {
+    game_save::SaveSlotSummary {
+        path: std::path::PathBuf::from(format!("{name}.sav")),
+        display_name: name.to_string(),
+        turn: if readable { Some(12) } else { None },
+        empire_name: if readable {
+            Some("Aurora".to_string())
+        } else {
+            None
+        },
+        galaxy_size: if readable {
+            Some("Medium".to_string())
+        } else {
+            None
+        },
+        ai_empires: if readable { Some(3) } else { None },
+        difficulty: if readable {
+            Some("Standard".to_string())
+        } else {
+            None
+        },
+        updated_at: Some("2026-05-30 12:00".to_string()),
+        readable,
+    }
+}
+
+fn open_archives_with(app: &mut App, entries: Vec<game_save::SaveSlotSummary>) {
+    app.state.active = Screen::Menu;
+    app.state.overlay.archives = ArchivesState {
+        open: true,
+        entries,
+        cursor: 0,
+        confirm_delete: false,
+        show_help: false,
+        error: None,
+    };
+}
+
+#[test]
+fn archives_opens_via_menu_load_action() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.activate_menu_action(MenuAction::LoadGame);
+    assert!(app.state.overlay.archives.open);
+}
+
+#[test]
+fn archives_cursor_nav_wraps() {
+    let mut app = App::new();
+    open_archives_with(
+        &mut app,
+        vec![
+            fake_summary("Alpha", true),
+            fake_summary("Beta", true),
+            fake_summary("Gamma", true),
+        ],
+    );
+
+    app.handle_key(key(KeyCode::Down));
+    assert_eq!(app.state.overlay.archives.cursor, 1);
+    app.handle_key(key(KeyCode::Down));
+    app.handle_key(key(KeyCode::Down));
+    assert_eq!(app.state.overlay.archives.cursor, 0, "down wraps to first");
+
+    app.handle_key(key(KeyCode::Up));
+    assert_eq!(app.state.overlay.archives.cursor, 2, "up wraps to last");
+}
+
+#[test]
+fn archives_esc_closes() {
+    let mut app = App::new();
+    open_archives_with(&mut app, vec![fake_summary("Alpha", true)]);
+    app.handle_key(key(KeyCode::Esc));
+    assert!(!app.state.overlay.archives.open);
+}
+
+#[test]
+fn archives_help_toggles_then_dismisses() {
+    let mut app = App::new();
+    open_archives_with(&mut app, vec![fake_summary("Alpha", true)]);
+
+    app.handle_key(key(KeyCode::Char('?')));
+    assert!(app.state.overlay.archives.show_help);
+
+    // Any subsequent key dismisses help without acting on it.
+    app.handle_key(key(KeyCode::Down));
+    assert!(!app.state.overlay.archives.show_help);
+    assert_eq!(app.state.overlay.archives.cursor, 0);
+}
+
+#[test]
+fn archives_new_game_opens_setup_and_closes() {
+    let mut app = App::new();
+    open_archives_with(&mut app, vec![fake_summary("Alpha", true)]);
+
+    app.handle_key(key(KeyCode::Char('N')));
+    assert!(!app.state.overlay.archives.open);
+    assert_eq!(app.state.active, Screen::NewGameSetup);
+}
+
+#[test]
+fn archives_delete_confirm_then_cancel_keeps_entries() {
+    let mut app = App::new();
+    open_archives_with(
+        &mut app,
+        vec![fake_summary("Alpha", true), fake_summary("Beta", true)],
+    );
+
+    app.handle_key(key(KeyCode::Char('d')));
+    assert!(app.state.overlay.archives.confirm_delete);
+
+    app.handle_key(key(KeyCode::Esc));
+    assert!(!app.state.overlay.archives.confirm_delete);
+    assert_eq!(
+        app.state.overlay.archives.entries.len(),
+        2,
+        "cancelling delete removes nothing"
+    );
+    assert!(app.state.overlay.archives.open, "cancel stays in archives");
+}
+
+#[test]
+fn continue_is_no_op_when_cannot_continue() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.state.can_continue = false;
+    app.activate_menu_action(MenuAction::Continue);
+    assert_eq!(app.state.active, Screen::Menu);
+    assert!(app.engine.is_none());
+}
+
+#[test]
+fn friendly_load_error_maps_variants_to_human_text() {
+    let newer = friendly_load_error(&game_save::SaveError::UnsupportedVersion {
+        found: 99,
+        supported: 38,
+    });
+    assert!(newer.starts_with("Could not load campaign:"));
+    assert!(newer.contains("newer than this build"));
+
+    let corrupt = friendly_load_error(&game_save::SaveError::CorruptedSave {
+        reason: "bad".to_string(),
+    });
+    assert!(corrupt.contains("corrupted or incomplete"));
+
+    let perm = friendly_load_error(&game_save::SaveError::Io(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        "denied",
+    )));
+    assert!(perm.contains("permission denied"));
 }

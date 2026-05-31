@@ -1,0 +1,1 @@
+Let's create themeatic release notes in the style of a Galactic News Dispatch for between v0.2.0 and v0.3.0

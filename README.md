@@ -21,6 +21,7 @@ FARSPACE is playable alpha with multi-screen TUI and deterministic core loop.
 - Terminal fonts and visual modes: [`docs/user/terminal-fonts.md`](docs/user/terminal-fonts.md)
 - 90s-style game manual (GitHub Pages source): [`docs/manual/index.html`](docs/manual/index.html)
 - Recently completed:
+  - ✅ Sector Governance & Automation v1
   - ✅ Planet Specials & Anomalies v1
   - ✅ Strategic Resources v1
   - ✅ Large-Scale Tech Tree v2
@@ -123,8 +124,9 @@ cargo run --release -p farspace
 - `L`: load game from menu
 - `hjkl` / arrows: navigation
 - `Enter` / `e` / `t`: confirm or end turn (context dependent)
+- `G`: sector governance & automation (`D` cycles directive, `A` toggles sector-guided automation)
 - `?`: contextual help
-- `:`: command palette (`save`, `load`)
+- `:`: command palette (`save`, `load`, `clear-rally`, `visual-mode`, `dispatch`/`news`)
 - `Q` / `Ctrl+C`: quit
 
 ## Alpha Player Guide
@@ -150,6 +152,7 @@ cargo run --release -p farspace
 
 - **Exploration:** sector/system navigation, scout missions, survey actions.
 - **Colonization & economy:** colony creation, role assignment, production queue, supply/food/credits.
+- **Sector governance:** per-sector strategic directives and sector-guided build automation, with last-turn output reporting (`G`).
 - **Research:** active tech, queue management, unlock-driven progression.
 - **Diplomacy & war:** first contact, relationship drift, empire intel levels, war state, invasion and strategic auto-resolve combat.
 - **Victory:** progress tracked in empire overview (`O`/`V`) across enabled victory paths.

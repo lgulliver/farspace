@@ -17,6 +17,7 @@
       <nav class="toc">
         <a href="#install">Install</a>
         <a href="#contribute">Contribute</a>
+        <a href="#controls">Controls</a>
         <a href="#empires">Empires</a>
         <a href="#tech-tree">Tech Tree</a>
       </nav>
@@ -53,6 +54,35 @@ cargo run --release -p farspace</code></pre>
         <pre><code>cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets</code></pre>
+      </section>
+
+      <section id="controls" class="panel">
+        <h2>Controls &amp; Systems</h2>
+        <p>FARSPACE is keyboard-first. Global <code>?</code> opens contextual help on every screen and <code>:</code> opens the command palette from anywhere.</p>
+        <h3>Core keys</h3>
+        <ul>
+          <li><code>N</code> new game &middot; <code>L</code> load game from menu</li>
+          <li><code>hjkl</code> / arrows to navigate &middot; <code>Enter</code> to confirm</li>
+          <li><code>E</code> / <code>T</code> end turn &middot; <code>Q</code> / <code>Ctrl+C</code> quit</li>
+          <li><code>?</code> contextual help &middot; <code>:</code> command palette</li>
+        </ul>
+        <h3>Screens</h3>
+        <ul>
+          <li>Sector map, system view, colony, research, diplomacy, empire overview.</li>
+          <li><code>G</code> opens <strong>Sector Governance &amp; Automation</strong>.</li>
+        </ul>
+        <h3>Sector Governance &amp; Automation</h3>
+        <p>Manage colonies in bulk by sector instead of one at a time.</p>
+        <ul>
+          <li><code>D</code> cycles the sector's strategic <strong>directive</strong> (Balanced, Industrial, Research, Agricultural, Military, Economic, Stabilization), steering sector-guided colonies.</li>
+          <li><code>A</code> toggles <strong>sector-guided automation</strong> for the sector's colonies, which then build toward the directive automatically.</li>
+          <li>Per-sector output (industry, science, food) is reported as <strong>last-turn actuals</strong> &mdash; the figures the engine produced on the most recent End Turn, including tech, faction, and strategic-resource bonuses and any isolation/blockade penalties. Totals refresh on End Turn.</li>
+        </ul>
+        <h3>Command palette (<code>:</code>)</h3>
+        <ul>
+          <li><code>save</code> / <code>load</code> &middot; <code>clear-rally</code> &middot; <code>visual-mode</code> &middot; <code>dispatch</code> (alias <code>news</code>)</li>
+        </ul>
+        <p>Full design reference: <a href="https://github.com/lgulliver/farspace/blob/main/docs/design/sector-governance-and-automation.md">sector-governance-and-automation.md</a>.</p>
       </section>
 
       <section id="empires" class="panel">

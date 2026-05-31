@@ -401,6 +401,7 @@ impl App {
         let mut intel_gains = 0usize;
         let mut unrest_worsened = 0usize;
         let mut revolt_risk = 0usize;
+        let mut automation_queued = 0usize;
 
         for event in events {
             match event {
@@ -431,6 +432,7 @@ impl App {
                 CoreEvent::WarDeclared { .. } => war_events += 1,
                 CoreEvent::PeaceSigned { .. } => peace_events += 1,
                 CoreEvent::IntelGained { .. } => intel_gains += 1,
+                CoreEvent::ColonyAutomationQueued { .. } => automation_queued += 1,
                 CoreEvent::ColonyUnrestChanged { from, to, .. } => {
                     if to > from {
                         unrest_worsened += 1;
@@ -453,7 +455,7 @@ impl App {
         });
 
         format!(
-            "Turn {} global summary (all empires): explored {}, surveyed {}, discoveries {}, colonized {}, research {}, queued starts {}, arrivals {}, combats {}, retreats {}, invasions won {}, invasions failed {}, treaties {}, wars {}, peaces {}, intel gains {}, victory milestones {}, victories {}, unrest worsened {}, revolt risk {}, warnings {}, isolated {}, reconnected {}, errors {}{}.",
+            "Turn {} global summary (all empires): explored {}, surveyed {}, discoveries {}, colonized {}, research {}, queued starts {}, arrivals {}, combats {}, retreats {}, invasions won {}, invasions failed {}, treaties {}, wars {}, peaces {}, intel gains {}, victory milestones {}, victories {}, unrest worsened {}, revolt risk {}, automation queued {}, warnings {}, isolated {}, reconnected {}, errors {}{}.",
             turn,
             explored,
             surveyed,
@@ -474,6 +476,7 @@ impl App {
             victories,
             unrest_worsened,
             revolt_risk,
+            automation_queued,
             warnings,
             newly_isolated,
             reconnected,

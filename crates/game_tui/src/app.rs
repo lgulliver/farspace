@@ -2,6 +2,7 @@
 
 mod logging;
 
+use crate::animation::{ScreenTransition, TransitionState};
 use crate::components::{
     render_battle_reports, render_dispatch, render_help, render_palette, EventLog, LogEntryKind,
     PaletteCommand,
@@ -13,15 +14,20 @@ use crate::screens::research::{
     filtered_research_techs, RESEARCH_DOMAIN_FILTER_COUNT, RESEARCH_ERA_FILTER_COUNT,
     RESEARCH_STATUS_FILTER_COUNT,
 };
+use crate::screens::sector_governance::{derive_sector_governance, SectorGovernanceRow};
 use crate::screens::ship_designer::{DesignerMode, DesignerPanel, ShipDesignerState};
 use crate::screens::Screen;
 use crate::update::{UpdateChannel, UpdateConfirmKind, UpdateInfo, UpdateState};
 use crate::visual_mode::{map_symbol_for_mode, user_config_path, VisualMode};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use game_core::advisor::{
+    AdvisorContext, AdvisorEngine, AdvisorOutput, AdvisorPreferences, PlayerKnowledge,
+};
 use game_core::{
-    empire_definition_by_id, tech_by_id, BuildingType, ColonyId, ColonyRole, Command, ComponentId,
-    Engine, Event as CoreEvent, FleetFormation, FleetId, FleetKind, FleetRole, GalaxySize,
-    OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId, TreatyType,
+    empire_definition_by_id, tech_by_id, BuildingType, ColonyAutomation, ColonyId, ColonyRole,
+    Command, ComponentId, Engine, Event as CoreEvent, FleetFormation, FleetId, FleetKind,
+    FleetRole, GalaxySize, OrbitalStructureType, ScenarioSetup, SectorId, StarId, TechId,
+    TreatyType,
 };
 use ratatui::{backend::Backend, Frame, Terminal};
 use std::io;
@@ -30,6 +36,39 @@ use std::time::Duration;
 
 /// Default save file path
 const DEFAULT_SAVE_PATH: &str = "farspace.sav";
+
+/// Render ticks for the subtle fade when a campaign launches. UI-only.
+const CAMPAIGN_ENTRY_TRANSITION_TICKS: u16 = 6;
+
+/// Short, human-readable explanation of an IO failure (no debug noise).
+fn io_error_reason(err: &std::io::Error) -> &'static str {
+    use std::io::ErrorKind;
+    match err.kind() {
+        ErrorKind::NotFound => "the file could not be found.",
+        ErrorKind::PermissionDenied => "permission denied.",
+        _ => "the file could not be read from disk.",
+    }
+}
+
+/// Map a [`game_save::SaveError`] onto a calm, player-facing sentence. Raw Rust
+/// error text never reaches the UI; the full error is still suitable for logs.
+fn friendly_load_error(err: &game_save::SaveError) -> String {
+    use game_save::SaveError;
+    let reason = match err {
+        SaveError::UnsupportedVersion { .. } => {
+            "save version is newer than this build.".to_string()
+        }
+        SaveError::MigrationFailed { .. } => {
+            "it could not be upgraded from an older version.".to_string()
+        }
+        SaveError::Empty
+        | SaveError::CorruptedSave { .. }
+        | SaveError::MissingField { .. }
+        | SaveError::Json(_) => "file is corrupted or incomplete.".to_string(),
+        SaveError::Io(io) => io_error_reason(io).to_string(),
+    };
+    format!("Could not load campaign: {reason}")
+}
 
 /// Main application state
 pub struct App {
@@ -58,6 +97,7 @@ pub struct AppState {
     pub(crate) colony: ColonyScreenState,
     pub(crate) research: ResearchScreenState,
     pub(crate) overview: EmpireOverviewScreenState,
+    pub(crate) governance: SectorGovernanceScreenState,
     pub(crate) diplomacy: DiplomacyScreenState,
     pub(crate) new_game_setup: NewGameSetupState,
     pub(crate) log: EventLog,
@@ -67,8 +107,18 @@ pub struct AppState {
     pub(crate) tick_count: u64,
     /// When true, all fleet travel animations are suppressed (accessibility / low-motion).
     pub(crate) reduced_motion: bool,
+    /// Active screen transition (UI-only, tick-driven). Scaffolding for future
+    /// transition compositing; never affects simulation state.
+    pub(crate) transition: TransitionState,
     /// Status line shown in contextual footer hints.
     pub(crate) status_message: Option<String>,
+    /// Latest deterministic advisor guidance, recomputed on new game and each
+    /// turn end. Drives the turn brief and contextual advisor strip.
+    pub(crate) advisor_output: AdvisorOutput,
+    /// What the player has already seen/dismissed; gates one-shot tutorial tips.
+    pub(crate) advisor_knowledge: PlayerKnowledge,
+    /// Advisor display preferences (enabled, muted categories, message cap).
+    pub(crate) advisor_prefs: AdvisorPreferences,
     pub(crate) ship_designer: ShipDesignerState,
     /// Terminal glyph mode for rendering text and icons.
     pub(crate) visual_mode: VisualMode,
@@ -82,6 +132,9 @@ pub struct AppState {
     pub(crate) settings_cursor: usize,
     /// Cursor position on the menu screen.
     pub(crate) menu_cursor: usize,
+    /// Whether at least one readable save exists, gating the "Continue" menu
+    /// action. Refreshed when the menu is shown and after save/delete.
+    pub(crate) can_continue: bool,
 }
 
 /// UI overlay state shared by all screens.
@@ -104,6 +157,21 @@ pub(crate) struct OverlayState {
     pub(crate) show_settings: bool,
     /// Update confirmation dialog — `Some` means the dialog is showing.
     pub(crate) update_confirm: Option<UpdateConfirmKind>,
+    /// Campaign Archives (save browser) overlay state.
+    pub(crate) archives: ArchivesState,
+}
+
+/// Campaign Archives overlay state. Holds the scanned save summaries plus the
+/// browser cursor and modal flags. The summaries are a UI snapshot, refreshed
+/// each time the overlay is opened.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ArchivesState {
+    pub(crate) open: bool,
+    pub(crate) entries: Vec<game_save::SaveSlotSummary>,
+    pub(crate) cursor: usize,
+    pub(crate) confirm_delete: bool,
+    pub(crate) show_help: bool,
+    pub(crate) error: Option<String>,
 }
 
 /// Cross-screen map/system selection state.
@@ -171,6 +239,13 @@ pub(crate) struct EmpireOverviewScreenState {
     pub(crate) filter: String,
     /// Whether filter input mode is active on the overview screen.
     pub(crate) filter_input: bool,
+}
+
+/// Sector governance screen state.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SectorGovernanceScreenState {
+    /// Cursor index for the selected sector row.
+    pub(crate) cursor: usize,
 }
 
 /// New Game Setup screen state.
@@ -370,7 +445,7 @@ impl App {
     /// Create a new application
     pub fn new() -> Self {
         let cfg = Self::load_config();
-        App {
+        let mut app = App {
             state: AppState {
                 visual_mode: cfg.visual_mode,
                 update_channel: cfg.update_channel,
@@ -382,7 +457,23 @@ impl App {
             download_tx: None,
             download_rx: None,
             restart_requested: false,
-        }
+        };
+        app.refresh_continue_availability();
+        app
+    }
+
+    /// Directory scanned for campaign saves. Single-file saves are written to the
+    /// process working directory, so that is where the archives live too.
+    fn saves_dir(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from(".")
+    }
+
+    /// Refresh whether the "Continue" menu action is available by checking for at
+    /// least one readable save on disk.
+    fn refresh_continue_availability(&mut self) {
+        self.state.can_continue = game_save::list_saves(&self.saves_dir())
+            .iter()
+            .any(|s| s.readable);
     }
 
     /// Returns the update channel the user has configured, for use by the binary crate.
@@ -460,6 +551,30 @@ impl App {
 
         self.engine = Some(engine);
         self.state.active = Screen::SectorOverview;
+        self.recompute_advisor(&[]);
+        // Subtle entry transition into the campaign. Inert under reduced motion.
+        if !self.state.reduced_motion {
+            self.state
+                .transition
+                .start(ScreenTransition::Fade, CAMPAIGN_ENTRY_TRANSITION_TICKS);
+        }
+    }
+
+    /// Recompute advisor guidance from current game state and the given events.
+    /// No-op when no game is loaded. Deterministic: same state + events ⇒ same
+    /// guidance.
+    fn recompute_advisor(&mut self, events: &[CoreEvent]) {
+        let Some(engine) = &self.engine else {
+            self.state.advisor_output = AdvisorOutput::default();
+            return;
+        };
+        self.state.advisor_output = AdvisorEngine::new().evaluate(&AdvisorContext {
+            state: &engine.state,
+            events,
+            knowledge: &self.state.advisor_knowledge,
+            preferences: &self.state.advisor_prefs,
+            turn: engine.state.turn,
+        });
     }
 
     /// Save the current game to the given path. Returns an error message on failure.
@@ -484,7 +599,136 @@ impl App {
         self.state.navigation.selected_star = selected_star;
         self.state.navigation.selected_planet_index = 0;
         self.state.active = Screen::SectorOverview;
+        self.recompute_advisor(&[]);
         Ok(())
+    }
+
+    /// Open the Campaign Archives overlay, scanning the saves directory fresh.
+    fn open_archives(&mut self) {
+        let entries = game_save::list_saves(&self.saves_dir());
+        self.state.overlay.archives = ArchivesState {
+            open: true,
+            entries,
+            cursor: 0,
+            confirm_delete: false,
+            show_help: false,
+            error: None,
+        };
+    }
+
+    /// Load the most-recently-played readable campaign. Used by "Continue".
+    fn continue_latest_campaign(&mut self) {
+        let Some(summary) = game_save::list_saves(&self.saves_dir())
+            .into_iter()
+            .find(|s| s.readable)
+        else {
+            let msg = "No saved campaign to continue.".to_string();
+            self.state.log.push(msg.clone());
+            self.state.status_message = Some(msg);
+            return;
+        };
+        self.load_selected_path(&summary.path.clone());
+    }
+
+    /// Load the campaign currently selected in the Archives overlay.
+    fn load_selected_archive(&mut self) {
+        let Some(entry) = self
+            .state
+            .overlay
+            .archives
+            .entries
+            .get(self.state.overlay.archives.cursor)
+            .cloned()
+        else {
+            return;
+        };
+        if !entry.readable {
+            self.state.overlay.archives.error = Some(
+                "Could not load campaign: file is corrupted or from a newer build.".to_string(),
+            );
+            return;
+        }
+        let path = entry.path.clone();
+        match game_save::load_from_file(&path) {
+            Ok(state) => {
+                self.adopt_loaded_state(state);
+                self.state.overlay.archives.open = false;
+                let msg = format!("Loaded campaign \"{}\".", entry.display_name);
+                self.state.log.push(msg.clone());
+                self.state.status_message = Some(msg);
+            }
+            Err(e) => {
+                self.state.overlay.archives.error = Some(friendly_load_error(&e));
+            }
+        }
+    }
+
+    /// Load a save path directly (no overlay), reporting via status/log.
+    fn load_selected_path(&mut self, path: &Path) {
+        match game_save::load_from_file(path) {
+            Ok(state) => {
+                self.adopt_loaded_state(state);
+                let msg = format!("Loaded campaign from {}.", path.display());
+                self.state.log.push(msg.clone());
+                self.state.status_message = Some(msg);
+            }
+            Err(e) => {
+                let msg = friendly_load_error(&e);
+                self.state.log.push(msg.clone());
+                self.state.status_message = Some(msg);
+            }
+        }
+    }
+
+    /// Install a freshly-loaded game state and reset navigation.
+    fn adopt_loaded_state(&mut self, state: game_core::state::GameState) {
+        let selected_star = state.stars.keys().next().copied();
+        let selected_sector = state.sectors.keys().next().copied();
+        self.engine = Some(Engine::from_state(state));
+        self.state.navigation.selected_sector = selected_sector;
+        self.state.navigation.selected_star = selected_star;
+        self.state.navigation.selected_planet_index = 0;
+        self.state.active = Screen::SectorOverview;
+        self.recompute_advisor(&[]);
+    }
+
+    /// Delete the campaign currently selected in the Archives overlay, then
+    /// refresh the listing and Continue availability.
+    fn delete_selected_archive(&mut self) {
+        let Some(entry) = self
+            .state
+            .overlay
+            .archives
+            .entries
+            .get(self.state.overlay.archives.cursor)
+            .cloned()
+        else {
+            return;
+        };
+        match game_save::delete_save(&entry.path) {
+            Ok(()) => {
+                let msg = format!("Deleted campaign \"{}\".", entry.display_name);
+                self.state.log.push(msg);
+                self.state.overlay.archives.entries = game_save::list_saves(&self.saves_dir());
+                let len = self.state.overlay.archives.entries.len();
+                self.state.overlay.archives.cursor = self
+                    .state
+                    .overlay
+                    .archives
+                    .cursor
+                    .min(len.saturating_sub(1));
+                self.state.overlay.archives.error = None;
+                self.refresh_continue_availability();
+            }
+            Err(e) => {
+                let reason = match &e {
+                    game_save::SaveError::Io(io) => io_error_reason(io),
+                    _ => "the file could not be removed.",
+                };
+                self.state.overlay.archives.error =
+                    Some(format!("Could not delete campaign: {reason}"));
+            }
+        }
     }
 
     /// Parse and execute palette input (e.g. "save", ":save").
@@ -544,6 +788,7 @@ impl App {
 
             terminal.draw(|frame| self.render(frame))?;
             self.state.tick_count = self.state.tick_count.wrapping_add(1);
+            self.state.transition.advance();
 
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
@@ -664,6 +909,19 @@ impl App {
             crate::screens::settings::render_settings(frame, area, &self.state);
         }
 
+        if self.state.overlay.archives.open {
+            let archives = &self.state.overlay.archives;
+            crate::screens::archives::render_archives(
+                frame,
+                area,
+                &archives.entries,
+                archives.cursor,
+                archives.confirm_delete,
+                archives.show_help,
+                archives.error.as_deref(),
+            );
+        }
+
         if let Some(confirm) = &self.state.overlay.update_confirm {
             render_update_confirm(frame, area, confirm);
         }
@@ -697,6 +955,13 @@ impl App {
                 }
                 _ => {}
             }
+            return;
+        }
+
+        // Campaign Archives overlay — handled before global keys so its own
+        // bindings (Esc/?/N/D) take precedence over the menu shortcuts beneath.
+        if self.state.overlay.archives.open {
+            self.handle_archives_key(key);
             return;
         }
 
@@ -828,6 +1093,12 @@ impl App {
             return;
         }
 
+        // 'G' opens Sector Governance from any game screen
+        if key.code == KeyCode::Char('G') && self.engine.is_some() {
+            self.state.active = Screen::SectorGovernance;
+            return;
+        }
+
         // Screen-specific handling
         match self.state.active {
             Screen::Menu => self.handle_menu_key(key),
@@ -842,12 +1113,16 @@ impl App {
             Screen::Research => self.handle_research_key(key),
             Screen::Diplomacy => self.handle_diplomacy_key(key),
             Screen::ShipDesigner => self.handle_ship_designer_key(key),
+            Screen::SectorGovernance => self.handle_sector_governance_key(key),
         }
     }
 
     fn handle_menu_key(&mut self, key: KeyEvent) {
-        if KeyMap::is_new_game(key) {
+        if matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C')) {
             self.state.menu_cursor = 0;
+            self.activate_menu_action(MenuAction::Continue);
+        } else if KeyMap::is_new_game(key) {
+            self.state.menu_cursor = 1;
             self.activate_menu_action(MenuAction::NewGame);
         } else if matches!(key.code, KeyCode::Char('j') | KeyCode::Down) {
             self.state.menu_cursor = (self.state.menu_cursor + 1) % menu_action_count();
@@ -866,10 +1141,10 @@ impl App {
             key.code,
             KeyCode::Char('s') | KeyCode::Char('S') | KeyCode::Char('o') | KeyCode::Char('O')
         ) {
-            self.state.menu_cursor = 2;
+            self.state.menu_cursor = 3;
             self.activate_menu_action(MenuAction::Options);
         } else if KeyMap::is_load_game(key) {
-            self.state.menu_cursor = 1;
+            self.state.menu_cursor = 2;
             self.activate_menu_action(MenuAction::LoadGame);
         } else if matches!(key.code, KeyCode::Char('u') | KeyCode::Char('U')) {
             // Open update confirm dialog
@@ -884,29 +1159,75 @@ impl App {
                 self.state.overlay.update_confirm = Some(kind);
             }
         } else if KeyMap::is_escape(key) {
-            self.state.menu_cursor = 3;
+            self.state.menu_cursor = 4;
             self.activate_menu_action(MenuAction::Quit);
+        }
+    }
+
+    fn handle_archives_key(&mut self, key: KeyEvent) {
+        // Delete confirmation captures all input until resolved.
+        if self.state.overlay.archives.confirm_delete {
+            match key.code {
+                KeyCode::Enter => {
+                    self.delete_selected_archive();
+                    self.state.overlay.archives.confirm_delete = false;
+                }
+                KeyCode::Esc => {
+                    self.state.overlay.archives.confirm_delete = false;
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        // Inline help captures the next key to dismiss it.
+        if self.state.overlay.archives.show_help {
+            self.state.overlay.archives.show_help = false;
+            return;
+        }
+
+        let count = self.state.overlay.archives.entries.len();
+        match key.code {
+            KeyCode::Esc => {
+                self.state.overlay.archives.open = false;
+            }
+            KeyCode::Char('?') => {
+                self.state.overlay.archives.show_help = true;
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                self.state.overlay.archives.open = false;
+                self.state.active = Screen::NewGameSetup;
+            }
+            KeyCode::Down | KeyCode::Char('j') if count > 0 => {
+                self.state.overlay.archives.cursor =
+                    (self.state.overlay.archives.cursor + 1) % count;
+            }
+            KeyCode::Up | KeyCode::Char('k') if count > 0 => {
+                self.state.overlay.archives.cursor =
+                    (self.state.overlay.archives.cursor + count - 1) % count;
+            }
+            KeyCode::Enter if count > 0 => {
+                self.load_selected_archive();
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') if count > 0 => {
+                self.state.overlay.archives.confirm_delete = true;
+            }
+            _ => {}
         }
     }
 
     fn activate_menu_action(&mut self, action: MenuAction) {
         match action {
+            MenuAction::Continue => {
+                if self.state.can_continue {
+                    self.continue_latest_campaign();
+                }
+            }
             MenuAction::NewGame => {
                 self.state.active = Screen::NewGameSetup;
             }
             MenuAction::LoadGame => {
-                let path = std::path::PathBuf::from(DEFAULT_SAVE_PATH);
-                match self.load_game(&path) {
-                    Ok(()) => {
-                        let msg = format!("Load: loaded {}", path.display());
-                        self.state.log.push(msg.clone());
-                        self.state.status_message = Some(msg);
-                    }
-                    Err(e) => {
-                        self.state.log.push(e.clone());
-                        self.state.status_message = Some(e);
-                    }
-                }
+                self.open_archives();
             }
             MenuAction::Options => {
                 self.state.overlay.show_settings = true;
@@ -1358,6 +1679,10 @@ impl App {
             // X: clear rally point for the active colony
             KeyCode::Char('X') => {
                 self.clear_rally_point();
+            }
+            // A: toggle this colony's automation mode (manual ↔ sector-guided)
+            KeyCode::Char('A') | KeyCode::Char('a') => {
+                self.toggle_colony_automation();
             }
             // End turn from colony screen
             _ => {
@@ -2180,6 +2505,8 @@ impl App {
             self.push_core_event_to_log(event);
         }
 
+        self.recompute_advisor(&events);
+
         if let Some(report) = end_turn_report {
             self.push_status(LogEntryKind::TurnReport, report);
             // Auto-show dispatch if a new one was generated this turn
@@ -2359,6 +2686,92 @@ impl App {
             colony: colony_id,
             role,
         });
+    }
+
+    /// Toggle the active colony's automation mode (manual ↔ sector-guided).
+    fn toggle_colony_automation(&mut self) {
+        let colony_id = match self.state.colony.selected_colony {
+            Some(id) => id,
+            None => {
+                let msg = "Unavailable: toggle automation — no colony selected.";
+                self.state.log.push(msg.to_string());
+                self.state.status_message = Some(msg.to_string());
+                return;
+            }
+        };
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        let automation = engine.state.colony_automation_mode(colony_id).toggled();
+        self.dispatch_command(Command::SetColonyAutomation {
+            colony: colony_id,
+            automation,
+        });
+    }
+
+    fn handle_sector_governance_key(&mut self, key: KeyEvent) {
+        let rows = self
+            .engine
+            .as_ref()
+            .map(|engine| derive_sector_governance(&engine.state, engine.state.player_empire).rows)
+            .unwrap_or_default();
+        match key.code {
+            KeyCode::Esc => {
+                self.state.active = Screen::SectorMap;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if !rows.is_empty() {
+                    self.state.governance.cursor = (self.state.governance.cursor + 1) % rows.len();
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if !rows.is_empty() {
+                    self.state.governance.cursor =
+                        (self.state.governance.cursor + rows.len().saturating_sub(1)) % rows.len();
+                }
+            }
+            KeyCode::Char('D') | KeyCode::Char('d') => self.cycle_sector_directive(&rows),
+            KeyCode::Char('A') | KeyCode::Char('a') => self.toggle_sector_automation(&rows),
+            _ => {
+                if KeyMap::is_end_turn(key) && key.code != KeyCode::Enter {
+                    self.end_turn();
+                }
+            }
+        }
+    }
+
+    /// Advance the selected sector's directive to the next value in the cycle.
+    fn cycle_sector_directive(&mut self, rows: &[SectorGovernanceRow]) {
+        let cursor = self.state.governance.cursor;
+        let Some(row) = rows.get(cursor) else {
+            return;
+        };
+        let directive = row.directive.next();
+        self.dispatch_command(Command::SetSectorDirective {
+            sector: row.sector_id,
+            directive,
+        });
+    }
+
+    /// Toggle sector-guided automation for every colony in the selected sector.
+    /// If all colonies are already sector-guided, switch them back to manual.
+    fn toggle_sector_automation(&mut self, rows: &[SectorGovernanceRow]) {
+        let cursor = self.state.governance.cursor;
+        let Some(row) = rows.get(cursor) else {
+            return;
+        };
+        let target = if row.automated_count == row.colony_count {
+            ColonyAutomation::Manual
+        } else {
+            ColonyAutomation::SectorGuided
+        };
+        let colony_ids: Vec<ColonyId> = row.colonies.iter().map(|c| c.colony_id).collect();
+        for colony in colony_ids {
+            self.dispatch_command(Command::SetColonyAutomation {
+                colony,
+                automation: target,
+            });
+        }
     }
 
     /// Confirm the selected star as the rally point for `pending_rally_colony`.
@@ -3093,6 +3506,7 @@ fn render_update_confirm(
     frame.render_widget(
         Paragraph::new(body)
             .alignment(Alignment::Center)
+            .wrap(ratatui::widgets::Wrap { trim: true })
             .style(Style::default().fg(Color::White)),
         rows[1],
     );

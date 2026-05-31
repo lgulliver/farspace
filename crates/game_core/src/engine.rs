@@ -9,15 +9,15 @@ use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hyperspace_lanes};
 use crate::state::{
     all_techs, empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
-    AiDoctrine, BattleReport, BuildItem, Colony, ColonyId, ColonyRole, ColonySupplyState,
-    ColonyUnrestState, CombatPhase, CombatPhaseSummary, ComponentId, CustomDesignId,
-    CustomShipDesign, DiplomaticCommunication, DiplomaticCommunicationType, DiplomaticRelationship,
-    DiplomaticResponse, DiplomaticTone, DiplomaticTreaty, Empire, EmpireId, EmpireIntel,
-    EspionageMission, Fleet, FleetFormation, FleetId, FleetKind, FleetMission, FleetOrder,
-    FleetRole, FleetSupplyState, GameState, HullId, HyperspaceLane, IntelLevel, IntelSource,
-    OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
-    ShipDesignId, StarId, StrategicResource, SurveyMission, TechId, TreatyType, UnrestCause,
-    YieldType,
+    AiDoctrine, BattleReport, BuildItem, BuildingType, Colony, ColonyAutomation, ColonyId,
+    ColonyRole, ColonySupplyState, ColonyUnrestState, CombatPhase, CombatPhaseSummary, ComponentId,
+    CustomDesignId, CustomShipDesign, DiplomaticCommunication, DiplomaticCommunicationType,
+    DiplomaticRelationship, DiplomaticResponse, DiplomaticTone, DiplomaticTreaty, Empire, EmpireId,
+    EmpireIntel, EspionageMission, Fleet, FleetFormation, FleetId, FleetKind, FleetMission,
+    FleetOrder, FleetRole, FleetSupplyState, GameState, HullId, HyperspaceLane, IntelLevel,
+    IntelSource, OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup,
+    ScoutMission, SectorDirective, SectorId, ShipDesignId, StarId, StrategicResource,
+    SurveyMission, TechId, TreatyType, UnrestCause, YieldType,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
@@ -72,15 +72,6 @@ struct YieldBonuses {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-struct StrategicResourceBonuses {
-    industry_per_colony: i64,
-    credits_per_colony: i64,
-    science_per_colony: i64,
-    food_per_colony: i64,
-    research_percent_bonus: i64,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
 struct EmpireUnrestPressure {
     war_exhaustion: u8,
     overextension: u8,
@@ -91,46 +82,6 @@ struct UnrestEvaluation {
     state: ColonyUnrestState,
     causes: Vec<UnrestCause>,
     rebellion_risk_bp: u16,
-}
-
-fn strategic_resource_bonuses_for_empire(
-    state: &GameState,
-    empire_id: EmpireId,
-) -> StrategicResourceBonuses {
-    let count = |resource| state.empire_resource_count(empire_id, resource);
-    let has = |resource| count(resource) > 0;
-    let scaled = |resource| i64::from(count(resource).min(2));
-
-    let mut bonuses = StrategicResourceBonuses::default();
-    if has(StrategicResource::ReactiveIsotopes) {
-        bonuses.industry_per_colony += scaled(StrategicResource::ReactiveIsotopes);
-    }
-    if has(StrategicResource::QuantumCrystals) {
-        bonuses.science_per_colony += scaled(StrategicResource::QuantumCrystals);
-    }
-    if has(StrategicResource::HyperfiberOrganics) {
-        bonuses.food_per_colony += scaled(StrategicResource::HyperfiberOrganics);
-    }
-    if has(StrategicResource::AntimatterResidue) {
-        bonuses.industry_per_colony += 1;
-        bonuses.science_per_colony += 1;
-    }
-    if has(StrategicResource::DarkMatter) {
-        bonuses.credits_per_colony += 1;
-    }
-    if has(StrategicResource::PsionicSpores) {
-        bonuses.science_per_colony += 1;
-    }
-    if has(StrategicResource::NeutroniumDeposits) {
-        bonuses.industry_per_colony += 1;
-    }
-    if has(StrategicResource::LivingAlloy) {
-        bonuses.credits_per_colony += 1;
-    }
-    if has(StrategicResource::PrecursorDatacores) {
-        bonuses.research_percent_bonus += 15;
-    }
-    bonuses
 }
 
 /// Return the number of travel turns for a fleet moving the given squared Euclidean distance.
@@ -1432,6 +1383,12 @@ impl Engine {
                 Command::SetColonyRole { colony, role } => {
                     self.process_set_colony_role(colony, role, &mut events);
                 }
+                Command::SetSectorDirective { sector, directive } => {
+                    self.process_set_sector_directive(sector, directive, &mut events);
+                }
+                Command::SetColonyAutomation { colony, automation } => {
+                    self.process_set_colony_automation(colony, automation, &mut events);
+                }
                 Command::SetRallyPoint { colony, star } => {
                     self.process_set_rally_point(colony, star, &mut events);
                 }
@@ -1545,6 +1502,8 @@ impl Engine {
     fn process_end_turn(&mut self, events: &mut Vec<Event>) {
         // Process colonies in deterministic order
         let colony_ids = sorted_colony_ids(&self.state.colonies);
+        // Rebuilt from scratch each turn so stale colonies never linger.
+        self.state.last_colony_yields.clear();
         let previous_supply = self.last_turn_colony_supply.clone();
         self.refresh_colony_supply_statuses();
         let current_turn_supply = self.state.colony_supply.clone();
@@ -1590,6 +1549,10 @@ impl Engine {
         let empire_unrest_pressure = self.empire_unrest_pressure_map();
 
         for colony_id in colony_ids {
+            // Sector-guided automation may queue a build before the queue is read,
+            // so a freshly-queued item can begin construction this same turn.
+            self.run_colony_automation(colony_id, events);
+
             // Get colony data needed for yield calculation and build queue
             let (
                 owner,
@@ -1651,7 +1614,7 @@ impl Engine {
                 .get(&owner)
                 .copied()
                 .unwrap_or_default();
-            let resource_bonuses = strategic_resource_bonuses_for_empire(&self.state, owner);
+            let resource_bonuses = self.state.strategic_resource_bonuses_for_empire(owner);
 
             // Apply empire identity trait modifiers on top of tech bonuses.
             let empire_def_mods = self
@@ -1822,6 +1785,18 @@ impl Engine {
                 industry,
                 maintenance: colony_maintenance,
             });
+
+            self.state.last_colony_yields.insert(
+                colony_id,
+                crate::state::ColonyYieldSnapshot {
+                    industry,
+                    credits,
+                    science: research,
+                    food,
+                    food_consumed: colony_yield.food_consumed,
+                    maintenance: colony_maintenance,
+                },
+            );
 
             // Process production queue — one active item at a time, with deterministic
             // overflow carry into subsequent queued items in the same turn.
@@ -2474,6 +2449,169 @@ impl Engine {
             colony: colony_id,
             role,
         });
+    }
+
+    fn process_set_sector_directive(
+        &mut self,
+        sector_id: SectorId,
+        directive: SectorDirective,
+        events: &mut Vec<Event>,
+    ) {
+        // Validate sector exists
+        if !self.state.sectors.contains_key(&sector_id) {
+            events.push(Event::error(format!("Sector {} not found", sector_id.0)));
+            return;
+        }
+
+        self.state.sector_directives.insert(sector_id, directive);
+        events.push(Event::SectorDirectiveSet {
+            sector: sector_id,
+            directive,
+        });
+    }
+
+    fn process_set_colony_automation(
+        &mut self,
+        colony_id: ColonyId,
+        automation: ColonyAutomation,
+        events: &mut Vec<Event>,
+    ) {
+        // Validate colony exists
+        let colony = match self.state.colonies.get(&colony_id) {
+            Some(c) => c,
+            None => {
+                events.push(Event::error(format!("Colony {} not found", colony_id.0)));
+                return;
+            }
+        };
+
+        // Validate owner — only the player may issue this command
+        if colony.owner != self.state.player_empire {
+            events.push(Event::error("Colony not owned by player"));
+            return;
+        }
+
+        self.state.colony_automation.insert(colony_id, automation);
+        events.push(Event::ColonyAutomationModeSet {
+            colony: colony_id,
+            automation,
+        });
+    }
+
+    /// Run sector-guided automation for a single colony at end of turn.
+    ///
+    /// Conservative by design: only player-owned, `SectorGuided` colonies with an
+    /// empty build queue are touched.  An explicit player queue is never
+    /// overridden.  When a build is queued, a `ColonyAutomationQueued` event is
+    /// emitted so the action is always explainable.
+    fn run_colony_automation(&mut self, colony_id: ColonyId, events: &mut Vec<Event>) {
+        let colony = match self.state.colonies.get(&colony_id) {
+            Some(c) => c,
+            None => return,
+        };
+        if colony.owner != self.state.player_empire {
+            return;
+        }
+        if !colony.build_queue.is_empty() {
+            return;
+        }
+        if self.state.colony_automation_mode(colony_id) != ColonyAutomation::SectorGuided {
+            return;
+        }
+
+        let directive = self
+            .state
+            .colony_sector(colony_id)
+            .map(|sector| self.state.sector_directive(sector))
+            .unwrap_or_default();
+
+        if let Some(item) = self.pick_automation_build(colony_id, directive) {
+            if let Some(colony) = self.state.colonies.get_mut(&colony_id) {
+                colony.build_queue.push(item);
+            }
+            events.push(Event::ColonyAutomationQueued {
+                colony: colony_id,
+                item,
+                directive,
+            });
+        }
+    }
+
+    /// Deterministically choose a single build item for an automated colony,
+    /// biased by its sector directive.  Returns `None` when no slot/tech allows
+    /// any useful building this turn.
+    ///
+    /// Each directive prefers one building, then falls through to a generic
+    /// infrastructure order (Fabrication Yard → Science Nexus → Aquaculture Bay)
+    /// so automation keeps making progress once its preferred building exists.
+    fn pick_automation_build(
+        &self,
+        colony_id: ColonyId,
+        directive: SectorDirective,
+    ) -> Option<BuildItem> {
+        let colony = self.state.colonies.get(&colony_id)?;
+        let planet_size = self
+            .state
+            .stars
+            .get(&colony.star)
+            .and_then(|s| s.planets.get(colony.planet_index))
+            .map(|p| p.size);
+        let can_surface = planet_size.is_some_and(|size| colony.can_place_surface_building(size));
+        let can_orbital =
+            planet_size.is_some_and(|size| colony.can_place_orbital_installation(size));
+        let owner = colony.owner;
+        let has_tech = |tech: TechId| -> bool {
+            self.state
+                .empires
+                .get(&owner)
+                .is_some_and(|e| e.research.completed.contains(&tech))
+        };
+        let surface_missing = |bt: BuildingType| can_surface && !colony.buildings.contains(&bt);
+        let generic = || {
+            if surface_missing(BuildingType::FabricationYard) {
+                Some(BuildItem::SurfaceStructure(BuildingType::FabricationYard))
+            } else if surface_missing(BuildingType::ScienceNexus) {
+                Some(BuildItem::SurfaceStructure(BuildingType::ScienceNexus))
+            } else if surface_missing(BuildingType::AquacultureBay) {
+                Some(BuildItem::SurfaceStructure(BuildingType::AquacultureBay))
+            } else {
+                None
+            }
+        };
+
+        match directive {
+            SectorDirective::Industrial => {
+                if surface_missing(BuildingType::FabricationYard) {
+                    return Some(BuildItem::SurfaceStructure(BuildingType::FabricationYard));
+                }
+            }
+            SectorDirective::Research => {
+                if surface_missing(BuildingType::ScienceNexus) {
+                    return Some(BuildItem::SurfaceStructure(BuildingType::ScienceNexus));
+                }
+            }
+            SectorDirective::Agricultural | SectorDirective::Stabilization => {
+                if surface_missing(BuildingType::AquacultureBay) {
+                    return Some(BuildItem::SurfaceStructure(BuildingType::AquacultureBay));
+                }
+            }
+            SectorDirective::Military => {
+                if !colony.has_shipyard() && can_orbital && has_tech(TechId::ORBITAL_ENGINEERING) {
+                    return Some(BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard));
+                }
+            }
+            SectorDirective::Economic => {
+                if surface_missing(BuildingType::FabricationYard) {
+                    return Some(BuildItem::SurfaceStructure(BuildingType::FabricationYard));
+                }
+                if !colony.has_supply_hub() && can_orbital && has_tech(TechId::RAPID_TRANSIT) {
+                    return Some(BuildItem::OrbitalStructure(OrbitalStructureType::SupplyHub));
+                }
+            }
+            SectorDirective::Balanced => {}
+        }
+
+        generic()
     }
 
     fn process_set_rally_point(

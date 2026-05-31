@@ -255,3 +255,38 @@ pub fn resolve_empire_emblem_for_definition(def: &EmpireDefinition) -> EmpireEmb
         .unwrap_or(def.id.0 as usize);
     resolve_empire_emblem(index, def.symbol)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{backend::TestBackend, Terminal};
+
+    fn render_at(width: u16, height: u16) {
+        let backend = TestBackend::new(width.max(1), height.max(1));
+        let mut terminal = Terminal::new(backend).unwrap();
+        let emblem = EmpireEmblem::from_empire_index(0, '◇');
+        terminal
+            .draw(|frame| {
+                let area = ratatui::layout::Rect::new(0, 0, width, height);
+                render_empire_emblem(frame, area, &emblem);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn emblem_renders_at_narrow_and_zero_sizes() {
+        render_at(0, 0);
+        render_at(4, 3);
+        render_at(6, 5);
+        render_at(12, 7);
+        render_at(18, 10);
+    }
+
+    #[test]
+    fn emblem_resolves_distinct_patterns_per_index() {
+        let a = EmpireEmblem::from_empire_index(0, '◇');
+        let b = EmpireEmblem::from_empire_index(1, '◇');
+        assert_ne!(a.pattern, b.pattern);
+        assert_ne!(a.palette, b.palette);
+    }
+}

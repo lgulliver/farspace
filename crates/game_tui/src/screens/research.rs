@@ -634,7 +634,9 @@ fn render_research_status(frame: &mut Frame, area: Rect, game_state: &GameState)
         }
     }
 
-    let paragraph = Paragraph::new(lines).style(Theme::default_style());
+    let paragraph = Paragraph::new(lines)
+        .style(Theme::default_style())
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
 

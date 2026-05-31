@@ -4009,6 +4009,9 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         next_battle_report_id: 1,
         battle_reports: std::collections::VecDeque::new(),
         empire_intel: BTreeMap::new(),
+        sector_directives: BTreeMap::new(),
+        colony_automation: BTreeMap::new(),
+        last_colony_yields: BTreeMap::new(),
     };
 
     // Player star
@@ -4234,6 +4237,9 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         next_battle_report_id: 1,
         battle_reports: std::collections::VecDeque::new(),
         empire_intel: BTreeMap::new(),
+        sector_directives: BTreeMap::new(),
+        colony_automation: BTreeMap::new(),
+        last_colony_yields: BTreeMap::new(),
     };
 
     // Populate stars, empires, colonies, fleet
@@ -4618,6 +4624,9 @@ fn contact_detection_is_deterministic() {
         next_battle_report_id: 1,
         battle_reports: std::collections::VecDeque::new(),
         empire_intel: BTreeMap::new(),
+        sector_directives: BTreeMap::new(),
+        colony_automation: BTreeMap::new(),
+        last_colony_yields: BTreeMap::new(),
     };
 
     // Two AI empires each have a colony at target_star
@@ -6972,6 +6981,378 @@ fn colony_role_persists_through_save_load() {
         loaded.colonies[&colony_id].role,
         ColonyRole::Scientific,
         "Colony role must survive save/load round-trip"
+    );
+}
+
+// -------------------------------------------------------------------------
+// Sector governance and automation
+// -------------------------------------------------------------------------
+
+/// Grant a completed technology to an empire so tech-gated builds are reachable.
+fn give_empire_tech(engine: &mut Engine, empire: EmpireId, tech: TechId) {
+    let completed = &mut engine
+        .state
+        .empires
+        .get_mut(&empire)
+        .unwrap()
+        .research
+        .completed;
+    if !completed.contains(&tech) {
+        completed.push(tech);
+    }
+}
+
+#[test]
+fn colony_belongs_to_its_stars_sector() {
+    let engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    let star_id = engine.state.colonies[&colony_id].star;
+    let expected_sector = engine.state.stars[&star_id].sector;
+
+    assert_eq!(
+        engine.state.colony_sector(colony_id),
+        Some(expected_sector),
+        "Colony sector must derive from its star"
+    );
+    assert!(
+        engine
+            .state
+            .colonies_in_sector(expected_sector)
+            .contains(&colony_id),
+        "colonies_in_sector must include the colony"
+    );
+}
+
+#[test]
+fn set_sector_directive_valid() {
+    let mut engine = Engine::new(42);
+    let sector = engine.state.colony_sector(ColonyId(1)).unwrap();
+
+    let events = engine.apply_turn(vec![Command::SetSectorDirective {
+        sector,
+        directive: SectorDirective::Industrial,
+    }]);
+
+    assert!(!events.iter().any(|e| e.is_error()));
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::SectorDirectiveSet { sector: s, directive }
+        if *s == sector && *directive == SectorDirective::Industrial
+    )));
+    assert_eq!(
+        engine.state.sector_directive(sector),
+        SectorDirective::Industrial
+    );
+}
+
+#[test]
+fn set_sector_directive_unknown_sector_emits_error() {
+    let mut engine = Engine::new(42);
+    let events = engine.apply_turn(vec![Command::SetSectorDirective {
+        sector: SectorId(99999),
+        directive: SectorDirective::Research,
+    }]);
+    assert!(events.iter().any(|e| e.is_error()));
+}
+
+#[test]
+fn set_colony_automation_valid_and_owned() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+
+    let events = engine.apply_turn(vec![Command::SetColonyAutomation {
+        colony: colony_id,
+        automation: ColonyAutomation::SectorGuided,
+    }]);
+
+    assert!(!events.iter().any(|e| e.is_error()));
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::ColonyAutomationModeSet { colony, automation }
+        if *colony == colony_id && *automation == ColonyAutomation::SectorGuided
+    )));
+    assert_eq!(
+        engine.state.colony_automation_mode(colony_id),
+        ColonyAutomation::SectorGuided
+    );
+}
+
+#[test]
+fn set_colony_automation_unknown_colony_emits_error() {
+    let mut engine = Engine::new(42);
+    let events = engine.apply_turn(vec![Command::SetColonyAutomation {
+        colony: ColonyId(999),
+        automation: ColonyAutomation::SectorGuided,
+    }]);
+    assert!(events.iter().any(|e| e.is_error()));
+}
+
+#[test]
+fn set_colony_automation_not_owned_emits_error() {
+    let mut engine = Engine::new(42);
+    let events = engine.apply_turn(vec![Command::SetColonyAutomation {
+        colony: ColonyId(2), // AI colony
+        automation: ColonyAutomation::SectorGuided,
+    }]);
+    assert!(events.iter().any(|e| e.is_error()));
+}
+
+#[test]
+fn industrial_directive_queues_production_building() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    let sector = engine.state.colony_sector(colony_id).unwrap();
+
+    let events = engine.apply_turn(vec![
+        Command::SetSectorDirective {
+            sector,
+            directive: SectorDirective::Industrial,
+        },
+        Command::SetColonyAutomation {
+            colony: colony_id,
+            automation: ColonyAutomation::SectorGuided,
+        },
+        Command::EndTurn,
+    ]);
+
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::ColonyAutomationQueued { colony, item, directive }
+            if *colony == colony_id
+                && *item == BuildItem::SurfaceStructure(BuildingType::FabricationYard)
+                && *directive == SectorDirective::Industrial
+        )),
+        "Industrial directive must queue a Fabrication Yard"
+    );
+}
+
+#[test]
+fn research_directive_queues_science_building() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    let sector = engine.state.colony_sector(colony_id).unwrap();
+
+    let events = engine.apply_turn(vec![
+        Command::SetSectorDirective {
+            sector,
+            directive: SectorDirective::Research,
+        },
+        Command::SetColonyAutomation {
+            colony: colony_id,
+            automation: ColonyAutomation::SectorGuided,
+        },
+        Command::EndTurn,
+    ]);
+
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::ColonyAutomationQueued { item, .. }
+            if *item == BuildItem::SurfaceStructure(BuildingType::ScienceNexus)
+        )),
+        "Research directive must queue a Science Nexus"
+    );
+}
+
+#[test]
+fn agricultural_directive_queues_food_building() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    let sector = engine.state.colony_sector(colony_id).unwrap();
+
+    let events = engine.apply_turn(vec![
+        Command::SetSectorDirective {
+            sector,
+            directive: SectorDirective::Agricultural,
+        },
+        Command::SetColonyAutomation {
+            colony: colony_id,
+            automation: ColonyAutomation::SectorGuided,
+        },
+        Command::EndTurn,
+    ]);
+
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::ColonyAutomationQueued { item, .. }
+            if *item == BuildItem::SurfaceStructure(BuildingType::AquacultureBay)
+        )),
+        "Agricultural directive must queue an Aquaculture Bay"
+    );
+}
+
+#[test]
+fn stabilization_directive_addresses_food_and_housing() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    let sector = engine.state.colony_sector(colony_id).unwrap();
+
+    let events = engine.apply_turn(vec![
+        Command::SetSectorDirective {
+            sector,
+            directive: SectorDirective::Stabilization,
+        },
+        Command::SetColonyAutomation {
+            colony: colony_id,
+            automation: ColonyAutomation::SectorGuided,
+        },
+        Command::EndTurn,
+    ]);
+
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::ColonyAutomationQueued { item, .. }
+            if *item == BuildItem::SurfaceStructure(BuildingType::AquacultureBay)
+        )),
+        "Stabilization directive must queue an Aquaculture Bay for food/housing relief"
+    );
+}
+
+#[test]
+fn military_directive_queues_shipyard_when_tech_available() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    let sector = engine.state.colony_sector(colony_id).unwrap();
+    let player = engine.state.player_empire;
+    give_empire_tech(&mut engine, player, TechId::ORBITAL_ENGINEERING);
+
+    let events = engine.apply_turn(vec![
+        Command::SetSectorDirective {
+            sector,
+            directive: SectorDirective::Military,
+        },
+        Command::SetColonyAutomation {
+            colony: colony_id,
+            automation: ColonyAutomation::SectorGuided,
+        },
+        Command::EndTurn,
+    ]);
+
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::ColonyAutomationQueued { item, .. }
+            if *item == BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard)
+        )),
+        "Military directive must queue a Shipyard when Orbital Engineering is researched"
+    );
+}
+
+#[test]
+fn manual_colony_is_not_automated() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    let sector = engine.state.colony_sector(colony_id).unwrap();
+
+    // Directive set, but automation left Manual (default).
+    let events = engine.apply_turn(vec![
+        Command::SetSectorDirective {
+            sector,
+            directive: SectorDirective::Industrial,
+        },
+        Command::EndTurn,
+    ]);
+
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::ColonyAutomationQueued { .. })),
+        "Manual colony must never be automated"
+    );
+    assert!(
+        engine.state.colonies[&colony_id].build_queue.is_empty(),
+        "Manual colony queue must stay empty"
+    );
+}
+
+#[test]
+fn explicit_player_queue_is_not_overridden() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    let sector = engine.state.colony_sector(colony_id).unwrap();
+
+    let events = engine.apply_turn(vec![
+        Command::QueueBuild {
+            colony: colony_id,
+            item: BuildItem::SurfaceStructure(BuildingType::ScienceNexus),
+        },
+        Command::SetSectorDirective {
+            sector,
+            directive: SectorDirective::Industrial,
+        },
+        Command::SetColonyAutomation {
+            colony: colony_id,
+            automation: ColonyAutomation::SectorGuided,
+        },
+        Command::EndTurn,
+    ]);
+
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::ColonyAutomationQueued { .. })),
+        "Automation must not run when the player has an explicit queue"
+    );
+}
+
+#[test]
+fn automation_pick_is_deterministic_across_runs() {
+    let pick = |seed: u64| {
+        let mut engine = Engine::new(seed);
+        let colony_id = ColonyId(1);
+        let sector = engine.state.colony_sector(colony_id).unwrap();
+        let events = engine.apply_turn(vec![
+            Command::SetSectorDirective {
+                sector,
+                directive: SectorDirective::Industrial,
+            },
+            Command::SetColonyAutomation {
+                colony: colony_id,
+                automation: ColonyAutomation::SectorGuided,
+            },
+            Command::EndTurn,
+        ]);
+        events.iter().find_map(|e| match e {
+            Event::ColonyAutomationQueued { item, .. } => Some(*item),
+            _ => None,
+        })
+    };
+    assert_eq!(pick(42), pick(42), "Automation must be reproducible");
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn sector_directive_and_automation_persist_through_save_load() {
+    let mut engine = Engine::new(42);
+    let colony_id = ColonyId(1);
+    let sector = engine.state.colony_sector(colony_id).unwrap();
+
+    engine.apply_turn(vec![
+        Command::SetSectorDirective {
+            sector,
+            directive: SectorDirective::Economic,
+        },
+        Command::SetColonyAutomation {
+            colony: colony_id,
+            automation: ColonyAutomation::SectorGuided,
+        },
+    ]);
+
+    let saved = serde_json::to_string(&engine.state).expect("serialize must succeed");
+    let loaded: GameState = serde_json::from_str(&saved).expect("deserialize must succeed");
+
+    assert_eq!(
+        loaded.sector_directive(sector),
+        SectorDirective::Economic,
+        "Sector directive must survive save/load"
+    );
+    assert_eq!(
+        loaded.colony_automation_mode(colony_id),
+        ColonyAutomation::SectorGuided,
+        "Colony automation mode must survive save/load"
     );
 }
 
@@ -9421,6 +9802,9 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         next_battle_report_id: 1,
         battle_reports: std::collections::VecDeque::new(),
         empire_intel: BTreeMap::new(),
+        sector_directives: BTreeMap::new(),
+        colony_automation: BTreeMap::new(),
+        last_colony_yields: BTreeMap::new(),
     };
 
     state.stars.insert(

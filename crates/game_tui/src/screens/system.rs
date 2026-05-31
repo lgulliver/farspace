@@ -632,7 +632,9 @@ fn render_selected_planet_hero(
     }
 
     frame.render_widget(
-        Paragraph::new(lines).style(Theme::default_style()),
+        Paragraph::new(lines)
+            .style(Theme::default_style())
+            .wrap(ratatui::widgets::Wrap { trim: false }),
         chunks[1],
     );
 }
@@ -1087,7 +1089,12 @@ fn render_system_detail_facts(
         )));
     }
 
-    frame.render_widget(Paragraph::new(lines).style(Theme::default_style()), area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(Theme::default_style())
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+        area,
+    );
 }
 
 fn render_system_summary(
@@ -1164,7 +1171,8 @@ fn render_system_summary(
                 Span::raw(colonies.to_string()),
             ]),
         ])
-        .style(Theme::default_style()),
+        .style(Theme::default_style())
+        .wrap(ratatui::widgets::Wrap { trim: false }),
         inner,
     );
 }

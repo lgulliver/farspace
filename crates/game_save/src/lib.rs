@@ -166,12 +166,182 @@ pub fn load_metadata_from_file(path: &std::path::Path) -> Result<SaveMetadata, S
     load_metadata(&data)
 }
 
+/// File extension used for FARSPACE campaign saves.
+pub const SAVE_EXTENSION: &str = "sav";
+
+/// A presentation-friendly summary of a single save file, derived entirely from
+/// data that is actually persisted. Unknown fields are left `None` so the UI can
+/// show an honest placeholder rather than inventing metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveSlotSummary {
+    /// Absolute or relative path to the save file on disk.
+    pub path: std::path::PathBuf,
+    /// Human-facing campaign name (derived from the file stem).
+    pub display_name: String,
+    /// Current turn number, if the save could be read.
+    pub turn: Option<u32>,
+    /// Player empire name, if the save could be read.
+    pub empire_name: Option<String>,
+    /// Galaxy size label (e.g. "Medium"), if recorded in the scenario.
+    pub galaxy_size: Option<String>,
+    /// Number of AI empires, if recorded in the scenario.
+    pub ai_empires: Option<u8>,
+    /// Difficulty label, if recorded in the scenario.
+    pub difficulty: Option<String>,
+    /// Last-modified timestamp formatted as `YYYY-MM-DD HH:MM` (UTC), if available.
+    pub updated_at: Option<String>,
+    /// Whether the file's game state could be fully read. When `false` the save
+    /// is listed (so the player can delete it) but its metadata is unknown.
+    pub readable: bool,
+}
+
+/// Build a [`SaveSlotSummary`] for a single save file path. Always returns a
+/// summary: if the state cannot be read the summary is marked `readable = false`
+/// with `None` metadata, but the file modification time is still reported when
+/// the filesystem provides it.
+pub fn summarize_save(path: &std::path::Path) -> SaveSlotSummary {
+    let display_name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "Unnamed campaign".to_string());
+
+    let updated_at = std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(format_modified_time);
+
+    match load_from_file(path) {
+        Ok(state) => {
+            let empire_name = state
+                .empires
+                .get(&state.player_empire)
+                .map(|e| e.name.clone());
+            let (galaxy_size, ai_empires, difficulty) = match &state.scenario {
+                Some(scenario) => (
+                    Some(scenario.galaxy_size.label().to_string()),
+                    Some(scenario.ai_empire_count),
+                    Some(difficulty_label(scenario.difficulty).to_string()),
+                ),
+                None => (None, None, None),
+            };
+            SaveSlotSummary {
+                path: path.to_path_buf(),
+                display_name,
+                turn: Some(state.turn),
+                empire_name,
+                galaxy_size,
+                ai_empires,
+                difficulty,
+                updated_at,
+                readable: true,
+            }
+        }
+        Err(_) => SaveSlotSummary {
+            path: path.to_path_buf(),
+            display_name,
+            turn: None,
+            empire_name: None,
+            galaxy_size: None,
+            ai_empires: None,
+            difficulty: None,
+            updated_at,
+            readable: false,
+        },
+    }
+}
+
+/// Scan `dir` for `*.sav` files and return a summary for each, sorted
+/// most-recently-modified first (unreadable saves included). Returns an empty
+/// vec if the directory does not exist or cannot be read.
+pub fn list_saves(dir: &std::path::Path) -> Vec<SaveSlotSummary> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+
+    let mut paths: Vec<std::path::PathBuf> = entries
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case(SAVE_EXTENSION))
+        })
+        .collect();
+
+    // Sort paths first so files sharing a modification time stay deterministic.
+    paths.sort();
+
+    let mut summaries: Vec<(Option<std::time::SystemTime>, SaveSlotSummary)> = paths
+        .into_iter()
+        .map(|path| {
+            let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+            (modified, summarize_save(&path))
+        })
+        .collect();
+
+    // Most-recent first; missing timestamps sort last. Ties fall back to the
+    // already-sorted-by-path order (stable sort), keeping output deterministic.
+    summaries.sort_by(|a, b| match (a.0, b.0) {
+        (Some(x), Some(y)) => y.cmp(&x),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+
+    summaries.into_iter().map(|(_, summary)| summary).collect()
+}
+
+/// Human-facing label for a difficulty level. Lives here (not in `game_core`)
+/// because `DifficultyLevel` has no display method yet and this is purely a
+/// presentation concern for the save list.
+fn difficulty_label(difficulty: game_core::DifficultyLevel) -> &'static str {
+    match difficulty {
+        game_core::DifficultyLevel::Standard => "Standard",
+    }
+}
+
+/// Delete a save file from disk. Returns [`SaveError::Io`] if removal fails.
+pub fn delete_save(path: &std::path::Path) -> Result<(), SaveError> {
+    std::fs::remove_file(path)?;
+    Ok(())
+}
+
+/// Format a `SystemTime` as `YYYY-MM-DD HH:MM` in UTC without pulling in a date
+/// dependency. Uses Howard Hinnant's `civil_from_days` algorithm. Returns `None`
+/// for timestamps before the Unix epoch.
+fn format_modified_time(time: std::time::SystemTime) -> Option<String> {
+    let secs = time.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64;
+
+    let days = secs.div_euclid(86_400);
+    let secs_of_day = secs.rem_euclid(86_400);
+    let hour = secs_of_day / 3_600;
+    let minute = (secs_of_day % 3_600) / 60;
+
+    // civil_from_days: convert days-since-epoch to (year, month, day).
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { year + 1 } else { year };
+
+    Some(format!(
+        "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use game_core::{
-        Command, DifficultyLevel, EmpireDefinitionId, Engine, Fleet, FleetId, FleetKind,
-        GalaxySize, RelationshipStatus, ScenarioSetup,
+        ColonyAutomation, ColonyId, Command, DifficultyLevel, EmpireDefinitionId, Engine, Fleet,
+        FleetId, FleetKind, GalaxySize, RelationshipStatus, ScenarioSetup, SectorDirective,
     };
 
     #[test]
@@ -226,6 +396,41 @@ mod tests {
         assert_eq!(
             original.colony_unrest_causes, loaded.colony_unrest_causes,
             "unrest causes should survive save/load"
+        );
+    }
+
+    #[test]
+    fn save_load_preserves_sector_directives_and_automation() {
+        let mut engine = Engine::new(42);
+        let colony_id = ColonyId(1);
+        let sector = engine
+            .state
+            .colony_sector(colony_id)
+            .expect("player colony must have a sector");
+
+        engine.apply_turn(vec![
+            Command::SetSectorDirective {
+                sector,
+                directive: SectorDirective::Research,
+            },
+            Command::SetColonyAutomation {
+                colony: colony_id,
+                automation: ColonyAutomation::SectorGuided,
+            },
+        ]);
+
+        let saved = save(&engine.state).expect("Save should succeed");
+        let loaded = load(&saved).expect("Load should succeed");
+
+        assert_eq!(
+            loaded.sector_directive(sector),
+            SectorDirective::Research,
+            "sector directive should survive save/load"
+        );
+        assert_eq!(
+            loaded.colony_automation_mode(colony_id),
+            ColonyAutomation::SectorGuided,
+            "colony automation mode should survive save/load"
         );
     }
 
@@ -2195,5 +2400,147 @@ mod tests {
             game_core::FleetFormation::FastAttack
         );
         assert_eq!(loaded.fleet_name_for(fleet_id), "Task Force Aurora");
+    }
+
+    /// Create a unique, empty scratch directory under the system temp dir.
+    /// The caller is responsible for removal.
+    fn unique_temp_dir(tag: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "farspace_saves_{}_{}_{}",
+            tag,
+            std::process::id(),
+            n
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn list_saves_empty_dir_returns_empty() {
+        let dir = unique_temp_dir("empty");
+        let saves = list_saves(&dir);
+        assert!(saves.is_empty(), "empty dir must yield no save summaries");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn list_saves_missing_dir_returns_empty() {
+        let dir = std::env::temp_dir().join("farspace_saves_definitely_missing_dir_xyz");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(list_saves(&dir).is_empty());
+    }
+
+    #[test]
+    fn list_saves_single_save_reports_real_metadata() {
+        let dir = unique_temp_dir("single");
+        let engine = Engine::new(42);
+        let path = dir.join("alpha.sav");
+        save_to_file(&engine.state, &path).expect("save should succeed");
+
+        let saves = list_saves(&dir);
+        assert_eq!(saves.len(), 1);
+        let summary = &saves[0];
+        assert_eq!(summary.display_name, "alpha");
+        assert!(summary.readable);
+        assert_eq!(summary.turn, Some(engine.state.turn));
+        assert!(
+            summary.empire_name.is_some(),
+            "player empire name should be derivable from a fresh save"
+        );
+        // Engine::new sets a scenario, so galaxy/difficulty metadata is present.
+        assert!(summary.galaxy_size.is_some());
+        assert!(summary.difficulty.is_some());
+        assert!(
+            summary.updated_at.is_some(),
+            "a just-written file should report a modification time"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn list_saves_ignores_non_sav_files() {
+        let dir = unique_temp_dir("filter");
+        let engine = Engine::new(7);
+        save_to_file(&engine.state, &dir.join("real.sav")).expect("save should succeed");
+        std::fs::write(dir.join("notes.txt"), b"hello").expect("write decoy");
+        std::fs::write(dir.join("config.json"), b"{}").expect("write decoy");
+
+        let saves = list_saves(&dir);
+        assert_eq!(saves.len(), 1, "only .sav files should be listed");
+        assert_eq!(saves[0].display_name, "real");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn list_saves_multiple_saves_listed() {
+        let dir = unique_temp_dir("multi");
+        for (seed, name) in [(1u64, "one"), (2, "two"), (3, "three")] {
+            let engine = Engine::new(seed);
+            save_to_file(&engine.state, &dir.join(format!("{name}.sav")))
+                .expect("save should succeed");
+        }
+        let saves = list_saves(&dir);
+        assert_eq!(saves.len(), 3, "all three saves should be listed");
+        assert!(saves.iter().all(|s| s.readable));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn list_saves_lists_corrupt_file_as_unreadable() {
+        let dir = unique_temp_dir("corrupt");
+        std::fs::write(dir.join("broken.sav"), b"{not valid json").expect("write corrupt save");
+
+        let saves = list_saves(&dir);
+        assert_eq!(saves.len(), 1, "corrupt saves must still be listed");
+        let summary = &saves[0];
+        assert!(!summary.readable, "corrupt save must be flagged unreadable");
+        assert_eq!(summary.display_name, "broken");
+        assert!(summary.turn.is_none());
+        assert!(summary.empire_name.is_none());
+        // The file still has a modification time even though it cannot be parsed.
+        assert!(summary.updated_at.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_save_removes_file() {
+        let dir = unique_temp_dir("delete");
+        let engine = Engine::new(42);
+        let path = dir.join("doomed.sav");
+        save_to_file(&engine.state, &path).expect("save should succeed");
+        assert!(path.exists());
+
+        delete_save(&path).expect("delete should succeed");
+        assert!(!path.exists(), "file must be gone after delete_save");
+        assert!(list_saves(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_save_missing_file_returns_io_error() {
+        let path = std::env::temp_dir().join("farspace_delete_nonexistent_xyz.sav");
+        let _ = std::fs::remove_file(&path);
+        let result = delete_save(&path);
+        assert!(matches!(result, Err(SaveError::Io(_))));
+    }
+
+    #[test]
+    fn format_modified_time_matches_known_epoch_values() {
+        // 0 → Unix epoch.
+        let epoch = std::time::UNIX_EPOCH;
+        assert_eq!(
+            format_modified_time(epoch).as_deref(),
+            Some("1970-01-01 00:00")
+        );
+        // 1_700_000_000 → 2023-11-14 22:13 UTC.
+        let later = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        assert_eq!(
+            format_modified_time(later).as_deref(),
+            Some("2023-11-14 22:13")
+        );
     }
 }

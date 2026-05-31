@@ -5,6 +5,7 @@ use crate::screens::Screen;
 use crate::theme::Theme;
 use ratatui::{
     layout::Rect,
+    symbols::border::ROUNDED,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
@@ -39,6 +40,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::Research => " Research Help ",
         Screen::Diplomacy => " Diplomacy Help ",
         Screen::ShipDesigner => " Ship Designer Help ",
+        Screen::SectorGovernance => " Sector Governance Help ",
         Screen::Settings => " Settings Help ",
     };
 
@@ -98,6 +100,11 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("r", "Open research screen"),
             HelpEntry::Binding("D", "Open diplomacy screen"),
             HelpEntry::Binding("E / T", "End turn (AI acts automatically)"),
+            HelpEntry::Section("Command Advisor"),
+            HelpEntry::Note("Turn Brief lists this turn's priorities, highest severity first"),
+            HelpEntry::Note(
+                "Footer advisor line names the top recommendation and the key to act on it",
+            ),
             HelpEntry::Section("Global"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
             HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),
@@ -191,6 +198,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             ),
             HelpEntry::Binding("R", "Set rally point — navigate to a star and press R"),
             HelpEntry::Binding("X", "Clear rally point for this colony"),
+            HelpEntry::Binding("A", "Toggle automation (manual ↔ sector-guided)"),
+            HelpEntry::Note("Sector-guided colonies auto-queue a build when their queue is empty"),
             HelpEntry::Note("Colony panel shows Connected/Isolated supply state"),
             HelpEntry::Note("Order states: Calm, Strained, Unrest, Revolt Risk"),
             HelpEntry::Note("Pops auto-fill jobs by colony role and shortage priority"),
@@ -227,8 +236,10 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Note(
                 "'Blockaded' warning = hostile fleet in orbit (no food, -50% yield, -stability)",
             ),
+            HelpEntry::Note("Governance line shows colonized sectors and automated colony count"),
             HelpEntry::Binding("e / t", "End turn"),
             HelpEntry::Section("Global"),
+            HelpEntry::Binding("G", "Open Sector Governance"),
             HelpEntry::Binding("O / V", "Open empire overview / victory"),
             HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),
             HelpEntry::Binding("B", "Open Battle Reports"),
@@ -277,8 +288,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("u", "Issue warning"),
             HelpEntry::Binding("m", "Demand tribute"),
             HelpEntry::Binding("i", "Gather Intelligence on selected empire"),
-            HelpEntry::Binding("z", "Sabotage Production placeholder"),
-            HelpEntry::Binding("y", "Steal Research placeholder"),
+            HelpEntry::Binding("z", "Sabotage production of selected empire"),
+            HelpEntry::Binding("y", "Steal research from selected empire"),
             HelpEntry::Binding("c", "Open diplomatic communication modal"),
             HelpEntry::Binding(
                 "Enter",
@@ -319,6 +330,34 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("W", "Open ship designer from any game screen"),
             HelpEntry::Binding("?", "Toggle this help"),
         ],
+        Screen::SectorGovernance => vec![
+            HelpEntry::Section("Navigation"),
+            HelpEntry::Binding("j / ↓", "Select next sector"),
+            HelpEntry::Binding("k / ↑", "Select previous sector"),
+            HelpEntry::Section("Actions"),
+            HelpEntry::Binding("D", "Cycle the selected sector's directive"),
+            HelpEntry::Binding(
+                "A",
+                "Toggle sector-guided automation for the sector's colonies",
+            ),
+            HelpEntry::Note(
+                "Directives bias automation suggestions; they never override an explicit queue",
+            ),
+            HelpEntry::Note(
+                "Sector-guided colonies with an empty queue get a deterministic build each turn",
+            ),
+            HelpEntry::Binding("e / t", "End turn"),
+            HelpEntry::Section("Global"),
+            HelpEntry::Binding("O / V", "Open empire overview / victory"),
+            HelpEntry::Binding("N", "Open Galactic Dispatch (latest bulletin)"),
+            HelpEntry::Binding("B", "Open Battle Reports"),
+            HelpEntry::Binding(
+                ":",
+                "Command palette (save · load · visual-mode · dispatch · news)",
+            ),
+            HelpEntry::Binding("?", "Toggle this help"),
+            HelpEntry::Binding("Esc", "Return to Sector Map"),
+        ],
         Screen::Settings => vec![
             HelpEntry::Section("Navigation"),
             HelpEntry::Binding("j / ↓", "Next setting"),
@@ -336,7 +375,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         .map(|entry| match entry {
             HelpEntry::Section(label) => Line::from(vec![
                 Span::raw(" "),
-                Span::styled(*label, Theme::accent_style()),
+                Span::styled(*label, Theme::title_style()),
                 Span::styled(
                     format!(" {}", "─".repeat(divider_len)),
                     Theme::dim_border_style(),
@@ -366,6 +405,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             Block::default()
                 .title(title)
                 .borders(Borders::ALL)
+                .border_set(ROUNDED)
+                .border_style(Theme::focused_border_style())
                 .style(Theme::default_style()),
         )
         .style(Theme::default_style())

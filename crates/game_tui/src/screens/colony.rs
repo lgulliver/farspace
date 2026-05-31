@@ -353,6 +353,14 @@ fn render_colony_stats(
             Span::styled("  Role ", Theme::muted_style()),
             Span::styled(colony.role.name(), Theme::accent_style()),
         ]),
+        Line::from(vec![
+            Span::styled("Automation ", Theme::muted_style()),
+            Span::styled(
+                game_state.colony_automation_mode(colony_id).name(),
+                Theme::accent_style(),
+            ),
+            Span::styled("  [A]toggle", Theme::dim_border_style()),
+        ]),
         meter_line(
             format!("Population {}/{}", colony.population, housing_cap),
             ratio_percent_u64(colony.population, housing_cap),
@@ -577,7 +585,9 @@ fn render_colony_stats(
         }
     }
 
-    let paragraph = Paragraph::new(lines).style(Theme::default_style());
+    let paragraph = Paragraph::new(lines)
+        .style(Theme::default_style())
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
 
@@ -620,7 +630,9 @@ fn render_colony_buildings(
         })
         .collect();
 
-    let paragraph = Paragraph::new(lines).style(Theme::default_style());
+    let paragraph = Paragraph::new(lines)
+        .style(Theme::default_style())
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
 
@@ -685,7 +697,9 @@ fn render_role_selector(
         })
         .collect();
 
-    let paragraph = Paragraph::new(lines).style(Theme::default_style());
+    let paragraph = Paragraph::new(lines)
+        .style(Theme::default_style())
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
 
@@ -755,7 +769,9 @@ fn render_production_queue(
         }
     }
 
-    let paragraph = Paragraph::new(lines).style(Theme::default_style());
+    let paragraph = Paragraph::new(lines)
+        .style(Theme::default_style())
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
 
@@ -925,7 +941,9 @@ fn render_build_picker(
         }
     }
 
-    let paragraph = Paragraph::new(lines).style(Theme::default_style());
+    let paragraph = Paragraph::new(lines)
+        .style(Theme::default_style())
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
 

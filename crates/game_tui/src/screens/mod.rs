@@ -1,5 +1,6 @@
 //! Screen types and rendering
 
+pub mod archives;
 pub mod colony;
 pub mod diplomacy;
 pub mod empire_overview;
@@ -7,6 +8,7 @@ pub mod empire_select;
 pub mod menu;
 pub mod new_game_setup;
 pub mod research;
+pub mod sector_governance;
 pub mod sector_map;
 pub mod sector_overview;
 pub mod settings;
@@ -39,6 +41,7 @@ pub enum Screen {
     Research,
     Diplomacy,
     ShipDesigner,
+    SectorGovernance,
     Settings,
 }
 
@@ -109,6 +112,13 @@ impl Screen {
                     ship_designer::render_ship_designer(frame, area, app_state, state);
                 } else {
                     render_unavailable_screen(frame, area, "Ship Designer");
+                }
+            }
+            Screen::SectorGovernance => {
+                if let Some(state) = game_state {
+                    sector_governance::render_sector_governance(frame, area, app_state, state);
+                } else {
+                    render_unavailable_screen(frame, area, "Sector Governance");
                 }
             }
             Screen::Settings => settings::render_settings(frame, area, app_state),

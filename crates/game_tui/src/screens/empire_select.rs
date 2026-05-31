@@ -1,150 +1,29 @@
 //! Empire selection screen — choose your faction before configuring the galaxy.
 //!
 //! Two-panel layout:
-//!   Left  (~35%)  — scrollable faction list with coloured symbol + name
-//!   Right (~65%)  — faction detail: ASCII-art emblem, lore, traits, bonuses
+//!   Left  (~33%)  — scrollable faction list with coloured symbol + name
+//!   Right (~67%)  — faction detail: shared emblem, lore, playstyle, effects
 
-use crate::components::render_footer;
+use crate::components::{panel_block, render_empire_emblem, render_footer, EmpireEmblem};
 use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{all_empire_definitions, EmpireDefinitionId};
+use game_core::{all_empire_definitions, EmpireDefinitionId, EmpireId};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph, Wrap},
+    widgets::{Paragraph, Wrap},
     Frame,
 };
 
-// ── Faction ASCII-art emblems ──────────────────────────────────────────────────
-//
-// Each emblem is 14 chars wide × 9 lines tall (not counting the surrounding
-// border). Designed for monospace fonts; whitespace padding is intentional.
-//
-// Rules: original art only — no motifs copied from Master of Orion.
-
-const EMBLEM_ASHVERAN: &[&str] = &[
-    " ░░░░░░░░░░░░ ",
-    " ░▓▓▓▓▓▓▓▓▓░ ",
-    " ░▓  ═══  ▓░ ",
-    " ░▓ ▓ ⚙ ▓ ▓░ ",
-    " ░▓  ═══  ▓░ ",
-    " ░▓▓▓▓▓▓▓▓▓░ ",
-    " ░░░░░░░░░░░░ ",
-    "  ▐██▌  ▐██▌ ",
-    "  ████  ████ ",
-];
-
-const EMBLEM_LUMINAL: &[&str] = &[
-    "  · ✦ · ✦ ·  ",
-    " · ╱─────╲ · ",
-    "·╱ · ─◎─ · ╲·",
-    "│ ·  ╱|╲  · │",
-    "·╲ ·  |  · ╱·",
-    " · ╲─────╱ · ",
-    "  · ✦ · ✦ ·  ",
-    "             ",
-    "             ",
-];
-
-const EMBLEM_SYLVARAN: &[&str] = &[
-    "  ✦  ✿  ✦   ",
-    " ✿ ✿✿✿✿✿ ✿  ",
-    "✿✿✿✿✿✿✿✿✿✿✿ ",
-    " ✿ ✿✿✿✿✿ ✿  ",
-    "  · ✿✿✿✿✿·  ",
-    "    ·✿✿✿·   ",
-    "    ·· ▲ ·  ",
-    "    ·▓▓▓▓·  ",
-    "    ·████·  ",
-];
-
-const EMBLEM_THALORI: &[&str] = &[
-    "     ╱╲      ",
-    "    ╱◈◈╲     ",
-    "   ╱◈◈◈◈╲    ",
-    "  ╱◈◈◈◈◈◈╲   ",
-    "  ╲◈◈◈◈◈◈╱   ",
-    "   ╲◈◈◈◈╱    ",
-    "    ╲◈◈╱     ",
-    "     ╲╱      ",
-    "             ",
-];
-
-const EMBLEM_VORATH: &[&str] = &[
-    "  ▓▓▓▓▓▓▓▓▓  ",
-    "  ▓ ╲   ╱ ▓  ",
-    "  ▓  ╲ ╱  ▓  ",
-    "  ▓  ─⚔─  ▓  ",
-    "  ▓  ╱ ╲  ▓  ",
-    "  ▓ ╱   ╲ ▓  ",
-    "  ▓▓▓▓▓▓▓▓▓  ",
-    "  ░░░░░░░░░  ",
-    "             ",
-];
-
-const EMBLEM_ELARITH: &[&str] = &[
-    "    · ⟁ ·    ",
-    "   · ╱│╲ ·   ",
-    "  · ╱ │ ╲ ·  ",
-    " ·╱   │   ╲· ",
-    " ·────┼────· ",
-    " ·╲   │   ╱· ",
-    "  · ╲ │ ╱ ·  ",
-    "   · ╲│╱ ·   ",
-    "    · ⟁ ·    ",
-];
-
-const EMBLEM_TERRAN_CONCORD: &[&str] = &[
-    "   · \\ | / ·  ",
-    "  · ─ ☼ ─ ·  ",
-    "   · / | \\ ·  ",
-    "    · · · ·   ",
-    "  · ─ ─ ─ ·  ",
-    " ·  ╔═════╗ ·",
-    " ·  ║ ☼ ☼ ║ ·",
-    " ·  ╚═════╝ ·",
-    "             ",
-];
-
-const EMBLEM_TERRAN_DOMINION: &[&str] = &[
-    "     ▲▲▲     ",
-    "    ▲▲▲▲▲    ",
-    "   ▲▲▲▲▲▲▲   ",
-    "  ╔═══════╗  ",
-    "  ║▓▓░░░▓▓║  ",
-    "  ║▓░▲░▲░▓║  ",
-    "  ║▓▓░░░▓▓║  ",
-    "  ╚═══════╝  ",
-    "             ",
-];
-
-const EMBLEMS: [&[&str]; 8] = [
-    EMBLEM_ASHVERAN,
-    EMBLEM_LUMINAL,
-    EMBLEM_SYLVARAN,
-    EMBLEM_THALORI,
-    EMBLEM_VORATH,
-    EMBLEM_ELARITH,
-    EMBLEM_TERRAN_CONCORD,
-    EMBLEM_TERRAN_DOMINION,
-];
-
 // ── Faction colour lookup (all 8 factions) ────────────────────────────────────
 
+/// Faction accent for the list/detail panels. Delegates to the shared
+/// [`Theme::faction_color`] role so the palette stays consistent across screens.
 pub fn faction_accent(def_id: EmpireDefinitionId) -> Color {
-    match def_id.0 {
-        0 => Color::Rgb(214, 133, 63),  // Ashveran — orange
-        1 => Color::Rgb(96, 193, 255),  // Luminal  — cyan
-        2 => Color::Rgb(121, 212, 136), // Sylvaran — green
-        3 => Color::Rgb(225, 176, 73),  // Thalori  — gold
-        4 => Color::Rgb(217, 92, 92),   // Vorath   — red
-        5 => Color::Rgb(184, 122, 255), // Elarith  — violet
-        6 => Color::Rgb(100, 181, 246), // Terran Concord  — sky-blue
-        _ => Color::Rgb(255, 140, 100), // Terran Dominion — rust-orange
-    }
+    Theme::faction_color(Some(def_id), EmpireId(def_id.0 as u64))
 }
 
 // ── Public render entry point ─────────────────────────────────────────────────
@@ -199,12 +78,7 @@ fn render_faction_list(frame: &mut Frame, area: Rect, app_state: &AppState) {
     let all_defs = all_empire_definitions();
     let selected = app_state.new_game_setup.empire_cursor;
 
-    let block = Block::default()
-        .title(" FACTIONS ")
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Theme::focused_border_style());
-
+    let block = panel_block("Factions", true);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -268,52 +142,9 @@ fn render_faction_detail(frame: &mut Frame, area: Rect, app_state: &AppState) {
         .constraints([Constraint::Length(18), Constraint::Fill(1)])
         .areas(area);
 
-    render_emblem_panel(frame, emblem_area, def.id.0 as usize, color, def.symbol);
+    let emblem = EmpireEmblem::from_empire_index(def.id.0 as usize, def.symbol);
+    render_empire_emblem(frame, emblem_area, &emblem);
     render_info_panel(frame, info_area, def, color);
-}
-
-fn render_emblem_panel(
-    frame: &mut Frame,
-    area: Rect,
-    faction_idx: usize,
-    color: Color,
-    symbol: char,
-) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Double)
-        .border_style(Style::default().fg(color));
-
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let emblem = EMBLEMS.get(faction_idx).copied().unwrap_or(&[]);
-
-    // Center the emblem vertically
-    let total_lines = emblem.len();
-    let v_pad = (inner.height as usize).saturating_sub(total_lines) / 2;
-
-    let mut lines: Vec<Line> = Vec::new();
-
-    for _ in 0..v_pad {
-        lines.push(Line::from(""));
-    }
-    for row in emblem {
-        lines.push(Line::from(Span::styled(
-            *row,
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        )));
-    }
-    // Large symbol centred below art if space permits
-    lines.push(Line::from(Span::styled(
-        format!("    {symbol}"),
-        Style::default().fg(color).add_modifier(Modifier::BOLD),
-    )));
-
-    let p = Paragraph::new(lines)
-        .alignment(Alignment::Center)
-        .style(Theme::default_style());
-    frame.render_widget(p, inner);
 }
 
 fn render_info_panel(
@@ -322,11 +153,7 @@ fn render_info_panel(
     def: &game_core::EmpireDefinition,
     color: Color,
 ) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(color));
-
+    let block = panel_block(format!("{} {}", def.symbol, def.name), false);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -477,12 +304,24 @@ mod tests {
     use ratatui::{backend::TestBackend, Terminal};
 
     fn render_to_buffer(width: u16, height: u16) -> ratatui::buffer::Buffer {
+        render_to_buffer_with(width, height, &AppState::default())
+    }
+
+    fn render_to_buffer_with(
+        width: u16,
+        height: u16,
+        app_state: &AppState,
+    ) -> ratatui::buffer::Buffer {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| render_empire_select(frame, frame.area(), &AppState::default()))
+            .draw(|frame| render_empire_select(frame, frame.area(), app_state))
             .unwrap();
         terminal.backend().buffer().clone()
+    }
+
+    fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
+        buffer.content().iter().map(|c| c.symbol()).collect()
     }
 
     #[test]
@@ -496,14 +335,42 @@ mod tests {
     }
 
     #[test]
-    fn emblem_table_complete() {
-        // Every faction must have an emblem entry.
-        let defs = all_empire_definitions();
-        assert_eq!(
-            EMBLEMS.len(),
-            defs.len(),
-            "EMBLEMS count must match faction count"
+    fn renders_at_80x24_with_footer_and_selection() {
+        let first = all_empire_definitions()[0].name;
+        let text = buffer_text(&render_to_buffer(80, 24));
+        // Selected faction (default cursor 0) detail is visible.
+        assert!(
+            text.contains(&first.to_uppercase()),
+            "selected faction detail must be visible at 80x24"
         );
+        // Footer hint remains visible.
+        assert!(text.contains("Browse"), "footer must remain visible");
+    }
+
+    #[test]
+    fn selection_detail_tracks_cursor() {
+        let defs = all_empire_definitions();
+        let target = defs.len().saturating_sub(1);
+        let app_state = AppState {
+            new_game_setup: crate::app::NewGameSetupState {
+                empire_cursor: target,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let text = buffer_text(&render_to_buffer_with(120, 36, &app_state));
+        assert!(
+            text.contains(&defs[target].name.to_uppercase()),
+            "detail panel must follow the selected faction"
+        );
+    }
+
+    #[test]
+    fn emblem_resolves_for_all_factions() {
+        // Every faction must resolve to a shared emblem without panic.
+        for def in all_empire_definitions() {
+            let _ = EmpireEmblem::from_empire_index(def.id.0 as usize, def.symbol);
+        }
     }
 
     #[test]

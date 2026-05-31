@@ -1,10 +1,10 @@
 //! Events emitted by the game engine
 
 use crate::state::{
-    BuildItem, ColonyId, ColonyRole, ColonyUnrestState, CustomDesignId,
+    BuildItem, ColonyAutomation, ColonyId, ColonyRole, ColonyUnrestState, CustomDesignId,
     DiplomaticCommunicationType, EmpireId, EspionageMission, FleetFormation, FleetId, FleetOrder,
-    FleetRole, HullId, IntelLevel, IntelSource, PlanetAnomaly, PlanetSpecial, StarId,
-    StrategicResource, TechId, TreatyType, UnrestCause, VictoryPath,
+    FleetRole, HullId, IntelLevel, IntelSource, PlanetAnomaly, PlanetSpecial, SectorDirective,
+    SectorId, StarId, StrategicResource, TechId, TreatyType, UnrestCause, VictoryPath,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -370,6 +370,22 @@ pub enum Event {
         empire: EmpireId,
         colony: ColonyId,
         role: ColonyRole,
+    },
+    /// A sector's automation directive was changed by the player
+    SectorDirectiveSet {
+        sector: SectorId,
+        directive: SectorDirective,
+    },
+    /// A colony's build-queue automation mode was changed by the player
+    ColonyAutomationModeSet {
+        colony: ColonyId,
+        automation: ColonyAutomation,
+    },
+    /// Automation queued a build item for a sector-guided colony with an empty queue
+    ColonyAutomationQueued {
+        colony: ColonyId,
+        item: BuildItem,
+        directive: SectorDirective,
     },
     /// A rally point was set for a colony
     RallyPointSet { colony: ColonyId, star: StarId },
@@ -1073,6 +1089,28 @@ impl Event {
                     empire.0,
                     colony.0,
                     role.name()
+                )
+            }
+            Event::SectorDirectiveSet { sector, directive } => {
+                format!("Sector {}: directive set to {}", sector.0, directive.name())
+            }
+            Event::ColonyAutomationModeSet { colony, automation } => {
+                format!(
+                    "Colony {}: automation set to {}",
+                    colony.0,
+                    automation.name()
+                )
+            }
+            Event::ColonyAutomationQueued {
+                colony,
+                item,
+                directive,
+            } => {
+                format!(
+                    "Colony {}: automation ({}) queued {}",
+                    colony.0,
+                    directive.name(),
+                    item.name()
                 )
             }
             Event::RallyPointSet { colony, star } => {

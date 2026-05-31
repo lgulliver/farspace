@@ -24,7 +24,7 @@ const MIN_SPLASH_WIDTH: u16 = 80;
 const MIN_SPLASH_HEIGHT: u16 = 24;
 const WIDE_TITLE_WIDTH: u16 = 110;
 const MEDIUM_TITLE_WIDTH: u16 = 70;
-const MENU_ACTION_COUNT: usize = 4;
+const MENU_ACTION_COUNT: usize = 5;
 
 const TAGLINE: &str = "CHART • EXPAND • ENDURE";
 const FOOTER_HINT: &str = "Enter Select   ↑↓ Move   ? Help   Esc Quit";
@@ -41,6 +41,7 @@ const TITLE_LINES_WIDE: &[&str] = &[
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
+    Continue,
     NewGame,
     LoadGame,
     Options,
@@ -50,15 +51,17 @@ pub enum MenuAction {
 impl MenuAction {
     pub const fn from_cursor(cursor: usize) -> Self {
         match cursor % MENU_ACTION_COUNT {
-            0 => Self::NewGame,
-            1 => Self::LoadGame,
-            2 => Self::Options,
+            0 => Self::Continue,
+            1 => Self::NewGame,
+            2 => Self::LoadGame,
+            3 => Self::Options,
             _ => Self::Quit,
         }
     }
 
     fn label(self) -> &'static str {
         match self {
+            Self::Continue => "Continue",
             Self::NewGame => "New Game",
             Self::LoadGame => "Load Game",
             Self::Options => "Options",
@@ -193,6 +196,9 @@ fn build_menu_lines(app_state: &AppState, palette: SplashPalette) -> Vec<Line<'s
         .map(|index| {
             let action = MenuAction::from_cursor(index);
             let selected = app_state.menu_cursor % MENU_ACTION_COUNT == index;
+            // Continue is disabled when there is no campaign to resume; it stays
+            // visible but muted rather than vanishing, so the layout is stable.
+            let disabled = action == MenuAction::Continue && !app_state.can_continue;
             let marker = if selected { "▶ " } else { "  " };
             let marker_style = if selected {
                 Style::default()
@@ -202,7 +208,11 @@ fn build_menu_lines(app_state: &AppState, palette: SplashPalette) -> Vec<Line<'s
             } else {
                 Style::default().fg(palette.text_muted)
             };
-            let label_style = if selected {
+            let label_style = if disabled {
+                Style::default()
+                    .fg(palette.text_muted)
+                    .add_modifier(Modifier::DIM)
+            } else if selected {
                 Style::default()
                     .fg(palette.accent)
                     .bg(lerp_rgb(palette.void_bg, palette.nebula_b, 0.18))
@@ -426,19 +436,19 @@ fn render_compact_menu(
         .constraints([
             Constraint::Length(2),
             Constraint::Length(1),
-            Constraint::Length(4),
+            Constraint::Length(5),
             Constraint::Length(1),
         ])
         .split(Rect::new(
             area.x + area.width.saturating_sub(34) / 2,
-            area.y + area.height.saturating_sub(10) / 2,
+            area.y + area.height.saturating_sub(11) / 2,
             area.width.min(34),
-            area.height.min(10),
+            area.height.min(11),
         ));
 
     frame.render_widget(
         Clear,
-        Rect::new(content[0].x, content[0].y, content[0].width, 10),
+        Rect::new(content[0].x, content[0].y, content[0].width, 11),
     );
     render_brand_header(frame, content[0], false);
     frame.render_widget(
@@ -624,7 +634,7 @@ mod tests {
     #[test]
     fn selected_menu_item_is_rendered() {
         let app_state = AppState {
-            menu_cursor: 2,
+            menu_cursor: 3,
             ..AppState::default()
         };
         let backend = TestBackend::new(100, 30);
@@ -634,5 +644,12 @@ mod tests {
             .unwrap();
         let full = buffer_text(terminal.backend().buffer(), 100, 30);
         assert!(full.contains("▶ Options"));
+    }
+
+    #[test]
+    fn continue_action_is_shown() {
+        let buf = render_to_buffer(100, 30);
+        let full = buffer_text(&buf, 100, 30);
+        assert!(full.contains("Continue"));
     }
 }

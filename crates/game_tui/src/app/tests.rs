@@ -175,6 +175,169 @@ fn toggle_palette_on_colon() {
 }
 
 #[test]
+fn all_screens_render_at_standard_sizes_without_panic() {
+    let all_screens = [
+        Screen::Menu,
+        Screen::EmpireSelect,
+        Screen::NewGameSetup,
+        Screen::SectorOverview,
+        Screen::SectorMap,
+        Screen::System,
+        Screen::Colony,
+        Screen::EmpireOverview,
+        Screen::Research,
+        Screen::Diplomacy,
+        Screen::ShipDesigner,
+        Screen::Settings,
+    ];
+
+    for (width, height) in [(80u16, 24u16), (120, 36)] {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new();
+        app.new_game(42);
+        let selected_colony = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colonies
+            .keys()
+            .next()
+            .copied();
+        app.state.colony.selected_colony = selected_colony;
+
+        for screen in all_screens {
+            app.state.active = screen;
+            terminal
+                .draw(|frame| app.render(frame))
+                .unwrap_or_else(|err| {
+                    panic!("{screen:?} failed to render at {width}x{height}: {err}")
+                });
+        }
+    }
+}
+
+#[test]
+fn footer_hints_visible_on_game_screens_at_80x24() {
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorMap;
+    terminal.draw(|frame| app.render(frame)).unwrap();
+
+    let rendered: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    // Footer chrome must survive at the minimum supported size.
+    assert!(
+        rendered.contains("Help"),
+        "footer help hint must be visible"
+    );
+    assert!(
+        rendered.contains("End Turn"),
+        "footer end-turn hint must be visible"
+    );
+}
+
+#[test]
+fn campaign_entry_begins_and_completes_fade_transition() {
+    let mut app = App::new();
+    app.new_game(42);
+    assert!(
+        app.state.transition.is_active(),
+        "launching a campaign should begin a transition"
+    );
+    assert_eq!(app.state.transition.kind(), ScreenTransition::Fade);
+
+    // Deterministic, tick-driven completion — no wall-clock involved.
+    for _ in 0..CAMPAIGN_ENTRY_TRANSITION_TICKS {
+        app.state.transition.advance();
+    }
+    assert!(
+        !app.state.transition.is_active(),
+        "transition must complete after its tick budget"
+    );
+}
+
+#[test]
+fn reduced_motion_suppresses_campaign_transition() {
+    let mut app = App::new();
+    app.state.reduced_motion = true;
+    app.new_game(42);
+    assert!(!app.state.transition.is_active());
+}
+
+#[test]
+fn menu_selected_row_shows_glyph_marker() {
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.state.menu_cursor = 0;
+    // Pin Unicode so the assertion is independent of any persisted config that
+    // other tests may have written; Ascii mode downgrades the marker to '>'.
+    app.state.visual_mode = crate::visual_mode::VisualMode::Unicode;
+    terminal.draw(|frame| app.render(frame)).unwrap();
+
+    let rendered: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    // Selection is visible via a glyph marker, not color alone.
+    assert!(
+        rendered.contains('▶'),
+        "focused menu row must show a glyph marker"
+    );
+}
+
+#[test]
+fn advisor_guidance_is_deterministic_for_same_seed() {
+    let mut a = App::new();
+    a.new_game(42);
+    let mut b = App::new();
+    b.new_game(42);
+    assert_eq!(
+        a.state.advisor_output, b.state.advisor_output,
+        "advisor guidance must be reproducible for identical seed + state"
+    );
+}
+
+#[test]
+fn sector_overview_footer_falls_back_to_advisor_when_no_status() {
+    let backend = TestBackend::new(120, 36);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let mut app = App::new();
+    app.new_game(42);
+    // Clear the new-game status so the advisor line becomes the footer hint.
+    app.state.status_message = None;
+    // Only meaningful when the fresh game actually produced guidance.
+    if let Some(expected) = crate::components::advisor_strip_text(&app.state.advisor_output) {
+        terminal.draw(|frame| app.render(frame)).unwrap();
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        let head: String = expected.chars().take(12).collect();
+        assert!(
+            rendered.contains(head.trim()),
+            "footer should surface the advisor recommendation when no status is set"
+        );
+    }
+}
+
+#[test]
 fn quit_flag_set_on_q() {
     let mut app = App::new();
     assert!(!app.state.quit);
@@ -265,6 +428,19 @@ fn end_turn_report_includes_victory_milestones() {
     );
     assert!(report.contains("victory milestones 1"));
     assert!(report.contains("victories 1"));
+}
+
+#[test]
+fn end_turn_report_counts_automation_actions() {
+    let report = App::build_end_turn_report(
+        5,
+        &[game_core::Event::ColonyAutomationQueued {
+            colony: game_core::ColonyId(1),
+            item: game_core::BuildItem::SurfaceStructure(game_core::BuildingType::FabricationYard),
+            directive: game_core::SectorDirective::Industrial,
+        }],
+    );
+    assert!(report.contains("automation queued 1"));
 }
 
 #[test]
@@ -900,7 +1076,7 @@ fn end_turn_report_handles_empty_event_list() {
     let report = App::build_end_turn_report(3, &[]);
     assert_eq!(
         report,
-        "Turn 3 global summary (all empires): explored 0, surveyed 0, discoveries 0, colonized 0, research 0, queued starts 0, arrivals 0, combats 0, retreats 0, invasions won 0, invasions failed 0, treaties 0, wars 0, peaces 0, intel gains 0, victory milestones 0, victories 0, unrest worsened 0, revolt risk 0, warnings 0, isolated 0, reconnected 0, errors 0."
+        "Turn 3 global summary (all empires): explored 0, surveyed 0, discoveries 0, colonized 0, research 0, queued starts 0, arrivals 0, combats 0, retreats 0, invasions won 0, invasions failed 0, treaties 0, wars 0, peaces 0, intel gains 0, victory milestones 0, victories 0, unrest worsened 0, revolt risk 0, automation queued 0, warnings 0, isolated 0, reconnected 0, errors 0."
     );
 }
 
@@ -3010,6 +3186,8 @@ fn menu_o_key_opens_settings_screen() {
 fn menu_enter_starts_new_game_flow() {
     let mut app = App::new();
     app.state.active = Screen::Menu;
+    // Cursor 0 is now Continue; move to New Game before activating.
+    app.state.menu_cursor = 1;
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.state.active, Screen::NewGameSetup);
 }
@@ -3035,7 +3213,8 @@ fn menu_down_moves_cursor() {
 fn menu_enter_activates_selected_option() {
     let mut app = App::new();
     app.state.active = Screen::Menu;
-    app.state.menu_cursor = 2;
+    // Options now sits at cursor index 3 (after Continue, New Game, Load Game).
+    app.state.menu_cursor = 3;
     app.handle_key(key(KeyCode::Enter));
     assert!(app.state.overlay.show_settings);
 }
@@ -3320,4 +3499,274 @@ fn update_channel_getter_reflects_configured_channel() {
     let mut app = App::new();
     app.state.update_channel = crate::update::UpdateChannel::Nightly;
     assert_eq!(app.update_channel(), crate::update::UpdateChannel::Nightly);
+}
+
+fn fake_summary(name: &str, readable: bool) -> game_save::SaveSlotSummary {
+    game_save::SaveSlotSummary {
+        path: std::path::PathBuf::from(format!("{name}.sav")),
+        display_name: name.to_string(),
+        turn: if readable { Some(12) } else { None },
+        empire_name: if readable {
+            Some("Aurora".to_string())
+        } else {
+            None
+        },
+        galaxy_size: if readable {
+            Some("Medium".to_string())
+        } else {
+            None
+        },
+        ai_empires: if readable { Some(3) } else { None },
+        difficulty: if readable {
+            Some("Standard".to_string())
+        } else {
+            None
+        },
+        updated_at: Some("2026-05-30 12:00".to_string()),
+        readable,
+    }
+}
+
+fn open_archives_with(app: &mut App, entries: Vec<game_save::SaveSlotSummary>) {
+    app.state.active = Screen::Menu;
+    app.state.overlay.archives = ArchivesState {
+        open: true,
+        entries,
+        cursor: 0,
+        confirm_delete: false,
+        show_help: false,
+        error: None,
+    };
+}
+
+#[test]
+fn archives_opens_via_menu_load_action() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.activate_menu_action(MenuAction::LoadGame);
+    assert!(app.state.overlay.archives.open);
+}
+
+#[test]
+fn archives_cursor_nav_wraps() {
+    let mut app = App::new();
+    open_archives_with(
+        &mut app,
+        vec![
+            fake_summary("Alpha", true),
+            fake_summary("Beta", true),
+            fake_summary("Gamma", true),
+        ],
+    );
+
+    app.handle_key(key(KeyCode::Down));
+    assert_eq!(app.state.overlay.archives.cursor, 1);
+    app.handle_key(key(KeyCode::Down));
+    app.handle_key(key(KeyCode::Down));
+    assert_eq!(app.state.overlay.archives.cursor, 0, "down wraps to first");
+
+    app.handle_key(key(KeyCode::Up));
+    assert_eq!(app.state.overlay.archives.cursor, 2, "up wraps to last");
+}
+
+#[test]
+fn archives_esc_closes() {
+    let mut app = App::new();
+    open_archives_with(&mut app, vec![fake_summary("Alpha", true)]);
+    app.handle_key(key(KeyCode::Esc));
+    assert!(!app.state.overlay.archives.open);
+}
+
+#[test]
+fn archives_help_toggles_then_dismisses() {
+    let mut app = App::new();
+    open_archives_with(&mut app, vec![fake_summary("Alpha", true)]);
+
+    app.handle_key(key(KeyCode::Char('?')));
+    assert!(app.state.overlay.archives.show_help);
+
+    // Any subsequent key dismisses help without acting on it.
+    app.handle_key(key(KeyCode::Down));
+    assert!(!app.state.overlay.archives.show_help);
+    assert_eq!(app.state.overlay.archives.cursor, 0);
+}
+
+#[test]
+fn archives_new_game_opens_setup_and_closes() {
+    let mut app = App::new();
+    open_archives_with(&mut app, vec![fake_summary("Alpha", true)]);
+
+    app.handle_key(key(KeyCode::Char('N')));
+    assert!(!app.state.overlay.archives.open);
+    assert_eq!(app.state.active, Screen::NewGameSetup);
+}
+
+#[test]
+fn archives_delete_confirm_then_cancel_keeps_entries() {
+    let mut app = App::new();
+    open_archives_with(
+        &mut app,
+        vec![fake_summary("Alpha", true), fake_summary("Beta", true)],
+    );
+
+    app.handle_key(key(KeyCode::Char('d')));
+    assert!(app.state.overlay.archives.confirm_delete);
+
+    app.handle_key(key(KeyCode::Esc));
+    assert!(!app.state.overlay.archives.confirm_delete);
+    assert_eq!(
+        app.state.overlay.archives.entries.len(),
+        2,
+        "cancelling delete removes nothing"
+    );
+    assert!(app.state.overlay.archives.open, "cancel stays in archives");
+}
+
+#[test]
+fn continue_is_no_op_when_cannot_continue() {
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.state.can_continue = false;
+    app.activate_menu_action(MenuAction::Continue);
+    assert_eq!(app.state.active, Screen::Menu);
+    assert!(app.engine.is_none());
+}
+
+#[test]
+fn friendly_load_error_maps_variants_to_human_text() {
+    let newer = friendly_load_error(&game_save::SaveError::UnsupportedVersion {
+        found: 99,
+        supported: 38,
+    });
+    assert!(newer.starts_with("Could not load campaign:"));
+    assert!(newer.contains("newer than this build"));
+
+    let corrupt = friendly_load_error(&game_save::SaveError::CorruptedSave {
+        reason: "bad".to_string(),
+    });
+    assert!(corrupt.contains("corrupted or incomplete"));
+
+    let perm = friendly_load_error(&game_save::SaveError::Io(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        "denied",
+    )));
+    assert!(perm.contains("permission denied"));
+}
+
+#[test]
+fn g_key_opens_sector_governance() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorMap;
+
+    app.handle_key(key(KeyCode::Char('G')));
+
+    assert_eq!(app.state.active, Screen::SectorGovernance);
+}
+
+#[test]
+fn governance_esc_returns_to_sector_map() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorGovernance;
+
+    app.handle_key(key(KeyCode::Esc));
+
+    assert_eq!(app.state.active, Screen::SectorMap);
+}
+
+#[test]
+fn governance_d_cycles_selected_sector_directive() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorGovernance;
+    app.state.governance.cursor = 0;
+
+    let player = app.engine.as_ref().unwrap().state.player_empire;
+    let rows = derive_sector_governance(&app.engine.as_ref().unwrap().state, player).rows;
+    let sector = rows[0].sector_id;
+    let before = app.engine.as_ref().unwrap().state.sector_directive(sector);
+    let expected = before.next();
+
+    app.handle_key(key(KeyCode::Char('D')));
+
+    let after = app.engine.as_ref().unwrap().state.sector_directive(sector);
+    assert_eq!(after, expected);
+    assert_ne!(after, before);
+}
+
+#[test]
+fn governance_a_toggles_sector_automation_for_all_colonies() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorGovernance;
+    app.state.governance.cursor = 0;
+
+    let player = app.engine.as_ref().unwrap().state.player_empire;
+    let rows = derive_sector_governance(&app.engine.as_ref().unwrap().state, player).rows;
+    let colony_ids: Vec<_> = rows[0].colonies.iter().map(|c| c.colony_id).collect();
+
+    // First press enables sector-guided automation for every colony.
+    app.handle_key(key(KeyCode::Char('A')));
+    for colony in &colony_ids {
+        assert_eq!(
+            app.engine
+                .as_ref()
+                .unwrap()
+                .state
+                .colony_automation_mode(*colony),
+            game_core::ColonyAutomation::SectorGuided
+        );
+    }
+
+    // Second press toggles them back to manual.
+    app.handle_key(key(KeyCode::Char('A')));
+    for colony in &colony_ids {
+        assert_eq!(
+            app.engine
+                .as_ref()
+                .unwrap()
+                .state
+                .colony_automation_mode(*colony),
+            game_core::ColonyAutomation::Manual
+        );
+    }
+}
+
+#[test]
+fn colony_a_key_toggles_colony_automation() {
+    let mut app = App::new();
+    app.new_game(42);
+    let colony_id = game_core::ColonyId(1);
+    app.state.active = Screen::Colony;
+    app.state.colony.selected_colony = Some(colony_id);
+
+    assert_eq!(
+        app.engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colony_automation_mode(colony_id),
+        game_core::ColonyAutomation::Manual
+    );
+
+    app.handle_key(key(KeyCode::Char('A')));
+    assert_eq!(
+        app.engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colony_automation_mode(colony_id),
+        game_core::ColonyAutomation::SectorGuided
+    );
+
+    app.handle_key(key(KeyCode::Char('A')));
+    assert_eq!(
+        app.engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colony_automation_mode(colony_id),
+        game_core::ColonyAutomation::Manual
+    );
 }

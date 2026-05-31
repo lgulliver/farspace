@@ -1,5 +1,6 @@
 //! TUI Components
 
+pub mod advisor;
 pub mod battle_report;
 pub mod chrome;
 pub mod dispatch;
@@ -11,6 +12,7 @@ pub mod log;
 pub mod meter;
 pub mod palette;
 
+pub use advisor::{advisor_strip_text, render_advisor_strip, render_turn_brief, AlertSeverity};
 pub use battle_report::render_battle_reports;
 pub use chrome::{key_hint, page_block, panel_block, quiet_panel_block, section_heading};
 pub use dispatch::render_dispatch;

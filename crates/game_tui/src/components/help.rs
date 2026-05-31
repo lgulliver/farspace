@@ -5,6 +5,7 @@ use crate::screens::Screen;
 use crate::theme::Theme;
 use ratatui::{
     layout::Rect,
+    symbols::border::ROUNDED,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
@@ -336,7 +337,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         .map(|entry| match entry {
             HelpEntry::Section(label) => Line::from(vec![
                 Span::raw(" "),
-                Span::styled(*label, Theme::accent_style()),
+                Span::styled(*label, Theme::title_style()),
                 Span::styled(
                     format!(" {}", "─".repeat(divider_len)),
                     Theme::dim_border_style(),
@@ -366,6 +367,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             Block::default()
                 .title(title)
                 .borders(Borders::ALL)
+                .border_set(ROUNDED)
+                .border_style(Theme::focused_border_style())
                 .style(Theme::default_style()),
         )
         .style(Theme::default_style())

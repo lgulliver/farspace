@@ -1,20 +1,55 @@
 //! Settings modal overlay — update channel, auto-update toggle, visual mode.
 
+use crate::components::{key_hint, panel_block, section_heading};
 use crate::theme::Theme;
 use crate::AppState;
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Clear, Paragraph},
     Frame,
 };
 
 const NUM_SETTINGS: usize = 3;
 
+/// A single configurable setting row.
+struct SettingEntry {
+    category: &'static str,
+    label: &'static str,
+    value: String,
+    description: &'static str,
+}
+
+fn setting_entries(app_state: &AppState) -> [SettingEntry; NUM_SETTINGS] {
+    [
+        SettingEntry {
+            category: "Display",
+            label: "Visual Mode",
+            value: app_state.visual_mode.label().to_string(),
+            description: "Glyph set for icons and art (ASCII · Unicode · NerdFont).",
+        },
+        SettingEntry {
+            category: "Updates",
+            label: "Update Channel",
+            value: app_state.update_channel.label().to_string(),
+            description: "Release stream new versions are pulled from.",
+        },
+        SettingEntry {
+            category: "Updates",
+            label: "Auto-update",
+            value: if app_state.auto_update {
+                "On".to_string()
+            } else {
+                "Off".to_string()
+            },
+            description: "Check for and apply updates on launch.",
+        },
+    ]
+}
+
 pub fn render_settings(frame: &mut Frame, area: Rect, app_state: &AppState) {
-    let box_width = 54u16;
-    let box_height = 14u16;
+    let box_width = 60u16.min(area.width);
+    let box_height = 18u16.min(area.height);
 
     // Center vertically and horizontally
     let v_chunks = Layout::default()
@@ -40,69 +75,66 @@ pub fn render_settings(frame: &mut Frame, area: Rect, app_state: &AppState) {
     // Clear the area beneath the modal so the background doesn't bleed through.
     frame.render_widget(Clear, panel);
 
-    let items = settings_lines(app_state);
+    let block = panel_block("⚙ Settings", true);
+    let inner = block.inner(panel);
+    frame.render_widget(block, panel);
 
-    let paragraph = Paragraph::new(items)
-        .block(
-            Block::default()
-                .title(" ⚙ Settings ")
-                .borders(Borders::ALL)
-                .border_style(Theme::focused_border_style())
-                .style(Theme::default_style()),
-        )
-        .alignment(Alignment::Left)
-        .style(Theme::default_style());
-
-    frame.render_widget(paragraph, panel);
+    let paragraph = Paragraph::new(settings_lines(app_state)).style(Theme::default_style());
+    frame.render_widget(paragraph, inner);
 }
 
 fn settings_lines(app_state: &AppState) -> Vec<Line<'static>> {
-    let cursor = app_state.settings_cursor;
+    let cursor = app_state.settings_cursor.min(NUM_SETTINGS - 1);
+    let entries = setting_entries(app_state);
+
     let mut lines = vec![
-        Line::from(""),
-        Line::from("  Use j/k to navigate, Enter to cycle, Esc to save."),
+        Line::from(Span::styled(
+            "  Tune how FARSPACE looks and stays current.",
+            Theme::muted_style(),
+        )),
         Line::from(""),
     ];
 
-    let entries: &[(&str, String)] = &[
-        ("Visual Mode", app_state.visual_mode.label().to_string()),
-        (
-            "Update Channel",
-            app_state.update_channel.label().to_string(),
-        ),
-        (
-            "Auto-update",
-            if app_state.auto_update {
-                "On".to_string()
-            } else {
-                "Off".to_string()
-            },
-        ),
-    ];
+    let mut last_category: Option<&str> = None;
+    for (i, entry) in entries.iter().enumerate() {
+        if last_category != Some(entry.category) {
+            lines.push(section_heading(format!("  {}", entry.category)));
+            last_category = Some(entry.category);
+        }
 
-    for (i, (label, value)) in entries.iter().enumerate() {
-        let (row_style, marker) = if i == cursor {
-            (
-                Style::default()
-                    .fg(Theme::accent())
-                    .add_modifier(Modifier::BOLD),
-                ">",
-            )
+        let selected = i == cursor;
+        let marker = if selected { "▶" } else { " " };
+        let row_style = if selected {
+            Theme::highlight_style()
         } else {
-            (Theme::default_style(), " ")
+            Theme::text_primary_style()
+        };
+        let value_style = if selected {
+            Theme::highlight_style()
+        } else {
+            Theme::accent_style()
         };
 
         lines.push(Line::from(vec![
-            Span::styled(format!("  {marker} {label:<18}"), row_style),
-            Span::styled(format!("[{value}]"), row_style),
+            Span::styled(format!("  {marker} {:<16}", entry.label), row_style),
+            Span::styled(format!(" [{}]", entry.value), value_style),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("      "),
+            Span::styled(entry.description, Theme::muted_style()),
         ]));
         lines.push(Line::from(""));
     }
 
-    lines.push(Line::from(Span::styled(
-        "  Esc  Save & return",
-        Theme::muted_style(),
-    )));
+    lines.push(Line::from({
+        let mut spans = vec![Span::raw("  ")];
+        spans.extend(key_hint("j / k", "Navigate"));
+        spans.push(Span::styled("   ", Theme::muted_style()));
+        spans.extend(key_hint("Enter", "Cycle value"));
+        spans.push(Span::styled("   ", Theme::muted_style()));
+        spans.extend(key_hint("Esc", "Save & return"));
+        spans
+    }));
 
     lines
 }
@@ -146,5 +178,28 @@ mod tests {
             .map(|c| c.symbol())
             .collect();
         assert!(rendered.contains("Update Channel"));
+    }
+
+    #[test]
+    fn settings_shows_categories_descriptions_and_controls() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app_state = AppState::default();
+        terminal
+            .draw(|frame| render_settings(frame, frame.area(), &app_state))
+            .unwrap();
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(rendered.contains("Display"));
+        assert!(rendered.contains("Updates"));
+        assert!(rendered.contains("Glyph set"));
+        assert!(rendered.contains("Save & return"));
+        // Selected row (cursor 0 = Visual Mode) marker is visible.
+        assert!(rendered.contains('▶'));
     }
 }

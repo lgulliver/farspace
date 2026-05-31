@@ -1,6 +1,9 @@
 //! Diplomacy screen — shows known empires and their relationship status
 
-use crate::components::{derive_header_data, render_footer, render_header};
+use crate::components::{
+    derive_header_data, panel_block, quiet_panel_block, render_empire_emblem, render_footer,
+    render_header, EmpireEmblem,
+};
 use crate::layout::centered_rect;
 use crate::layout::compose_layout;
 use crate::screens::Screen;
@@ -12,10 +15,24 @@ use game_core::{
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
+
+/// Map a revealed relationship status to a coarse, honest threat reading.
+/// This is a presentation of the existing diplomatic status, not a new mechanic.
+fn threat_label_for_status(status: RelationshipStatus) -> (&'static str, Style) {
+    match status {
+        RelationshipStatus::War | RelationshipStatus::Hostile => ("High", Theme::error_style()),
+        RelationshipStatus::Tense => ("Elevated", Theme::warning_style()),
+        RelationshipStatus::Cooperative
+        | RelationshipStatus::Neutral
+        | RelationshipStatus::Contacted => ("Low", Theme::success_style()),
+        RelationshipStatus::Unknown => ("Unknown", Theme::muted_style()),
+    }
+}
 
 /// Render the diplomacy screen
 pub fn render_diplomacy(
@@ -53,24 +70,15 @@ fn render_empire_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
         .split(area);
-    let list_block = Block::default()
-        .title(" Diplomacy ")
-        .borders(Borders::ALL)
-        .style(Theme::default_style());
+    let list_block = panel_block("Known Empires", true);
     let list_inner = list_block.inner(panels[0]);
     frame.render_widget(list_block, panels[0]);
 
-    let detail_block = Block::default()
-        .title(" Empire Detail ")
-        .borders(Borders::ALL)
-        .style(Theme::default_style());
+    let detail_block = quiet_panel_block("Empire Detail");
     let detail_inner = detail_block.inner(panels[1]);
     frame.render_widget(detail_block, panels[1]);
 
-    let mut lines: Vec<Line> = vec![
-        Line::from(vec![Span::styled("Known Empires", Theme::title_style())]),
-        Line::from(""),
-    ];
+    let mut lines: Vec<Line> = Vec::new();
 
     for empire_id in &foreign_ids {
         let Some(empire) = game_state.empires.get(empire_id) else {
@@ -140,6 +148,7 @@ fn render_empire_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_
             ),
         };
 
+        let faction_color = Theme::faction_color(empire.empire_def, *empire_id);
         lines.push(Line::from(vec![
             Span::styled(selected_marker, Theme::accent_style()),
             Span::styled(icon, icon_style),
@@ -148,7 +157,7 @@ fn render_empire_list(frame: &mut Frame, area: Rect, app_state: &AppState, game_
                 if intel == IntelLevel::Unknown {
                     Theme::muted_style()
                 } else {
-                    Theme::title_style()
+                    Theme::title_style().fg(faction_color)
                 },
             ),
         ]));
@@ -224,6 +233,26 @@ fn render_empire_detail(
         .get(&empire_id)
         .copied()
         .unwrap_or(RelationshipStatus::Unknown);
+
+    // Reserve an emblem column for contacted empires when the panel is wide enough.
+    let empire_def_id = game_state
+        .empires
+        .get(&empire_id)
+        .and_then(|e| e.empire_def);
+    let show_emblem = intel != IntelLevel::Unknown
+        && empire_def_id.is_some()
+        && area.width >= 50
+        && area.height >= 9;
+    let (text_area, emblem_area) = if show_emblem {
+        let [info, emblem] = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Fill(1), Constraint::Length(16)])
+            .areas(area);
+        (info, Some(emblem))
+    } else {
+        (area, None)
+    };
+
     let detail_name = if intel == IntelLevel::Unknown {
         "[ Unknown Empire ]"
     } else {
@@ -261,6 +290,13 @@ fn render_empire_detail(
             },
         ),
     ]));
+    if intel.reveals_diplomatic_stance() {
+        let (threat, threat_style) = threat_label_for_status(status);
+        lines.push(Line::from(vec![
+            Span::styled("Threat level ", Theme::muted_style()),
+            Span::styled(threat, threat_style),
+        ]));
+    }
     lines.push(Line::from(""));
 
     if intel == IntelLevel::Unknown {
@@ -426,11 +462,19 @@ fn render_empire_detail(
         "Active intel: [i] gather  [z] sabotage placeholder  [y] research theft placeholder",
         Theme::muted_style(),
     )));
+
+    if let (Some(emblem_area), Some(def_id)) = (emblem_area, empire_def_id) {
+        if let Some(def) = empire_definition_by_id(def_id) {
+            let emblem = EmpireEmblem::from_empire_index(def_id.0 as usize, def.symbol);
+            render_empire_emblem(frame, emblem_area, &emblem);
+        }
+    }
+
     frame.render_widget(
         Paragraph::new(lines)
             .style(Theme::default_style())
             .wrap(Wrap { trim: true }),
-        area,
+        text_area,
     );
 }
 
@@ -672,6 +716,44 @@ mod tests {
         assert!(rendered.contains("[ Unknown Empire ]"));
         assert!(!rendered.contains("Leaked Empire"));
         assert!(!rendered.contains(&doctrine));
+    }
+
+    #[test]
+    fn diplomacy_screen_renders_at_80x24_with_footer_and_panels() {
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_diplomacy(frame, frame.area(), &app_state, &engine.state))
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("Known Empires"), "list panel title must show");
+        assert!(text.contains("End Turn"), "footer must remain visible");
+    }
+
+    #[test]
+    fn diplomacy_detail_shows_threat_level_when_stance_revealed() {
+        use game_core::{EmpireDefinitionId, RelationshipStatus};
+
+        let mut engine = Engine::new(42);
+        let ai_id = engine.state.ai_empire.expect("AI empire must exist");
+        let ai_empire = engine.state.empires.get_mut(&ai_id).unwrap();
+        ai_empire.empire_def = Some(EmpireDefinitionId(6));
+        ai_empire.name = "Terran Concord".to_string();
+        engine
+            .state
+            .diplomacy
+            .insert(ai_id, RelationshipStatus::Neutral);
+
+        let rendered = render_to_string(&engine);
+        assert!(rendered.contains("Threat level"));
     }
 
     #[test]

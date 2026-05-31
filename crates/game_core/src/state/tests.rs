@@ -1,6 +1,32 @@
 use super::*;
 
 #[test]
+fn per_colony_yield_bonuses_sums_resource_contribution() {
+    let mut engine = crate::Engine::new(42);
+    let player = engine.state.player_empire;
+
+    let baseline = engine.state.per_colony_yield_bonuses(player);
+
+    // Two QuantumCrystals grant +2 science per colony (scaled, capped at 2).
+    let mut by_resource = std::collections::BTreeMap::new();
+    by_resource.insert(StrategicResource::QuantumCrystals, 2);
+    engine
+        .state
+        .empire_resource_access
+        .insert(player, by_resource);
+
+    let boosted = engine.state.per_colony_yield_bonuses(player);
+    assert_eq!(boosted.science - baseline.science, 2);
+}
+
+#[test]
+fn per_colony_yield_bonuses_unknown_empire_is_zero() {
+    let engine = crate::Engine::new(42);
+    let bonuses = engine.state.per_colony_yield_bonuses(EmpireId(9_999));
+    assert_eq!(bonuses, PerColonyYieldBonuses::default());
+}
+
+#[test]
 fn star_id_ordering() {
     let id1 = StarId(1);
     let id2 = StarId(2);

@@ -3536,6 +3536,12 @@ pub struct GameState {
     /// Build-queue automation mode per colony.  Absent entries are `Manual`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub colony_automation: BTreeMap<ColonyId, ColonyAutomation>,
+    /// Actual per-colony yield produced on the most recent processed turn, after
+    /// all engine modifiers (tech/trait/resource bonuses, research percentage,
+    /// unrest, isolation/blockade penalties). Empty until the first turn is
+    /// processed. Read by the UI so reported output matches real income.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub last_colony_yields: BTreeMap<ColonyId, ColonyYieldSnapshot>,
 }
 
 impl GameState {
@@ -4422,6 +4428,7 @@ impl PartialEq for GameState {
             && self.empire_intel == other.empire_intel
             && self.sector_directives == other.sector_directives
             && self.colony_automation == other.colony_automation
+            && self.last_colony_yields == other.last_colony_yields
     }
 }
 
@@ -4499,6 +4506,126 @@ impl Default for GameState {
             empire_intel: BTreeMap::new(),
             sector_directives: BTreeMap::new(),
             colony_automation: BTreeMap::new(),
+            last_colony_yields: BTreeMap::new(),
+        }
+    }
+}
+
+/// Actual per-colony yield produced on the most recently processed turn, after
+/// every engine modifier (bonuses, research percentage, unrest, isolation and
+/// blockade penalties). This is the figure that fed empire income that turn, so
+/// the UI can display real numbers instead of re-deriving an estimate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ColonyYieldSnapshot {
+    pub industry: i64,
+    pub credits: i64,
+    pub science: i64,
+    /// Food produced after penalties (zeroed when isolated/blockaded).
+    pub food: i64,
+    /// Gross food consumed by population (not reduced by penalties).
+    pub food_consumed: i64,
+    pub maintenance: i64,
+}
+
+/// Flat per-colony bonuses granted by an empire's controlled strategic
+/// resources, plus the compounding research percentage some resources provide.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StrategicResourceBonuses {
+    pub industry_per_colony: i64,
+    pub credits_per_colony: i64,
+    pub science_per_colony: i64,
+    pub food_per_colony: i64,
+    pub research_percent_bonus: i64,
+}
+
+/// Flat per-colony yield bonuses an empire applies to every owned colony each
+/// turn, summed from completed technologies, faction identity traits, and
+/// controlled strategic resources.
+///
+/// This is the additive part the engine layers on top of the base pop/jobs
+/// yield. It deliberately excludes percentage modifiers (see
+/// [`StrategicResourceBonuses::research_percent_bonus`]), isolation/blockade
+/// penalties, and unrest effects, all of which depend on per-colony state and
+/// cannot be expressed as a single empire-wide flat figure.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PerColonyYieldBonuses {
+    pub industry: i64,
+    pub credits: i64,
+    pub science: i64,
+    pub food: i64,
+}
+
+impl GameState {
+    /// Per-colony bonuses from the strategic resources this empire controls.
+    pub fn strategic_resource_bonuses_for_empire(
+        &self,
+        empire_id: EmpireId,
+    ) -> StrategicResourceBonuses {
+        let count = |resource| self.empire_resource_count(empire_id, resource);
+        let has = |resource| count(resource) > 0;
+        let scaled = |resource| i64::from(count(resource).min(2));
+
+        let mut bonuses = StrategicResourceBonuses::default();
+        if has(StrategicResource::ReactiveIsotopes) {
+            bonuses.industry_per_colony += scaled(StrategicResource::ReactiveIsotopes);
+        }
+        if has(StrategicResource::QuantumCrystals) {
+            bonuses.science_per_colony += scaled(StrategicResource::QuantumCrystals);
+        }
+        if has(StrategicResource::HyperfiberOrganics) {
+            bonuses.food_per_colony += scaled(StrategicResource::HyperfiberOrganics);
+        }
+        if has(StrategicResource::AntimatterResidue) {
+            bonuses.industry_per_colony += 1;
+            bonuses.science_per_colony += 1;
+        }
+        if has(StrategicResource::DarkMatter) {
+            bonuses.credits_per_colony += 1;
+        }
+        if has(StrategicResource::PsionicSpores) {
+            bonuses.science_per_colony += 1;
+        }
+        if has(StrategicResource::NeutroniumDeposits) {
+            bonuses.industry_per_colony += 1;
+        }
+        if has(StrategicResource::LivingAlloy) {
+            bonuses.credits_per_colony += 1;
+        }
+        if has(StrategicResource::PrecursorDatacores) {
+            bonuses.research_percent_bonus += 15;
+        }
+        bonuses
+    }
+
+    /// Total flat per-colony yield bonuses (tech + faction trait + strategic
+    /// resource) the engine adds to every colony this empire owns each turn.
+    ///
+    /// Both the simulation and the TUI derive per-turn output from this so the
+    /// two never disagree on the additive bonuses.
+    pub fn per_colony_yield_bonuses(&self, empire_id: EmpireId) -> PerColonyYieldBonuses {
+        let empire = self.empires.get(&empire_id);
+        let completed = empire
+            .map(|e| e.research.completed.as_slice())
+            .unwrap_or(&[]);
+        let traits = empire
+            .and_then(|e| e.empire_def)
+            .and_then(empire_definition_by_id)
+            .map(|d| d.trait_modifiers)
+            .unwrap_or_default();
+        let resource = self.strategic_resource_bonuses_for_empire(empire_id);
+
+        PerColonyYieldBonuses {
+            industry: traits.industry_per_colony + resource.industry_per_colony,
+            credits: tech_yield_bonus_per_colony(completed, YieldType::Credits)
+                + traits.credits_per_colony
+                + resource.credits_per_colony,
+            science: tech_yield_bonus_per_colony(completed, YieldType::Science)
+                + traits.science_per_colony
+                + resource.science_per_colony,
+            food: tech_yield_bonus_per_colony(completed, YieldType::Food)
+                + traits.food_per_colony
+                + resource.food_per_colony,
         }
     }
 }

@@ -297,6 +297,7 @@ impl Engine {
             empire_intel: std::collections::BTreeMap::new(),
             sector_directives: std::collections::BTreeMap::new(),
             colony_automation: std::collections::BTreeMap::new(),
+            last_colony_yields: std::collections::BTreeMap::new(),
         };
 
         // Generate initial ship designs for all AI empires

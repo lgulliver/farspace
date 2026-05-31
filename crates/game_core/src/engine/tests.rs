@@ -4011,6 +4011,7 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         empire_intel: BTreeMap::new(),
         sector_directives: BTreeMap::new(),
         colony_automation: BTreeMap::new(),
+        last_colony_yields: BTreeMap::new(),
     };
 
     // Player star
@@ -4238,6 +4239,7 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         empire_intel: BTreeMap::new(),
         sector_directives: BTreeMap::new(),
         colony_automation: BTreeMap::new(),
+        last_colony_yields: BTreeMap::new(),
     };
 
     // Populate stars, empires, colonies, fleet
@@ -4624,6 +4626,7 @@ fn contact_detection_is_deterministic() {
         empire_intel: BTreeMap::new(),
         sector_directives: BTreeMap::new(),
         colony_automation: BTreeMap::new(),
+        last_colony_yields: BTreeMap::new(),
     };
 
     // Two AI empires each have a colony at target_star
@@ -9801,6 +9804,7 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         empire_intel: BTreeMap::new(),
         sector_directives: BTreeMap::new(),
         colony_automation: BTreeMap::new(),
+        last_colony_yields: BTreeMap::new(),
     };
 
     state.stars.insert(

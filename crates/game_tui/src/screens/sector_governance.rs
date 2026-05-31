@@ -53,10 +53,21 @@ pub struct SectorGovernanceData {
 /// Build the governance view for `empire_id`. Sectors with no colonies owned by
 /// the empire are omitted. Output is fully deterministic (sectors iterate in
 /// `SectorId` order; colonies via `colonies_in_sector`).
+///
+/// Yield totals are the engine's recorded actuals from the last processed turn
+/// (`GameState::last_colony_yields`), so they match real income exactly. Before
+/// the first turn is processed they fall back to a live estimate (base yield
+/// plus flat per-colony bonuses).
 pub fn derive_sector_governance(
     game_state: &GameState,
     empire_id: EmpireId,
 ) -> SectorGovernanceData {
+    // Flat per-colony bonuses (tech + faction trait + strategic resource) used
+    // only as a pre-first-turn estimate. Once a turn has been processed we read
+    // the engine's recorded actual yields instead, which already include the
+    // research percentage and isolation/blockade penalties.
+    let estimate_bonuses = game_state.per_colony_yield_bonuses(empire_id);
+
     let mut rows = Vec::new();
     for (&sector_id, sector) in &game_state.sectors {
         let mut colonies = Vec::new();
@@ -75,10 +86,17 @@ pub fn derive_sector_governance(
             }
             let star = game_state.stars.get(&colony.star);
             let planet = star.and_then(|s| s.planets.get(colony.planet_index));
-            let y = yield_model::calculate_yield(colony, planet);
-            industry_per_turn += y.industry;
-            science_per_turn += y.science;
-            food_balance += y.food - y.food_consumed;
+            if let Some(actual) = game_state.last_colony_yields.get(&colony_id) {
+                industry_per_turn += actual.industry;
+                science_per_turn += actual.science;
+                food_balance += actual.food - actual.food_consumed;
+            } else {
+                // No turn processed yet: estimate from base yield + flat bonuses.
+                let y = yield_model::calculate_yield(colony, planet);
+                industry_per_turn += y.industry + estimate_bonuses.industry;
+                science_per_turn += y.science + estimate_bonuses.science;
+                food_balance += (y.food + estimate_bonuses.food) - y.food_consumed;
+            }
 
             let automation = game_state.colony_automation_mode(colony_id);
             if automation == ColonyAutomation::SectorGuided {
@@ -185,7 +203,7 @@ fn render_sector_list(
         .cursor
         .min(rows.len().saturating_sub(1));
     let mut lines = vec![Line::from(Span::styled(
-        " > Selected Sector",
+        " > Selected Sector · Ind/Sci/Food = last turn",
         Theme::muted_style(),
     ))];
 
@@ -282,12 +300,16 @@ fn render_sector_detail(
             Theme::muted_style(),
         )]),
         Line::from(vec![
-            Span::styled("Output ", Theme::muted_style()),
+            Span::styled("Output (last turn) ", Theme::muted_style()),
             Span::raw(format!(
                 "Industry {}  Science {}  Food {:+}",
                 row.industry_per_turn, row.science_per_turn, row.food_balance
             )),
         ]),
+        Line::from(Span::styled(
+            "Actuals from the last processed turn; updates on End Turn.",
+            Theme::muted_style(),
+        )),
         Line::from(vec![
             Span::styled("Automation ", Theme::muted_style()),
             Span::raw(format!(
@@ -393,6 +415,78 @@ mod tests {
     }
 
     #[test]
+    fn derive_includes_strategic_resource_per_colony_bonus() {
+        // Regression: sector science totals must include the same flat
+        // per-colony bonuses the engine applies (here, a strategic resource),
+        // not just the base pop/jobs yield. Granting QuantumCrystals adds
+        // +1 science per colony, so the summed total must rise by exactly the
+        // player's colony count.
+        use game_core::StrategicResource;
+        use std::collections::BTreeMap;
+
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+
+        let baseline: i64 = derive_sector_governance(&engine.state, player)
+            .rows
+            .iter()
+            .map(|r| r.science_per_turn)
+            .sum();
+
+        let player_colonies = engine
+            .state
+            .colonies
+            .values()
+            .filter(|c| c.owner == player)
+            .count() as i64;
+        assert!(player_colonies > 0, "fixture should have player colonies");
+
+        let mut by_resource = BTreeMap::new();
+        by_resource.insert(StrategicResource::QuantumCrystals, 1);
+        engine
+            .state
+            .empire_resource_access
+            .insert(player, by_resource);
+
+        let boosted: i64 = derive_sector_governance(&engine.state, player)
+            .rows
+            .iter()
+            .map(|r| r.science_per_turn)
+            .sum();
+
+        assert_eq!(boosted - baseline, player_colonies);
+    }
+
+    #[test]
+    fn derive_uses_engine_recorded_yields_after_a_turn() {
+        // After a processed turn the screen must report the engine's actual
+        // per-colony yields (which already fold in penalties), not a re-derived
+        // estimate. The summed sector science must equal the sum of the
+        // recorded yields for the player's colonies.
+        let mut engine = Engine::new(42);
+        engine.apply_turn(vec![Command::EndTurn]);
+        let player = engine.state.player_empire;
+
+        let expected: i64 = engine
+            .state
+            .colonies
+            .iter()
+            .filter(|(_, c)| c.owner == player)
+            .filter_map(|(id, _)| engine.state.last_colony_yields.get(id))
+            .map(|y| y.science)
+            .sum();
+
+        let total: i64 = derive_sector_governance(&engine.state, player)
+            .rows
+            .iter()
+            .map(|r| r.science_per_turn)
+            .sum();
+
+        assert_eq!(total, expected);
+        assert!(!engine.state.last_colony_yields.is_empty());
+    }
+
+    #[test]
     fn renders_at_80x24_with_footer_hint() {
         let engine = Engine::new(42);
         let app_state = AppState::default();
@@ -410,6 +504,7 @@ mod tests {
         let text = buffer_text(&buffer);
         assert!(text.contains("Sector Detail"));
         assert!(text.contains("Colonies"));
+        assert!(text.contains("last turn"));
     }
 
     #[test]

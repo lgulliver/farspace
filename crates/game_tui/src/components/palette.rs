@@ -4,7 +4,7 @@ use crate::layout::centered_fixed;
 use crate::theme::Theme;
 use crate::{glyphs::glyphs_for_mode, visual_mode::VisualMode};
 use ratatui::{
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
@@ -80,12 +80,32 @@ impl PaletteCommandParseError {
 
 /// Render the command palette
 pub fn render_palette(frame: &mut Frame, area: Rect, input: &str, mode: VisualMode) {
-    // Height 7 = border top + hint line + blank + input line + blank + help line + border bottom
-    let popup_area = centered_fixed(70, 7, area);
+    // Height 8 leaves room for the command list to wrap one extra row on narrow
+    // terminals without pushing the input or help lines out of view.
+    let popup_area = centered_fixed(70, 8, area);
     let glyphs = glyphs_for_mode(mode);
 
     // Clear the background
     frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .title(" Command Palette ")
+        .borders(Borders::ALL)
+        .border_style(Theme::focused_border_style())
+        .style(Theme::default_style());
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    // Reserve fixed rows for the input and help lines so they stay visible even
+    // when the command list wraps. The command region absorbs any extra height.
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),    // commands (wraps)
+            Constraint::Length(1), // input
+            Constraint::Length(1), // help
+        ])
+        .split(inner);
 
     let command_spans = PaletteCommand::all()
         .iter()
@@ -105,35 +125,27 @@ pub fn render_palette(frame: &mut Frame, area: Rect, input: &str, mode: VisualMo
         })
         .collect::<Vec<_>>();
 
-    let lines = vec![
-        Line::from(command_spans),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled(": ", Theme::accent_style()),
-            Span::raw(input),
-            Span::styled(glyphs.palette_cursor.to_string(), Theme::accent_style()),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Enter", Theme::title_style()),
-            Span::styled(" to execute  ", Theme::muted_style()),
-            Span::styled("Esc", Theme::title_style()),
-            Span::styled(" to close", Theme::muted_style()),
-        ]),
-    ];
-
-    let paragraph = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .title(" Command Palette ")
-                .borders(Borders::ALL)
-                .border_style(Theme::focused_border_style())
-                .style(Theme::default_style()),
-        )
+    let commands = Paragraph::new(Line::from(command_spans))
         .wrap(ratatui::widgets::Wrap { trim: false })
         .style(Theme::default_style());
+    frame.render_widget(commands, chunks[0]);
 
-    frame.render_widget(paragraph, popup_area);
+    let input_line = Paragraph::new(Line::from(vec![
+        Span::styled(": ", Theme::accent_style()),
+        Span::raw(input),
+        Span::styled(glyphs.palette_cursor.to_string(), Theme::accent_style()),
+    ]))
+    .style(Theme::default_style());
+    frame.render_widget(input_line, chunks[1]);
+
+    let help_line = Paragraph::new(Line::from(vec![
+        Span::styled("Enter", Theme::title_style()),
+        Span::styled(" to execute  ", Theme::muted_style()),
+        Span::styled("Esc", Theme::title_style()),
+        Span::styled(" to close", Theme::muted_style()),
+    ]))
+    .style(Theme::default_style());
+    frame.render_widget(help_line, chunks[2]);
 }
 
 #[cfg(test)]
@@ -200,18 +212,18 @@ mod tests {
     }
 
     #[test]
-    fn render_palette_wraps_long_command_line() {
-        // Regression: long content must wrap instead of clipping at the panel
-        // edge. In a narrow terminal the "Commands: …" line is far wider than
-        // the popup, so the trailing keyword only survives if the paragraph
-        // wraps. Without wrapping it would be clipped and absent.
+    fn render_palette_keeps_input_and_help_visible_when_commands_wrap() {
+        // Regression: on a narrow terminal the wrapped "Commands: …" line could
+        // consume the whole popup and clip the input/cursor and help lines,
+        // making the palette unusable. Those rows are now reserved, so they must
+        // remain visible regardless of how far the command list wraps.
         let backend = TestBackend::new(40, 12);
         let mut terminal = Terminal::new(backend).unwrap();
 
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                render_palette(frame, area, "", VisualMode::Ascii);
+                render_palette(frame, area, "save", VisualMode::Ascii);
             })
             .unwrap();
 
@@ -219,8 +231,12 @@ mod tests {
         let rendered: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
 
         assert!(
-            rendered.contains("news"),
-            "trailing command keyword should wrap into view, got:\n{rendered}"
+            rendered.contains("save"),
+            "input text should stay visible, got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("Enter") && rendered.contains("Esc"),
+            "help line should stay visible, got:\n{rendered}"
         );
     }
 

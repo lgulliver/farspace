@@ -72,15 +72,6 @@ struct YieldBonuses {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-struct StrategicResourceBonuses {
-    industry_per_colony: i64,
-    credits_per_colony: i64,
-    science_per_colony: i64,
-    food_per_colony: i64,
-    research_percent_bonus: i64,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
 struct EmpireUnrestPressure {
     war_exhaustion: u8,
     overextension: u8,
@@ -91,46 +82,6 @@ struct UnrestEvaluation {
     state: ColonyUnrestState,
     causes: Vec<UnrestCause>,
     rebellion_risk_bp: u16,
-}
-
-fn strategic_resource_bonuses_for_empire(
-    state: &GameState,
-    empire_id: EmpireId,
-) -> StrategicResourceBonuses {
-    let count = |resource| state.empire_resource_count(empire_id, resource);
-    let has = |resource| count(resource) > 0;
-    let scaled = |resource| i64::from(count(resource).min(2));
-
-    let mut bonuses = StrategicResourceBonuses::default();
-    if has(StrategicResource::ReactiveIsotopes) {
-        bonuses.industry_per_colony += scaled(StrategicResource::ReactiveIsotopes);
-    }
-    if has(StrategicResource::QuantumCrystals) {
-        bonuses.science_per_colony += scaled(StrategicResource::QuantumCrystals);
-    }
-    if has(StrategicResource::HyperfiberOrganics) {
-        bonuses.food_per_colony += scaled(StrategicResource::HyperfiberOrganics);
-    }
-    if has(StrategicResource::AntimatterResidue) {
-        bonuses.industry_per_colony += 1;
-        bonuses.science_per_colony += 1;
-    }
-    if has(StrategicResource::DarkMatter) {
-        bonuses.credits_per_colony += 1;
-    }
-    if has(StrategicResource::PsionicSpores) {
-        bonuses.science_per_colony += 1;
-    }
-    if has(StrategicResource::NeutroniumDeposits) {
-        bonuses.industry_per_colony += 1;
-    }
-    if has(StrategicResource::LivingAlloy) {
-        bonuses.credits_per_colony += 1;
-    }
-    if has(StrategicResource::PrecursorDatacores) {
-        bonuses.research_percent_bonus += 15;
-    }
-    bonuses
 }
 
 /// Return the number of travel turns for a fleet moving the given squared Euclidean distance.
@@ -1551,6 +1502,8 @@ impl Engine {
     fn process_end_turn(&mut self, events: &mut Vec<Event>) {
         // Process colonies in deterministic order
         let colony_ids = sorted_colony_ids(&self.state.colonies);
+        // Rebuilt from scratch each turn so stale colonies never linger.
+        self.state.last_colony_yields.clear();
         let previous_supply = self.last_turn_colony_supply.clone();
         self.refresh_colony_supply_statuses();
         let current_turn_supply = self.state.colony_supply.clone();
@@ -1661,7 +1614,7 @@ impl Engine {
                 .get(&owner)
                 .copied()
                 .unwrap_or_default();
-            let resource_bonuses = strategic_resource_bonuses_for_empire(&self.state, owner);
+            let resource_bonuses = self.state.strategic_resource_bonuses_for_empire(owner);
 
             // Apply empire identity trait modifiers on top of tech bonuses.
             let empire_def_mods = self
@@ -1832,6 +1785,18 @@ impl Engine {
                 industry,
                 maintenance: colony_maintenance,
             });
+
+            self.state.last_colony_yields.insert(
+                colony_id,
+                crate::state::ColonyYieldSnapshot {
+                    industry,
+                    credits,
+                    science: research,
+                    food,
+                    food_consumed: colony_yield.food_consumed,
+                    maintenance: colony_maintenance,
+                },
+            );
 
             // Process production queue — one active item at a time, with deterministic
             // overflow carry into subsequent queued items in the same turn.

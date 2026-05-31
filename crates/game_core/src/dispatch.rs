@@ -1027,6 +1027,7 @@ mod tests {
             empire_intel: Default::default(),
             sector_directives: Default::default(),
             colony_automation: Default::default(),
+            last_colony_yields: Default::default(),
         }
     }
     // Cadence behaviour

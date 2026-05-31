@@ -1,0 +1,11 @@
+[CONTEXT] FARSPACE 4X game, need to understand supply/logistics/blockade systems for trade disruption integration.
+[GOAL] Understand how supply connectivity is calculated, how blockades work, how out-of-supply states affect colonies.
+[DOWNSTREAM] Trade routes will be disrupted by blockades, hostile fleets, and out-of-supply systems.
+[REQUEST] Very thorough exploration of:
+1. `crates/game_core/src/supply/` or any supply/logistics related files
+2. How supply connectivity is computed (from capital? sector hubs? chain?)
+3. Blockade mechanics - how systems become blockaded, what effects blockades have
+4. Fleet supply states (Supplied/Extended/Out of Supply)
+5. Any existing "trade route" or "trade lane" concepts
+Return file paths, key structs, and the supply/blockade computation algorithm.
+<!-- OMO_INTERNAL_INITIATOR -->

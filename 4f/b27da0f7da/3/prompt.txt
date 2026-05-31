@@ -1,0 +1,12 @@
+[CONTEXT] FARSPACE 4X game, need to understand GameState, engine turn processing, and event system.
+[GOAL] Understand the full GameState struct, how turns are processed, and how events are emitted.
+[DOWNSTREAM] Add trade network state to GameState, compute trade in turn processing, emit trade events.
+[REQUEST] Very thorough exploration of:
+1. `crates/game_core/src/state/` - GameState struct, what fields it has, how initialized
+2. `crates/game_core/src/engine.rs` - apply_turn flow, event emission pattern
+3. How colony data is structured
+4. How events are defined (Event enum, categories)
+5. How the turn pipeline works - what order things happen
+6. `crates/game_core/src/lib.rs` - public API exports
+Return file paths, key struct definitions, apply_turn pseudocode flow.
+<!-- OMO_INTERNAL_INITIATOR -->

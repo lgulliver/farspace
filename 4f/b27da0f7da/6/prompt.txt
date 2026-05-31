@@ -1,0 +1,11 @@
+[CONTEXT] FARSPACE 4X game, need to understand diplomacy/relations for trade route integration.
+[GOAL] Understand how diplomacy states work (war, peace, treaties) and how foreign relations affect gameplay.
+[DOWNSTREAM] Trade routes will be disrupted by war and enhanced by trade accords.
+[REQUEST] Very thorough exploration of:
+1. `crates/game_core/src/diplomacy/` - all files, relationship states, war/peace mechanics
+2. How war between empires is tracked and what events fire
+3. Any existing treaty/trade concept
+4. How border status works
+5. Diplomatic drift mechanics
+Return file paths, key structs, enum variants, and flow for declare-war / peace.
+<!-- OMO_INTERNAL_INITIATOR -->

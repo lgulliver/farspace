@@ -2,6 +2,7 @@
 //!
 //! This crate provides the terminal-based UI for FARSPACE.
 
+pub mod animation;
 pub mod app;
 pub mod components;
 #[cfg(any(test, feature = "e2e"))]

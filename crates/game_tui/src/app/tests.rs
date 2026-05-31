@@ -246,6 +246,57 @@ fn footer_hints_visible_on_game_screens_at_80x24() {
 }
 
 #[test]
+fn campaign_entry_begins_and_completes_fade_transition() {
+    let mut app = App::new();
+    app.new_game(42);
+    assert!(
+        app.state.transition.is_active(),
+        "launching a campaign should begin a transition"
+    );
+    assert_eq!(app.state.transition.kind(), ScreenTransition::Fade);
+
+    // Deterministic, tick-driven completion — no wall-clock involved.
+    for _ in 0..CAMPAIGN_ENTRY_TRANSITION_TICKS {
+        app.state.transition.advance();
+    }
+    assert!(
+        !app.state.transition.is_active(),
+        "transition must complete after its tick budget"
+    );
+}
+
+#[test]
+fn reduced_motion_suppresses_campaign_transition() {
+    let mut app = App::new();
+    app.state.reduced_motion = true;
+    app.new_game(42);
+    assert!(!app.state.transition.is_active());
+}
+
+#[test]
+fn menu_selected_row_shows_glyph_marker() {
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let mut app = App::new();
+    app.state.active = Screen::Menu;
+    app.state.menu_cursor = 0;
+    terminal.draw(|frame| app.render(frame)).unwrap();
+
+    let rendered: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    // Selection is visible via a glyph marker, not color alone.
+    assert!(
+        rendered.contains('▶'),
+        "focused menu row must show a glyph marker"
+    );
+}
+
+#[test]
 fn quit_flag_set_on_q() {
     let mut app = App::new();
     assert!(!app.state.quit);

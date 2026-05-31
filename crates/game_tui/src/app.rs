@@ -2,6 +2,7 @@
 
 mod logging;
 
+use crate::animation::{ScreenTransition, TransitionState};
 use crate::components::{
     render_battle_reports, render_dispatch, render_help, render_palette, EventLog, LogEntryKind,
     PaletteCommand,
@@ -30,6 +31,9 @@ use std::time::Duration;
 
 /// Default save file path
 const DEFAULT_SAVE_PATH: &str = "farspace.sav";
+
+/// Render ticks for the subtle fade when a campaign launches. UI-only.
+const CAMPAIGN_ENTRY_TRANSITION_TICKS: u16 = 6;
 
 /// Main application state
 pub struct App {
@@ -67,6 +71,9 @@ pub struct AppState {
     pub(crate) tick_count: u64,
     /// When true, all fleet travel animations are suppressed (accessibility / low-motion).
     pub(crate) reduced_motion: bool,
+    /// Active screen transition (UI-only, tick-driven). Scaffolding for future
+    /// transition compositing; never affects simulation state.
+    pub(crate) transition: TransitionState,
     /// Status line shown in contextual footer hints.
     pub(crate) status_message: Option<String>,
     pub(crate) ship_designer: ShipDesignerState,
@@ -460,6 +467,12 @@ impl App {
 
         self.engine = Some(engine);
         self.state.active = Screen::SectorOverview;
+        // Subtle entry transition into the campaign. Inert under reduced motion.
+        if !self.state.reduced_motion {
+            self.state
+                .transition
+                .start(ScreenTransition::Fade, CAMPAIGN_ENTRY_TRANSITION_TICKS);
+        }
     }
 
     /// Save the current game to the given path. Returns an error message on failure.
@@ -544,6 +557,7 @@ impl App {
 
             terminal.draw(|frame| self.render(frame))?;
             self.state.tick_count = self.state.tick_count.wrapping_add(1);
+            self.state.transition.advance();
 
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {

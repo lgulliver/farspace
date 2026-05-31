@@ -24,3 +24,4 @@ farspace.sav
 .codex/config.toml
 .codex/hooks.json
 .codex/agents/*.toml
+coverage-lcov/

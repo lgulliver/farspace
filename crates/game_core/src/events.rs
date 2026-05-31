@@ -4,7 +4,8 @@ use crate::state::{
     BuildItem, ColonyAutomation, ColonyId, ColonyRole, ColonyUnrestState, CustomDesignId,
     DiplomaticCommunicationType, EmpireId, EspionageMission, FleetFormation, FleetId, FleetOrder,
     FleetRole, HullId, IntelLevel, IntelSource, PlanetAnomaly, PlanetSpecial, SectorDirective,
-    SectorId, StarId, StrategicResource, TechId, TreatyType, UnrestCause, VictoryPath,
+    SectorId, StarId, StrategicResource, TechId, TradeDisruptionReason, TreatyType, UnrestCause,
+    VictoryPath,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -488,6 +489,26 @@ pub enum Event {
         from_star: StarId,
         to_star: StarId,
         remaining_integrity: u32,
+    },
+    /// Trade routes were computed for an empire this turn.
+    TradeRoutesComputed {
+        empire: EmpireId,
+        route_count: usize,
+        total_value: i64,
+        disrupted_count: usize,
+    },
+    /// A previously-connected trade route was disrupted.
+    TradeRouteDisrupted {
+        empire: EmpireId,
+        from: StarId,
+        to: StarId,
+        reason: TradeDisruptionReason,
+    },
+    /// A previously-disrupted trade route was restored.
+    TradeRouteRestored {
+        empire: EmpireId,
+        from: StarId,
+        to: StarId,
     },
 }
 
@@ -1251,6 +1272,40 @@ impl Event {
             } => format!(
                 "Fleet {} retreating from system {} to {} at {}% integrity",
                 fleet.0, from_star.0, to_star.0, remaining_integrity
+            ),
+            Event::TradeRoutesComputed {
+                empire,
+                route_count,
+                total_value,
+                disrupted_count,
+            } => {
+                if *disrupted_count > 0 {
+                    format!(
+                        "Empire {} trade: {} routes, {} credits/turn ({} disrupted)",
+                        empire.0, route_count, total_value, disrupted_count
+                    )
+                } else {
+                    format!(
+                        "Empire {} trade: {} routes, {} credits/turn",
+                        empire.0, route_count, total_value
+                    )
+                }
+            }
+            Event::TradeRouteDisrupted {
+                empire,
+                from,
+                to,
+                reason,
+            } => format!(
+                "Trade route {}–{} disrupted for Empire {}: {}",
+                from.0,
+                to.0,
+                empire.0,
+                reason.label()
+            ),
+            Event::TradeRouteRestored { empire, from, to } => format!(
+                "Trade route {}–{} restored for Empire {}",
+                from.0, to.0, empire.0
             ),
         }
     }

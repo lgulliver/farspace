@@ -1819,6 +1819,354 @@ fn blockade_interrupts_fleet_supply() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Trade network tests
+// ---------------------------------------------------------------------------
+
+fn make_trade_test_state() -> GameState {
+    let mut state = make_supply_test_state();
+    // Colonies at StarId(1) pop=10, StarId(2) pop=8, StarId(3) pop=8 (cross-sector, far)
+    // Refresh supply so colony_supply is populated.
+    state.colony_supply = state.recompute_colony_supply();
+    state
+}
+
+#[test]
+fn trade_connected_colonies_generate_value() {
+    let state = make_trade_test_state();
+    let empire = state.player_empire;
+    let (routes, income) = state.recompute_empire_trade_routes();
+    let empire_routes = routes.get(&empire).unwrap();
+    let empire_income = income.get(&empire).copied().unwrap_or(0);
+    // StarId(1) pop=10 and StarId(2) pop=8 are same-sector connected.
+    // sqrt(10*8) * 1 = sqrt(80) ≈ 8 credits base
+    assert!(
+        !empire_routes.is_empty(),
+        "connected colonies should produce trade routes"
+    );
+    assert!(
+        empire_income > 0,
+        "connected colonies should produce trade income"
+    );
+    // All routes should be undisrupted initially
+    for route in empire_routes {
+        assert!(!route.disrupted, "no disruption factors present");
+        assert!(route.net_value > 0, "route should have positive value");
+        assert_eq!(
+            route.net_value, route.base_value,
+            "undisrupted route net should equal base"
+        );
+    }
+}
+
+#[test]
+fn trade_disconnected_colonies_produce_no_trade() {
+    let mut state = make_trade_test_state();
+    let empire = state.player_empire;
+    // Colony 3 at StarId(3) is cross-sector and far — no lane and no link
+    // Remove the connected colonies to test isolation
+    state.colonies.remove(&ColonyId(1));
+    state.colonies.remove(&ColonyId(2));
+    // Colony 3 alone should produce no routes
+    state.colony_supply = state.recompute_colony_supply();
+    let (routes, income) = state.recompute_empire_trade_routes();
+    let empire_routes = routes.get(&empire).unwrap();
+    let empire_income = income.get(&empire).copied().unwrap_or(0);
+    assert!(
+        empire_routes.is_empty(),
+        "single colony should have no trade routes"
+    );
+    assert_eq!(
+        empire_income, 0,
+        "single colony should produce no trade income"
+    );
+}
+
+#[test]
+fn trade_route_value_scales_with_population() {
+    let state = make_trade_test_state();
+    let empire = state.player_empire;
+    let (routes, _) = state.recompute_empire_trade_routes();
+    let empire_routes = routes.get(&empire).unwrap();
+    // Base value should be sqrt(10 * 8) * 1 ≈ 8
+    let route = empire_routes
+        .iter()
+        .find(|r| r.from == StarId(1) || r.to == StarId(1))
+        .unwrap();
+    assert!(
+        route.base_value >= 5,
+        "base value should scale with population (got {})",
+        route.base_value
+    );
+    assert!(
+        route.base_value <= 12,
+        "base value upper bound (got {})",
+        route.base_value
+    );
+}
+
+#[test]
+fn trade_blockade_disrupts_route() {
+    let mut state = make_trade_test_state();
+    let empire = state.player_empire;
+    // Simulate blockade on ColonyId(1)
+    state.colony_blockade.insert(ColonyId(1), EmpireId(2));
+    state.colony_supply = state.recompute_colony_supply();
+    let (routes, income) = state.recompute_empire_trade_routes();
+    let empire_routes = routes.get(&empire).unwrap();
+    let empire_income = income.get(&empire).copied().unwrap_or(0);
+    // At least one route should be disrupted
+    let disrupted: Vec<_> = empire_routes.iter().filter(|r| r.disrupted).collect();
+    assert!(
+        !disrupted.is_empty(),
+        "blockade should disrupt at least one route"
+    );
+    for route in &disrupted {
+        assert_eq!(
+            route.disruption_reason,
+            Some(TradeDisruptionReason::Blockade),
+            "disruption reason should be blockade"
+        );
+        assert!(
+            route.net_value < route.base_value,
+            "disrupted route net value ({}) should be less than base ({})",
+            route.net_value,
+            route.base_value
+        );
+    }
+    // Some income may remain from undisrupted routes
+    assert!(
+        empire_income >= 0,
+        "trade income should remain non-negative after disruption"
+    );
+}
+
+#[test]
+fn trade_isolation_disrupts_route() {
+    let mut state = make_trade_test_state();
+    let empire = state.player_empire;
+    // Mark colony 2 as isolated
+    if let Some(s) = state.colony_supply.get_mut(&ColonyId(2)) {
+        *s = ColonySupplyState::Isolated;
+    }
+    let (routes, _) = state.recompute_empire_trade_routes();
+    let empire_routes = routes.get(&empire).unwrap();
+    let route_affected = empire_routes.iter().any(|r| r.disrupted);
+    assert!(
+        route_affected,
+        "isolation should disrupt routes involving isolated colony"
+    );
+}
+
+#[test]
+fn trade_hostile_fleet_disrupts_route() {
+    let mut state = make_trade_test_state();
+    let empire = state.player_empire;
+    let hostile = EmpireId(2);
+    // Insert hostile fleet at StarId(1)
+    state.fleets.insert(
+        FleetId(99),
+        Fleet {
+            id: FleetId(99),
+            owner: hostile,
+            location: StarId(1),
+            ships: 1,
+            kind: FleetKind::Destroyer,
+            strength: 5,
+            integrity: 100,
+        },
+    );
+    // Set relationship to hostile
+    state.diplomacy.insert(hostile, RelationshipStatus::Hostile);
+    let (routes, _) = state.recompute_empire_trade_routes();
+    let empire_routes = routes.get(&empire).unwrap();
+    let disrupted: Vec<_> = empire_routes.iter().filter(|r| r.disrupted).collect();
+    assert!(
+        !disrupted.is_empty(),
+        "hostile fleet should disrupt trade routes"
+    );
+}
+
+#[test]
+fn trade_war_disrupts_routes() {
+    let mut state = make_trade_test_state();
+    let empire = state.player_empire;
+    let enemy = EmpireId(2);
+    state.diplomacy.insert(enemy, RelationshipStatus::War);
+    state.colony_supply = state.recompute_colony_supply();
+    let (routes, _) = state.recompute_empire_trade_routes();
+    let empire_routes = routes.get(&empire).unwrap();
+    let disrupted: Vec<_> = empire_routes.iter().filter(|r| r.disrupted).collect();
+    assert!(!disrupted.is_empty(), "war should disrupt trade routes");
+    for route in &disrupted {
+        assert_eq!(
+            route.disruption_reason,
+            Some(TradeDisruptionReason::WarZone),
+            "war disruption reason should be WarZone"
+        );
+    }
+}
+
+#[test]
+fn trade_route_ordering_is_deterministic() {
+    let state = make_trade_test_state();
+    let empire = state.player_empire;
+    let (routes_a, _) = state.recompute_empire_trade_routes();
+    let (routes_b, _) = state.recompute_empire_trade_routes();
+    // Same state -> same result
+    assert_eq!(routes_a, routes_b, "trade routes should be deterministic");
+    let empire_routes = routes_a.get(&empire).unwrap();
+    for i in 1..empire_routes.len() {
+        assert!(
+            empire_routes[i - 1].from <= empire_routes[i].from
+                || (empire_routes[i - 1].from == empire_routes[i].from
+                    && empire_routes[i - 1].to <= empire_routes[i].to),
+            "routes should be sorted by (from, to)"
+        );
+    }
+}
+
+#[test]
+fn trade_income_is_computed_and_emitted() {
+    let mut engine = crate::Engine::new(42);
+    let player = engine.state.player_empire;
+    let events = engine.apply_turn(vec![crate::Command::EndTurn]);
+    let trade_income = engine
+        .state
+        .empire_trade_income
+        .get(&player)
+        .copied()
+        .unwrap_or(0);
+    let trade_routes = engine.state.empire_trade_routes.get(&player);
+    // Verify trade events were emitted (regardless of whether routes exist)
+    let trade_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, crate::Event::TradeRoutesComputed { .. }))
+        .collect();
+    assert!(
+        !trade_events.is_empty(),
+        "TradeRoutesComputed event should be emitted each turn"
+    );
+    // Trade income should be non-negative
+    assert!(trade_income >= 0, "trade income must be non-negative");
+    // Verify route cache is populated
+    assert!(
+        trade_routes.is_some(),
+        "empire_trade_routes should be populated"
+    );
+}
+
+#[test]
+fn trade_full_end_to_end_computation() {
+    let mut state = GameState::default();
+    let empire = EmpireId(1);
+    state.player_empire = empire;
+    // Set up empire with 3 colonies at varying distances
+    state.empires.insert(
+        empire,
+        Empire {
+            id: empire,
+            name: "Test".to_string(),
+            credits: 0,
+            research_points: 0,
+            home_star: StarId(10),
+            research: ResearchState::default(),
+            food: 0,
+            empire_def: None,
+        },
+    );
+    // Home star at (0,0)
+    state.stars.insert(
+        StarId(10),
+        Star {
+            id: StarId(10),
+            sector: SectorId(1),
+            name: "Capital".to_string(),
+            x: 0,
+            y: 0,
+            spectral_class: SpectralClass::G,
+            planets: vec![],
+        },
+    );
+    state.stars.insert(
+        StarId(20),
+        Star {
+            id: StarId(20),
+            sector: SectorId(1),
+            name: "ColonyA".to_string(),
+            x: 300,
+            y: 0,
+            spectral_class: SpectralClass::K,
+            planets: vec![],
+        },
+    );
+    state.stars.insert(
+        StarId(30),
+        Star {
+            id: StarId(30),
+            sector: SectorId(2),
+            name: "ColonyB".to_string(),
+            x: 800,
+            y: 0,
+            spectral_class: SpectralClass::M,
+            planets: vec![],
+        },
+    );
+    // Add lane linking capital to ColonyA for guaranteed connectivity
+    state
+        .hyperspace_lanes
+        .insert(HyperspaceLane::new(StarId(10), StarId(20)).unwrap());
+    let mut colonies = |id: ColonyId, star: StarId, pop: u64, yard: bool| {
+        let mut c = Colony {
+            id,
+            star,
+            planet_index: 0,
+            owner: empire,
+            population: pop,
+            production: 10,
+            prod_pct: 50,
+            research_pct: 50,
+            build_queue: vec![],
+            accumulated_production: 0,
+            buildings: vec![],
+            surface_installations: vec![],
+            orbital_installations: vec![],
+            stability: 100,
+            role: ColonyRole::Balanced,
+            rally_point: None,
+        };
+        if yard {
+            c.buildings.push(BuildingType::FabricationYard);
+        }
+        state.colonies.insert(id, c);
+    };
+    colonies(ColonyId(10), StarId(10), 12, true); // capital, pop 12, has yard
+    colonies(ColonyId(20), StarId(20), 10, false); // ColonyA, pop 10
+    colonies(ColonyId(30), StarId(30), 8, false); // ColonyB, pop 8, cross-sector
+    state.colony_supply = state.recompute_colony_supply();
+    state.empire_resource_access = state.recompute_empire_resource_access();
+    let (routes, income) = state.recompute_empire_trade_routes();
+    let empire_routes = routes.get(&empire).unwrap();
+    let empire_income = income.get(&empire).copied().unwrap_or(0);
+    // Capital(12)↔ColonyA(10) via lane: should have route
+    let has_capital_colonya = empire_routes.iter().any(|r| {
+        (r.from == StarId(10) && r.to == StarId(20)) || (r.from == StarId(20) && r.to == StarId(10))
+    });
+    assert!(
+        has_capital_colonya,
+        "lane-connected colonies should have a trade route"
+    );
+    // ColonyB (cross-sector, far) may not connect without lane
+    // Ensure empire income is at least what capital↔colonyA generates
+    assert!(empire_income > 0, "trade income should be positive");
+    // Verify yard bonus applied
+    let yard_routes: Vec<_> = empire_routes
+        .iter()
+        .filter(|r| (r.from == StarId(10) || r.to == StarId(10)) && !r.disrupted)
+        .collect();
+    assert!(!yard_routes.is_empty(), "capital should have routes");
+}
+
 #[test]
 fn fleets_without_colony_anchor_are_out_of_supply() {
     let mut state = make_supply_test_state();

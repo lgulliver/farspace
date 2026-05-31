@@ -822,6 +822,22 @@ fn pick_build_item(
         }
     }
 
+    // Merchant/Isolationist: build Supply Hub after shipyard to boost trade route value.
+    let merchant_weight = doctrine(AiDoctrine::Merchant);
+    let isolationist_weight = doctrine(AiDoctrine::Isolationist);
+    let wants_trade_hubs = merchant_weight >= 6 || isolationist_weight >= 6;
+    if wants_trade_hubs
+        && has_orbital_engineering
+        && colony.has_shipyard()
+        && !colony.has_supply_hub()
+    {
+        let can_place_orbital =
+            planet_size.is_some_and(|size| colony.can_place_orbital_installation(size));
+        if can_place_orbital {
+            return Some(BuildItem::OrbitalStructure(OrbitalStructureType::SupplyHub));
+        }
+    }
+
     // Priority 3 & 4: ships only if the colony has a Shipyard
     if !colony.has_shipyard() {
         return None;

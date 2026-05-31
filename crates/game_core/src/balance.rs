@@ -177,3 +177,41 @@ pub const HYPERSPACE_TRAVEL_DIVISOR: u32 = 2;
 /// recorded alongside other balance constants and can be referenced when the
 /// fleet-spam mechanic is implemented.
 pub const FLEET_MAINTENANCE_CREDIT_CAP_PER_EMPIRE: i64 = 50;
+
+// ---------------------------------------------------------------------------
+// Trade network
+// ---------------------------------------------------------------------------
+
+/// Base trade value per unit of (geometric mean) population on a route.
+///
+/// A route connecting two pop-10 colonies produces:
+///   sqrt(10 * 10) * TRADE_BASE_VALUE_PER_POP = 10 * 1 = 10 credits/turn.
+pub const TRADE_BASE_VALUE_PER_POP: i64 = 1;
+
+/// Multiplier applied to route value when either endpoint is blockaded (‰).
+pub const TRADE_BLOCKADE_PENALTY_PERMILLE: i64 = 500;
+
+/// Multiplier applied to route value when either endpoint is isolated (‰).
+pub const TRADE_ISOLATION_PENALTY_PERMILLE: i64 = 500;
+
+/// Multiplier applied to route value when a hostile fleet is present at
+/// either endpoint star (‰).
+pub const TRADE_HOSTILE_FLEET_PENALTY_PERMILLE: i64 = 750;
+
+/// Multiplier applied to route value when the empire is at war with any
+/// other empire (‰).
+pub const TRADE_WAR_ZONE_PENALTY_PERMILLE: i64 = 800;
+
+/// Development bonus per Fabrication Yard on either endpoint (‰ added to base).
+pub const TRADE_YARD_BONUS_PERMILLE: i64 = 100;
+
+/// Bonus when a route endpoint has a shipyard or supply hub (‰ added to base).
+/// Represents a sector-hub / capital connection bonus.
+pub const TRADE_HUB_BONUS_PERMILLE: i64 = 250;
+
+/// Tech bonus when empire has Trade Route Administration (‰ added to base).
+pub const TRADE_TECH_BONUS_PERMILLE: i64 = 150;
+
+/// Strategic resource trade value bonus (‰ added to base), per connected
+/// resource with a `trade_value > 0`.
+pub const TRADE_RESOURCE_BONUS_PERMILLE: i64 = 150;

@@ -188,6 +188,12 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                             .or_insert_with(game_core::EmpireIntel::new_contacted);
                     }
                 }
+                save.metadata.schema_version = 38;
+                save.version = 38;
+            }
+            38 => {
+                // Trade network fields added with #[serde(default)];
+                // deriving fresh trade state from existing colony/empire data.
                 save.metadata.schema_version = CURRENT_VERSION;
                 save.version = CURRENT_VERSION;
             }

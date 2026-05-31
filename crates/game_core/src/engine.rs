@@ -16,8 +16,8 @@ use crate::state::{
     FleetOrder, FleetRole, FleetSupplyState, GameState, HullId, HyperspaceLane, IntelLevel,
     IntelSource, OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup,
     ScoutMission, SectorDirective, SectorId, ShipDesignId, StarId, StrategicResource,
-    SurveyMission, TechId, TreatyType, UnrestCause, YieldType, all_techs, empire_definition_by_id,
-    is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
+    SurveyMission, TechId, TradeDisruptionReason, TreatyType, UnrestCause, YieldType, all_techs,
+    empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
@@ -247,6 +247,9 @@ pub struct Engine {
     pub state: GameState,
     last_turn_colony_supply: BTreeMap<ColonyId, ColonySupplyState>,
     last_turn_colony_blockade: BTreeMap<ColonyId, EmpireId>,
+    /// Set of (from, to) trade routes that were disrupted last turn.
+    /// Used for transition detection (disrupted ↔ restored event emission).
+    last_turn_trade_disrupted: BTreeSet<(StarId, StarId)>,
 }
 
 /// Compute total fleet maintenance for an empire from game state.
@@ -2034,6 +2037,60 @@ impl Engine {
                 }
             }
         }
+
+        let previous_trade_disrupted = &self.last_turn_trade_disrupted;
+        let (trade_routes, trade_income) = self.state.recompute_empire_trade_routes();
+        let current_trade_disrupted: BTreeSet<(StarId, StarId)> = trade_routes
+            .values()
+            .flat_map(|routes| {
+                routes
+                    .iter()
+                    .filter(|r| r.disrupted)
+                    .map(|r| (r.from, r.to))
+            })
+            .collect();
+        for (empire_id, routes) in &trade_routes {
+            let total_value: i64 = routes.iter().map(|r| r.net_value).sum();
+            let disrupted_count = routes.iter().filter(|r| r.disrupted).count();
+            events.push(Event::TradeRoutesComputed {
+                empire: *empire_id,
+                route_count: routes.len(),
+                total_value,
+                disrupted_count,
+            });
+            for route in routes {
+                if route.disrupted && !previous_trade_disrupted.contains(&(route.from, route.to)) {
+                    events.push(Event::TradeRouteDisrupted {
+                        empire: *empire_id,
+                        from: route.from,
+                        to: route.to,
+                        reason: route
+                            .disruption_reason
+                            .unwrap_or(TradeDisruptionReason::WarZone),
+                    });
+                } else if !route.disrupted
+                    && previous_trade_disrupted.contains(&(route.from, route.to))
+                {
+                    events.push(Event::TradeRouteRestored {
+                        empire: *empire_id,
+                        from: route.from,
+                        to: route.to,
+                    });
+                }
+            }
+        }
+        self.state.empire_trade_routes = trade_routes;
+        self.last_turn_trade_disrupted = current_trade_disrupted;
+
+        for (empire_id, income) in &trade_income {
+            if *income > 0 {
+                if let Some(empire) = self.state.empires.get_mut(empire_id) {
+                    empire.credits += income;
+                }
+                *empire_credits_income.entry(*empire_id).or_insert(0) += income;
+            }
+        }
+        self.state.empire_trade_income = trade_income;
 
         // Apply economy: food balance and maintenance costs per empire.
         // Collect all empire IDs that have colonies or fleets, in deterministic BTreeMap order.

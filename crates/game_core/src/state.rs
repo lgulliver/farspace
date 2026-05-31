@@ -1,5 +1,6 @@
 //! Game state types and domain models
 
+use crate::balance;
 use rand_chacha::ChaCha8Rng;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -2276,6 +2277,46 @@ impl ColonySupplyState {
     }
 }
 
+/// Reason a trade route was disrupted this turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum TradeDisruptionReason {
+    Blockade,
+    WarZone,
+    HostileFleetPresence,
+    OutOfSupply,
+}
+
+impl TradeDisruptionReason {
+    pub fn label(self) -> &'static str {
+        match self {
+            TradeDisruptionReason::Blockade => "Blockade",
+            TradeDisruptionReason::WarZone => "War zone",
+            TradeDisruptionReason::HostileFleetPresence => "Hostile fleet",
+            TradeDisruptionReason::OutOfSupply => "Out of supply",
+        }
+    }
+}
+
+/// A deterministic derived trade route between two colony systems.
+///
+/// Routes are computed each turn from the state graph and require no
+/// manual player management. Stored sorted by `(from, to)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct TradeRoute {
+    pub from: StarId,
+    pub to: StarId,
+    /// Gross trade value in credits per turn before disruption.
+    pub base_value: i64,
+    /// Net trade value after all disruption multipliers are applied.
+    pub net_value: i64,
+    /// True when any disruption factor reduced the route value.
+    pub disrupted: bool,
+    /// The first applicable disruption reason, if any.
+    pub disruption_reason: Option<TradeDisruptionReason>,
+}
+
 /// Coarse internal order state for a colony.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -3537,6 +3578,18 @@ pub struct GameState {
     /// processed. Read by the UI so reported output matches real income.
     #[cfg_attr(feature = "serde", serde(default))]
     pub last_colony_yields: BTreeMap<ColonyId, ColonyYieldSnapshot>,
+    /// Derived trade routes per empire for the current turn.
+    ///
+    /// Re-computed each turn from colony connectivity, population, buildings,
+    /// tech, strategic resources, diplomacy state, and disruption factors.
+    /// Persisted for UI rendering and transition detection.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub empire_trade_routes: BTreeMap<EmpireId, Vec<TradeRoute>>,
+    /// Total trade credits per empire for the current turn.
+    ///
+    /// Derived from `empire_trade_routes` — sum of `route.net_value` per empire.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub empire_trade_income: BTreeMap<EmpireId, i64>,
 }
 
 impl GameState {
@@ -4424,6 +4477,8 @@ impl PartialEq for GameState {
             && self.sector_directives == other.sector_directives
             && self.colony_automation == other.colony_automation
             && self.last_colony_yields == other.last_colony_yields
+            && self.empire_trade_routes == other.empire_trade_routes
+            && self.empire_trade_income == other.empire_trade_income
     }
 }
 
@@ -4502,6 +4557,8 @@ impl Default for GameState {
             sector_directives: BTreeMap::new(),
             colony_automation: BTreeMap::new(),
             last_colony_yields: BTreeMap::new(),
+            empire_trade_routes: BTreeMap::new(),
+            empire_trade_income: BTreeMap::new(),
         }
     }
 }
@@ -4552,6 +4609,244 @@ pub struct PerColonyYieldBonuses {
 }
 
 impl GameState {
+    /// True when any hostile/war-relation empire fleet is present at `star_id`.
+    pub fn star_has_hostile_fleet(&self, empire_id: EmpireId, star_id: StarId) -> bool {
+        self.fleets.values().any(|fleet| {
+            if fleet.location != star_id || fleet.owner == empire_id {
+                return false;
+            }
+            self.relationship_status(empire_id, fleet.owner)
+                .is_hostile_or_war()
+        })
+    }
+
+    /// True when the empire is at war with any other empire in the game.
+    pub fn empire_is_at_war(&self, _empire_id: EmpireId) -> bool {
+        self.diplomacy
+            .values()
+            .any(|s| *s == RelationshipStatus::War)
+            || self
+                .diplomacy_relationships
+                .values()
+                .any(|r| r.state == RelationshipStatus::War)
+    }
+
+    /// Compute the trade-route bonus permille contributed by strategic resources.
+    fn trade_resource_bonus_permille(&self, empire_id: EmpireId) -> i64 {
+        self.empire_resource_access
+            .get(&empire_id)
+            .map(|resources| {
+                let count = resources
+                    .iter()
+                    .filter(|(res, count)| **count > 0 && res.record().trade_value > 0)
+                    .count() as i64;
+                count * balance::TRADE_RESOURCE_BONUS_PERMILLE
+            })
+            .unwrap_or(0)
+    }
+
+    /// Recompute deterministic trade routes and income for all empires.
+    ///
+    /// Returns `(routes_by_empire, income_by_empire)`. Routes are derived from
+    /// colony connectivity, population, buildings, tech, strategic resources,
+    /// and disruption factors (blockade, isolation, war, hostile fleets).
+    pub fn recompute_empire_trade_routes(
+        &self,
+    ) -> (BTreeMap<EmpireId, Vec<TradeRoute>>, BTreeMap<EmpireId, i64>) {
+        let mut all_routes: BTreeMap<EmpireId, Vec<TradeRoute>> = BTreeMap::new();
+        let mut all_income: BTreeMap<EmpireId, i64> = BTreeMap::new();
+
+        for empire_id in self.empires.keys().copied() {
+            let mut empire_routes = Vec::new();
+            let mut empire_total: i64 = 0;
+
+            // Collect empire colony stars sorted for determinism
+            let colony_stars: BTreeSet<StarId> = self
+                .colonies
+                .values()
+                .filter(|c| c.owner == empire_id)
+                .map(|c| c.star)
+                .collect();
+
+            if colony_stars.len() < 2 {
+                all_routes.insert(empire_id, empire_routes);
+                all_income.insert(empire_id, empire_total);
+                continue;
+            }
+
+            // Check war status once per empire
+            let war_disrupted = self.empire_is_at_war(empire_id);
+
+            // Check tech bonuses
+            let has_trade_tech = self
+                .empires
+                .get(&empire_id)
+                .is_some_and(|e| e.research.completed.contains(&TechId(28)));
+
+            // Check strategic resource bonus
+            let resource_permille = self.trade_resource_bonus_permille(empire_id);
+
+            // Index colony-by-star for fast lookup
+            let star_colony: BTreeMap<StarId, ColonyId> = self
+                .colonies
+                .values()
+                .filter(|c| c.owner == empire_id)
+                .map(|c| (c.star, c.id))
+                .collect();
+
+            let star_vec: Vec<StarId> = colony_stars.into_iter().collect();
+            for i in 0..star_vec.len() {
+                for j in (i + 1)..star_vec.len() {
+                    let from = star_vec[i];
+                    let to = star_vec[j];
+
+                    // Must have a trade link (lane or distance)
+                    if !self.stars_have_trade_link(empire_id, from, to) {
+                        continue;
+                    }
+
+                    // Look up colony data for both endpoints
+                    let colony_a = match star_colony
+                        .get(&from)
+                        .and_then(|cid| self.colonies.get(cid))
+                    {
+                        Some(c) => c,
+                        None => continue,
+                    };
+                    let colony_b = match star_colony.get(&to).and_then(|cid| self.colonies.get(cid))
+                    {
+                        Some(c) => c,
+                        None => continue,
+                    };
+
+                    let pop_a = colony_a.population as i64;
+                    let pop_b = colony_b.population as i64;
+                    if pop_a == 0 || pop_b == 0 {
+                        continue;
+                    }
+
+                    // Base value = sqrt(pop_a * pop_b) * TRADE_BASE_VALUE_PER_POP
+                    let product = pop_a.saturating_mul(pop_b);
+                    let base_geo_mean = (product as f64).sqrt() as i64;
+                    let mut base_value =
+                        base_geo_mean.saturating_mul(balance::TRADE_BASE_VALUE_PER_POP);
+
+                    // Development bonus per Fabrication Yard
+                    for colony in &[colony_a, colony_b] {
+                        let yard_count = colony
+                            .buildings
+                            .iter()
+                            .filter(|b| **b == BuildingType::FabricationYard)
+                            .count() as i64;
+                        if yard_count > 0 {
+                            base_value = base_value.saturating_add(
+                                base_value * yard_count * balance::TRADE_YARD_BONUS_PERMILLE / 1000,
+                            );
+                        }
+
+                        // Hub bonus (shipyard or supply hub)
+                        if colony.has_shipyard() || colony.has_supply_hub() {
+                            base_value = base_value.saturating_add(
+                                base_value * balance::TRADE_HUB_BONUS_PERMILLE / 1000,
+                            );
+                        }
+                    }
+
+                    // Tech bonus
+                    if has_trade_tech {
+                        base_value = base_value
+                            .saturating_add(base_value * balance::TRADE_TECH_BONUS_PERMILLE / 1000);
+                    }
+
+                    // Strategic resource bonus
+                    if resource_permille > 0 {
+                        base_value =
+                            base_value.saturating_add(base_value * resource_permille / 1000);
+                    }
+
+                    // Disruption evaluation
+                    let mut disrupted = false;
+                    let mut disruption_reason: Option<TradeDisruptionReason> = None;
+
+                    // 1. Blockade at either endpoint
+                    if !disrupted {
+                        for colony in &[colony_a, colony_b] {
+                            if self.colony_blockade_state(colony.id).is_some() {
+                                disrupted = true;
+                                disruption_reason = Some(TradeDisruptionReason::Blockade);
+                                break;
+                            }
+                        }
+                    }
+
+                    // 2. Out of supply at either endpoint
+                    if !disrupted {
+                        for colony in &[colony_a, colony_b] {
+                            if self.colony_supply_state(colony.id) != ColonySupplyState::Connected {
+                                disrupted = true;
+                                disruption_reason = Some(TradeDisruptionReason::OutOfSupply);
+                                break;
+                            }
+                        }
+                    }
+
+                    // 3. Hostile fleet at either endpoint
+                    if !disrupted {
+                        for star in &[from, to] {
+                            if self.star_has_hostile_fleet(empire_id, *star) {
+                                disrupted = true;
+                                disruption_reason =
+                                    Some(TradeDisruptionReason::HostileFleetPresence);
+                                break;
+                            }
+                        }
+                    }
+
+                    // 4. War zone
+                    if !disrupted && war_disrupted {
+                        disrupted = true;
+                        disruption_reason = Some(TradeDisruptionReason::WarZone);
+                    }
+
+                    // Net value after disruption
+                    let net_value = match disruption_reason {
+                        Some(TradeDisruptionReason::Blockade) => {
+                            (base_value * balance::TRADE_BLOCKADE_PENALTY_PERMILLE).max(0) / 1000
+                        }
+                        Some(TradeDisruptionReason::OutOfSupply) => {
+                            (base_value * balance::TRADE_ISOLATION_PENALTY_PERMILLE).max(0) / 1000
+                        }
+                        Some(TradeDisruptionReason::HostileFleetPresence) => {
+                            (base_value * balance::TRADE_HOSTILE_FLEET_PENALTY_PERMILLE).max(0)
+                                / 1000
+                        }
+                        Some(TradeDisruptionReason::WarZone) => {
+                            (base_value * balance::TRADE_WAR_ZONE_PENALTY_PERMILLE).max(0) / 1000
+                        }
+                        None => base_value,
+                    };
+
+                    empire_routes.push(TradeRoute {
+                        from,
+                        to,
+                        base_value,
+                        net_value,
+                        disrupted,
+                        disruption_reason,
+                    });
+                    empire_total = empire_total.saturating_add(net_value);
+                }
+            }
+
+            // Deterministic sort by (from, to)
+            empire_routes.sort_by_key(|a| (a.from, a.to));
+            all_routes.insert(empire_id, empire_routes);
+            all_income.insert(empire_id, empire_total);
+        }
+
+        (all_routes, all_income)
+    }
+
     /// Per-colony bonuses from the strategic resources this empire controls.
     pub fn strategic_resource_bonuses_for_empire(
         &self,

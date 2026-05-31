@@ -689,6 +689,76 @@ pub fn generate_dispatch(
                 }
             }
 
+            // --- Trade route events ---
+            Event::TradeRoutesComputed {
+                empire,
+                total_value,
+                disrupted_count,
+                ..
+            } if *empire == state.player_empire && *disrupted_count > 0 => {
+                items.push(item(
+                    DispatchCategory::Trade,
+                    DispatchSeverity::Urgent,
+                    "Trade Routes Heavily Disrupted",
+                    format!(
+                        "{} trade route(s) are currently disrupted across the empire ({} credits/turn at risk).",
+                        disrupted_count, total_value,
+                    ),
+                    None,
+                    None,
+                    None,
+                ));
+            }
+            Event::TradeRouteDisrupted {
+                empire,
+                from,
+                to,
+                reason,
+            } if *empire == state.player_empire => {
+                let from_name = state
+                    .stars
+                    .get(from)
+                    .map(|s| s.name.as_str())
+                    .unwrap_or("Unknown");
+                let to_name = state
+                    .stars
+                    .get(to)
+                    .map(|s| s.name.as_str())
+                    .unwrap_or("Unknown");
+                items.push(item(
+                    DispatchCategory::Trade,
+                    DispatchSeverity::Notable,
+                    format!("Trade Route Disrupted — {} ↔ {}", from_name, to_name),
+                    format!("Trade link interrupted due to {}.", reason.label()),
+                    None,
+                    Some(*from),
+                    Some(0),
+                ));
+            }
+            Event::TradeRouteRestored {
+                empire, from, to, ..
+            } if *empire == state.player_empire => {
+                let from_name = state
+                    .stars
+                    .get(from)
+                    .map(|s| s.name.as_str())
+                    .unwrap_or("Unknown");
+                let to_name = state
+                    .stars
+                    .get(to)
+                    .map(|s| s.name.as_str())
+                    .unwrap_or("Unknown");
+                items.push(item(
+                    DispatchCategory::Trade,
+                    DispatchSeverity::Notable,
+                    format!("Trade Route Restored — {} ↔ {}", from_name, to_name),
+                    "Colonial trade link has resumed normal operations.".to_string(),
+                    None,
+                    Some(*from),
+                    Some(0),
+                ));
+            }
+
             // --- Diplomacy ---
             Event::FirstContact { with_empire } => {
                 let empire_name = empire_name_for_id(state, *with_empire);
@@ -1026,6 +1096,8 @@ mod tests {
             sector_directives: Default::default(),
             colony_automation: Default::default(),
             last_colony_yields: Default::default(),
+            empire_trade_routes: Default::default(),
+            empire_trade_income: Default::default(),
         }
     }
     // Cadence behaviour

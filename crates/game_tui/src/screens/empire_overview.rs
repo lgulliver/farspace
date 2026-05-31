@@ -73,6 +73,9 @@ pub struct EmpireOverviewSummary {
     pub unrest_colonies: usize,
     pub governed_sectors: usize,
     pub automated_colonies: usize,
+    pub trade_income: i64,
+    pub trade_routes_disrupted: usize,
+    pub trade_routes_total: usize,
     pub victory_lines: Vec<(String, Style)>,
 }
 
@@ -317,6 +320,21 @@ pub fn derive_empire_overview(
             unrest_colonies,
             governed_sectors,
             automated_colonies,
+            trade_income: game_state
+                .empire_trade_income
+                .get(&empire_id)
+                .copied()
+                .unwrap_or(0),
+            trade_routes_disrupted: game_state
+                .empire_trade_routes
+                .get(&empire_id)
+                .map(|r| r.iter().filter(|rt| rt.disrupted).count())
+                .unwrap_or(0),
+            trade_routes_total: game_state
+                .empire_trade_routes
+                .get(&empire_id)
+                .map(|r| r.len())
+                .unwrap_or(0),
             victory_lines,
         },
         rows,
@@ -620,6 +638,24 @@ fn render_summary(frame: &mut Frame, area: Rect, summary: &EmpireOverviewSummary
                 ),
                 Theme::default_style(),
             ),
+        ]),
+        Line::from(vec![
+            Span::styled("Trade ", Theme::muted_style()),
+            Span::styled(
+                format!(
+                    "+{}/t  {} route(s)",
+                    summary.trade_income, summary.trade_routes_total
+                ),
+                Theme::default_style(),
+            ),
+            if summary.trade_routes_disrupted > 0 {
+                Span::styled(
+                    format!("  {} disrupted", summary.trade_routes_disrupted),
+                    Theme::warning_style(),
+                )
+            } else {
+                Span::styled("", Theme::default_style())
+            },
         ]),
         meter_line(
             format!(

@@ -298,6 +298,8 @@ impl Engine {
             sector_directives: std::collections::BTreeMap::new(),
             colony_automation: std::collections::BTreeMap::new(),
             last_colony_yields: std::collections::BTreeMap::new(),
+            empire_trade_routes: std::collections::BTreeMap::new(),
+            empire_trade_income: std::collections::BTreeMap::new(),
         };
 
         // Generate initial ship designs for all AI empires
@@ -310,12 +312,16 @@ impl Engine {
             state,
             last_turn_colony_supply: BTreeMap::new(),
             last_turn_colony_blockade: BTreeMap::new(),
+            last_turn_trade_disrupted: BTreeSet::new(),
         };
         engine.refresh_colony_supply_statuses();
         engine.refresh_unrest_statuses();
         engine.state.empire_resource_access = engine.state.recompute_empire_resource_access();
         engine.last_turn_colony_supply = engine.state.colony_supply.clone();
         engine.last_turn_colony_blockade = engine.state.colony_blockade.clone();
+        let (trade_routes, trade_income) = engine.state.recompute_empire_trade_routes();
+        engine.state.empire_trade_routes = trade_routes;
+        engine.state.empire_trade_income = trade_income;
         let completed_turn = engine.state.turn;
         let _ = evaluate_victory_end_turn(&mut engine.state, completed_turn);
         engine
@@ -327,12 +333,16 @@ impl Engine {
             state,
             last_turn_colony_supply: BTreeMap::new(),
             last_turn_colony_blockade: BTreeMap::new(),
+            last_turn_trade_disrupted: BTreeSet::new(),
         };
         engine.refresh_colony_supply_statuses();
         engine.refresh_unrest_statuses();
         engine.state.empire_resource_access = engine.state.recompute_empire_resource_access();
         engine.last_turn_colony_supply = engine.state.colony_supply.clone();
         engine.last_turn_colony_blockade = engine.state.colony_blockade.clone();
+        let (trade_routes, trade_income) = engine.state.recompute_empire_trade_routes();
+        engine.state.empire_trade_routes = trade_routes;
+        engine.state.empire_trade_income = trade_income;
         let completed_turn = engine.state.turn;
         let _ = evaluate_victory_end_turn(&mut engine.state, completed_turn);
         engine

@@ -278,8 +278,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("u", "Issue warning"),
             HelpEntry::Binding("m", "Demand tribute"),
             HelpEntry::Binding("i", "Gather Intelligence on selected empire"),
-            HelpEntry::Binding("z", "Sabotage Production placeholder"),
-            HelpEntry::Binding("y", "Steal Research placeholder"),
+            HelpEntry::Binding("z", "Sabotage production of selected empire"),
+            HelpEntry::Binding("y", "Steal research from selected empire"),
             HelpEntry::Binding("c", "Open diplomatic communication modal"),
             HelpEntry::Binding(
                 "Enter",

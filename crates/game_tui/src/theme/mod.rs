@@ -145,6 +145,15 @@ impl Theme {
         Color::Rgb(5, 8, 16)
     }
 
+    /// Accent color for decorative bright stars (✶) in the starfield backdrop.
+    pub fn bright_star() -> Color {
+        match Self::color_mode() {
+            ColorMode::TrueColor => Color::Rgb(168, 188, 236),
+            ColorMode::Ansi256 => Color::LightBlue,
+            ColorMode::Mono => Color::Gray,
+        }
+    }
+
     pub fn splash_palette() -> SplashPalette {
         SplashPalette::for_mode(Self::color_mode())
     }

@@ -459,7 +459,7 @@ fn render_empire_detail(
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Active intel: [i] gather  [z] sabotage placeholder  [y] research theft placeholder",
+        "Active intel: [i] Gather  [z] Sabotage  [y] Steal Research",
         Theme::muted_style(),
     )));
 

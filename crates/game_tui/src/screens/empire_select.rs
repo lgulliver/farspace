@@ -9,7 +9,7 @@ use crate::layout::compose_layout;
 use crate::screens::Screen;
 use crate::theme::Theme;
 use crate::AppState;
-use game_core::{all_empire_definitions, EmpireDefinitionId};
+use game_core::{all_empire_definitions, EmpireDefinitionId, EmpireId};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -20,17 +20,10 @@ use ratatui::{
 
 // ── Faction colour lookup (all 8 factions) ────────────────────────────────────
 
+/// Faction accent for the list/detail panels. Delegates to the shared
+/// [`Theme::faction_color`] role so the palette stays consistent across screens.
 pub fn faction_accent(def_id: EmpireDefinitionId) -> Color {
-    match def_id.0 {
-        0 => Color::Rgb(214, 133, 63),  // Ashveran — orange
-        1 => Color::Rgb(96, 193, 255),  // Luminal  — cyan
-        2 => Color::Rgb(121, 212, 136), // Sylvaran — green
-        3 => Color::Rgb(225, 176, 73),  // Thalori  — gold
-        4 => Color::Rgb(217, 92, 92),   // Vorath   — red
-        5 => Color::Rgb(184, 122, 255), // Elarith  — violet
-        6 => Color::Rgb(100, 181, 246), // Terran Concord  — sky-blue
-        _ => Color::Rgb(255, 140, 100), // Terran Dominion — rust-orange
-    }
+    Theme::faction_color(Some(def_id), EmpireId(def_id.0 as u64))
 }
 
 // ── Public render entry point ─────────────────────────────────────────────────

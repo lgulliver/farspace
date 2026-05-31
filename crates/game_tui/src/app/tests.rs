@@ -175,6 +175,77 @@ fn toggle_palette_on_colon() {
 }
 
 #[test]
+fn all_screens_render_at_standard_sizes_without_panic() {
+    let all_screens = [
+        Screen::Menu,
+        Screen::EmpireSelect,
+        Screen::NewGameSetup,
+        Screen::SectorOverview,
+        Screen::SectorMap,
+        Screen::System,
+        Screen::Colony,
+        Screen::EmpireOverview,
+        Screen::Research,
+        Screen::Diplomacy,
+        Screen::ShipDesigner,
+        Screen::Settings,
+    ];
+
+    for (width, height) in [(80u16, 24u16), (120, 36)] {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new();
+        app.new_game(42);
+        let selected_colony = app
+            .engine
+            .as_ref()
+            .unwrap()
+            .state
+            .colonies
+            .keys()
+            .next()
+            .copied();
+        app.state.colony.selected_colony = selected_colony;
+
+        for screen in all_screens {
+            app.state.active = screen;
+            terminal
+                .draw(|frame| app.render(frame))
+                .unwrap_or_else(|err| {
+                    panic!("{screen:?} failed to render at {width}x{height}: {err}")
+                });
+        }
+    }
+}
+
+#[test]
+fn footer_hints_visible_on_game_screens_at_80x24() {
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::SectorMap;
+    terminal.draw(|frame| app.render(frame)).unwrap();
+
+    let rendered: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    // Footer chrome must survive at the minimum supported size.
+    assert!(
+        rendered.contains("Help"),
+        "footer help hint must be visible"
+    );
+    assert!(
+        rendered.contains("End Turn"),
+        "footer end-turn hint must be visible"
+    );
+}
+
+#[test]
 fn quit_flag_set_on_q() {
     let mut app = App::new();
     assert!(!app.state.quit);

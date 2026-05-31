@@ -65,3 +65,43 @@ impl SplashPalette {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fallback_palettes_exist_for_every_mode() {
+        let _ = SplashPalette::for_mode(ColorMode::TrueColor);
+        let _ = SplashPalette::for_mode(ColorMode::Ansi256);
+        let _ = SplashPalette::for_mode(ColorMode::Mono);
+    }
+
+    #[test]
+    fn mono_palette_uses_only_grayscale_named_colors() {
+        let mono = SplashPalette::for_mode(ColorMode::Mono);
+        for color in [
+            mono.star_core,
+            mono.title_primary,
+            mono.title_secondary,
+            mono.accent,
+            mono.border_hot,
+            mono.border_cold,
+            mono.text_muted,
+            mono.warning,
+        ] {
+            assert!(
+                matches!(color, Color::Black | Color::White | Color::Gray),
+                "mono palette must avoid RGB/colored values, got {color:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn truecolor_and_mono_palettes_differ() {
+        assert_ne!(
+            SplashPalette::for_mode(ColorMode::TrueColor),
+            SplashPalette::for_mode(ColorMode::Mono)
+        );
+    }
+}

@@ -900,7 +900,7 @@ fn background_cells(
                     x,
                     y,
                     symbol: Some('✶'),
-                    style: style.fg(Color::Rgb(168, 188, 236)),
+                    style: style.fg(Theme::bright_star()),
                     protect: 0,
                 });
             }

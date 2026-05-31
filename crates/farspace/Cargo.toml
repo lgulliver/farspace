@@ -15,4 +15,4 @@ anyhow = { workspace = true }
 crossterm = { workspace = true }
 ratatui = { workspace = true }
 serde = { workspace = true }
-ureq = { version = "2", features = ["json"] }
+ureq = { version = "3", features = ["json"] }

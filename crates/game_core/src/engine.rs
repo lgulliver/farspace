@@ -808,6 +808,168 @@ impl Engine {
         }
     }
 
+    /// Symmetric border pressure between any two empires, used for AI↔AI
+    /// relations. Unlike [`Engine::ai_border_pressure`] (which is
+    /// player-perspective and one-directional), a fleet of either empire
+    /// parked at the other's colony counts as severe pressure.
+    fn border_pressure_between(&self, empire_a: EmpireId, empire_b: EmpireId) -> BorderPressure {
+        let colony_stars = |owner: EmpireId| -> Vec<StarId> {
+            self.state
+                .colonies
+                .values()
+                .filter(|c| c.owner == owner)
+                .map(|c| c.star)
+                .collect()
+        };
+        let a_stars = colony_stars(empire_a);
+        let b_stars = colony_stars(empire_b);
+        if a_stars.is_empty() || b_stars.is_empty() {
+            return BorderPressure::Calm;
+        }
+
+        let fleet_at_enemy_colony = self.state.fleets.values().any(|fleet| {
+            (fleet.owner == empire_a && b_stars.contains(&fleet.location))
+                || (fleet.owner == empire_b && a_stars.contains(&fleet.location))
+        });
+        if fleet_at_enemy_colony {
+            return BorderPressure::Severe;
+        }
+
+        let min_sq_dist = a_stars
+            .iter()
+            .flat_map(|a_star| {
+                b_stars.iter().filter_map(move |b_star| {
+                    let src = self.state.stars.get(a_star)?;
+                    let dst = self.state.stars.get(b_star)?;
+                    let dx = (dst.x - src.x) as i64;
+                    let dy = (dst.y - src.y) as i64;
+                    Some(dx * dx + dy * dy)
+                })
+            })
+            .min();
+
+        match min_sq_dist {
+            Some(dist) if dist <= SEVERE_BORDER_TENSION_DISTANCE_SQ => BorderPressure::Severe,
+            Some(dist) if dist <= BORDER_TENSION_DISTANCE_SQ => BorderPressure::Tense,
+            _ => BorderPressure::Calm,
+        }
+    }
+
+    /// The relationship an empire's faction profile wants under a given
+    /// level of border pressure.
+    fn desired_status_for_pressure(
+        &self,
+        empire: EmpireId,
+        pressure: BorderPressure,
+    ) -> RelationshipStatus {
+        self.empire_definition(empire)
+            .map(|def| match pressure {
+                BorderPressure::Calm => def.diplomacy_profile.resting_status,
+                BorderPressure::Tense => def.diplomacy_profile.border_tension_status,
+                BorderPressure::Severe => def.diplomacy_profile.severe_border_tension_status,
+            })
+            .unwrap_or(RelationshipStatus::Neutral)
+    }
+
+    /// Evolve relationships between AI empire pairs.
+    ///
+    /// AI↔AI diplomacy is resolved without the player-facing communication
+    /// machinery: each contacted pair steps one level per turn toward the
+    /// more hostile of the two factions' pressure-desired statuses. Entering
+    /// `War` additionally requires rough fleet parity — a heavily outmatched
+    /// empire holds at `Hostile` — and existing wars end (drop to `Tense`)
+    /// when either side's fleet strength collapses below half the other's.
+    /// `WarDeclared` events are only emitted when the player has contact
+    /// with both empires, so unknown empire names never leak into the UI.
+    fn process_inter_ai_relations(&mut self, events: &mut Vec<Event>) {
+        let ai_ids: Vec<EmpireId> = if !self.state.ai_empires.is_empty() {
+            self.state.ai_empires.clone()
+        } else {
+            self.state.ai_empire.into_iter().collect()
+        };
+        if ai_ids.len() < 2 {
+            return;
+        }
+
+        let fleet_strength = |state: &GameState, owner: EmpireId| -> u32 {
+            state
+                .fleets
+                .values()
+                .filter(|fleet| fleet.owner == owner)
+                .map(|fleet| fleet.strength)
+                .sum()
+        };
+
+        for i in 0..ai_ids.len() {
+            for j in (i + 1)..ai_ids.len() {
+                let (a, b) = (ai_ids[i], ai_ids[j]);
+                let current = self.state.ai_relation(a, b);
+                let pressure = self.border_pressure_between(a, b);
+
+                // First contact happens when borders meet (or fleets visit,
+                // which reads as severe pressure).
+                if current == RelationshipStatus::Unknown {
+                    if pressure != BorderPressure::Calm {
+                        self.state
+                            .set_ai_relation(a, b, RelationshipStatus::Contacted);
+                    }
+                    continue;
+                }
+
+                let a_strength = fleet_strength(&self.state, a);
+                let b_strength = fleet_strength(&self.state, b);
+                // Multiply rather than divide so a zero-strength side still
+                // reads as outmatched against a strength-1 opponent.
+                let outmatched = a_strength.saturating_mul(2) < b_strength
+                    || b_strength.saturating_mul(2) < a_strength;
+
+                // War exhaustion: a collapsed side sues for peace, resolved
+                // directly as a truce-like de-escalation.
+                if current == RelationshipStatus::War && outmatched {
+                    self.state.set_ai_relation(a, b, RelationshipStatus::Tense);
+                    continue;
+                }
+
+                let desired_a = self.desired_status_for_pressure(a, pressure);
+                let desired_b = self.desired_status_for_pressure(b, pressure);
+                // The more hostile of the two profiles drives the pair.
+                let desired = if relationship_level(desired_a) >= relationship_level(desired_b) {
+                    desired_a
+                } else {
+                    desired_b
+                };
+
+                let mut next = step_toward_relationship(current, desired, 1);
+                // No new wars without rough parity: the weaker side keeps its
+                // head down, which also stops declare/peace flapping.
+                if next == RelationshipStatus::War && outmatched {
+                    next = RelationshipStatus::Hostile;
+                }
+                if next == current {
+                    continue;
+                }
+
+                self.state.set_ai_relation(a, b, next);
+
+                if next == RelationshipStatus::War
+                    && self.state.player_knows_empire(a)
+                    && self.state.player_knows_empire(b)
+                {
+                    // The empire whose profile demanded war is the attacker;
+                    // ties resolve to the lower id for determinism.
+                    let attacker = if relationship_level(desired_b) > relationship_level(desired_a)
+                    {
+                        b
+                    } else {
+                        a
+                    };
+                    let defender = if attacker == a { b } else { a };
+                    events.push(Event::WarDeclared { attacker, defender });
+                }
+            }
+        }
+    }
+
     fn process_ai_diplomacy_with_events(&mut self, events: &mut Vec<Event>) {
         let player = self.state.player_empire;
         let ai_ids = if !self.state.ai_empires.is_empty() {
@@ -2165,13 +2327,10 @@ impl Engine {
                     })
                     .unwrap_or(false);
                 if is_ai_fleet {
-                    self.state.ai_explored_stars.insert(destination);
+                    let owner = fleet_owner.unwrap_or(EmpireId(2));
+                    self.state.mark_star_explored(owner, destination);
                     // Symmetric contact: AI scout arriving at a player colony
-                    self.check_ai_contact_at_star(
-                        destination,
-                        fleet_owner.unwrap_or(EmpireId(2)),
-                        events,
-                    );
+                    self.check_ai_contact_at_star(destination, owner, events);
                 } else {
                     self.state.explored_stars.insert(destination);
                 }
@@ -2280,6 +2439,7 @@ impl Engine {
             events.extend(ai_events);
         }
         self.process_ai_diplomacy_with_events(events);
+        self.process_inter_ai_relations(events);
         self.process_treaty_expirations(events);
 
         let updated_supply = self.state.recompute_colony_supply();

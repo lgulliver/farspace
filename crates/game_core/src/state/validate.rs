@@ -144,6 +144,34 @@ impl GameState {
             }
         }
 
+        for (empire_id, stars) in &self.empire_explored_stars {
+            if !self.empires.contains_key(empire_id) {
+                return Err(format!(
+                    "explored-star set references missing empire {}",
+                    empire_id.0
+                ));
+            }
+            for star in stars {
+                if !self.stars.contains_key(star) {
+                    return Err(format!(
+                        "empire {} explored-star set references missing star {}",
+                        empire_id.0, star.0
+                    ));
+                }
+            }
+        }
+
+        for (a, inner) in &self.ai_relations {
+            if !self.empires.contains_key(a) {
+                return Err(format!("ai relation references missing empire {}", a.0));
+            }
+            for b in inner.keys() {
+                if !self.empires.contains_key(b) {
+                    return Err(format!("ai relation references missing empire {}", b.0));
+                }
+            }
+        }
+
         Ok(())
     }
 }

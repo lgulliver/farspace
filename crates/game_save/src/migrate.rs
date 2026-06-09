@@ -194,6 +194,35 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             38 => {
                 // Trade network fields added with #[serde(default)];
                 // deriving fresh trade state from existing colony/empire data.
+                save.metadata.schema_version = 39;
+                save.version = 39;
+            }
+            39 => {
+                // Per-empire AI fog of war: seed each AI empire's exploration
+                // set from the legacy shared `ai_explored_stars`. AI↔AI
+                // relations (`ai_relations`) start empty — pairs make contact
+                // through border proximity after load.
+                let legacy = save.state.ai_explored_stars.clone();
+                let ai_ids: Vec<_> = if !save.state.ai_empires.is_empty() {
+                    save.state.ai_empires.clone()
+                } else {
+                    save.state.ai_empire.into_iter().collect()
+                };
+                for ai_id in ai_ids {
+                    save.state
+                        .empire_explored_stars
+                        .entry(ai_id)
+                        .or_default()
+                        .extend(legacy.iter().copied());
+                    // Every empire at least knows its own home star.
+                    if let Some(home) = save.state.empires.get(&ai_id).map(|e| e.home_star) {
+                        save.state
+                            .empire_explored_stars
+                            .entry(ai_id)
+                            .or_default()
+                            .insert(home);
+                    }
+                }
                 save.metadata.schema_version = CURRENT_VERSION;
                 save.version = CURRENT_VERSION;
             }
@@ -1151,6 +1180,46 @@ mod tests {
         assert_eq!(
             loaded.galactic_dispatches[1].title,
             "Galactic Dispatch — Turn 10"
+        );
+    }
+
+    /// v39 saves carry a single shared AI exploration set; migration must
+    /// seed every AI empire's per-empire fog from it.
+    #[test]
+    fn migrate_v39_seeds_per_empire_fog_from_shared_set() {
+        use crate::{load, save_to_string};
+
+        let engine = game_core::Engine::new(42);
+        let ai_id = engine.state.ai_empire.expect("AI empire exists");
+        let saved = save_to_string(&engine.state).expect("save should succeed");
+
+        // Rewrite as a v39 save: legacy shared fog present, per-empire absent.
+        let mut json: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        json["version"] = serde_json::json!(39u32);
+        json["metadata"]["schema_version"] = serde_json::json!(39u32);
+        let legacy_fog = json["state"]["empire_explored_stars"][&ai_id.0.to_string()].clone();
+        assert!(
+            legacy_fog.is_array(),
+            "expected per-empire fog in fresh save"
+        );
+        if let Some(state_obj) = json["state"].as_object_mut() {
+            state_obj.remove("empire_explored_stars");
+            state_obj.remove("ai_relations");
+            state_obj.insert("ai_explored_stars".into(), legacy_fog);
+        }
+        let patched = serde_json::to_string(&json).unwrap();
+
+        let loaded = load(patched.as_bytes()).expect("v39 migration should succeed");
+        let fog = loaded
+            .empire_explored_stars
+            .get(&ai_id)
+            .expect("migrated save must give the AI its own fog");
+        assert_eq!(fog, &loaded.ai_explored_stars, "fog seeded from legacy set");
+        let home = loaded.empires[&ai_id].home_star;
+        assert!(fog.contains(&home), "AI must know its own home star");
+        assert!(
+            loaded.ai_relations.is_empty(),
+            "AI relations start empty after migration"
         );
     }
 }

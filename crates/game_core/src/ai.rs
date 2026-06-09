@@ -175,14 +175,18 @@ fn scout_resource_prospect_score(state: &GameState, empire_id: EmpireId, star_id
     spectral_bias + planet_bias + frontier_bonus + doctrine_bonus
 }
 
-fn contested_star_resource_score(state: &GameState, attacker: EmpireId, star_id: StarId) -> i32 {
+fn contested_star_resource_score(
+    state: &GameState,
+    attacker: EmpireId,
+    target_owner: EmpireId,
+    star_id: StarId,
+) -> i32 {
     let doctrine = ai_primary_doctrine(state, attacker);
     let mut score = 0;
-    let player = state.player_empire;
     for colony in state
         .colonies
         .values()
-        .filter(|colony| colony.owner == player && colony.star == star_id)
+        .filter(|colony| colony.owner == target_owner && colony.star == star_id)
     {
         let Some(planet) = state
             .stars
@@ -754,10 +758,8 @@ fn pick_build_item(
             .fleets
             .values()
             .any(|f| f.owner == empire_id && f.kind == FleetKind::TroopTransport);
-        let has_unexplored = state
-            .stars
-            .keys()
-            .any(|sid| !state.ai_explored_stars.contains(sid));
+        let explored = state.explored_stars_for(empire_id);
+        let has_unexplored = state.stars.keys().any(|sid| !explored.contains(sid));
         // Only skip FabricationYard for scouting when no colonizer tech yet
         if has_unexplored && !has_habitat_seeding {
             if likes_science && has_survey_drones && !has_science_ship {
@@ -1132,13 +1134,21 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
         return;
     }
 
-    // Only dispatch when formally at war with the player
-    let player = state.player_empire;
-    let at_war = matches!(
-        state.relationship_status(empire_id, player),
-        crate::state::RelationshipStatus::War
-    );
-    if !at_war {
+    // Collect every empire this one is formally at war with — the player and
+    // other AI empires alike.
+    let war_opponents: Vec<EmpireId> = state
+        .empires
+        .keys()
+        .copied()
+        .filter(|&other| other != empire_id)
+        .filter(|&other| {
+            matches!(
+                state.relationship_status(empire_id, other),
+                crate::state::RelationshipStatus::War
+            )
+        })
+        .collect();
+    if war_opponents.is_empty() {
         return;
     }
 
@@ -1161,15 +1171,21 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
         return;
     }
 
-    // Collect all player colony stars as attack targets (deduplicated, deterministic order)
-    let target_stars: Vec<StarId> = state
-        .colonies
-        .values()
-        .filter(|c| c.owner == player)
-        .map(|c| c.star)
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
+    // Collect war-opponent colony stars as attack targets, remembering which
+    // opponents hold colonies there (deduplicated, deterministic order).
+    let mut target_owners: std::collections::BTreeMap<
+        StarId,
+        std::collections::BTreeSet<EmpireId>,
+    > = std::collections::BTreeMap::new();
+    for colony in state.colonies.values() {
+        if war_opponents.contains(&colony.owner) {
+            target_owners
+                .entry(colony.star)
+                .or_default()
+                .insert(colony.owner);
+        }
+    }
+    let target_stars: Vec<StarId> = target_owners.keys().copied().collect();
 
     if target_stars.is_empty() {
         return;
@@ -1191,7 +1207,7 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
         let conservative =
             doctrine(AiDoctrine::Merchant) + doctrine(AiDoctrine::Isolationist) >= 12;
 
-        // Find the nearest player colony star; tie-break by ascending StarId
+        // Find the nearest war-opponent colony star; tie-break by ascending StarId
         let fleet_star = match state.stars.get(&fleet_loc) {
             Some(s) => s,
             None => continue,
@@ -1203,7 +1219,7 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
                 state
                     .colonies
                     .values()
-                    .filter(|colony| colony.owner == player)
+                    .filter(|colony| war_opponents.contains(&colony.owner))
                     .filter(|colony| !state.colony_blockade.contains_key(&colony.id))
                     .map(|colony| colony.star)
                     .collect()
@@ -1222,7 +1238,17 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
                 let s = state.stars.get(&sid)?;
                 let dx = (s.x - fleet_x) as i64;
                 let dy = (s.y - fleet_y) as i64;
-                let strategic = contested_star_resource_score(state, empire_id, sid);
+                let strategic: i32 = target_owners
+                    .get(&sid)
+                    .map(|owners| {
+                        owners
+                            .iter()
+                            .map(|&owner| {
+                                contested_star_resource_score(state, empire_id, owner, sid)
+                            })
+                            .sum::<i32>()
+                    })
+                    .unwrap_or(0);
                 let supply = state.projected_fleet_supply(empire_id, sid);
                 let supply_bonus = match supply {
                     FleetSupplyState::Supplied => 6,
@@ -1323,7 +1349,9 @@ fn pick_scout_target(state: &GameState, empire_id: EmpireId) -> Option<(FleetId,
     let mut candidates: Vec<(i32, i64, StarId)> = state
         .stars
         .keys()
-        .filter(|&sid| !state.ai_explored_stars.contains(sid) && !already_targeted.contains(sid))
+        .filter(|&sid| {
+            !state.explored_stars_for(empire_id).contains(sid) && !already_targeted.contains(sid)
+        })
         .filter(|&&sid| {
             let hostile_strength: u32 = state
                 .fleets
@@ -1427,8 +1455,8 @@ fn pick_colonize_target(
 
     let fleet_loc = state.fleets.get(&fleet_id)?.location;
 
-    // Colonizer must be at an AI-explored star
-    if !state.ai_explored_stars.contains(&fleet_loc) {
+    // Colonizer must be at a star this empire has explored
+    if !state.explored_stars_for(empire_id).contains(&fleet_loc) {
         return None;
     }
 
@@ -2349,7 +2377,7 @@ mod tests {
         let all_star_ids: Vec<StarId> = engine.state.stars.keys().copied().collect();
         for star_id in all_star_ids {
             if star_id != destination {
-                engine.state.ai_explored_stars.insert(star_id);
+                engine.state.mark_star_explored(ai, star_id);
             }
         }
 

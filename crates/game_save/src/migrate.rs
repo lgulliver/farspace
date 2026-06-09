@@ -87,9 +87,9 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
             20 => {
                 save.metadata = crate::schema::SaveMetadata {
                     schema_version: 21,
-                    game_version: None,
                     created_turn: save.state.turn,
                     seed: save.state.seed,
+                    ..crate::schema::SaveMetadata::default()
                 };
                 save.version = 21;
             }
@@ -1109,7 +1109,9 @@ mod tests {
             DispatchCategory, DispatchItem, DispatchSeverity, GalacticDispatch,
         };
 
-        let mut state = GameState::default();
+        // Start from a real engine state: loads now run referential-integrity
+        // validation, which an empty `GameState::default()` would fail.
+        let mut state = game_core::Engine::new(42).state;
         // Populate a non-empty dispatch history
         state.galactic_dispatches.push_back(GalacticDispatch {
             turn: 4,

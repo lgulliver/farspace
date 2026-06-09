@@ -73,6 +73,7 @@ mod components;
 mod factions;
 mod ships;
 mod technology;
+mod validate;
 mod victory;
 pub use components::*;
 pub use factions::*;

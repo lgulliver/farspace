@@ -21,9 +21,9 @@ Use these docs as primary planning and execution references for all slices.
 
 ## Stack
 
-- **Language:** Rust (2021 edition)
+- **Language:** Rust (2024 edition)
 - **TUI:** `ratatui` + `crossterm`
-- **Workspace crates:** `game_core`, `game_tui`, `game_content`, `game_save`, `farspace` (binary)
+- **Workspace crates:** `game_core`, `game_tui`, `game_content`, `game_save`, `game_e2e` (test harness), `farspace` (binary)
 
 ---
 
@@ -33,11 +33,12 @@ The codebase is split into strict layers. **Never cross these boundaries.**
 
 | Crate | Responsibility | Allowed dependencies |
 |---|---|---|
-| `game_core` | Headless game core: commands, validation, state, events, deterministic simulation | `std` only |
+| `game_core` | Headless game core: commands, validation, state, events, deterministic simulation | `std`, `rand`/`rand_chacha` (seeded RNG only), optional `serde` |
 | `game_content` | Static game content: ship templates, tech trees, planet traits | `game_core` types only |
-| `game_save` | Serialisation/deserialisation of `GameState` | `game_core`, `serde`, `serde_json` |
-| `game_tui` | ratatui TUI: input → Commands, Events → rendering | `game_core`, `ratatui`, `crossterm` |
-| `farspace` | Application entrypoint and terminal setup | All of the above |
+| `game_save` | Serialisation/deserialisation of `GameState` | `game_core`, `serde`, `serde_json`, `thiserror` |
+| `game_tui` | ratatui TUI: input → Commands, Events → rendering; save/load/archives UI | `game_core`, `game_save`, `ratatui`, `crossterm`, `unicode-width` |
+| `game_e2e` | End-to-end playthrough harness and assertions (not shipped) | `game_core`, `game_save`, `game_tui` (via its `e2e` feature) |
+| `farspace` | Application entrypoint, terminal setup, self-updater | All of the above, plus `ureq` + `sha2` (the self-updater is the **only** network I/O in the workspace) |
 
 ### Core rules
 
@@ -77,7 +78,7 @@ Do not add any of the following unless the issue/task explicitly asks for it:
 
 - Tactical (hex/grid) combat
 - Multiplayer or networked play
-- Deep diplomacy systems (trade routes, alliances, treaties)
+- Diplomacy, trade, or espionage mechanics beyond the systems specified in `docs/design/` (treaties, trade networks/civilian shipping, and espionage/intel are sanctioned as designed there — do not extend them without a design doc)
 - Complex AI beyond basic expansion/defence
 - Any content copied from Master of Orion: no faction names, ship names, tech names, planet names, numbers, or text from that series
 

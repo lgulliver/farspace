@@ -12,7 +12,7 @@ use assertions::{
 };
 use game_core::{Command, Engine, Event};
 use rand::SeedableRng;
-use rand_chacha::ChaCha8Rng;
+use rand::rngs::chacha::ChaCha8Rng;
 use report::{E2eCommandTrace, E2eFailureCategory, E2eRunReport, E2eSeverity};
 use scenario::{E2eScenario, build_scenario_setup};
 use serde_json::json;

@@ -1,7 +1,7 @@
 //! Game state types and domain models
 
 use crate::balance;
-use rand_chacha::ChaCha8Rng;
+use rand::rngs::chacha::ChaCha8Rng;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -4596,7 +4596,7 @@ impl PartialEq for GameState {
 /// Serde helper for ChaCha8Rng serialization
 #[cfg(feature = "serde")]
 mod rng_serde {
-    use rand_chacha::ChaCha8Rng;
+    use rand::rngs::chacha::ChaCha8Rng;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     pub fn serialize<S>(rng: &ChaCha8Rng, serializer: S) -> Result<S::Ok, S::Error>

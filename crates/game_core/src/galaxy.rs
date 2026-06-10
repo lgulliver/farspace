@@ -6,7 +6,7 @@ use crate::state::{
 };
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
-use rand_chacha::ChaCha8Rng;
+use rand::rngs::chacha::ChaCha8Rng;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Sector name prefixes (original IP)

@@ -2,8 +2,8 @@ use game_core::{
     BuildItem, BuildingType, ColonyId, ColonyRole, Command, DiplomaticResponse, EmpireId, FleetId,
     FleetKind, FleetRole, GameState, StarId, TechId, available_tech_ids,
 };
-use rand::Rng;
-use rand_chacha::ChaCha8Rng;
+use rand::RngExt;
+use rand::rngs::chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 

@@ -22,7 +22,7 @@ use crate::state::{
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
 #[cfg(test)]
-use rand::rngs::chacha::ChaCha8Rng;
+use rand::rngs::ChaCha8Rng;
 use std::collections::{BTreeMap, BTreeSet};
 
 // Import balance constants directly so they are available as bare names in

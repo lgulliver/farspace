@@ -3,7 +3,7 @@ use game_core::{
     FleetKind, FleetRole, GameState, StarId, TechId, available_tech_ids,
 };
 use rand::RngExt;
-use rand::rngs::chacha::ChaCha8Rng;
+use rand::rngs::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -337,7 +337,7 @@ impl SimulatedPlayer for BalancedExplorerPlayer {
 
         if observation.turn.is_multiple_of(8)
             && let Some(fleet) = observation.idle_player_fleets.first()
-            && rng.gen_bool(0.5)
+            && rng.random_bool(0.5)
         {
             actions.push(Command::SetFleetRole {
                 fleet: *fleet,

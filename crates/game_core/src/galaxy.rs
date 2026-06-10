@@ -4,9 +4,9 @@ use crate::state::{
     DiscoveryRarity, HyperspaceLane, Planet, PlanetAnomaly, PlanetClass, PlanetSize, PlanetSpecial,
     Sector, SectorId, SpectralClass, Star, StarId, StrategicResource,
 };
-use rand::distributions::WeightedIndex;
+use rand::distr::weighted::WeightedIndex;
 use rand::prelude::*;
-use rand::rngs::chacha::ChaCha8Rng;
+use rand::rngs::ChaCha8Rng;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Sector name prefixes (original IP)
@@ -498,8 +498,8 @@ pub fn generate_galaxy_with_config(
     for id in 0..star_count {
         // Generate unique coordinates
         let (x, y) = loop {
-            let x = rng.gen_range(-500..=500);
-            let y = rng.gen_range(-500..=500);
+            let x = rng.random_range(-500..=500);
+            let y = rng.random_range(-500..=500);
             if !used_coords.contains(&(x, y)) {
                 used_coords.insert((x, y));
                 break (x, y);
@@ -524,7 +524,7 @@ pub fn generate_galaxy_with_config(
         let spectral_class = *SpectralClass::all().choose(&mut rng).unwrap();
 
         // Generate 1-4 planets
-        let planet_count = rng.gen_range(1..=4);
+        let planet_count = rng.random_range(1..=4);
         let planets: Vec<Planet> = (0..planet_count)
             .map(|i| {
                 let planet_name = format!("{} {}", name, ROMAN_NUMERALS[i]);

@@ -1,7 +1,7 @@
 use super::*;
 use crate::victory::evaluate_victory_end_turn;
 use rand::SeedableRng;
-use rand::rngs::chacha::ChaCha8Rng;
+use rand::rngs::ChaCha8Rng;
 use rand::seq::SliceRandom;
 
 impl Engine {

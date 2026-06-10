@@ -1001,7 +1001,7 @@ mod tests {
         RelationshipStatus, Star, StarId, TechId, VictoryPath,
     };
     use rand::SeedableRng;
-    use rand::rngs::chacha::ChaCha8Rng;
+    use rand::rngs::ChaCha8Rng;
     use std::collections::{BTreeMap, VecDeque};
 
     /// Minimal `GameState` for testing dispatch generation.

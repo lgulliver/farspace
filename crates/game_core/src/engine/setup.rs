@@ -1,8 +1,8 @@
 use super::*;
 use crate::victory::evaluate_victory_end_turn;
 use rand::SeedableRng;
-use rand::seq::SliceRandom;
 use rand::rngs::chacha::ChaCha8Rng;
+use rand::seq::SliceRandom;
 
 impl Engine {
     /// Create a new game engine with the given seed (default setup, 1 AI empire).

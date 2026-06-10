@@ -871,6 +871,102 @@ impl Engine {
             .unwrap_or(RelationshipStatus::Neutral)
     }
 
+    /// AI invasion pass: each idle troop transport parked at a star with an
+    /// enemy colony presses the assault once the orbit is clear and the
+    /// numbers favour it. Invasion resolution is deterministic, so the AI
+    /// only attacks when it will win — a doomed assault would just bleed
+    /// transports every turn.
+    ///
+    /// Invasion events are surfaced to the player when they are the
+    /// defender, or when they have contact with both empires; conquests
+    /// between unmet empires happen silently (the map change itself becomes
+    /// visible through normal exploration).
+    fn process_ai_invasions(&mut self, events: &mut Vec<Event>) {
+        let ai_ids: Vec<EmpireId> = if !self.state.ai_empires.is_empty() {
+            self.state.ai_empires.clone()
+        } else {
+            self.state.ai_empire.into_iter().collect()
+        };
+
+        for ai in ai_ids {
+            // Idle troop transports in deterministic (BTreeMap key) order.
+            let transports: Vec<FleetId> = self
+                .state
+                .fleets
+                .iter()
+                .filter(|(fid, f)| {
+                    f.owner == ai
+                        && f.kind == FleetKind::TroopTransport
+                        && !self.state.fleet_missions.contains_key(*fid)
+                        && !self.state.scout_missions.contains_key(*fid)
+                        && !self.state.survey_missions.contains_key(*fid)
+                })
+                .map(|(fid, _)| *fid)
+                .collect();
+
+            for fleet_id in transports {
+                let Some(fleet) = self.state.fleets.get(&fleet_id).cloned() else {
+                    continue;
+                };
+                let star_id = fleet.location;
+                let Some(star) = self.state.stars.get(&star_id) else {
+                    continue;
+                };
+
+                // War-opponent colonies at this star, in planet order.
+                let candidates: Vec<(usize, ColonyId, EmpireId)> = star
+                    .planets
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(planet_index, planet)| {
+                        let colony_id = planet.colony?;
+                        let colony = self.state.colonies.get(&colony_id)?;
+                        (colony.owner != ai
+                            && self
+                                .state
+                                .relationship_status(ai, colony.owner)
+                                .is_hostile_or_war())
+                        .then_some((planet_index, colony_id, colony.owner))
+                    })
+                    .collect();
+
+                for (planet_index, colony_id, colony_owner) in candidates {
+                    let Some(target_colony) = self.state.colonies.get(&colony_id).cloned() else {
+                        continue;
+                    };
+                    let assessment =
+                        self.assess_invasion(&fleet, fleet_id, star_id, &target_colony);
+                    if assessment.supply_state == FleetSupplyState::OutOfSupply
+                        || assessment.hostile_orbital_defenders
+                        || assessment.invasion_strength <= assessment.defense_strength
+                    {
+                        continue;
+                    }
+
+                    let mut invasion_events = Vec::new();
+                    self.execute_invasion(
+                        ai,
+                        fleet_id,
+                        star_id,
+                        planet_index,
+                        colony_id,
+                        colony_owner,
+                        &assessment,
+                        &mut invasion_events,
+                    );
+                    let visible = colony_owner == self.state.player_empire
+                        || (self.state.player_knows_empire(ai)
+                            && self.state.player_knows_empire(colony_owner));
+                    if visible {
+                        events.extend(invasion_events);
+                    }
+                    // The transport is consumed by a successful assault.
+                    break;
+                }
+            }
+        }
+    }
+
     /// Evolve relationships between AI empire pairs.
     ///
     /// AI↔AI diplomacy is resolved without the player-facing communication
@@ -2438,6 +2534,7 @@ impl Engine {
             let ai_events = crate::ai::run_ai_turn(&mut self.state, ai_empire_id);
             events.extend(ai_events);
         }
+        self.process_ai_invasions(events);
         self.process_ai_diplomacy_with_events(events);
         self.process_inter_ai_relations(events);
         self.process_treaty_expirations(events);
@@ -4606,6 +4703,44 @@ impl Engine {
             return;
         }
 
+        let Some(target_colony) = self.state.colonies.get(&planet_colony).cloned() else {
+            events.push(Event::error(format!(
+                "Colony {} not found",
+                planet_colony.0
+            )));
+            return;
+        };
+        let assessment = self.assess_invasion(&fleet, fleet_id, star_id, &target_colony);
+        if assessment.supply_state == FleetSupplyState::OutOfSupply {
+            events.push(Event::error(format!(
+                "Fleet {} cannot invade while out of supply",
+                fleet_id.0
+            )));
+            return;
+        }
+
+        self.execute_invasion(
+            fleet.owner,
+            fleet_id,
+            star_id,
+            planet_index,
+            planet_colony,
+            colony_owner,
+            &assessment,
+            events,
+        );
+    }
+
+    /// Deterministic invasion balance for a troop transport against a colony.
+    /// Shared by the player command path and the AI invasion pass.
+    fn assess_invasion(
+        &self,
+        fleet: &Fleet,
+        fleet_id: FleetId,
+        star_id: StarId,
+        target_colony: &Colony,
+    ) -> InvasionAssessment {
+        let colony_owner = target_colony.owner;
         let hostile_orbital_defenders = self.state.fleets.iter().any(|(fid, f)| {
             *fid != fleet_id
                 && f.location == star_id
@@ -4615,23 +4750,9 @@ impl Engine {
                 && !self.state.survey_missions.contains_key(fid)
         });
 
-        let Some(target_colony) = self.state.colonies.get(&planet_colony).cloned() else {
-            events.push(Event::error(format!(
-                "Colony {} not found",
-                planet_colony.0
-            )));
-            return;
-        };
-        let defense_strength = Self::colony_defense_strength(&target_colony);
+        let defense_strength = Self::colony_defense_strength(target_colony);
         let base_invasion_strength = self.invasion_strength_for_empire(fleet.owner, fleet.ships);
         let supply_state = self.state.derived_fleet_supply_state(fleet_id);
-        if supply_state == FleetSupplyState::OutOfSupply {
-            events.push(Event::error(format!(
-                "Fleet {} cannot invade while out of supply",
-                fleet_id.0
-            )));
-            return;
-        }
         let escort_quality: u32 = self
             .state
             .fleets
@@ -4656,9 +4777,41 @@ impl Engine {
             .saturating_mul(supply_state.invasion_strength_pct())
             / 100;
 
-        if hostile_orbital_defenders {
+        InvasionAssessment {
+            invasion_strength,
+            defense_strength,
+            hostile_orbital_defenders,
+            supply_state,
+        }
+    }
+
+    /// Resolve an assessed invasion for any attacking empire: blocked by
+    /// orbital defenders, conquest when strength exceeds defense, or
+    /// attrition otherwise. Callers have already validated the target.
+    #[allow(clippy::too_many_arguments)]
+    fn execute_invasion(
+        &mut self,
+        attacker: EmpireId,
+        fleet_id: FleetId,
+        star_id: StarId,
+        planet_index: usize,
+        planet_colony: ColonyId,
+        colony_owner: EmpireId,
+        assessment: &InvasionAssessment,
+        events: &mut Vec<Event>,
+    ) {
+        let invasion_strength = assessment.invasion_strength;
+        let defense_strength = assessment.defense_strength;
+        let transport_ships = self
+            .state
+            .fleets
+            .get(&fleet_id)
+            .map(|f| f.ships)
+            .unwrap_or(0);
+
+        if assessment.hostile_orbital_defenders {
             events.push(Event::InvasionFailed {
-                attacker: self.state.player_empire,
+                attacker,
                 defender: colony_owner,
                 fleet: fleet_id,
                 star: star_id,
@@ -4674,7 +4827,7 @@ impl Engine {
 
         if invasion_strength > defense_strength {
             if let Some(colony) = self.state.colonies.get_mut(&planet_colony) {
-                colony.owner = self.state.player_empire;
+                colony.owner = attacker;
                 colony.stability = CAPTURED_UNREST_STABILITY;
                 colony.build_queue.clear();
                 colony.accumulated_production = 0;
@@ -4702,13 +4855,13 @@ impl Engine {
             self.refresh_unrest_statuses();
 
             events.push(Event::InvasionSucceeded {
-                attacker: self.state.player_empire,
+                attacker,
                 defender: colony_owner,
                 fleet: fleet_id,
                 star: star_id,
                 planet_index,
                 colony: planet_colony,
-                transports_lost: fleet.ships,
+                transports_lost: transport_ships,
             });
             return;
         }
@@ -4717,7 +4870,7 @@ impl Engine {
         // Fleet attrition can remove the last blockading transport; keep cache in sync.
         self.state.colony_blockade = self.state.recompute_colony_blockade();
         events.push(Event::InvasionFailed {
-            attacker: self.state.player_empire,
+            attacker,
             defender: colony_owner,
             fleet: fleet_id,
             star: star_id,
@@ -5698,6 +5851,16 @@ impl Engine {
 ///
 /// Combat is eligible for `Contacted`, `Tense`, `Hostile`, and `War` statuses.
 /// `Contacted` is kept eligible for backward compatibility with v1 saves and tests.
+/// Outcome-determining numbers for a prospective invasion, computed by
+/// [`Engine::assess_invasion`]. Resolution is deterministic, so these fully
+/// decide success.
+struct InvasionAssessment {
+    invasion_strength: u32,
+    defense_strength: u32,
+    hostile_orbital_defenders: bool,
+    supply_state: FleetSupplyState,
+}
+
 fn is_combat_eligible(state: &GameState, empire_a: EmpireId, empire_b: EmpireId) -> bool {
     state
         .relationship_status(empire_a, empire_b)

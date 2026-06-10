@@ -12495,3 +12495,220 @@ fn espionage_intel_reveals_relations_with_unmet_empires() {
         "revealing the relation must not count as meeting the empire"
     );
 }
+
+// ---------------------------------------------------------------------------
+// AI invasions
+// ---------------------------------------------------------------------------
+
+/// Plant a weakly-defended colony for `owner` on planet 0 of `star_id`
+/// (population 1, stability 10 → defense strength 6) and return its id.
+fn plant_weak_colony(engine: &mut Engine, owner: EmpireId, star_id: StarId) -> ColonyId {
+    let colony_id = engine.state.next_colony_id();
+    engine.state.colonies.insert(
+        colony_id,
+        crate::state::Colony {
+            id: colony_id,
+            star: star_id,
+            planet_index: 0,
+            owner,
+            population: 1,
+            production: 5,
+            prod_pct: 50,
+            research_pct: 50,
+            build_queue: Vec::new(),
+            accumulated_production: 0,
+            buildings: Vec::new(),
+            surface_installations: Vec::new(),
+            orbital_installations: Vec::new(),
+            stability: 10,
+            role: crate::state::ColonyRole::Balanced,
+            rally_point: None,
+        },
+    );
+    engine.state.stars.get_mut(&star_id).unwrap().planets[0].colony = Some(colony_id);
+    colony_id
+}
+
+/// Park an idle troop transport for `owner` at `star_id` and return its id.
+fn park_transport(engine: &mut Engine, owner: EmpireId, star_id: StarId, ships: u32) -> FleetId {
+    let fleet_id = FleetId(8_500);
+    engine.state.fleets.insert(
+        fleet_id,
+        Fleet {
+            id: fleet_id,
+            owner,
+            location: star_id,
+            ships,
+            kind: FleetKind::TroopTransport,
+            strength: 1,
+            integrity: 100,
+        },
+    );
+    fleet_id
+}
+
+/// A star near the AI's home (so the transport stays in supply) holding a
+/// weak player colony with no defenders.
+fn invasion_target_near_ai_home(engine: &mut Engine, ai: EmpireId) -> StarId {
+    let ai_home = engine.state.empires[&ai].home_star;
+    let player_home = engine.state.empires[&engine.state.player_empire].home_star;
+    let (ax, ay) = {
+        let star = &engine.state.stars[&ai_home];
+        (star.x, star.y)
+    };
+    let target = *engine
+        .state
+        .stars
+        .keys()
+        .find(|&&sid| sid != ai_home && sid != player_home)
+        .expect("need a third star");
+    if let Some(star) = engine.state.stars.get_mut(&target) {
+        star.x = ax + 1;
+        star.y = ay;
+    }
+    target
+}
+
+#[test]
+fn ai_invades_player_colony_when_at_war() {
+    let mut engine = Engine::new(42);
+    let ai = engine.state.ai_empire.expect("AI empire required");
+    let player = engine.state.player_empire;
+    engine.state.diplomacy.insert(ai, RelationshipStatus::War);
+
+    let target_star = invasion_target_near_ai_home(&mut engine, ai);
+    let colony_id = plant_weak_colony(&mut engine, player, target_star);
+    let transport = park_transport(&mut engine, ai, target_star, 1);
+
+    let events = engine.apply_turn(vec![Command::EndTurn]);
+
+    assert_eq!(
+        engine.state.colonies[&colony_id].owner, ai,
+        "undefended weak colony must fall to the AI assault"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::InvasionSucceeded { attacker, .. } if *attacker == ai)),
+        "the player must see an invasion of their own colony"
+    );
+    assert!(
+        !engine.state.fleets.contains_key(&transport),
+        "the transport is consumed by a successful assault"
+    );
+}
+
+#[test]
+fn ai_does_not_invade_without_war_or_hostility() {
+    let mut engine = Engine::new(42);
+    let ai = engine.state.ai_empire.expect("AI empire required");
+    let player = engine.state.player_empire;
+    engine
+        .state
+        .diplomacy
+        .insert(ai, RelationshipStatus::Neutral);
+
+    let target_star = invasion_target_near_ai_home(&mut engine, ai);
+    let colony_id = plant_weak_colony(&mut engine, player, target_star);
+    park_transport(&mut engine, ai, target_star, 1);
+
+    let events = engine.apply_turn(vec![Command::EndTurn]);
+
+    assert_eq!(
+        engine.state.colonies[&colony_id].owner, player,
+        "no invasion outside Hostile/War"
+    );
+    assert!(
+        !events.iter().any(|e| matches!(
+            e,
+            Event::InvasionSucceeded { .. } | Event::InvasionFailed { .. }
+        )),
+        "no invasion events outside Hostile/War"
+    );
+}
+
+#[test]
+fn ai_skips_doomed_invasions_instead_of_bleeding_transports() {
+    let mut engine = Engine::new(42);
+    let ai = engine.state.ai_empire.expect("AI empire required");
+    let player = engine.state.player_empire;
+    engine.state.diplomacy.insert(ai, RelationshipStatus::War);
+
+    let target_star = invasion_target_near_ai_home(&mut engine, ai);
+    let colony_id = plant_weak_colony(&mut engine, player, target_star);
+    // Fortify well beyond a single transport's strength (12).
+    engine
+        .state
+        .colonies
+        .get_mut(&colony_id)
+        .unwrap()
+        .population = 50;
+    let transport = park_transport(&mut engine, ai, target_star, 1);
+
+    let events = engine.apply_turn(vec![Command::EndTurn]);
+
+    assert_eq!(engine.state.colonies[&colony_id].owner, player);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::InvasionFailed { .. })),
+        "the AI must not attempt assaults it knows it will lose"
+    );
+    assert_eq!(
+        engine.state.fleets.get(&transport).map(|f| f.ships),
+        Some(1),
+        "no transports bled on a refused assault"
+    );
+}
+
+#[test]
+fn ai_on_ai_conquest_is_silent_until_player_knows_both() {
+    let mut engine = two_ai_engine(42);
+    let ai_ids = engine.state.ai_empires.clone();
+    let (a, b) = (ai_ids[0], ai_ids[1]);
+    engine.state.set_ai_relation(a, b, RelationshipStatus::War);
+
+    // B's home colony, weakened and undefended; dragged next to A's home so
+    // A's transport fights in supply.
+    let a_home = engine.state.empires[&a].home_star;
+    let b_home = engine.state.empires[&b].home_star;
+    let (ax, ay) = {
+        let star = &engine.state.stars[&a_home];
+        (star.x, star.y)
+    };
+    if let Some(star) = engine.state.stars.get_mut(&b_home) {
+        star.x = ax + 1;
+        star.y = ay;
+    }
+    let b_colony = *engine
+        .state
+        .colonies
+        .iter()
+        .find(|(_, c)| c.owner == b)
+        .map(|(id, _)| id)
+        .expect("B starts with a home colony");
+    {
+        let colony = engine.state.colonies.get_mut(&b_colony).unwrap();
+        colony.population = 1;
+        colony.stability = 10;
+        colony.surface_installations.clear();
+        colony.orbital_installations.clear();
+    }
+    engine.state.fleets.retain(|_, fleet| fleet.owner != b);
+    let target_star = engine.state.colonies[&b_colony].star;
+    park_transport(&mut engine, a, target_star, 1);
+
+    let events = engine.apply_turn(vec![Command::EndTurn]);
+
+    assert_eq!(
+        engine.state.colonies[&b_colony].owner, a,
+        "AI war must be able to change the map"
+    );
+    assert!(
+        !events.iter().any(|e| matches!(
+            e,
+            Event::InvasionSucceeded { .. } | Event::InvasionFailed { .. }
+        )),
+        "conquests between unmet empires must not surface to the player"
+    );
+}

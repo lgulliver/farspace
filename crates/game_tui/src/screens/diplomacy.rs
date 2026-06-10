@@ -457,6 +457,8 @@ fn render_empire_detail(
                 Span::styled("Hidden", Theme::muted_style()),
             ]));
         }
+
+        push_foreign_relations_lines(&mut lines, empire_id, game_state);
     }
 
     lines.push(Line::from(""));
@@ -583,6 +585,56 @@ fn render_communication_modal(
             .wrap(Wrap { trim: true }),
         inner,
     );
+}
+
+/// Relations between the selected empire and other AI empires, shown only
+/// for pairs where the player has made contact with both sides (the core's
+/// `known_ai_relations` enforces that rule).
+fn push_foreign_relations_lines(
+    lines: &mut Vec<Line>,
+    empire_id: game_core::EmpireId,
+    game_state: &GameState,
+) {
+    let relations: Vec<(game_core::EmpireId, RelationshipStatus)> = game_state
+        .known_ai_relations()
+        .into_iter()
+        .filter_map(|(a, b, status)| {
+            if a == empire_id {
+                Some((b, status))
+            } else if b == empire_id {
+                Some((a, status))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if relations.is_empty() {
+        return;
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Foreign relations",
+        Theme::title_style(),
+    )));
+    for (other_id, status) in relations {
+        let other_name = game_state
+            .empires
+            .get(&other_id)
+            .map(|empire| empire.name.as_str())
+            .unwrap_or("[ Unknown Empire ]");
+        let status_style = match status {
+            RelationshipStatus::War | RelationshipStatus::Hostile => Theme::error_style(),
+            RelationshipStatus::Tense => Theme::warning_style(),
+            RelationshipStatus::Cooperative => Theme::success_style(),
+            _ => Theme::default_style(),
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("{other_name} "), Theme::muted_style()),
+            Span::styled(status.label(), status_style),
+        ]));
+    }
 }
 
 fn push_identity_lines(lines: &mut Vec<Line>, empire: &game_core::Empire) {
@@ -856,5 +908,65 @@ mod tests {
         assert!(rendered.contains("Tech level"));
         assert!(rendered.contains("Economy"));
         assert!(rendered.contains("Quantum Crystals x2"));
+    }
+
+    fn two_ai_engine() -> Engine {
+        use game_core::{DifficultyLevel, GalaxySize, ScenarioSetup, VictorySettings};
+        Engine::new_from_setup(ScenarioSetup {
+            seed: 42,
+            galaxy_size: GalaxySize::Large,
+            ai_empire_count: 2,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
+            victory_settings: VictorySettings::default_v1(),
+        })
+    }
+
+    /// Once the player has met both empires, their mutual standing appears
+    /// in the detail panel.
+    #[test]
+    fn foreign_relations_shown_after_player_contacts_both_empires() {
+        use game_core::RelationshipStatus;
+
+        let mut engine = two_ai_engine();
+        let ai_ids = engine.state.ai_empires.clone();
+        let (a, b) = (ai_ids[0], ai_ids[1]);
+        engine.state.set_ai_relation(a, b, RelationshipStatus::War);
+        engine
+            .state
+            .diplomacy
+            .insert(a, RelationshipStatus::Contacted);
+        engine
+            .state
+            .diplomacy
+            .insert(b, RelationshipStatus::Contacted);
+
+        let rendered = render_to_string(&engine);
+        assert!(
+            rendered.contains("Foreign relations"),
+            "detail panel must list relations between known empires"
+        );
+    }
+
+    /// Meeting only one side of an AI pair reveals nothing about the pair.
+    #[test]
+    fn foreign_relations_hidden_until_both_empires_contacted() {
+        use game_core::RelationshipStatus;
+
+        let mut engine = two_ai_engine();
+        let ai_ids = engine.state.ai_empires.clone();
+        let (a, b) = (ai_ids[0], ai_ids[1]);
+        engine.state.set_ai_relation(a, b, RelationshipStatus::War);
+        engine
+            .state
+            .diplomacy
+            .insert(a, RelationshipStatus::Contacted);
+
+        let rendered = render_to_string(&engine);
+        assert!(
+            !rendered.contains("Foreign relations"),
+            "relations must stay hidden until the player has met both empires"
+        );
     }
 }

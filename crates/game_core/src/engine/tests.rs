@@ -12417,3 +12417,35 @@ fn two_ai_scenario_is_deterministic_over_five_turns() {
     assert_eq!(first.ai_relations, second.ai_relations);
     assert_eq!(first.empire_explored_stars, second.empire_explored_stars);
 }
+
+#[test]
+fn known_ai_relations_require_player_contact_with_both_empires() {
+    let mut engine = two_ai_engine(42);
+    let ai_ids = engine.state.ai_empires.clone();
+    let (a, b) = (ai_ids[0], ai_ids[1]);
+    engine.state.set_ai_relation(a, b, RelationshipStatus::War);
+
+    assert!(
+        engine.state.known_ai_relations().is_empty(),
+        "no AI relations visible before the player meets anyone"
+    );
+
+    engine
+        .state
+        .diplomacy
+        .insert(a, RelationshipStatus::Contacted);
+    assert!(
+        engine.state.known_ai_relations().is_empty(),
+        "meeting one side of a pair must not reveal the relation"
+    );
+
+    engine
+        .state
+        .diplomacy
+        .insert(b, RelationshipStatus::Contacted);
+    let visible = engine.state.known_ai_relations();
+    assert_eq!(visible.len(), 1);
+    let (lo, hi, status) = visible[0];
+    assert_eq!((lo.min(hi), lo.max(hi)), (a.min(b), a.max(b)));
+    assert_eq!(status, RelationshipStatus::War);
+}

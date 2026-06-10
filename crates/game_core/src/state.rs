@@ -4175,6 +4175,27 @@ impl GameState {
         self.ai_relations.entry(lo).or_default().insert(hi, status);
     }
 
+    /// AI↔AI relations the player is allowed to see: pairs where the player
+    /// has made contact with both empires and the empires have met each
+    /// other. Returned in deterministic (lower id, higher id) order.
+    pub fn known_ai_relations(&self) -> Vec<(EmpireId, EmpireId, RelationshipStatus)> {
+        let mut visible = Vec::new();
+        for (&a, inner) in &self.ai_relations {
+            if !self.player_knows_empire(a) {
+                continue;
+            }
+            for (&b, &status) in inner {
+                if status == RelationshipStatus::Unknown {
+                    continue;
+                }
+                if self.player_knows_empire(b) {
+                    visible.push((a, b, status));
+                }
+            }
+        }
+        visible
+    }
+
     fn ai_relation_key(empire_a: EmpireId, empire_b: EmpireId) -> (EmpireId, EmpireId) {
         if empire_a <= empire_b {
             (empire_a, empire_b)

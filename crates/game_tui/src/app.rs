@@ -32,7 +32,7 @@ use game_core::{
 use ratatui::{Frame, Terminal, backend::Backend};
 use std::io;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Default save file path
 const DEFAULT_SAVE_PATH: &str = "farspace.sav";
@@ -422,6 +422,28 @@ impl App {
         self.cycle_visual_mode_with_path(None);
     }
 
+    /// Downconvert every cell's colors for terminals without truecolor
+    /// support. Like the glyph fallback below, this is a single global pass
+    /// so all widgets, sprites, and gradients degrade without per-component
+    /// branching. TrueColor terminals skip it entirely.
+    fn apply_color_mode_fallback(frame: &mut Frame) {
+        use crate::theme::capability::{ColorMode, adapt_color_for, detect_color_mode};
+        let mode = detect_color_mode();
+        if mode == ColorMode::TrueColor {
+            return;
+        }
+        let area = frame.area();
+        let buffer = frame.buffer_mut();
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                if let Some(cell) = buffer.cell_mut((x, y)) {
+                    cell.fg = adapt_color_for(mode, cell.fg);
+                    cell.bg = adapt_color_for(mode, cell.bg);
+                }
+            }
+        }
+    }
+
     fn apply_visual_mode_fallback(&self, frame: &mut Frame) {
         // Global pass is intentional: every widget/path gets guaranteed fallback
         // coverage without per-component branching. NerdFont mode bypasses this.
@@ -781,28 +803,65 @@ impl App {
         }
     }
 
-    /// Run the main event loop
+    /// Run the main event loop.
+    ///
+    /// Animation ticks advance on a fixed wall-clock cadence
+    /// ([`Self::TICK_INTERVAL`]) rather than once per loop iteration, so
+    /// tick-driven motion runs at the same speed whether the player is idle
+    /// or holding a key. Input wakes the loop early: all queued events are
+    /// drained and then the screen redraws immediately, so a burst of key
+    /// repeat costs one frame instead of one redraw per key.
     pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> io::Result<bool>
     where
         io::Error: From<B::Error>,
     {
+        let mut next_tick = Instant::now() + Self::TICK_INTERVAL;
+
         while !self.state.quit {
             self.poll_update_channels();
 
             terminal.draw(|frame| self.render(frame))?;
-            self.state.tick_count = self.state.tick_count.wrapping_add(1);
-            self.state.transition.advance();
 
-            if event::poll(Duration::from_millis(100))?
-                && let Event::Key(key) = event::read()?
-                && key.kind == KeyEventKind::Press
-            {
-                self.handle_key(key);
+            // Sleep until input arrives or the next animation tick is due.
+            // A Resize (or any other) event simply wakes the loop, which
+            // redraws on the next pass.
+            let timeout = next_tick.saturating_duration_since(Instant::now());
+            if event::poll(timeout)? {
+                loop {
+                    if let Event::Key(key) = event::read()?
+                        && key.kind == KeyEventKind::Press
+                    {
+                        self.handle_key(key);
+                    }
+                    if self.state.quit || !event::poll(Duration::ZERO)? {
+                        break;
+                    }
+                }
+            }
+
+            // Advance ticks for each elapsed interval, but resync after a
+            // long stall (e.g. the process was suspended): animations should
+            // resume, not fast-forward.
+            let now = Instant::now();
+            let mut caught_up = 0;
+            while next_tick <= now && caught_up < Self::MAX_TICK_CATCH_UP {
+                self.state.tick_count = self.state.tick_count.wrapping_add(1);
+                self.state.transition.advance();
+                next_tick += Self::TICK_INTERVAL;
+                caught_up += 1;
+            }
+            if next_tick <= now {
+                next_tick = now + Self::TICK_INTERVAL;
             }
         }
 
         Ok(self.restart_requested)
     }
+
+    /// Cadence of UI animation ticks (`tick_count`, transitions).
+    const TICK_INTERVAL: Duration = Duration::from_millis(100);
+    /// Maximum ticks replayed after a stall before resyncing the deadline.
+    const MAX_TICK_CATCH_UP: u32 = 5;
 
     fn poll_update_channels(&mut self) {
         if let Some(rx) = &self.check_rx
@@ -929,6 +988,7 @@ impl App {
         }
 
         self.apply_visual_mode_fallback(frame);
+        Self::apply_color_mode_fallback(frame);
     }
 
     /// Handle a key event

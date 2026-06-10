@@ -230,11 +230,18 @@ impl Engine {
         );
 
         let explored_stars = initial_explored_stars(stars_vec, home_star_id);
-        let ai_explored_stars_first = if !ai_home_star_ids.is_empty() {
-            initial_explored_stars(stars_vec, ai_home_star_ids[0])
-        } else {
-            BTreeSet::new()
-        };
+        // Each AI empire starts with its own fog of war seeded around its
+        // home star. The legacy shared set mirrors the first AI for old
+        // consumers and pre-v40 save compatibility.
+        let empire_explored_stars: BTreeMap<EmpireId, BTreeSet<StarId>> = ai_empire_ids
+            .iter()
+            .zip(ai_home_star_ids.iter())
+            .map(|(&ai_id, &home)| (ai_id, initial_explored_stars(stars_vec, home)))
+            .collect();
+        let ai_explored_stars_first = ai_empire_ids
+            .first()
+            .and_then(|id| empire_explored_stars.get(id).cloned())
+            .unwrap_or_default();
 
         let hyperspace_lanes: BTreeSet<HyperspaceLane> =
             generate_hyperspace_lanes(seed, &galaxy.sectors, stars_vec)
@@ -267,6 +274,8 @@ impl Engine {
             fleet_missions: BTreeMap::new(),
             ai_empire: legacy_ai_empire,
             ai_explored_stars: ai_explored_stars_first,
+            empire_explored_stars,
+            ai_relations: BTreeMap::new(),
             diplomacy: BTreeMap::new(),
             diplomacy_relationships: BTreeMap::new(),
             diplomacy_pending_communications: std::collections::VecDeque::new(),

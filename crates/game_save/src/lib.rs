@@ -77,6 +77,16 @@ fn parse_save_value(value: serde_json::Value) -> Result<SaveFile, SaveError> {
     Ok(save_file)
 }
 
+/// Validate cross-references in a migrated state so a corrupted or
+/// hand-edited save fails here with [`SaveError::CorruptedSave`] instead of
+/// panicking inside the engine mid-turn.
+fn validate_loaded_state(state: GameState) -> Result<GameState, SaveError> {
+    state
+        .validate_integrity()
+        .map_err(|reason| SaveError::CorruptedSave { reason })?;
+    Ok(state)
+}
+
 /// Load game state from JSON bytes
 pub fn load(data: &[u8]) -> Result<GameState, SaveError> {
     if data.is_empty() {
@@ -86,7 +96,7 @@ pub fn load(data: &[u8]) -> Result<GameState, SaveError> {
     let value: serde_json::Value = serde_json::from_slice(data)?;
     let save_file = parse_save_value(value)?;
     let migrated = migrate::migrate(save_file)?;
-    Ok(migrated.state)
+    validate_loaded_state(migrated.state)
 }
 
 /// Load game state from a string
@@ -98,7 +108,7 @@ pub fn load_from_string(data: &str) -> Result<GameState, SaveError> {
     let value: serde_json::Value = serde_json::from_str(data)?;
     let save_file = parse_save_value(value)?;
     let migrated = migrate::migrate(save_file)?;
-    Ok(migrated.state)
+    validate_loaded_state(migrated.state)
 }
 
 /// Save game state to a file
@@ -153,9 +163,7 @@ pub fn load_metadata(data: &[u8]) -> Result<SaveMetadata, SaveError> {
         // Pre-v20 save: construct minimal metadata from what is available.
         Ok(SaveMetadata {
             schema_version,
-            game_version: None,
-            created_turn: 0,
-            seed: 0,
+            ..SaveMetadata::default()
         })
     }
 }
@@ -190,8 +198,9 @@ pub struct SaveSlotSummary {
     pub difficulty: Option<String>,
     /// Last-modified timestamp formatted as `YYYY-MM-DD HH:MM` (UTC), if available.
     pub updated_at: Option<String>,
-    /// Whether the file's game state could be fully read. When `false` the save
-    /// is listed (so the player can delete it) but its metadata is unknown.
+    /// Whether the save's summary could be read — from its metadata block when
+    /// present, otherwise via a full state load. When `false` the save is
+    /// listed (so the player can delete it) but its metadata is unknown.
     pub readable: bool,
 }
 
@@ -210,6 +219,25 @@ pub fn summarize_save(path: &std::path::Path) -> SaveSlotSummary {
         .and_then(|m| m.modified())
         .ok()
         .and_then(format_modified_time);
+
+    // Fast path: saves written since the metadata block gained summary fields
+    // can be listed without deserialising the full game state. `empire_name`
+    // marks a metadata block new enough to carry the summary.
+    if let Ok(metadata) = load_metadata_from_file(path)
+        && metadata.empire_name.is_some()
+    {
+        return SaveSlotSummary {
+            path: path.to_path_buf(),
+            display_name,
+            turn: Some(metadata.created_turn),
+            empire_name: metadata.empire_name,
+            galaxy_size: metadata.galaxy_size,
+            ai_empires: metadata.ai_empires,
+            difficulty: metadata.difficulty,
+            updated_at,
+            readable: true,
+        };
+    }
 
     match load_from_file(path) {
         Ok(state) => {
@@ -296,7 +324,7 @@ pub fn list_saves(dir: &std::path::Path) -> Vec<SaveSlotSummary> {
 /// Human-facing label for a difficulty level. Lives here (not in `game_core`)
 /// because `DifficultyLevel` has no display method yet and this is purely a
 /// presentation concern for the save list.
-fn difficulty_label(difficulty: game_core::DifficultyLevel) -> &'static str {
+pub(crate) fn difficulty_label(difficulty: game_core::DifficultyLevel) -> &'static str {
     match difficulty {
         game_core::DifficultyLevel::Standard => "Standard",
     }
@@ -1558,6 +1586,78 @@ mod tests {
         }
     }
 
+    /// A structurally valid save whose cross-references are broken (e.g. a
+    /// fleet stationed at a star that does not exist) must fail with
+    /// `CorruptedSave` at load time rather than panicking inside the engine.
+    #[test]
+    fn load_save_with_broken_references_returns_corrupted_error() {
+        let engine = Engine::new(42);
+        let saved = save_to_string(&engine.state).expect("save should succeed");
+
+        let mut json: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        let fleets = json["state"]["fleets"]
+            .as_object_mut()
+            .expect("fleets object");
+        let first_fleet = fleets.values_mut().next().expect("at least one fleet");
+        first_fleet["location"] = serde_json::json!(987_654_321u64);
+        let patched = serde_json::to_string(&json).unwrap();
+
+        let result = load_from_string(&patched);
+        assert!(
+            matches!(result, Err(SaveError::CorruptedSave { .. })),
+            "expected CorruptedSave, got: {result:?}"
+        );
+    }
+
+    /// A save pointing the player empire at a nonexistent id is rejected.
+    #[test]
+    fn load_save_with_missing_player_empire_returns_corrupted_error() {
+        let engine = Engine::new(42);
+        let saved = save_to_string(&engine.state).expect("save should succeed");
+
+        let mut json: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        json["state"]["player_empire"] = serde_json::json!(424_242u64);
+        let patched = serde_json::to_string(&json).unwrap();
+
+        let result = load_from_string(&patched);
+        assert!(
+            matches!(result, Err(SaveError::CorruptedSave { .. })),
+            "expected CorruptedSave, got: {result:?}"
+        );
+    }
+
+    /// New saves embed enough metadata for `summarize_save` to build a summary
+    /// without deserialising the full game state.
+    #[test]
+    fn summarize_save_uses_metadata_fast_path() {
+        let engine = Engine::new(42);
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "farspace_summary_fast_path_{}.sav",
+            std::process::id()
+        ));
+        save_to_file(&engine.state, &path).expect("save_to_file should succeed");
+
+        // Remove the heavy `state` block: the summary must still be readable,
+        // proving it came from the metadata fast path alone.
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let mut json: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        json.as_object_mut().unwrap().remove("state");
+        std::fs::write(&path, serde_json::to_string(&json).unwrap()).unwrap();
+
+        let summary = summarize_save(&path);
+        assert!(summary.readable);
+        assert_eq!(summary.turn, Some(engine.state.turn));
+        let expected_name = engine
+            .state
+            .empires
+            .get(&engine.state.player_empire)
+            .map(|e| e.name.clone());
+        assert_eq!(summary.empire_name, expected_name);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
     /// Garbled JSON that is syntactically valid but not a SaveFile returns an error.
     #[test]
     fn load_garbled_json_returns_error() {
@@ -2151,16 +2251,31 @@ mod tests {
     }
 
     /// The v0 fixture file migrates to the current schema successfully.
+    ///
+    /// The fixture is a synthetic minimal save with no empires, so it
+    /// exercises the migration chain directly; the public `load` path
+    /// additionally runs integrity validation, which rejects it (no playable
+    /// state has a missing player empire).
     #[test]
     fn v0_fixture_migrates_to_current() {
         let fixture = include_str!("../fixtures/v0.json");
-        let state = load_from_string(fixture).expect("v0 fixture should migrate to current schema");
+        let value: serde_json::Value = serde_json::from_str(fixture).unwrap();
+        let save_file = parse_save_value(value).expect("v0 fixture should parse");
+        let migrated = migrate::migrate(save_file).expect("v0 fixture should migrate");
+        let state = migrated.state;
         assert_eq!(state.seed, 0, "seed must be preserved from v0 fixture");
         assert_eq!(state.turn, 1, "turn must be preserved from v0 fixture");
         // explored_stars: v1 migration populates home stars — default state has no empires so empty
         assert!(
             state.explored_stars.is_empty(),
             "explored_stars should be empty (no empires in v0 fixture)"
+        );
+
+        // The full load path rejects the synthetic fixture as unplayable.
+        let result = load_from_string(fixture);
+        assert!(
+            matches!(result, Err(SaveError::CorruptedSave { .. })),
+            "synthetic fixture without a player empire must be rejected: {result:?}"
         );
     }
 

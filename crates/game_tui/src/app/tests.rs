@@ -3357,6 +3357,7 @@ fn menu_d_key_does_not_change_update_state() {
         version: "v0.2.0".into(),
         channel: crate::update::UpdateChannel::Stable,
         download_url: "https://example.com".into(),
+        checksum_url: None,
     });
     app.handle_key(key(KeyCode::Char('d')));
     assert!(matches!(
@@ -3410,6 +3411,7 @@ fn poll_sets_available_when_auto_update_off() {
             version: "v0.2.0".into(),
             channel: crate::update::UpdateChannel::Stable,
             download_url: "https://example.com".into(),
+            checksum_url: None,
         })))
         .unwrap();
 

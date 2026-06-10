@@ -338,7 +338,10 @@ mod tests {
     }
 
     #[test]
-    fn splash_palette_defaults_to_truecolor() {
-        assert_eq!(Theme::color_mode(), ColorMode::TrueColor);
+    fn color_mode_detection_is_cached_and_stable() {
+        // Detection reads the environment once and caches; repeated calls
+        // must agree so the UI can't flicker between modes mid-session.
+        assert_eq!(Theme::color_mode(), Theme::color_mode());
+        let _ = Theme::splash_palette();
     }
 }

@@ -4005,6 +4005,8 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         fleet_missions: BTreeMap::new(),
         ai_empire: Some(ai_id),
         ai_explored_stars: BTreeSet::new(),
+        empire_explored_stars: BTreeMap::new(),
+        ai_relations: BTreeMap::new(),
         diplomacy: BTreeMap::new(),
         diplomacy_relationships: BTreeMap::new(),
         diplomacy_pending_communications: std::collections::VecDeque::new(),
@@ -4235,6 +4237,8 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         fleet_missions: BTreeMap::new(),
         ai_empire: Some(ai_id),
         ai_explored_stars: BTreeSet::new(),
+        empire_explored_stars: BTreeMap::new(),
+        ai_relations: BTreeMap::new(),
         diplomacy: BTreeMap::new(),
         diplomacy_relationships: BTreeMap::new(),
         diplomacy_pending_communications: std::collections::VecDeque::new(),
@@ -4626,6 +4630,8 @@ fn contact_detection_is_deterministic() {
         fleet_missions: BTreeMap::new(),
         ai_empire: Some(ai1),
         ai_explored_stars: BTreeSet::new(),
+        empire_explored_stars: BTreeMap::new(),
+        ai_relations: BTreeMap::new(),
         diplomacy: BTreeMap::new(),
         diplomacy_relationships: BTreeMap::new(),
         diplomacy_pending_communications: std::collections::VecDeque::new(),
@@ -9832,6 +9838,8 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         // interfere with fleet positions during blockade tests.
         ai_empire: None,
         ai_explored_stars: BTreeSet::new(),
+        empire_explored_stars: BTreeMap::new(),
+        ai_relations: BTreeMap::new(),
         diplomacy: BTreeMap::new(),
         diplomacy_relationships: BTreeMap::new(),
         diplomacy_pending_communications: std::collections::VecDeque::new(),
@@ -12231,4 +12239,259 @@ fn fleet_formation_modifiers_change_summary_deterministically() {
 
     assert!(aggressive.offensive >= baseline.offensive);
     assert!(defensive.defensive >= baseline.defensive);
+}
+
+// ---------------------------------------------------------------------------
+// Inter-AI relations & per-empire fog of war
+// ---------------------------------------------------------------------------
+
+fn two_ai_engine(seed: u64) -> Engine {
+    use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
+    Engine::new_from_setup(ScenarioSetup {
+        seed,
+        galaxy_size: GalaxySize::Large,
+        ai_empire_count: 2,
+        sector_count_override: None,
+        difficulty: DifficultyLevel::Standard,
+        player_empire_def: None,
+        victory_settings: crate::state::VictorySettings::default_v1(),
+    })
+}
+
+#[test]
+fn each_ai_empire_starts_with_its_own_fog() {
+    let engine = two_ai_engine(42);
+    let ai_ids = engine.state.ai_empires.clone();
+    assert_eq!(ai_ids.len(), 2, "scenario requested two AI empires");
+
+    for &ai_id in &ai_ids {
+        let home = engine.state.empires[&ai_id].home_star;
+        let explored = engine.state.explored_stars_for(ai_id);
+        assert!(
+            explored.contains(&home),
+            "AI {} must start knowing its own home star",
+            ai_id.0
+        );
+    }
+
+    // The two empires have different home stars, so their fog must differ.
+    let a_set = engine.state.explored_stars_for(ai_ids[0]).clone();
+    let b_set = engine.state.explored_stars_for(ai_ids[1]).clone();
+    assert_ne!(
+        a_set, b_set,
+        "AI empires must not share a single exploration set"
+    );
+}
+
+#[test]
+fn mark_star_explored_routes_player_and_ai_separately() {
+    let mut engine = two_ai_engine(42);
+    let ai_ids = engine.state.ai_empires.clone();
+    let star = *engine.state.stars.keys().next_back().expect("star exists");
+
+    engine.state.mark_star_explored(ai_ids[0], star);
+    assert!(engine.state.explored_stars_for(ai_ids[0]).contains(&star));
+    assert!(
+        !engine.state.explored_stars_for(ai_ids[1]).contains(&star),
+        "one AI's exploration must not leak to another"
+    );
+
+    let player = engine.state.player_empire;
+    engine.state.mark_star_explored(player, star);
+    assert!(engine.state.explored_stars.contains(&star));
+}
+
+#[test]
+fn ai_relation_is_symmetric_and_excludes_player() {
+    let mut engine = two_ai_engine(42);
+    let ai_ids = engine.state.ai_empires.clone();
+    let (a, b) = (ai_ids[0], ai_ids[1]);
+
+    assert_eq!(engine.state.ai_relation(a, b), RelationshipStatus::Unknown);
+    engine.state.set_ai_relation(b, a, RelationshipStatus::War);
+    assert_eq!(engine.state.ai_relation(a, b), RelationshipStatus::War);
+    assert_eq!(engine.state.ai_relation(b, a), RelationshipStatus::War);
+
+    // relationship_status resolves AI pairs through ai_relations...
+    assert_eq!(
+        engine.state.relationship_status(a, b),
+        RelationshipStatus::War
+    );
+    assert!(engine.state.relationship_status(a, b).is_combat_eligible());
+
+    // ...and player pairs continue to use the player diplomacy maps.
+    let player = engine.state.player_empire;
+    engine
+        .state
+        .set_ai_relation(player, a, RelationshipStatus::War);
+    assert_eq!(
+        engine.state.ai_relation(player, a),
+        RelationshipStatus::Unknown,
+        "player relations must not be stored in ai_relations"
+    );
+}
+
+#[test]
+fn ai_pairs_make_contact_under_border_pressure() {
+    let mut engine = two_ai_engine(42);
+    let ai_ids = engine.state.ai_empires.clone();
+    let (a, b) = (ai_ids[0], ai_ids[1]);
+
+    // Drag B's home system next to A's so their colony borders touch.
+    let a_home = engine.state.empires[&a].home_star;
+    let b_home = engine.state.empires[&b].home_star;
+    let (ax, ay) = {
+        let star = &engine.state.stars[&a_home];
+        (star.x, star.y)
+    };
+    if let Some(star) = engine.state.stars.get_mut(&b_home) {
+        star.x = ax + 1;
+        star.y = ay;
+    }
+
+    engine.apply_turn(vec![Command::EndTurn]);
+
+    assert_ne!(
+        engine.state.ai_relation(a, b),
+        RelationshipStatus::Unknown,
+        "adjacent AI empires must make contact"
+    );
+}
+
+#[test]
+fn ai_pairs_far_apart_stay_unknown() {
+    let mut engine = two_ai_engine(42);
+    let ai_ids = engine.state.ai_empires.clone();
+    let (a, b) = (ai_ids[0], ai_ids[1]);
+
+    // Push B's home system far away from everything.
+    let b_home = engine.state.empires[&b].home_star;
+    if let Some(star) = engine.state.stars.get_mut(&b_home) {
+        star.x = 1_000_000;
+        star.y = 1_000_000;
+    }
+
+    engine.apply_turn(vec![Command::EndTurn]);
+
+    assert_eq!(
+        engine.state.ai_relation(a, b),
+        RelationshipStatus::Unknown,
+        "distant AI empires must not make contact"
+    );
+}
+
+#[test]
+fn outmatched_ai_war_deescalates_to_tense() {
+    let mut engine = two_ai_engine(42);
+    let ai_ids = engine.state.ai_empires.clone();
+    let (a, b) = (ai_ids[0], ai_ids[1]);
+
+    engine.state.set_ai_relation(a, b, RelationshipStatus::War);
+    // Wipe B's fleets so it is hopelessly outmatched.
+    engine.state.fleets.retain(|_, fleet| fleet.owner != b);
+
+    engine.apply_turn(vec![Command::EndTurn]);
+
+    assert_eq!(
+        engine.state.ai_relation(a, b),
+        RelationshipStatus::Tense,
+        "a collapsed side must sue for peace"
+    );
+}
+
+#[test]
+fn two_ai_scenario_is_deterministic_over_five_turns() {
+    let run = |seed: u64| {
+        let mut engine = two_ai_engine(seed);
+        for _ in 0..5 {
+            engine.apply_turn(vec![Command::EndTurn]);
+        }
+        engine.state
+    };
+    let first = run(777);
+    let second = run(777);
+    assert_eq!(
+        first, second,
+        "multi-AI games must be deterministic for the same seed"
+    );
+    assert_eq!(first.ai_relations, second.ai_relations);
+    assert_eq!(first.empire_explored_stars, second.empire_explored_stars);
+}
+
+#[test]
+fn known_ai_relations_require_player_contact_with_both_empires() {
+    let mut engine = two_ai_engine(42);
+    let ai_ids = engine.state.ai_empires.clone();
+    let (a, b) = (ai_ids[0], ai_ids[1]);
+    engine.state.set_ai_relation(a, b, RelationshipStatus::War);
+
+    assert!(
+        engine.state.known_ai_relations().is_empty(),
+        "no AI relations visible before the player meets anyone"
+    );
+
+    engine
+        .state
+        .diplomacy
+        .insert(a, RelationshipStatus::Contacted);
+    assert!(
+        engine.state.known_ai_relations().is_empty(),
+        "meeting one side of a pair must not reveal the relation"
+    );
+
+    engine
+        .state
+        .diplomacy
+        .insert(b, RelationshipStatus::Contacted);
+    let visible = engine.state.known_ai_relations();
+    assert_eq!(visible.len(), 1);
+    let (lo, hi, status) = visible[0];
+    assert_eq!((lo.min(hi), lo.max(hi)), (a.min(b), a.max(b)));
+    assert_eq!(status, RelationshipStatus::War);
+}
+
+#[test]
+fn espionage_intel_reveals_relations_with_unmet_empires() {
+    use crate::state::{EmpireIntel, IntelLevel};
+
+    let mut engine = two_ai_engine(42);
+    let ai_ids = engine.state.ai_empires.clone();
+    let (a, b) = (ai_ids[0], ai_ids[1]);
+    engine.state.set_ai_relation(a, b, RelationshipStatus::War);
+
+    // The player has met A but not B. Basic intel is not enough to learn
+    // A's foreign relations.
+    engine
+        .state
+        .diplomacy
+        .insert(a, RelationshipStatus::Contacted);
+    engine.state.empire_intel.insert(
+        a,
+        EmpireIntel {
+            level: IntelLevel::Basic,
+            points: 0,
+            last_gather_turn: None,
+        },
+    );
+    assert!(
+        engine.state.known_ai_relations().is_empty(),
+        "basic intel must not reveal relations with unmet empires"
+    );
+
+    // Informed intel on A reveals the pair even though B is unmet.
+    engine.state.empire_intel.insert(
+        a,
+        EmpireIntel {
+            level: IntelLevel::Informed,
+            points: 0,
+            last_gather_turn: None,
+        },
+    );
+    let visible = engine.state.known_ai_relations();
+    assert_eq!(visible.len(), 1, "informed intel reveals the pair");
+    assert_eq!(visible[0].2, RelationshipStatus::War);
+    assert!(
+        !engine.state.player_knows_empire(b),
+        "revealing the relation must not count as meeting the empire"
+    );
 }

@@ -53,6 +53,9 @@ pub struct UpdateInfo {
     pub channel: UpdateChannel,
     /// Direct download URL for the binary asset matching the current platform.
     pub download_url: String,
+    /// Download URL for the release's SHA-256 checksum asset. Downloads are
+    /// refused when this is absent, so a staged binary is always verified.
+    pub checksum_url: Option<String>,
 }
 
 /// State machine for the update lifecycle shown on the menu screen.

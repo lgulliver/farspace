@@ -130,6 +130,20 @@ jobs:
           pattern: farspace-*
           path: artifacts
 
+      # The in-app updater refuses to stage a binary unless the release also
+      # publishes a SHA256SUMS asset it can verify the download against.
+      - name: Generate SHA256SUMS
+        run: |
+          mkdir release-files
+          cp artifacts/farspace-linux-x86_64/farspace-linux-x86_64 release-files/
+          cp artifacts/farspace-linux-aarch64/farspace-linux-aarch64 release-files/
+          cp artifacts/farspace-macos-x86_64/farspace-macos-x86_64 release-files/
+          cp artifacts/farspace-macos-aarch64/farspace-macos-aarch64 release-files/
+          cp artifacts/farspace-windows-x86_64/farspace-windows-x86_64.exe release-files/
+          cd release-files
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create nightly tag
         run: |
           git tag "${{ needs.setup.outputs.nightly_tag }}"
@@ -160,8 +174,9 @@ jobs:
           body: ${{ steps.body.outputs.body }}
           prerelease: true
           files: |
-            artifacts/farspace-linux-x86_64/farspace-linux-x86_64
-            artifacts/farspace-linux-aarch64/farspace-linux-aarch64
-            artifacts/farspace-macos-x86_64/farspace-macos-x86_64
-            artifacts/farspace-macos-aarch64/farspace-macos-aarch64
-            artifacts/farspace-windows-x86_64/farspace-windows-x86_64.exe
+            release-files/farspace-linux-x86_64
+            release-files/farspace-linux-aarch64
+            release-files/farspace-macos-x86_64
+            release-files/farspace-macos-aarch64
+            release-files/farspace-windows-x86_64.exe
+            release-files/SHA256SUMS

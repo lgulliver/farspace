@@ -1065,6 +1065,8 @@ mod tests {
             fleet_missions: Default::default(),
             ai_empire: None,
             ai_explored_stars: Default::default(),
+            empire_explored_stars: Default::default(),
+            ai_relations: Default::default(),
             diplomacy: Default::default(),
             diplomacy_relationships: Default::default(),
             diplomacy_pending_communications: VecDeque::new(),

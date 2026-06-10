@@ -73,6 +73,7 @@ mod components;
 mod factions;
 mod ships;
 mod technology;
+mod validate;
 mod victory;
 pub use components::*;
 pub use factions::*;
@@ -3003,6 +3004,12 @@ impl IntelLevel {
     pub fn reveals_strategic_resources(self) -> bool {
         self >= IntelLevel::Deep
     }
+
+    /// Whether espionage on an empire reveals its relations with third
+    /// parties — including empires the player has never met.
+    pub fn reveals_foreign_relations(self) -> bool {
+        self >= IntelLevel::Informed
+    }
 }
 
 /// Deterministic source that improved empire intelligence this turn.
@@ -3455,9 +3462,21 @@ pub struct GameState {
     /// The AI-controlled empire, if one exists
     #[cfg_attr(feature = "serde", serde(default))]
     pub ai_empire: Option<EmpireId>,
-    /// Stars that the AI empire has explored
+    /// Legacy shared AI exploration set. Superseded by
+    /// [`GameState::empire_explored_stars`]; retained so pre-v40 saves
+    /// deserialize, and migrated into the per-empire map on load.
     #[cfg_attr(feature = "serde", serde(default))]
     pub ai_explored_stars: BTreeSet<StarId>,
+    /// Stars explored by each AI empire (the player's set is
+    /// [`GameState::explored_stars`]). Each AI has its own fog of war.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub empire_explored_stars: BTreeMap<EmpireId, BTreeSet<StarId>>,
+    /// Relationship status between pairs of AI empires, stored under the
+    /// lower empire id mapping to the higher id. Pairs not present are
+    /// implicitly `Unknown`. Player relationships live in
+    /// [`GameState::diplomacy`]/[`GameState::diplomacy_relationships`].
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ai_relations: BTreeMap<EmpireId, BTreeMap<EmpireId, RelationshipStatus>>,
     /// Diplomatic relationship status between the player empire and each other empire.
     /// Empires not present in this map are implicitly `Unknown`.
     #[cfg_attr(feature = "serde", serde(default))]
@@ -4104,9 +4123,10 @@ impl GameState {
         })
     }
 
-    /// Derive the relationship between two empires from the player's perspective.
+    /// Derive the relationship between two empires.
     ///
-    /// If neither empire is the player, returns `Unknown` (AI–AI not tracked).
+    /// Player↔AI pairs come from the player diplomacy maps; AI↔AI pairs from
+    /// [`GameState::ai_relations`]. Untracked pairs are `Unknown`.
     pub fn relationship_status(
         &self,
         empire_a: EmpireId,
@@ -4118,7 +4138,7 @@ impl GameState {
         } else if empire_b == player {
             empire_a
         } else {
-            return RelationshipStatus::Unknown;
+            return self.ai_relation(empire_a, empire_b);
         };
         if let Some(relationship) = self.diplomacy_relationships.get(&other) {
             return relationship.state;
@@ -4127,6 +4147,95 @@ impl GameState {
             .get(&other)
             .copied()
             .unwrap_or(RelationshipStatus::Unknown)
+    }
+
+    /// Relationship between two AI empires (`Unknown` for untracked pairs,
+    /// identical empires, or when either side is the player).
+    pub fn ai_relation(&self, empire_a: EmpireId, empire_b: EmpireId) -> RelationshipStatus {
+        if empire_a == empire_b || empire_a == self.player_empire || empire_b == self.player_empire
+        {
+            return RelationshipStatus::Unknown;
+        }
+        let (lo, hi) = Self::ai_relation_key(empire_a, empire_b);
+        self.ai_relations
+            .get(&lo)
+            .and_then(|inner| inner.get(&hi))
+            .copied()
+            .unwrap_or(RelationshipStatus::Unknown)
+    }
+
+    /// Set the relationship between two AI empires. Ignored when either side
+    /// is the player (player relationships live in the diplomacy maps) or the
+    /// empires are identical.
+    pub fn set_ai_relation(
+        &mut self,
+        empire_a: EmpireId,
+        empire_b: EmpireId,
+        status: RelationshipStatus,
+    ) {
+        if empire_a == empire_b || empire_a == self.player_empire || empire_b == self.player_empire
+        {
+            return;
+        }
+        let (lo, hi) = Self::ai_relation_key(empire_a, empire_b);
+        self.ai_relations.entry(lo).or_default().insert(hi, status);
+    }
+
+    /// AI↔AI relations the player is allowed to see. A pair is visible when
+    /// the empires have met each other and either the player has made contact
+    /// with both, or espionage intel on one side is deep enough to reveal
+    /// that empire's foreign relations
+    /// ([`IntelLevel::reveals_foreign_relations`]) — the other side may then
+    /// be an empire the player has never met. Callers must still mask the
+    /// identity of unmet empires when presenting these pairs. Returned in
+    /// deterministic (lower id, higher id) order.
+    pub fn known_ai_relations(&self) -> Vec<(EmpireId, EmpireId, RelationshipStatus)> {
+        let mut visible = Vec::new();
+        for (&a, inner) in &self.ai_relations {
+            for (&b, &status) in inner {
+                if status == RelationshipStatus::Unknown {
+                    continue;
+                }
+                let met_both = self.player_knows_empire(a) && self.player_knows_empire(b);
+                let spied = self.intel_level_for_empire(a).reveals_foreign_relations()
+                    || self.intel_level_for_empire(b).reveals_foreign_relations();
+                if met_both || spied {
+                    visible.push((a, b, status));
+                }
+            }
+        }
+        visible
+    }
+
+    fn ai_relation_key(empire_a: EmpireId, empire_b: EmpireId) -> (EmpireId, EmpireId) {
+        if empire_a <= empire_b {
+            (empire_a, empire_b)
+        } else {
+            (empire_b, empire_a)
+        }
+    }
+
+    /// The set of stars `empire` has explored. The player's fog lives in
+    /// [`GameState::explored_stars`]; each AI empire has its own set.
+    pub fn explored_stars_for(&self, empire: EmpireId) -> &BTreeSet<StarId> {
+        static EMPTY: BTreeSet<StarId> = BTreeSet::new();
+        if empire == self.player_empire {
+            &self.explored_stars
+        } else {
+            self.empire_explored_stars.get(&empire).unwrap_or(&EMPTY)
+        }
+    }
+
+    /// Record that `empire` has explored `star`.
+    pub fn mark_star_explored(&mut self, empire: EmpireId, star: StarId) {
+        if empire == self.player_empire {
+            self.explored_stars.insert(star);
+        } else {
+            self.empire_explored_stars
+                .entry(empire)
+                .or_default()
+                .insert(star);
+        }
     }
 
     /// Returns relationship data for a foreign empire if present.
@@ -4446,6 +4555,8 @@ impl PartialEq for GameState {
             && self.fleet_missions == other.fleet_missions
             && self.ai_empire == other.ai_empire
             && self.ai_explored_stars == other.ai_explored_stars
+            && self.empire_explored_stars == other.empire_explored_stars
+            && self.ai_relations == other.ai_relations
             && self.diplomacy == other.diplomacy
             && self.diplomacy_relationships == other.diplomacy_relationships
             && self.diplomacy_pending_communications == other.diplomacy_pending_communications
@@ -4526,6 +4637,8 @@ impl Default for GameState {
             fleet_missions: BTreeMap::new(),
             ai_empire: None,
             ai_explored_stars: BTreeSet::new(),
+            empire_explored_stars: BTreeMap::new(),
+            ai_relations: BTreeMap::new(),
             diplomacy: BTreeMap::new(),
             diplomacy_relationships: BTreeMap::new(),
             diplomacy_pending_communications: VecDeque::new(),

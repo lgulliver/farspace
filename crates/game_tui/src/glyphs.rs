@@ -1,3 +1,10 @@
+//! Semantic map/UI glyphs, selected per [`VisualMode`].
+//!
+//! This is the module for glyphs that *mean* something (a star, a fleet
+//! route, a warning marker). Purely cosmetic intensity ramps for procedural
+//! backdrops live in [`crate::renderer::glyphs`]; add new glyphs to whichever
+//! side matches their role.
+
 use crate::visual_mode::VisualMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

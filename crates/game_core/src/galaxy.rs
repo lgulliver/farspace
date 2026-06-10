@@ -302,11 +302,11 @@ pub fn generate_planet_discoveries_for_context(
     // special/resource RNG consumption while preserving deterministic placement.
     let mut anomaly_rng = ChaCha8Rng::seed_from_u64(planet_seed ^ 0xA11A_D15C_0FFE_51E5);
 
-    let is_hazardous = planet_rng.r#gen::<u8>() < 28;
-    let has_precursor_signature = planet_rng.r#gen::<u8>() < 10;
-    let in_nebula_band = planet_rng.r#gen::<u8>() < 22;
-    let hotspot_bias = planet_rng.r#gen::<u8>() < 12;
-    let poor_bias = !hotspot_bias && planet_rng.r#gen::<u8>() < 16;
+    let is_hazardous = planet_rng.random::<u8>() < 28;
+    let has_precursor_signature = planet_rng.random::<u8>() < 10;
+    let in_nebula_band = planet_rng.random::<u8>() < 22;
+    let hotspot_bias = planet_rng.random::<u8>() < 12;
+    let poor_bias = !hotspot_bias && planet_rng.random::<u8>() < 16;
 
     let mut specials = Vec::new();
     let special_roll_threshold = if has_precursor_signature {
@@ -316,7 +316,7 @@ pub fn generate_planet_discoveries_for_context(
     } else {
         92u8
     };
-    if planet_rng.r#gen::<u8>() < special_roll_threshold {
+    if planet_rng.random::<u8>() < special_roll_threshold {
         let all = PlanetSpecial::all();
         let weights: Vec<u32> = all
             .iter()
@@ -343,7 +343,7 @@ pub fn generate_planet_discoveries_for_context(
     } else {
         34u8
     };
-    if anomaly_rng.r#gen::<u8>() < anomaly_roll_threshold {
+    if anomaly_rng.random::<u8>() < anomaly_roll_threshold {
         let all = PlanetAnomaly::all();
         let weights: Vec<u32> = all
             .iter()
@@ -370,7 +370,7 @@ pub fn generate_planet_discoveries_for_context(
         88u8
     };
     let mut resources = Vec::new();
-    if planet_rng.r#gen::<u8>() < base_resource_roll {
+    if planet_rng.random::<u8>() < base_resource_roll {
         let all = StrategicResource::all();
         let weights: Vec<u32> = all
             .iter()
@@ -387,7 +387,7 @@ pub fn generate_planet_discoveries_for_context(
         if let Ok(dist) = WeightedIndex::new(&weights) {
             let selected = all[dist.sample(&mut planet_rng)];
             resources.push(selected);
-            if hotspot_bias && planet_rng.r#gen::<u8>() < 20 {
+            if hotspot_bias && planet_rng.random::<u8>() < 20 {
                 let alt = all[dist.sample(&mut planet_rng)];
                 if !resources.contains(&alt) {
                     resources.push(alt);

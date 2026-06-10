@@ -4603,15 +4603,16 @@ mod rng_serde {
     where
         S: Serializer,
     {
-        // ChaCha8Rng has serde support via the serde1 feature
-        rng.serialize(serializer)
+        let state = rng.serialize_state();
+        state.serialize(serializer)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<ChaCha8Rng, D::Error>
     where
         D: Deserializer<'de>,
     {
-        ChaCha8Rng::deserialize(deserializer)
+        let state: [u8; 49] = <[u8; 49]>::deserialize(deserializer)?;
+        Ok(ChaCha8Rng::deserialize_state(&state))
     }
 }
 

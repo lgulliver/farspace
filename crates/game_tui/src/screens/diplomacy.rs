@@ -587,9 +587,10 @@ fn render_communication_modal(
     );
 }
 
-/// Relations between the selected empire and other AI empires, shown only
-/// for pairs where the player has made contact with both sides (the core's
-/// `known_ai_relations` enforces that rule).
+/// Relations between the selected empire and other AI empires. The core's
+/// `known_ai_relations` gates which pairs exist (contact with both sides, or
+/// espionage intel on either); partners the player has never met render as
+/// an unidentified power rather than leaking their name.
 fn push_foreign_relations_lines(
     lines: &mut Vec<Line>,
     empire_id: game_core::EmpireId,
@@ -619,11 +620,16 @@ fn push_foreign_relations_lines(
         Theme::title_style(),
     )));
     for (other_id, status) in relations {
-        let other_name = game_state
-            .empires
-            .get(&other_id)
-            .map(|empire| empire.name.as_str())
-            .unwrap_or("[ Unknown Empire ]");
+        let other_name = if game_state.player_knows_empire(other_id) {
+            game_state
+                .empires
+                .get(&other_id)
+                .map(|empire| empire.name.as_str())
+                .unwrap_or("[ Unknown Empire ]")
+        } else {
+            // Known only through espionage on the selected empire.
+            "[ Unidentified power ]"
+        };
         let status_style = match status {
             RelationshipStatus::War | RelationshipStatus::Hostile => Theme::error_style(),
             RelationshipStatus::Tense => Theme::warning_style(),
@@ -967,6 +973,76 @@ mod tests {
         assert!(
             !rendered.contains("Foreign relations"),
             "relations must stay hidden until the player has met both empires"
+        );
+    }
+
+    /// Informed espionage intel on an empire reveals its relations with
+    /// empires the player has never met — without leaking their names.
+    #[test]
+    fn espionage_reveals_unmet_relations_without_leaking_names() {
+        use game_core::{EmpireIntel, IntelLevel, RelationshipStatus};
+
+        let mut engine = two_ai_engine();
+        let ai_ids = engine.state.ai_empires.clone();
+        let (a, b) = (ai_ids[0], ai_ids[1]);
+        if let Some(unmet) = engine.state.empires.get_mut(&b) {
+            unmet.name = "Leaked Empire".to_string();
+        }
+        engine.state.set_ai_relation(a, b, RelationshipStatus::War);
+        engine
+            .state
+            .diplomacy
+            .insert(a, RelationshipStatus::Contacted);
+        engine.state.empire_intel.insert(
+            a,
+            EmpireIntel {
+                level: IntelLevel::Informed,
+                points: 0,
+                last_gather_turn: None,
+            },
+        );
+
+        let rendered = render_to_string(&engine);
+        assert!(
+            rendered.contains("Foreign relations"),
+            "informed intel must reveal the spied empire's relations"
+        );
+        assert!(
+            rendered.contains("Unidentified power"),
+            "unmet partner must render as an unidentified power"
+        );
+        assert!(
+            !rendered.contains("Leaked Empire"),
+            "unmet partner's name must never leak"
+        );
+    }
+
+    /// Basic intel is not deep enough to expose foreign relations.
+    #[test]
+    fn basic_intel_does_not_reveal_unmet_relations() {
+        use game_core::{EmpireIntel, IntelLevel, RelationshipStatus};
+
+        let mut engine = two_ai_engine();
+        let ai_ids = engine.state.ai_empires.clone();
+        let (a, b) = (ai_ids[0], ai_ids[1]);
+        engine.state.set_ai_relation(a, b, RelationshipStatus::War);
+        engine
+            .state
+            .diplomacy
+            .insert(a, RelationshipStatus::Contacted);
+        engine.state.empire_intel.insert(
+            a,
+            EmpireIntel {
+                level: IntelLevel::Basic,
+                points: 0,
+                last_gather_turn: None,
+            },
+        );
+
+        let rendered = render_to_string(&engine);
+        assert!(
+            !rendered.contains("Foreign relations"),
+            "basic intel must not reveal relations with unmet empires"
         );
     }
 }

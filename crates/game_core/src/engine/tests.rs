@@ -12449,3 +12449,49 @@ fn known_ai_relations_require_player_contact_with_both_empires() {
     assert_eq!((lo.min(hi), lo.max(hi)), (a.min(b), a.max(b)));
     assert_eq!(status, RelationshipStatus::War);
 }
+
+#[test]
+fn espionage_intel_reveals_relations_with_unmet_empires() {
+    use crate::state::{EmpireIntel, IntelLevel};
+
+    let mut engine = two_ai_engine(42);
+    let ai_ids = engine.state.ai_empires.clone();
+    let (a, b) = (ai_ids[0], ai_ids[1]);
+    engine.state.set_ai_relation(a, b, RelationshipStatus::War);
+
+    // The player has met A but not B. Basic intel is not enough to learn
+    // A's foreign relations.
+    engine
+        .state
+        .diplomacy
+        .insert(a, RelationshipStatus::Contacted);
+    engine.state.empire_intel.insert(
+        a,
+        EmpireIntel {
+            level: IntelLevel::Basic,
+            points: 0,
+            last_gather_turn: None,
+        },
+    );
+    assert!(
+        engine.state.known_ai_relations().is_empty(),
+        "basic intel must not reveal relations with unmet empires"
+    );
+
+    // Informed intel on A reveals the pair even though B is unmet.
+    engine.state.empire_intel.insert(
+        a,
+        EmpireIntel {
+            level: IntelLevel::Informed,
+            points: 0,
+            last_gather_turn: None,
+        },
+    );
+    let visible = engine.state.known_ai_relations();
+    assert_eq!(visible.len(), 1, "informed intel reveals the pair");
+    assert_eq!(visible[0].2, RelationshipStatus::War);
+    assert!(
+        !engine.state.player_knows_empire(b),
+        "revealing the relation must not count as meeting the empire"
+    );
+}

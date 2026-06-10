@@ -3004,6 +3004,12 @@ impl IntelLevel {
     pub fn reveals_strategic_resources(self) -> bool {
         self >= IntelLevel::Deep
     }
+
+    /// Whether espionage on an empire reveals its relations with third
+    /// parties — including empires the player has never met.
+    pub fn reveals_foreign_relations(self) -> bool {
+        self >= IntelLevel::Informed
+    }
 }
 
 /// Deterministic source that improved empire intelligence this turn.
@@ -4175,20 +4181,25 @@ impl GameState {
         self.ai_relations.entry(lo).or_default().insert(hi, status);
     }
 
-    /// AI↔AI relations the player is allowed to see: pairs where the player
-    /// has made contact with both empires and the empires have met each
-    /// other. Returned in deterministic (lower id, higher id) order.
+    /// AI↔AI relations the player is allowed to see. A pair is visible when
+    /// the empires have met each other and either the player has made contact
+    /// with both, or espionage intel on one side is deep enough to reveal
+    /// that empire's foreign relations
+    /// ([`IntelLevel::reveals_foreign_relations`]) — the other side may then
+    /// be an empire the player has never met. Callers must still mask the
+    /// identity of unmet empires when presenting these pairs. Returned in
+    /// deterministic (lower id, higher id) order.
     pub fn known_ai_relations(&self) -> Vec<(EmpireId, EmpireId, RelationshipStatus)> {
         let mut visible = Vec::new();
         for (&a, inner) in &self.ai_relations {
-            if !self.player_knows_empire(a) {
-                continue;
-            }
             for (&b, &status) in inner {
                 if status == RelationshipStatus::Unknown {
                     continue;
                 }
-                if self.player_knows_empire(b) {
+                let met_both = self.player_knows_empire(a) && self.player_knows_empire(b);
+                let spied = self.intel_level_for_empire(a).reveals_foreign_relations()
+                    || self.intel_level_for_empire(b).reveals_foreign_relations();
+                if met_both || spied {
                     visible.push((a, b, status));
                 }
             }

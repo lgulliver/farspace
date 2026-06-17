@@ -4,8 +4,8 @@ mod logging;
 
 use crate::animation::{ScreenTransition, TransitionState};
 use crate::components::{
-    EventLog, LogEntryKind, PaletteCommand, render_battle_reports, render_dispatch, render_help,
-    render_palette,
+    EventLog, LogEntryKind, MockBattleState, PaletteCommand, render_battle_mock,
+    render_battle_reports, render_dispatch, render_help, render_palette,
 };
 use crate::keys::KeyMap;
 use crate::screens::Screen;
@@ -159,6 +159,9 @@ pub(crate) struct OverlayState {
     pub(crate) update_confirm: Option<UpdateConfirmKind>,
     /// Campaign Archives (save browser) overlay state.
     pub(crate) archives: ArchivesState,
+    /// Combat v3 mock overlay (prototype; no game-core dependency).
+    pub(crate) show_battle_mock: bool,
+    pub(crate) battle_mock_state: MockBattleState,
 }
 
 /// Campaign Archives overlay state. Holds the scanned save summaries plus the
@@ -987,12 +990,25 @@ impl App {
             render_update_confirm(frame, area, confirm);
         }
 
+        if self.state.overlay.show_battle_mock {
+            render_battle_mock(frame, area, &self.state.overlay.battle_mock_state);
+        }
+
         self.apply_visual_mode_fallback(frame);
         Self::apply_color_mode_fallback(frame);
     }
 
     /// Handle a key event
     fn handle_key(&mut self, key: KeyEvent) {
+        // Combat v3 mock overlay takes priority over every other input path.
+        // It is a standalone prototype with no engine wiring.
+        if self.state.overlay.show_battle_mock {
+            if self.state.overlay.battle_mock_state.handle_key(key) {
+                self.state.overlay.show_battle_mock = false;
+            }
+            return;
+        }
+
         // Update confirm dialog has highest priority — nothing else should fire underneath it.
         if self.state.overlay.update_confirm.is_some() {
             match key.code {
@@ -1158,6 +1174,15 @@ impl App {
         // 'G' opens Sector Governance from any game screen
         if key.code == KeyCode::Char('G') && self.engine.is_some() {
             self.state.active = Screen::SectorGovernance;
+            return;
+        }
+
+        // 'M' opens the Combat v3 mock overlay from any non-SectorMap screen.
+        // The SectorMap reserves 'M' for fleet-move dispatch, so the mock is
+        // suppressed there to preserve the existing binding.
+        if key.code == KeyCode::Char('M') && self.state.active != Screen::SectorMap {
+            self.state.overlay.battle_mock_state.reset();
+            self.state.overlay.show_battle_mock = true;
             return;
         }
 

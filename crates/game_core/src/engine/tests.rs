@@ -10521,7 +10521,7 @@ fn stable_colony_remains_calm() {
     assert!(
         matches!(
             engine.state.colony_unrest_state(colony_id),
-            crate::state::ColonyUnrestState::Calm | crate::state::ColonyUnrestState::Uneasy
+            crate::state::ColonyUnrestState::Calm | crate::state::ColonyUnrestState::Strained
         ),
         "Fresh colony should not be in severe unrest"
     );

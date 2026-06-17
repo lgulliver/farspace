@@ -11737,7 +11737,6 @@ fn ai_empires_have_designs_after_setup() {
 #[cfg(test)]
 mod balance_tests {
     use super::*;
-    use crate::balance;
 
     /// Verify that Void Propulsion (cost=40, TechId(1)) can complete within 15 turns
     /// for a standard starting colony researching it from turn 1.

@@ -122,7 +122,9 @@ Status labels:
 
 ## Phase 5 — Fleets, Shipyards & Combat
 
-**Goal:** complete strategic fleet warfare loop in deterministic auto-resolve model.
+**Goal:** complete strategic fleet warfare loop in deterministic
+auto-resolve model, evolving toward card-driven battle resolution that
+surfaces loadout and tech choice in combat outcomes.
 
 **Current status:** **In Progress**
 
@@ -130,15 +132,24 @@ Status labels:
 
 - Ship production from colony/shipyard systems
 - Expanded ship archetype roster
-- Auto-resolve combat outcomes and reporting
+- ✅ Auto-resolve combat outcomes and reporting (Combat v2)
 - Blockades and orbital defense interactions
 - Invasion and troop transport strategic layer
+- 🆕 Card-driven battle resolution (Combat v3) — 5-card hand draft,
+  alternating rounds, command-driven card play, AI card selection
+- 🆕 BattleScreen TUI overlay with keyboard-first card picker
+- 🆕 23-card v1 pool (15 base + 8 faction signatures) with 8-faction
+  mapping to 5 play-style buckets
 
 **Dependencies:** Phases 2-4
 
-**Risks:** combat readability, invasion balance, maintenance pressure
+**Risks:** combat readability, invasion balance, maintenance pressure,
+card-pool balance, AI card selection transparency, save migration safety
 
-**Acceptance criteria:** fleet combat/invasion outcomes are deterministic, explainable, and test-covered
+**Acceptance criteria:** fleet combat/invasion outcomes are deterministic,
+explainable, and test-covered; card draft is a pure function of fleet and
+empire state; same seed + same commands replay to byte-identical events;
+save migration from v36 to v37 is lossless.
 
 ---
 

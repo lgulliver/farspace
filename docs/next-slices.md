@@ -8,6 +8,35 @@ Recently completed:
 - ✅ Strategic Resources v1
 - ✅ Large-Scale Technology Tree v2
 - ✅ Research Queue v1
+- ✅ Combat v2 (strategic auto-resolve, BattleReport, fleet roles/formations)
+
+## 0) Combat v3 — Card-Driven Battle Resolution
+
+- **Goal:** replace Combat v2 auto-resolve with a deterministic, turn-based
+  card-driven resolution. Each side drafts a 5-card hand from fleet
+  composition, ship components, and unlocked techs, then plays one card per
+  round for up to 5 rounds. Card play is command-driven; AI plays cards via
+  a deterministic policy.
+- **Why now:** combat and production loops need stronger strategic
+  differentiation than raw fleet size. Loadout and tech choices should drive
+  battle outcomes, not just ATK/DEF numbers.
+- **Dependencies:** current Combat v2 implementation, ship designer v1,
+  doctrine weights, faction definitions (all present).
+- **Risk level:** High
+- **Design doc:** `docs/design/combat-v3.md`
+- **Scope:**
+  - 15 base cards (hull/component/tech sources) + 8 faction signature cards
+    + `Hold Fire` fallback = 23 unique cards in v1.
+  - 8-faction mapping to 5 play-style buckets (Militarist, Isolationist,
+    Explorer, Unity, Merchant).
+  - `BattleSession` lives in `GameState.pending_battle_session`. Engine
+    returns `TurnStep::AwaitingBattleInput` when player is involved.
+  - Save schema bump 36 → 37. Legacy `BattleReport` retained for history.
+  - TUI `BattleScreen` overlay with keyboard-first card play (1–5 keys).
+- **Rough acceptance criteria:** card draft is deterministic from
+  `(fleet, empire_state)`; same seed + same commands replay to byte-identical
+  events; AI card play is deterministic; positive + negative tests cover
+  card effects, draft, AI selection, engine interrupt, save migration.
 
 ## 1) Pop & Jobs Lite v1
 

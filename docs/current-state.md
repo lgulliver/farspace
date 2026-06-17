@@ -96,10 +96,15 @@ Status labels:
 ## Combat
 
 - **Status:** **In Progress**
-- Deterministic strategic auto-resolve combat events implemented
-- Strategic invasion system with troop transports and capture/failure outcomes implemented
-- Battle reports record both fleets' supply states and TUI exposes logistics posture in report details
-- No tactical battle layer (out of scope)
+- Combat v2: deterministic strategic auto-resolve combat events implemented
+- Combat v2: strategic invasion system with troop transports and
+  capture/failure outcomes implemented
+- Combat v2: battle reports record both fleets' supply states and TUI
+  exposes logistics posture in report details
+- Combat v2: no tactical battle layer (out of scope)
+- Combat v3 (card-driven): design doc complete in `docs/design/combat-v3.md`.
+  Implementation pending. Replaces v2 auto-resolve with 5-card hand draft,
+  alternating rounds, and command-driven card play.
 
 ## Diplomacy
 

@@ -129,6 +129,10 @@ pub enum Command {
     },
     /// Delete an existing custom ship design
     DeleteShipDesign { design_id: CustomDesignId },
+    /// Combat v3: play a card from the pending battle session.
+    PlayBattleCard { session_id: u64, card_index: usize },
+    /// Combat v3: free retreat from the pending battle session.
+    RetreatFromBattle { session_id: u64 },
 }
 
 #[cfg(test)]

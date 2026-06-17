@@ -4,8 +4,8 @@ mod logging;
 
 use crate::animation::{ScreenTransition, TransitionState};
 use crate::components::{
-    EventLog, LogEntryKind, MockBattleState, PaletteCommand, render_battle_mock,
-    render_battle_reports, render_dispatch, render_help, render_palette,
+    EventLog, LogEntryKind, PaletteCommand, render_battle_reports, render_dispatch, render_help,
+    render_palette,
 };
 use crate::keys::KeyMap;
 use crate::screens::Screen;
@@ -159,9 +159,9 @@ pub(crate) struct OverlayState {
     pub(crate) update_confirm: Option<UpdateConfirmKind>,
     /// Campaign Archives (save browser) overlay state.
     pub(crate) archives: ArchivesState,
-    /// Combat v3 mock overlay (prototype; no game-core dependency).
-    pub(crate) show_battle_mock: bool,
-    pub(crate) battle_mock_state: MockBattleState,
+    /// Combat v3 BattleScreen overlay.
+    pub(crate) show_battle: bool,
+    pub(crate) battle_show_help: bool,
 }
 
 /// Campaign Archives overlay state. Holds the scanned save summaries plus the
@@ -990,8 +990,14 @@ impl App {
             render_update_confirm(frame, area, confirm);
         }
 
-        if self.state.overlay.show_battle_mock {
-            render_battle_mock(frame, area, &self.state.overlay.battle_mock_state);
+        if self.state.overlay.show_battle {
+            let gs = self.engine.as_ref().map(|e| &e.state);
+            crate::screens::battle::render_battle_screen(
+                frame,
+                area,
+                gs,
+                self.state.overlay.battle_show_help,
+            );
         }
 
         self.apply_visual_mode_fallback(frame);
@@ -1000,11 +1006,18 @@ impl App {
 
     /// Handle a key event
     fn handle_key(&mut self, key: KeyEvent) {
-        // Combat v3 mock overlay takes priority over every other input path.
-        // It is a standalone prototype with no engine wiring.
-        if self.state.overlay.show_battle_mock {
-            if self.state.overlay.battle_mock_state.handle_key(key) {
-                self.state.overlay.show_battle_mock = false;
+        // Combat v3 BattleScreen takes priority over every other input
+        // path.  It is a read-only viewer for the latest report (or
+        // active session) — no engine mutation in v1.
+        if self.state.overlay.show_battle {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
+                    self.state.overlay.show_battle = false;
+                }
+                KeyCode::Char('?') => {
+                    self.state.overlay.battle_show_help = !self.state.overlay.battle_show_help;
+                }
+                _ => {}
             }
             return;
         }
@@ -1177,12 +1190,12 @@ impl App {
             return;
         }
 
-        // 'M' opens the Combat v3 mock overlay from any non-SectorMap screen.
-        // The SectorMap reserves 'M' for fleet-move dispatch, so the mock is
-        // suppressed there to preserve the existing binding.
+        // 'M' opens the Combat v3 BattleScreen from any non-SectorMap screen.
+        // The SectorMap reserves 'M' for fleet-move dispatch, so the v3
+        // viewer is suppressed there to preserve the existing binding.
         if key.code == KeyCode::Char('M') && self.state.active != Screen::SectorMap {
-            self.state.overlay.battle_mock_state.reset();
-            self.state.overlay.show_battle_mock = true;
+            self.state.overlay.battle_show_help = false;
+            self.state.overlay.show_battle = true;
             return;
         }
 

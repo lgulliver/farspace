@@ -1,7 +1,6 @@
 //! TUI Components
 
 pub mod advisor;
-pub mod battle_mock;
 pub mod battle_report;
 pub mod chrome;
 pub mod dispatch;
@@ -14,7 +13,6 @@ pub mod meter;
 pub mod palette;
 
 pub use advisor::{AlertSeverity, advisor_strip_text, render_advisor_strip, render_turn_brief};
-pub use battle_mock::{MockBattleState, render_battle_mock};
 pub use battle_report::render_battle_reports;
 pub use chrome::{key_hint, page_block, panel_block, quiet_panel_block, section_heading};
 pub use dispatch::render_dispatch;

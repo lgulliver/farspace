@@ -223,6 +223,13 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                             .insert(home);
                     }
                 }
+                save.metadata.schema_version = 40;
+                save.version = 40;
+            }
+            40 => {
+                // Combat v3: the new fields on `GameState` are populated by
+                // `serde(default)` on deserialise.  This arm is a no-op
+                // bump so older saves load cleanly.
                 save.metadata.schema_version = CURRENT_VERSION;
                 save.version = CURRENT_VERSION;
             }

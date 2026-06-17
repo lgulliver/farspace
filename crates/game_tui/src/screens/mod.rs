@@ -1,6 +1,7 @@
 //! Screen types and rendering
 
 pub mod archives;
+pub mod battle;
 pub mod colony;
 pub mod diplomacy;
 pub mod empire_overview;

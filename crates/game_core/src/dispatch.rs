@@ -1099,6 +1099,10 @@ mod tests {
             last_colony_yields: Default::default(),
             empire_trade_routes: Default::default(),
             empire_trade_income: Default::default(),
+            next_battle_session_id: 1,
+            next_battle_report_v3_id: 1,
+            pending_battle_session: None,
+            battle_reports_v3: Default::default(),
         }
     }
     // Cadence behaviour

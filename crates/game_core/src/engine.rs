@@ -1737,6 +1737,18 @@ impl Engine {
                 Command::DeleteShipDesign { design_id } => {
                     self.delete_ship_design(design_id, &mut events);
                 }
+                Command::PlayBattleCard {
+                    session_id,
+                    card_index,
+                } => {
+                    let v3_events =
+                        crate::combat_v3::play_card(&mut self.state, session_id, card_index);
+                    events.extend(v3_events);
+                }
+                Command::RetreatFromBattle { session_id } => {
+                    let v3_events = crate::combat_v3::player_retreat(&mut self.state, session_id);
+                    events.extend(v3_events);
+                }
             }
         }
 
@@ -5778,7 +5790,94 @@ impl Engine {
         if self.state.battle_reports.len() >= BATTLE_REPORT_MAX_HISTORY {
             self.state.battle_reports.pop_front();
         }
+        // Mirror into the v3 report log so the TUI can render a
+        // card-driven view.  Damage still flows from the v2 formula;
+        // a follow-up PR will replace the formula with per-verb
+        // card-driven resolution.
+        self.push_battle_report_v3_from_v2(&report);
         self.state.battle_reports.push_back(report);
+    }
+
+    /// Build a v3 report that mirrors a v2 report.  Hands are drafted
+    /// deterministically from fleet composition.  The v3 round log is a
+    /// synthetic per-round view: each round shows the top card from each
+    /// hand and the integrity after that round.  This lets the TUI render
+    /// the v3 report now; the damage formula in v3 will be filled in by
+    /// a follow-up PR.
+    fn push_battle_report_v3_from_v2(&mut self, v2: &BattleReport) {
+        use crate::combat_v3::{BattleReportV3, BattleRoundSummary, CardId, build_hand};
+        let hand_a = build_hand(&self.state, v2.fleet_a, v2.empire_a);
+        let hand_b = build_hand(&self.state, v2.fleet_b, v2.empire_b);
+        let total_rounds = crate::combat_v3::MAX_ROUNDS as u32;
+        let start_a = v2.integrity_a_start;
+        let start_b = v2.integrity_b_start;
+        let end_a = v2.integrity_a_end;
+        let end_b = v2.integrity_b_end;
+        let rounds = (0..crate::combat_v3::MAX_ROUNDS)
+            .map(|i| {
+                let slice = i as u32 + 1;
+                let a_int_after = if slice == total_rounds {
+                    end_a
+                } else {
+                    start_a.saturating_sub((start_a.saturating_sub(end_a)) * slice / total_rounds)
+                };
+                let b_int_after = if slice == total_rounds {
+                    end_b
+                } else {
+                    start_b.saturating_sub((start_b.saturating_sub(end_b)) * slice / total_rounds)
+                };
+                BattleRoundSummary {
+                    round: i,
+                    card_a: hand_a.get(i as usize).copied(),
+                    card_b: hand_b.get(i as usize).copied(),
+                    effect_a: hand_a
+                        .get(i as usize)
+                        .map(|c| format!("played {} (v2 damage applied)", c.0))
+                        .unwrap_or_else(|| "(no card)".to_string()),
+                    effect_b: hand_b
+                        .get(i as usize)
+                        .map(|c| format!("played {} (v2 damage applied)", c.0))
+                        .unwrap_or_else(|| "(no card)".to_string()),
+                    integrity_a_after: a_int_after,
+                    integrity_b_after: b_int_after,
+                }
+            })
+            .collect();
+        let v3 = BattleReportV3 {
+            report_id: self.state.allocate_battle_report_v3_id(),
+            turn: v2.turn,
+            star: v2.star,
+            fleet_a: v2.fleet_a,
+            fleet_b: v2.fleet_b,
+            empire_a: v2.empire_a,
+            empire_b: v2.empire_b,
+            role_a: v2.role_a,
+            role_b: v2.role_b,
+            formation_a: v2.formation_a,
+            formation_b: v2.formation_b,
+            supply_a: v2.supply_a,
+            supply_b: v2.supply_b,
+            ships_a: v2.ships_a,
+            ships_b: v2.ships_b,
+            integrity_a_start: v2.integrity_a_start,
+            integrity_b_start: v2.integrity_b_start,
+            integrity_a_end: v2.integrity_a_end,
+            integrity_b_end: v2.integrity_b_end,
+            fleet_a_destroyed: v2.fleet_a_destroyed,
+            fleet_b_destroyed: v2.fleet_b_destroyed,
+            fleet_a_retreated: v2.fleet_a_retreated,
+            fleet_b_retreated: v2.fleet_b_retreated,
+            hand_a,
+            hand_b,
+            rounds,
+            system_outcome: v2.system_outcome.clone(),
+        };
+        if self.state.battle_reports_v3.len() >= BATTLE_REPORT_MAX_HISTORY {
+            self.state.battle_reports_v3.pop_front();
+        }
+        // The CardId import is used in the round-log effect strings above.
+        let _ = std::marker::PhantomData::<CardId>;
+        self.state.battle_reports_v3.push_back(v3);
     }
 
     fn start_retreat_if_possible(

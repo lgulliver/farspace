@@ -510,6 +510,39 @@ pub enum Event {
         from: StarId,
         to: StarId,
     },
+    /// Combat v3: a battle session was created.
+    BattleStarted {
+        session_id: u64,
+        star: StarId,
+        attacker: FleetId,
+        defender: FleetId,
+        hand_a: Vec<crate::combat_v3::CardId>,
+        hand_b: Vec<crate::combat_v3::CardId>,
+        setup: crate::combat_v3::BattleSetupSummary,
+    },
+    /// Combat v3: one card was played and resolved in a battle round.
+    BattleRoundPlayed {
+        session_id: u64,
+        round: u8,
+        side: BattleRoundSide,
+        card: crate::combat_v3::CardId,
+        effect: String,
+    },
+    /// Combat v3: a battle finalised; the report was written to the log.
+    BattleFinished {
+        session_id: u64,
+        report_id: u64,
+        star: StarId,
+        outcome: String,
+    },
+}
+
+/// Which side of a v3 battle a round event refers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum BattleRoundSide {
+    Attacker,
+    Defender,
 }
 
 impl Event {
@@ -1306,6 +1339,42 @@ impl Event {
             Event::TradeRouteRestored { empire, from, to } => format!(
                 "Trade route {}–{} restored for Empire {}",
                 from.0, to.0, empire.0
+            ),
+            Event::BattleStarted {
+                session_id,
+                star,
+                attacker,
+                defender,
+                ..
+            } => format!(
+                "Battle session {} started at system {} between fleets {} and {}",
+                session_id, star.0, attacker.0, defender.0
+            ),
+            Event::BattleRoundPlayed {
+                session_id,
+                round,
+                side,
+                card,
+                effect,
+            } => format!(
+                "Battle {} round {} ({}): card {} — {}",
+                session_id,
+                round + 1,
+                match side {
+                    BattleRoundSide::Attacker => "attacker",
+                    BattleRoundSide::Defender => "defender",
+                },
+                card.0,
+                effect
+            ),
+            Event::BattleFinished {
+                session_id,
+                report_id,
+                star,
+                outcome,
+            } => format!(
+                "Battle session {} (report {}) finished at system {}: {}",
+                session_id, report_id, star.0, outcome
             ),
         }
     }

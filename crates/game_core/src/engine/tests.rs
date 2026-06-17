@@ -4054,6 +4054,10 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         last_colony_yields: BTreeMap::new(),
         empire_trade_routes: BTreeMap::new(),
         empire_trade_income: BTreeMap::new(),
+        next_battle_session_id: 1,
+        next_battle_report_v3_id: 1,
+        pending_battle_session: None,
+        battle_reports_v3: std::collections::VecDeque::new(),
     };
 
     // Player star
@@ -4285,6 +4289,10 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         last_colony_yields: BTreeMap::new(),
         empire_trade_routes: BTreeMap::new(),
         empire_trade_income: BTreeMap::new(),
+        next_battle_session_id: 1,
+        next_battle_report_v3_id: 1,
+        pending_battle_session: None,
+        battle_reports_v3: std::collections::VecDeque::new(),
     };
 
     // Populate stars, empires, colonies, fleet
@@ -4677,6 +4685,10 @@ fn contact_detection_is_deterministic() {
         last_colony_yields: BTreeMap::new(),
         empire_trade_routes: BTreeMap::new(),
         empire_trade_income: BTreeMap::new(),
+        next_battle_session_id: 1,
+        next_battle_report_v3_id: 1,
+        pending_battle_session: None,
+        battle_reports_v3: std::collections::VecDeque::new(),
     };
 
     // Two AI empires each have a colony at target_star
@@ -9884,6 +9896,10 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         last_colony_yields: BTreeMap::new(),
         empire_trade_routes: BTreeMap::new(),
         empire_trade_income: BTreeMap::new(),
+        next_battle_session_id: 1,
+        next_battle_report_v3_id: 1,
+        pending_battle_session: None,
+        battle_reports_v3: std::collections::VecDeque::new(),
     };
 
     state.stars.insert(

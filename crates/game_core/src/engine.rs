@@ -7,6 +7,8 @@ use crate::commands::Command;
 use crate::deterministic::sorted_colony_ids;
 use crate::events::Event;
 use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hyperspace_lanes};
+#[cfg(test)]
+use crate::state::SeededRng;
 use crate::state::{
     AiDoctrine, BattleReport, BuildItem, BuildingType, Colony, ColonyAutomation, ColonyId,
     ColonyRole, ColonySupplyState, ColonyUnrestState, CombatPhase, CombatPhaseSummary, ComponentId,
@@ -21,8 +23,6 @@ use crate::state::{
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
-#[cfg(test)]
-use rand::rngs::ChaCha8Rng;
 use std::collections::{BTreeMap, BTreeSet};
 
 // Import balance constants directly so they are available as bare names in

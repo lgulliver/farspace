@@ -1,5 +1,6 @@
 //! Galaxy generation
 
+use crate::state::SeededRng;
 use crate::state::{
     DiscoveryRarity, HyperspaceLane, Planet, PlanetAnomaly, PlanetClass, PlanetSize, PlanetSpecial,
     Sector, SectorId, SpectralClass, Star, StarId, StrategicResource,
@@ -297,10 +298,10 @@ pub fn generate_planet_discoveries_for_context(
         .wrapping_add(
             ((context.star_x as i64).unsigned_abs() + (context.star_y as i64).unsigned_abs()) * 131,
         );
-    let mut planet_rng = ChaCha8Rng::seed_from_u64(planet_seed);
+    let mut planet_rng = SeededRng::new(planet_seed);
     // Separate anomaly RNG stream keeps anomaly rolls independent from legacy
     // special/resource RNG consumption while preserving deterministic placement.
-    let mut anomaly_rng = ChaCha8Rng::seed_from_u64(planet_seed ^ 0xA11A_D15C_0FFE_51E5);
+    let mut anomaly_rng = SeededRng::new(planet_seed ^ 0xA11A_D15C_0FFE_51E5);
 
     let is_hazardous = planet_rng.random::<u8>() < 28;
     let has_precursor_signature = planet_rng.random::<u8>() < 10;
@@ -469,7 +470,7 @@ pub fn generate_galaxy_with_config(
     star_count: usize,
     sector_count: usize,
 ) -> GeneratedGalaxy {
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut rng = SeededRng::new(seed);
     let star_count = star_count.clamp(10, 100);
     let sector_count = sector_count.clamp(2, 8);
 

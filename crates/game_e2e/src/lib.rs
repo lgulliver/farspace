@@ -10,9 +10,7 @@ use assertions::{
     validate_events_and_dispatch, validate_game_state, validate_save_load_roundtrip,
     validate_visibility,
 };
-use game_core::{Command, Engine, Event};
-use rand::SeedableRng;
-use rand::rngs::ChaCha8Rng;
+use game_core::{Command, Engine, Event, SeededRng};
 use report::{E2eCommandTrace, E2eFailureCategory, E2eRunReport, E2eSeverity};
 use scenario::{E2eScenario, build_scenario_setup};
 use serde_json::json;
@@ -30,7 +28,7 @@ pub fn run_e2e_scenario(scenario: E2eScenario) -> Result<E2eRunReport> {
     let mut engine = Engine::new_from_setup(setup);
 
     let mut simulated_player = build_simulated_player(&scenario.player_policy);
-    let mut rng = ChaCha8Rng::seed_from_u64(scenario.seed ^ 0x0E2E_5EED);
+    let mut rng = SeededRng::new(scenario.seed ^ 0x0E2E_5EED);
 
     for expected_turn in 1..=scenario.max_turns {
         if validate_game_state(&engine.state, expected_turn, &mut report).is_err() {

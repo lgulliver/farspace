@@ -3978,7 +3978,6 @@ fn relationship_status_default_is_unknown() {
 /// colony at another, then return (engine, player_star_id, ai_star_id, ai_empire_id).
 fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
     use crate::state::{Planet, PlanetSize, SpectralClass};
-    use rand::SeedableRng;
 
     let player_id = EmpireId(1);
     let ai_id = EmpireId(2);
@@ -3990,7 +3989,7 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         seed: 0,
         turn: 1,
         player_empire: player_id,
-        rng: ChaCha8Rng::seed_from_u64(0),
+        rng: SeededRng::default(),
         event_log: Vec::new(),
         next_colony_id: 10,
         next_fleet_id: 10,
@@ -4205,7 +4204,6 @@ fn set_empire_definition(
 #[test]
 fn scout_arrival_at_ai_colony_establishes_contact() {
     use crate::state::SpectralClass;
-    use rand::SeedableRng;
 
     let player_id = EmpireId(1);
     let ai_id = EmpireId(2);
@@ -4217,7 +4215,7 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         seed: 0,
         turn: 1,
         player_empire: player_id,
-        rng: ChaCha8Rng::seed_from_u64(0),
+        rng: SeededRng::default(),
         event_log: Vec::new(),
         next_colony_id: 10,
         next_fleet_id: 10,
@@ -4598,7 +4596,6 @@ fn repeated_contact_does_not_emit_duplicate_first_contact() {
 #[test]
 fn contact_detection_is_deterministic() {
     use crate::state::{Planet, PlanetSize, SpectralClass};
-    use rand::SeedableRng;
 
     let player_id = EmpireId(1);
     let ai1 = EmpireId(2);
@@ -4610,7 +4607,7 @@ fn contact_detection_is_deterministic() {
         seed: 0,
         turn: 1,
         player_empire: player_id,
-        rng: ChaCha8Rng::seed_from_u64(0),
+        rng: SeededRng::default(),
         event_log: Vec::new(),
         next_colony_id: 10,
         next_fleet_id: 10,
@@ -9807,7 +9804,6 @@ fn default_empire_assigned_when_no_player_def_specified() {
 /// * Player star + planet + colony are wired up
 fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
     use crate::state::SpectralClass;
-    use rand::SeedableRng;
     let player_id = EmpireId(1);
     let enemy_id = EmpireId(2);
     let star_id = StarId(1);
@@ -9817,7 +9813,7 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         seed: 0,
         turn: 1,
         player_empire: player_id,
-        rng: ChaCha8Rng::seed_from_u64(0),
+        rng: SeededRng::default(),
         event_log: Vec::new(),
         next_colony_id: 2,
         next_fleet_id: 10,

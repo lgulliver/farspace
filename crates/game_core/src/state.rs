@@ -4654,7 +4654,7 @@ impl PartialEq for GameState {
 mod rng_serde {
     use super::SeededRng;
     use rand::rngs::ChaCha8Rng;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use serde::{Deserializer, Serialize, Serializer};
 
     pub fn serialize<S>(rng: &SeededRng, serializer: S) -> Result<S::Ok, S::Error>
     where

@@ -1,8 +1,6 @@
 use super::*;
-use crate::victory::evaluate_victory_end_turn;
-use rand::SeedableRng;
+use crate::state::SeededRng;
 use rand::seq::SliceRandom;
-use rand_chacha::ChaCha8Rng;
 
 impl Engine {
     /// Create a new game engine with the given seed (default setup, 1 AI empire).
@@ -23,7 +21,7 @@ impl Engine {
         let sector_count = setup.effective_sector_count();
         let ai_count = setup.ai_empire_count as usize;
 
-        let rng = ChaCha8Rng::seed_from_u64(seed);
+        let rng = SeededRng::new(seed);
         let galaxy = generate_galaxy_with_config(seed, star_count, sector_count);
 
         let mut sectors = BTreeMap::new();
@@ -64,7 +62,7 @@ impl Engine {
             .filter(|d| d.id != player_def_id)
             .map(|d| d.id)
             .collect();
-        let mut empire_assign_rng = ChaCha8Rng::seed_from_u64(seed ^ EMPIRE_ASSIGN_SALT);
+        let mut empire_assign_rng = SeededRng::new(seed ^ EMPIRE_ASSIGN_SALT);
         remaining_def_ids.shuffle(&mut empire_assign_rng);
         let ai_def_ids: Vec<crate::state::EmpireDefinitionId> =
             remaining_def_ids.into_iter().take(ai_count).collect();

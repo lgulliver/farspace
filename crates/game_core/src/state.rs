@@ -1,10 +1,11 @@
 //! Game state types and domain models
 
 use crate::balance;
-use rand_chacha::ChaCha8Rng;
+use rand::rngs::ChaCha8Rng;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::ops::{Deref, DerefMut};
 
 /// Unique identifier for a star system
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -3429,6 +3430,61 @@ pub enum DifficultyLevel {
     Standard,
 }
 
+/// Seeded ChaCha8 RNG wrapper that implements Clone via serialization.
+///
+/// ChaCha8Rng in rand 0.10 does not implement Clone. This wrapper uses
+/// `serialize_state`/`deserialize_state` to clone the RNG state, which
+/// is a zero-cost read on the source and produces an identical RNG.
+#[derive(Debug)]
+pub struct SeededRng(ChaCha8Rng);
+
+impl SeededRng {
+    pub fn new(seed: u64) -> Self {
+        use rand::SeedableRng;
+        Self(ChaCha8Rng::seed_from_u64(seed))
+    }
+
+    pub fn inner(&self) -> &ChaCha8Rng {
+        &self.0
+    }
+
+    pub fn inner_mut(&mut self) -> &mut ChaCha8Rng {
+        &mut self.0
+    }
+}
+
+impl Clone for SeededRng {
+    fn clone(&self) -> Self {
+        Self(ChaCha8Rng::deserialize_state(&self.0.serialize_state()))
+    }
+}
+
+impl PartialEq for SeededRng {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Default for SeededRng {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
+impl Deref for SeededRng {
+    type Target = ChaCha8Rng;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SeededRng {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 /// Complete game state
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -3443,7 +3499,7 @@ pub struct GameState {
     pub fleets: BTreeMap<FleetId, Fleet>,
     pub player_empire: EmpireId,
     #[cfg_attr(feature = "serde", serde(with = "rng_serde"))]
-    pub rng: ChaCha8Rng,
+    pub rng: SeededRng,
     pub event_log: Vec<String>,
     pub next_colony_id: u64,
     pub next_fleet_id: u64,
@@ -4593,31 +4649,65 @@ impl PartialEq for GameState {
     }
 }
 
-/// Serde helper for ChaCha8Rng serialization
+/// Serde helper for SeededRng serialization
 #[cfg(feature = "serde")]
 mod rng_serde {
-    use rand_chacha::ChaCha8Rng;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use super::SeededRng;
+    use rand::rngs::ChaCha8Rng;
+    use serde::{Deserializer, Serialize, Serializer};
 
-    pub fn serialize<S>(rng: &ChaCha8Rng, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(rng: &SeededRng, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        // ChaCha8Rng has serde support via the serde1 feature
-        rng.serialize(serializer)
+        let state = rng.serialize_state();
+        state.serialize(serializer)
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<ChaCha8Rng, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<SeededRng, D::Error>
     where
         D: Deserializer<'de>,
     {
-        ChaCha8Rng::deserialize(deserializer)
+        struct RngVisitor;
+        impl<'de> serde::de::Visitor<'de> for RngVisitor {
+            type Value = SeededRng;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a byte array of length 49 or an RNG map (legacy format)")
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<SeededRng, A::Error> {
+                let mut arr = [0u8; 49];
+                for (i, elem) in arr.iter_mut().enumerate() {
+                    *elem = seq
+                        .next_element()?
+                        .ok_or_else(|| serde::de::Error::invalid_length(i, &self))?;
+                }
+                Ok(SeededRng(ChaCha8Rng::deserialize_state(&arr)))
+            }
+
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<SeededRng, M::Error> {
+                // Legacy format (rand_chacha 0.3): consume map, return default RNG
+                while map
+                    .next_entry::<serde::de::IgnoredAny, serde::de::IgnoredAny>()?
+                    .is_some()
+                {}
+                Ok(SeededRng::default())
+            }
+        }
+
+        deserializer.deserialize_any(RngVisitor)
     }
 }
 
 impl Default for GameState {
     fn default() -> Self {
-        use rand::SeedableRng;
         GameState {
             seed: 0,
             turn: 1,
@@ -4627,7 +4717,7 @@ impl Default for GameState {
             colonies: BTreeMap::new(),
             fleets: BTreeMap::new(),
             player_empire: EmpireId(0),
-            rng: ChaCha8Rng::seed_from_u64(0),
+            rng: SeededRng::default(),
             event_log: Vec::new(),
             next_colony_id: 1,
             next_fleet_id: 1,

@@ -1,12 +1,13 @@
 //! Galaxy generation
 
+use crate::state::SeededRng;
 use crate::state::{
     DiscoveryRarity, HyperspaceLane, Planet, PlanetAnomaly, PlanetClass, PlanetSize, PlanetSpecial,
     Sector, SectorId, SpectralClass, Star, StarId, StrategicResource,
 };
-use rand::distributions::WeightedIndex;
+use rand::distr::weighted::WeightedIndex;
 use rand::prelude::*;
-use rand_chacha::ChaCha8Rng;
+use rand::rngs::ChaCha8Rng;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Sector name prefixes (original IP)
@@ -297,16 +298,16 @@ pub fn generate_planet_discoveries_for_context(
         .wrapping_add(
             ((context.star_x as i64).unsigned_abs() + (context.star_y as i64).unsigned_abs()) * 131,
         );
-    let mut planet_rng = ChaCha8Rng::seed_from_u64(planet_seed);
+    let mut planet_rng = SeededRng::new(planet_seed);
     // Separate anomaly RNG stream keeps anomaly rolls independent from legacy
     // special/resource RNG consumption while preserving deterministic placement.
-    let mut anomaly_rng = ChaCha8Rng::seed_from_u64(planet_seed ^ 0xA11A_D15C_0FFE_51E5);
+    let mut anomaly_rng = SeededRng::new(planet_seed ^ 0xA11A_D15C_0FFE_51E5);
 
-    let is_hazardous = planet_rng.r#gen::<u8>() < 28;
-    let has_precursor_signature = planet_rng.r#gen::<u8>() < 10;
-    let in_nebula_band = planet_rng.r#gen::<u8>() < 22;
-    let hotspot_bias = planet_rng.r#gen::<u8>() < 12;
-    let poor_bias = !hotspot_bias && planet_rng.r#gen::<u8>() < 16;
+    let is_hazardous = planet_rng.random::<u8>() < 28;
+    let has_precursor_signature = planet_rng.random::<u8>() < 10;
+    let in_nebula_band = planet_rng.random::<u8>() < 22;
+    let hotspot_bias = planet_rng.random::<u8>() < 12;
+    let poor_bias = !hotspot_bias && planet_rng.random::<u8>() < 16;
 
     let mut specials = Vec::new();
     let special_roll_threshold = if has_precursor_signature {
@@ -316,7 +317,7 @@ pub fn generate_planet_discoveries_for_context(
     } else {
         92u8
     };
-    if planet_rng.r#gen::<u8>() < special_roll_threshold {
+    if planet_rng.random::<u8>() < special_roll_threshold {
         let all = PlanetSpecial::all();
         let weights: Vec<u32> = all
             .iter()
@@ -343,7 +344,7 @@ pub fn generate_planet_discoveries_for_context(
     } else {
         34u8
     };
-    if anomaly_rng.r#gen::<u8>() < anomaly_roll_threshold {
+    if anomaly_rng.random::<u8>() < anomaly_roll_threshold {
         let all = PlanetAnomaly::all();
         let weights: Vec<u32> = all
             .iter()
@@ -370,7 +371,7 @@ pub fn generate_planet_discoveries_for_context(
         88u8
     };
     let mut resources = Vec::new();
-    if planet_rng.r#gen::<u8>() < base_resource_roll {
+    if planet_rng.random::<u8>() < base_resource_roll {
         let all = StrategicResource::all();
         let weights: Vec<u32> = all
             .iter()
@@ -387,7 +388,7 @@ pub fn generate_planet_discoveries_for_context(
         if let Ok(dist) = WeightedIndex::new(&weights) {
             let selected = all[dist.sample(&mut planet_rng)];
             resources.push(selected);
-            if hotspot_bias && planet_rng.r#gen::<u8>() < 20 {
+            if hotspot_bias && planet_rng.random::<u8>() < 20 {
                 let alt = all[dist.sample(&mut planet_rng)];
                 if !resources.contains(&alt) {
                     resources.push(alt);
@@ -469,7 +470,7 @@ pub fn generate_galaxy_with_config(
     star_count: usize,
     sector_count: usize,
 ) -> GeneratedGalaxy {
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut rng = SeededRng::new(seed);
     let star_count = star_count.clamp(10, 100);
     let sector_count = sector_count.clamp(2, 8);
 
@@ -498,8 +499,8 @@ pub fn generate_galaxy_with_config(
     for id in 0..star_count {
         // Generate unique coordinates
         let (x, y) = loop {
-            let x = rng.gen_range(-500..=500);
-            let y = rng.gen_range(-500..=500);
+            let x = rng.random_range(-500..=500);
+            let y = rng.random_range(-500..=500);
             if !used_coords.contains(&(x, y)) {
                 used_coords.insert((x, y));
                 break (x, y);
@@ -524,7 +525,7 @@ pub fn generate_galaxy_with_config(
         let spectral_class = *SpectralClass::all().choose(&mut rng).unwrap();
 
         // Generate 1-4 planets
-        let planet_count = rng.gen_range(1..=4);
+        let planet_count = rng.random_range(1..=4);
         let planets: Vec<Planet> = (0..planet_count)
             .map(|i| {
                 let planet_name = format!("{} {}", name, ROMAN_NUMERALS[i]);

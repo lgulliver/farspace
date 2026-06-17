@@ -4668,13 +4668,41 @@ mod rng_serde {
     where
         D: Deserializer<'de>,
     {
-        let state: Vec<u8> = Vec::<u8>::deserialize(deserializer)?;
-        if state.len() != 49 {
-            return Err(serde::de::Error::custom("expected 49 bytes for RNG state"));
+        struct RngVisitor;
+        impl<'de> serde::de::Visitor<'de> for RngVisitor {
+            type Value = SeededRng;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a byte array of length 49 or an RNG map (legacy format)")
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<SeededRng, A::Error> {
+                let mut arr = [0u8; 49];
+                for (i, elem) in arr.iter_mut().enumerate() {
+                    *elem = seq
+                        .next_element()?
+                        .ok_or_else(|| serde::de::Error::invalid_length(i, &self))?;
+                }
+                Ok(SeededRng(ChaCha8Rng::deserialize_state(&arr)))
+            }
+
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<SeededRng, M::Error> {
+                // Legacy format (rand_chacha 0.3): consume map, return default RNG
+                while map
+                    .next_entry::<serde::de::IgnoredAny, serde::de::IgnoredAny>()?
+                    .is_some()
+                {}
+                Ok(SeededRng::default())
+            }
         }
-        let mut arr = [0u8; 49];
-        arr.copy_from_slice(&state);
-        Ok(SeededRng(ChaCha8Rng::deserialize_state(&arr)))
+
+        deserializer.deserialize_any(RngVisitor)
     }
 }
 

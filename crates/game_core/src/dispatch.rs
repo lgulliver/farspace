@@ -996,12 +996,11 @@ pub fn generate_dispatch(
 mod tests {
     use super::*;
     use crate::events::Event;
+    use crate::state::SeededRng;
     use crate::state::{
         Colony, ColonyId, Empire, EmpireId, FleetId, GameState, Planet, PlanetClass, PlanetSize,
         RelationshipStatus, Star, StarId, TechId, VictoryPath,
     };
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
     use std::collections::{BTreeMap, VecDeque};
 
     /// Minimal `GameState` for testing dispatch generation.
@@ -1055,7 +1054,7 @@ mod tests {
             colonies: Default::default(),
             fleets: Default::default(),
             player_empire: player_id,
-            rng: ChaCha8Rng::seed_from_u64(42),
+            rng: SeededRng::new(42),
             event_log: Vec::new(),
             next_colony_id: 1,
             next_fleet_id: 1,

@@ -324,6 +324,7 @@ impl Engine {
             last_turn_colony_supply: BTreeMap::new(),
             last_turn_colony_blockade: BTreeMap::new(),
             last_turn_trade_disrupted: BTreeSet::new(),
+            last_turn_step: Default::default(),
         };
         engine.refresh_colony_supply_statuses();
         engine.refresh_unrest_statuses();
@@ -345,6 +346,7 @@ impl Engine {
             last_turn_colony_supply: BTreeMap::new(),
             last_turn_colony_blockade: BTreeMap::new(),
             last_turn_trade_disrupted: BTreeSet::new(),
+            last_turn_step: Default::default(),
         };
         engine.refresh_colony_supply_statuses();
         engine.refresh_unrest_statuses();

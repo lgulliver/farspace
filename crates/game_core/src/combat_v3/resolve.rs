@@ -102,11 +102,11 @@ pub fn apply_battle(
 /// Per-verb base damage.  Returns (damage_to_enemy, damage_to_self).
 fn card_damage(verb: CardVerb, strength: u32) -> (u32, u32) {
     match verb {
-        CardVerb::Strike => ((strength as f64 * 0.15) as u32, 0),
-        CardVerb::Salvo => ((strength as f64 * 0.12) as u32, 0),
+        CardVerb::Strike => ((strength as f64 * 1.5) as u32, 0),
+        CardVerb::Salvo => ((strength as f64 * 1.2) as u32, 0),
         CardVerb::Overcharge => (
-            (strength as f64 * 0.22) as u32,
-            (strength as f64 * 0.05) as u32,
+            (strength as f64 * 2.2) as u32,
+            (strength as f64 * 0.3) as u32,
         ),
         CardVerb::Withdraw => (0, 0),
         CardVerb::Guard => (0, 0),
@@ -122,11 +122,11 @@ fn card_damage(verb: CardVerb, strength: u32) -> (u32, u32) {
     }
 }
 
-/// Defense reduction: guard = def × 0.10, fortify = def × 0.15.
+/// Defense reduction: guard = def × 0.30, fortify = def × 0.50.
 fn guard_value(verb: CardVerb, defense: u32) -> u32 {
     match verb {
-        CardVerb::Guard | CardVerb::Noop => (defense as f64 * 0.10) as u32,
-        CardVerb::Fortify => (defense as f64 * 0.15) as u32,
+        CardVerb::Guard | CardVerb::Noop => (defense as f64 * 0.30) as u32,
+        CardVerb::Fortify => (defense as f64 * 0.50) as u32,
         _ => 0,
     }
 }
@@ -334,8 +334,14 @@ fn resolve_to_completion(
             &mut b_mark,
         );
 
-        integrity_a = integrity_a.saturating_sub(da);
-        integrity_b = integrity_b.saturating_sub(db);
+        // Per-round attrition: ensures battles end even when hands have
+        // no damage cards.  Models supply drain + fatigue.
+        let attrition_a = 8u32;
+        let attrition_b = 8u32;
+        let total_da = da.saturating_add(attrition_a);
+        let total_db = db.saturating_add(attrition_b);
+        integrity_a = integrity_a.saturating_sub(total_da);
+        integrity_b = integrity_b.saturating_sub(total_db);
 
         rounds.push(BattleRoundSummary {
             round: round_idx as u8,

@@ -28,7 +28,7 @@ pub use dispatch::{
     DISPATCH_CADENCE, DISPATCH_MAX_HISTORY, DispatchCategory, DispatchItem, DispatchSeverity,
     GalacticDispatch, generate_dispatch,
 };
-pub use engine::{Engine, fleet_maintenance_for_empire};
+pub use engine::{Engine, TurnStep, fleet_maintenance_for_empire};
 pub use events::Event;
 pub use state::{
     AnomalyCategory, AnomalyRiskLevel, BattleReport, BuildItem, BuildingType, Colony,

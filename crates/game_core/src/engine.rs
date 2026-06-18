@@ -1,5 +1,7 @@
 //! Game engine - command processing and turn execution
 
+#![allow(dead_code)] // v2 combat remnants; cleaned up in follow-up PR
+
 mod research;
 mod setup;
 
@@ -11,15 +13,15 @@ use crate::galaxy::{find_home_star, generate_galaxy_with_config, generate_hypers
 use crate::state::SeededRng;
 use crate::state::{
     AiDoctrine, BattleReport, BuildItem, BuildingType, Colony, ColonyAutomation, ColonyId,
-    ColonyRole, ColonySupplyState, ColonyUnrestState, CombatPhase, CombatPhaseSummary, ComponentId,
-    CustomDesignId, CustomShipDesign, DiplomaticCommunication, DiplomaticCommunicationType,
-    DiplomaticRelationship, DiplomaticResponse, DiplomaticTone, DiplomaticTreaty, Empire, EmpireId,
-    EmpireIntel, EspionageMission, Fleet, FleetFormation, FleetId, FleetKind, FleetMission,
-    FleetOrder, FleetRole, FleetSupplyState, GameState, HullId, HyperspaceLane, IntelLevel,
-    IntelSource, OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup,
-    ScoutMission, SectorDirective, SectorId, ShipDesignId, StarId, StrategicResource,
-    SurveyMission, TechId, TradeDisruptionReason, TreatyType, UnrestCause, YieldType, all_techs,
-    empire_definition_by_id, is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
+    ColonyRole, ColonySupplyState, ColonyUnrestState, ComponentId, CustomDesignId,
+    CustomShipDesign, DiplomaticCommunication, DiplomaticCommunicationType, DiplomaticRelationship,
+    DiplomaticResponse, DiplomaticTone, DiplomaticTreaty, Empire, EmpireId, EmpireIntel,
+    EspionageMission, Fleet, FleetFormation, FleetId, FleetKind, FleetMission, FleetOrder,
+    FleetRole, FleetSupplyState, GameState, HullId, HyperspaceLane, IntelLevel, IntelSource,
+    OrbitalStructureType, RelationshipStatus, ResearchState, ScenarioSetup, ScoutMission,
+    SectorDirective, SectorId, ShipDesignId, StarId, StrategicResource, SurveyMission, TechId,
+    TradeDisruptionReason, TreatyType, UnrestCause, YieldType, all_techs, empire_definition_by_id,
+    is_tech_available, tech_by_id, tech_yield_bonus_per_colony,
 };
 use crate::victory::evaluate_victory_end_turn;
 use crate::yield_model::YieldContext;
@@ -28,6 +30,7 @@ use std::collections::{BTreeMap, BTreeSet};
 // Import balance constants directly so they are available as bare names in
 // this module and (via `use super::*`) in the test sub-module, preserving
 // backward compatibility with all existing tests.
+#[allow(unused_imports)]
 use crate::balance::{
     BLOCKADED_STABILITY_PENALTY, BORDER_TENSION_DISTANCE_SQ, CAPTURED_UNREST_STABILITY,
     CONQUEST_UNREST_TURNS, FLEET_TRAVEL_SPEED, HYPERSPACE_TRAVEL_DIVISOR,
@@ -250,6 +253,22 @@ pub struct Engine {
     /// Set of (from, to) trade routes that were disrupted last turn.
     /// Used for transition detection (disrupted ↔ restored event emission).
     last_turn_trade_disrupted: BTreeSet<(StarId, StarId)>,
+    /// Latest turn-step signal.  `Continue` is the default.  After a
+    /// player-involved battle triggers, the engine sets
+    /// `AwaitingBattleInput { session_id }` and the TUI routes input
+    /// through the BattleScreen until the session finalises.
+    last_turn_step: TurnStep,
+}
+
+/// What the engine is asking the TUI to do after a turn batch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TurnStep {
+    /// No outstanding input.  Turn ended normally.
+    #[default]
+    Continue,
+    /// A player-involved battle is paused.  The TUI should keep the
+    /// BattleScreen open and route `1`-`5` / `r` to the engine.
+    AwaitingBattleInput { session_id: u64 },
 }
 
 /// Compute total fleet maintenance for an empire from game state.
@@ -1578,178 +1597,10 @@ impl Engine {
         let mut processed_end_turn = false;
 
         for command in commands {
-            match command {
-                Command::EndTurn => {
-                    processed_end_turn = true;
-                    self.process_end_turn(&mut events);
-                }
-                Command::SetColonyFocus {
-                    colony,
-                    prod_pct,
-                    research_pct,
-                } => {
-                    self.process_set_colony_focus(colony, prod_pct, research_pct, &mut events);
-                }
-                Command::MoveFleet { fleet, destination } => {
-                    self.process_move_fleet(fleet, destination, &mut events);
-                }
-                Command::QueueBuild { colony, item } => {
-                    self.process_queue_build(colony, item, &mut events);
-                }
-                Command::CancelBuild { colony, index } => {
-                    self.process_cancel_build(colony, index, &mut events);
-                }
-                Command::SelectResearch { tech } => {
-                    self.process_select_research(tech, &mut events);
-                }
-                Command::QueueResearch { tech } => {
-                    self.process_queue_research(tech, &mut events);
-                }
-                Command::RemoveQueuedResearch { tech } => {
-                    self.process_remove_queued_research(tech, &mut events);
-                }
-                Command::MoveQueuedResearchUp { tech } => {
-                    self.process_move_queued_research_up(tech, &mut events);
-                }
-                Command::MoveQueuedResearchDown { tech } => {
-                    self.process_move_queued_research_down(tech, &mut events);
-                }
-                Command::ClearResearchQueue => {
-                    self.process_clear_research_queue(&mut events);
-                }
-                Command::SendScout { fleet, destination } => {
-                    self.process_send_scout(fleet, destination, &mut events);
-                }
-                Command::SurveyPlanet {
-                    fleet,
-                    star,
-                    planet_index,
-                } => {
-                    self.process_survey_planet(fleet, star, planet_index, &mut events);
-                }
-                Command::Colonize {
-                    fleet,
-                    star,
-                    planet_index,
-                } => {
-                    self.process_colonize(fleet, star, planet_index, &mut events);
-                }
-                Command::Invade {
-                    fleet,
-                    star,
-                    planet_index,
-                } => {
-                    self.process_invade(fleet, star, planet_index, &mut events);
-                }
-                Command::SetColonyRole { colony, role } => {
-                    self.process_set_colony_role(colony, role, &mut events);
-                }
-                Command::SetSectorDirective { sector, directive } => {
-                    self.process_set_sector_directive(sector, directive, &mut events);
-                }
-                Command::SetColonyAutomation { colony, automation } => {
-                    self.process_set_colony_automation(colony, automation, &mut events);
-                }
-                Command::SetRallyPoint { colony, star } => {
-                    self.process_set_rally_point(colony, star, &mut events);
-                }
-                Command::ClearRallyPoint { colony } => {
-                    self.process_clear_rally_point(colony, &mut events);
-                }
-                Command::SetFleetOrder { fleet, order } => {
-                    self.process_set_fleet_order(fleet, order, &mut events);
-                }
-                Command::SetFleetRole { fleet, role } => {
-                    self.process_set_fleet_role(fleet, role, &mut events);
-                }
-                Command::SetFleetFormation { fleet, formation } => {
-                    self.process_set_fleet_formation(fleet, formation, &mut events);
-                }
-                Command::RenameFleet { fleet, name } => {
-                    self.process_rename_fleet(fleet, name, &mut events);
-                }
-                Command::DeclareWar { target } => {
-                    self.process_declare_war(target, &mut events);
-                }
-                Command::OfferPeace { target } => {
-                    self.process_offer_peace(target, &mut events);
-                }
-                Command::AcceptPeace { target } => {
-                    self.process_accept_peace(target, &mut events);
-                }
-                Command::RejectPeace { target } => {
-                    self.process_reject_peace(target, &mut events);
-                }
-                Command::ProposeNonAggressionPact { target } => {
-                    self.process_propose_non_aggression(target, &mut events);
-                }
-                Command::AcceptNonAggressionPact { target } => {
-                    self.process_accept_non_aggression(target, &mut events);
-                }
-                Command::RejectNonAggressionPact { target } => {
-                    self.process_reject_non_aggression(target, &mut events);
-                }
-                Command::CancelTreaty {
-                    target,
-                    treaty_type,
-                } => {
-                    self.process_cancel_treaty(target, treaty_type, &mut events);
-                }
-                Command::IssueWarning { target } => {
-                    self.process_issue_warning(target, &mut events);
-                }
-                Command::DemandTribute { target } => {
-                    self.process_demand_tribute(target, &mut events);
-                }
-                Command::SendGreeting { target } => {
-                    self.process_send_greeting(target, &mut events);
-                }
-                Command::RespondToCommunication {
-                    communication_id,
-                    response,
-                } => {
-                    self.process_respond_to_communication(communication_id, response, &mut events);
-                }
-                Command::GatherIntelligence { target } => {
-                    self.process_gather_intelligence(target, &mut events);
-                }
-                Command::SabotageProduction { target } => {
-                    self.process_placeholder_espionage(
-                        target,
-                        EspionageMission::SabotageProduction,
-                        &mut events,
-                    );
-                }
-                Command::StealResearch { target } => {
-                    self.process_placeholder_espionage(
-                        target,
-                        EspionageMission::StealResearch,
-                        &mut events,
-                    );
-                }
-                Command::CreateShipDesign {
-                    hull_id,
-                    components,
-                    name,
-                } => {
-                    self.create_ship_design(hull_id, components, name, &mut events);
-                }
-                Command::DeleteShipDesign { design_id } => {
-                    self.delete_ship_design(design_id, &mut events);
-                }
-                Command::PlayBattleCard {
-                    session_id,
-                    card_index,
-                } => {
-                    let v3_events =
-                        crate::combat_v3::play_card(&mut self.state, session_id, card_index);
-                    events.extend(v3_events);
-                }
-                Command::RetreatFromBattle { session_id } => {
-                    let v3_events = crate::combat_v3::player_retreat(&mut self.state, session_id);
-                    events.extend(v3_events);
-                }
+            if matches!(command, Command::EndTurn) {
+                processed_end_turn = true;
             }
+            self.dispatch_command_inner(command, &mut events);
         }
 
         if !processed_end_turn {
@@ -1758,12 +1609,16 @@ impl Engine {
             self.state.empire_resource_access = self.state.recompute_empire_resource_access();
         }
 
-        // Auto-finalise any pending v3 battle session.  In v1 we don't
-        // support pause-for-input across turns; if a player session is
-        // still open at the end of a turn batch, we close it
-        // deterministically using the AI's hand + the current integrity.
-        let finalise_events = crate::combat_v3::finalise_pending(&mut self.state);
-        events.extend(finalise_events);
+        // Set the turn step based on whether a battle is paused.  The
+        // TUI checks this after every `apply_turn` to decide whether
+        // to open the BattleScreen.
+        self.last_turn_step = if let Some(session) = self.state.pending_battle_session.as_ref() {
+            TurnStep::AwaitingBattleInput {
+                session_id: session.session_id,
+            }
+        } else {
+            TurnStep::Continue
+        };
 
         // Add events to log
         for event in &events {
@@ -1779,6 +1634,26 @@ impl Engine {
         events
     }
 
+    /// Return the latest turn step.  Use this to decide whether the
+    /// TUI should keep the BattleScreen open or render normally.
+    pub fn turn_step(&self) -> TurnStep {
+        self.last_turn_step
+    }
+
+    /// Finalise the pending v3 battle session (if any).  Called by the
+    /// TUI when the player presses End Turn while a battle is paused,
+    /// so the turn can advance even with an unresolved session.
+    pub fn finalise_pending_battle(&mut self) -> Vec<Event> {
+        let mut events = Vec::new();
+        let v3_events = crate::combat_v3::finalise_pending(&mut self.state);
+        events.extend(v3_events);
+        self.last_turn_step = TurnStep::Continue;
+        for event in &events {
+            self.state.event_log.push(event.to_log_message());
+        }
+        events
+    }
+
     /// Dispatch a single command without ending the turn.  Used by the
     /// TUI for mid-turn interactions (e.g. playing battle cards while a
     /// `pending_battle_session` is active).  Returns the events produced
@@ -1787,6 +1662,14 @@ impl Engine {
     pub fn dispatch_command(&mut self, command: Command) -> Vec<Event> {
         let mut events = Vec::new();
         self.dispatch_command_inner(command, &mut events);
+        // Update the turn step based on whether a battle is paused.
+        self.last_turn_step = if let Some(session) = self.state.pending_battle_session.as_ref() {
+            TurnStep::AwaitingBattleInput {
+                session_id: session.session_id,
+            }
+        } else {
+            TurnStep::Continue
+        };
         for event in &events {
             self.state.event_log.push(event.to_log_message());
         }
@@ -5352,13 +5235,98 @@ impl Engine {
         }
     }
 
+    /// Resolve one battle through the v3 card-driven path.  Builds a
+    /// `BattleSetupSummary` from the two fleets, calls `apply_battle`, and
+    /// post-processes (removes destroyed fleets).  Returns true if a
+    /// player-involved battle paused the turn (caller should stop
+    /// processing further enemies this turn).
+    fn resolve_battle_v3(
+        &mut self,
+        star_id: StarId,
+        arrived_fleet_id: FleetId,
+        enemy_fleet_id: FleetId,
+        events: &mut Vec<Event>,
+    ) -> bool {
+        let setup = match self.build_battle_setup(star_id, arrived_fleet_id, enemy_fleet_id) {
+            Some(s) => s,
+            None => return false,
+        };
+        let v3_events = crate::combat_v3::apply_battle(
+            &mut self.state,
+            star_id,
+            arrived_fleet_id,
+            enemy_fleet_id,
+            setup,
+        );
+        events.extend(v3_events);
+        // If the player is paused, stop processing more enemies this turn.
+        if self.state.pending_battle_session.is_some() {
+            return true;
+        }
+        // Remove destroyed fleets.
+        let report_destroyed = self
+            .state
+            .battle_reports_v3
+            .back()
+            .map(|r| (r.fleet_a_destroyed, r.fleet_b_destroyed))
+            .unwrap_or((false, false));
+        if report_destroyed.0 {
+            self.remove_fleet_and_assignments(arrived_fleet_id);
+        }
+        if report_destroyed.1 {
+            self.remove_fleet_and_assignments(enemy_fleet_id);
+        }
+        false
+    }
+
+    /// Build a `BattleSetupSummary` from the two fleets.  Returns `None`
+    /// if either fleet no longer exists.
+    fn build_battle_setup(
+        &self,
+        star_id: StarId,
+        arrived_fleet_id: FleetId,
+        enemy_fleet_id: FleetId,
+    ) -> Option<crate::combat_v3::BattleSetupSummary> {
+        use crate::combat_v3::BattleSetupSummary;
+        let a = self.state.fleets.get(&arrived_fleet_id)?;
+        let b = self.state.fleets.get(&enemy_fleet_id)?;
+        let a_int = a.integrity;
+        let b_int = b.integrity;
+        let role_a = self.state.fleet_role_for(arrived_fleet_id);
+        let role_b = self.state.fleet_role_for(enemy_fleet_id);
+        let formation_a = self.state.fleet_formation_for(arrived_fleet_id);
+        let formation_b = self.state.fleet_formation_for(enemy_fleet_id);
+        let supply_a = self.state.derived_fleet_supply_state(arrived_fleet_id);
+        let supply_b = self.state.derived_fleet_supply_state(enemy_fleet_id);
+        let doctrine_a = self.empire_doctrine_summary(a.owner);
+        let doctrine_b = self.empire_doctrine_summary(b.owner);
+        Some(BattleSetupSummary {
+            star: star_id,
+            fleet_a: arrived_fleet_id,
+            fleet_b: enemy_fleet_id,
+            empire_a: a.owner,
+            empire_b: b.owner,
+            role_a,
+            role_b,
+            formation_a,
+            formation_b,
+            supply_a,
+            supply_b,
+            ships_a: a.ships,
+            ships_b: b.ships,
+            integrity_a_start: a_int,
+            integrity_b_start: b_int,
+            doctrine_a,
+            doctrine_b,
+        })
+    }
+
     /// Check for and resolve hostile fleet encounters at `star_id`.
     ///
     /// `arrived_fleet_id` is the fleet that just arrived.  It fights each
     /// idle enemy fleet at the star in ascending FleetId order (deterministic).
-    /// Combat is simultaneous: both sides deal damage proportional to the
-    /// opposing fleet's strength.  The arrived fleet stops fighting if it is
-    /// destroyed.
+    /// Combat is v3 card-driven: per-verb damage formulas, hand drafts,
+    /// AI card selection, player pause-for-input when a player is involved.
     fn check_combat_at_star(
         &mut self,
         star_id: StarId,
@@ -5391,394 +5359,9 @@ impl Engine {
             .collect();
 
         for enemy_fleet_id in enemy_fleet_ids {
-            // Re-fetch arriving fleet — may have been destroyed in a prior iteration.
-            let (a_str, a_int) = match self.state.fleets.get(&arrived_fleet_id) {
-                Some(f) => (f.strength, f.integrity),
-                None => break,
-            };
-            let (d_str, d_int, d_owner) = match self.state.fleets.get(&enemy_fleet_id) {
-                Some(f) => (f.strength, f.integrity, f.owner),
-                None => continue,
-            };
-
-            events.push(Event::FleetEngagementStarted {
-                star: star_id,
-                fleet_a: arrived_fleet_id,
-                fleet_b: enemy_fleet_id,
-            });
-
-            if self.should_avoid_engagement(arrived_fleet_id, a_str, d_str)
-                && self.start_retreat_if_possible(arrived_fleet_id, star_id, events)
-            {
-                break;
-            }
-            if self.should_avoid_engagement(enemy_fleet_id, d_str, a_str)
-                && self.start_retreat_if_possible(enemy_fleet_id, star_id, events)
-            {
-                continue;
-            }
-
-            let (mut a_attack_pct, a_defense_pct, a_retreat_threshold) =
-                self.fleet_combat_profile(arrived_fleet_id, star_id);
-            let (mut d_attack_pct, d_defense_pct, d_retreat_threshold) =
-                self.fleet_combat_profile(enemy_fleet_id, star_id);
-
-            let role_a = self.state.fleet_role_for(arrived_fleet_id);
-            let role_b = self.state.fleet_role_for(enemy_fleet_id);
-            let formation_a = self.state.fleet_formation_for(arrived_fleet_id);
-            let formation_b = self.state.fleet_formation_for(enemy_fleet_id);
-            let kind_a = self
-                .state
-                .fleets
-                .get(&arrived_fleet_id)
-                .map(|fleet| fleet.kind)
-                .unwrap_or(FleetKind::Scout);
-            let kind_b = self
-                .state
-                .fleets
-                .get(&enemy_fleet_id)
-                .map(|fleet| fleet.kind)
-                .unwrap_or(FleetKind::Scout);
-            let ships_a = self
-                .state
-                .fleets
-                .get(&arrived_fleet_id)
-                .map(|fleet| fleet.ships)
-                .unwrap_or(0);
-            let ships_b = self
-                .state
-                .fleets
-                .get(&enemy_fleet_id)
-                .map(|fleet| fleet.ships)
-                .unwrap_or(0);
-            let doctrine_a = self.empire_doctrine_summary(arrived_owner);
-            let doctrine_b = self.empire_doctrine_summary(d_owner);
-            let supply_a = self.state.derived_fleet_supply_state(arrived_fleet_id);
-            let supply_b = self.state.derived_fleet_supply_state(enemy_fleet_id);
-
-            let mut phase_summaries: Vec<CombatPhaseSummary> = Vec::new();
-            let a_detection = self.fleet_detection_score(arrived_fleet_id, kind_a, formation_a);
-            let d_detection = self.fleet_detection_score(enemy_fleet_id, kind_b, formation_b);
-            phase_summaries.push(CombatPhaseSummary {
-                phase: CombatPhase::Detection,
-                pressure_a: a_detection,
-                pressure_b: d_detection,
-                note: if a_detection == d_detection {
-                    "Detection parity; both fleets commit".to_string()
-                } else if a_detection > d_detection {
-                    "Fleet A gains engagement initiative".to_string()
-                } else {
-                    "Fleet B gains engagement initiative".to_string()
-                },
-            });
-
-            let initiative_lead = a_detection.saturating_sub(d_detection);
-            let counter_lead = d_detection.saturating_sub(a_detection);
-            a_attack_pct = a_attack_pct.saturating_add((initiative_lead / 5).min(8));
-            d_attack_pct = d_attack_pct.saturating_add((counter_lead / 5).min(8));
-            phase_summaries.push(CombatPhaseSummary {
-                phase: CombatPhase::Positioning,
-                pressure_a: a_attack_pct,
-                pressure_b: d_attack_pct,
-                note: format!(
-                    "{} / {} posture applied; supply {} vs {}",
-                    formation_a.label(),
-                    formation_b.label(),
-                    supply_a.label(),
-                    supply_b.label()
-                ),
-            });
-
-            let opening_bonus_a = self.fleet_opening_volley_bonus(kind_a, formation_a, role_a);
-            let opening_bonus_b = self.fleet_opening_volley_bonus(kind_b, formation_b, role_b);
-
-            // Artillery tends to counter defensive formations in auto-resolve.
-            if formation_a == FleetFormation::Artillery
-                && matches!(
-                    formation_b,
-                    FleetFormation::Defensive | FleetFormation::EscortScreen
-                )
-            {
-                a_attack_pct = a_attack_pct.saturating_add(10);
-            }
-            if formation_b == FleetFormation::Artillery
-                && matches!(
-                    formation_a,
-                    FleetFormation::Defensive | FleetFormation::EscortScreen
-                )
-            {
-                d_attack_pct = d_attack_pct.saturating_add(10);
-            }
-
-            // Apply defense modifiers from custom designs, if any.
-            // A positive defense_modifier increases the divisor, reducing incoming damage.
-            let a_defense = self
-                .state
-                .fleet_custom_designs
-                .get(&arrived_fleet_id)
-                .and_then(|did| self.state.custom_designs.get(did))
-                .map(|d| d.derived_stats().defense.max(1) as u64)
-                .unwrap_or(a_str as u64);
-            let d_defense = self
-                .state
-                .fleet_custom_designs
-                .get(&enemy_fleet_id)
-                .and_then(|did| self.state.custom_designs.get(did))
-                .map(|d| d.derived_stats().defense.max(1) as u64)
-                .unwrap_or(d_str as u64);
-
-            let a_attack = ((a_str as u64 * a_attack_pct.max(10) as u64) / 100).max(1);
-            let d_attack = ((d_str as u64 * d_attack_pct.max(10) as u64) / 100).max(1);
-            let a_effective_defense = (a_defense * a_defense_pct.max(10) as u64 / 100).max(1);
-            let d_effective_defense = (d_defense * d_defense_pct.max(10) as u64 / 100).max(1);
-            let opening_damage_to_enemy = if opening_bonus_a == 0 {
-                0
-            } else {
-                (opening_bonus_a as u64 * 100 / d_effective_defense).max(1)
-            };
-            let opening_damage_to_arrived = if opening_bonus_b == 0 {
-                0
-            } else {
-                (opening_bonus_b as u64 * 100 / a_effective_defense).max(1)
-            };
-            phase_summaries.push(CombatPhaseSummary {
-                phase: CombatPhase::OpeningVolley,
-                pressure_a: opening_bonus_a,
-                pressure_b: opening_bonus_b,
-                note: format!(
-                    "Opening pressure A:{} B:{}",
-                    opening_damage_to_enemy, opening_damage_to_arrived
-                ),
-            });
-
-            // Simultaneous damage: each fleet takes damage proportional to the
-            // opponent's strength relative to its own effective defense.
-            // Formula: damage = (opponent_strength * 100) / own_defense
-            // Equal attack and defense → both take 100 damage (destroyed).
-            // Use u64 intermediates to avoid overflow when strength is large.
-            let main_damage_to_arrived: u32 =
-                ((d_attack * 100) / a_effective_defense).min(u32::MAX as u64) as u32;
-            let main_damage_to_enemy: u32 =
-                ((a_attack * 100) / d_effective_defense).min(u32::MAX as u64) as u32;
-            let mut damage_to_arrived = main_damage_to_arrived;
-            let mut damage_to_enemy = main_damage_to_enemy;
-            damage_to_arrived = damage_to_arrived
-                .saturating_add(opening_damage_to_arrived.min(u32::MAX as u64) as u32);
-            damage_to_enemy =
-                damage_to_enemy.saturating_add(opening_damage_to_enemy.min(u32::MAX as u64) as u32);
-            // Main engagement captures only sustained-exchange deltas.
-            // Opening volley and attrition are reported in their own phases.
-            phase_summaries.push(CombatPhaseSummary {
-                phase: CombatPhase::MainEngagement,
-                pressure_a: main_damage_to_enemy,
-                pressure_b: main_damage_to_arrived,
-                note: "Sustained engagement exchange".to_string(),
-            });
-
-            let attrition_to_arrived = if kind_b.is_combat() || kind_b == FleetKind::TroopTransport
-            {
-                ((damage_to_arrived as u64 * (a_retreat_threshold as u64)) / ATTRITION_DIVISOR)
-                    .min(12) as u32
-            } else {
-                0
-            };
-            let attrition_to_enemy = if kind_a.is_combat() || kind_a == FleetKind::TroopTransport {
-                ((damage_to_enemy as u64 * (d_retreat_threshold as u64)) / ATTRITION_DIVISOR)
-                    .min(12) as u32
-            } else {
-                0
-            };
-            damage_to_arrived = damage_to_arrived.saturating_add(attrition_to_arrived);
-            damage_to_enemy = damage_to_enemy.saturating_add(attrition_to_enemy);
-            phase_summaries.push(CombatPhaseSummary {
-                phase: CombatPhase::Attrition,
-                pressure_a: attrition_to_enemy,
-                pressure_b: attrition_to_arrived,
-                note: "Cohesion attrition applied".to_string(),
-            });
-
-            let new_a_int = a_int.saturating_sub(damage_to_arrived);
-            let new_d_int = d_int.saturating_sub(damage_to_enemy);
-
-            let fleet_a_destroyed = new_a_int == 0;
-            let fleet_b_destroyed = new_d_int == 0;
-
-            events.push(Event::CombatResolved {
-                star: star_id,
-                fleet_a: arrived_fleet_id,
-                empire_a: arrived_owner,
-                fleet_b: enemy_fleet_id,
-                empire_b: d_owner,
-                strength_a: a_str,
-                strength_b: d_str,
-                integrity_a_remaining: new_a_int,
-                integrity_b_remaining: new_d_int,
-                fleet_a_destroyed,
-                fleet_b_destroyed,
-            });
-
-            if fleet_a_destroyed {
-                self.remove_fleet_and_assignments(arrived_fleet_id);
-            } else if let Some(f) = self.state.fleets.get_mut(&arrived_fleet_id) {
-                f.integrity = new_a_int;
-            }
-
-            if fleet_b_destroyed {
-                self.remove_fleet_and_assignments(enemy_fleet_id);
-            } else if let Some(f) = self.state.fleets.get_mut(&enemy_fleet_id) {
-                f.integrity = new_d_int;
-            }
-
-            if !fleet_a_destroyed
-                && new_a_int <= a_retreat_threshold
-                && self.start_retreat_if_possible(arrived_fleet_id, star_id, events)
-            {
-                phase_summaries.push(CombatPhaseSummary {
-                    phase: CombatPhase::RetreatOrCollapse,
-                    pressure_a: a_retreat_threshold,
-                    pressure_b: d_retreat_threshold,
-                    note: "Fleet A disengages and retreats".to_string(),
-                });
-                phase_summaries.push(CombatPhaseSummary {
-                    phase: CombatPhase::Resolution,
-                    pressure_a: new_a_int,
-                    pressure_b: new_d_int,
-                    note: "Engagement resolved with withdrawal".to_string(),
-                });
-                self.push_battle_report(BattleReport {
-                    report_id: BATTLE_REPORT_ID_PENDING,
-                    turn: self.state.turn,
-                    star: star_id,
-                    fleet_a: arrived_fleet_id,
-                    fleet_b: enemy_fleet_id,
-                    empire_a: arrived_owner,
-                    empire_b: d_owner,
-                    role_a,
-                    role_b,
-                    formation_a,
-                    formation_b,
-                    doctrine_a,
-                    doctrine_b,
-                    supply_a,
-                    supply_b,
-                    kind_a,
-                    kind_b,
-                    ships_a,
-                    ships_b,
-                    integrity_a_start: a_int,
-                    integrity_b_start: d_int,
-                    integrity_a_end: new_a_int,
-                    integrity_b_end: new_d_int,
-                    fleet_a_destroyed,
-                    fleet_b_destroyed,
-                    fleet_a_retreated: true,
-                    fleet_b_retreated: false,
-                    phases: phase_summaries,
-                    system_outcome: "Fleet A retreat; system contested".to_string(),
-                });
-                break;
-            }
-            if !fleet_b_destroyed
-                && new_d_int <= d_retreat_threshold
-                && self.start_retreat_if_possible(enemy_fleet_id, star_id, events)
-            {
-                phase_summaries.push(CombatPhaseSummary {
-                    phase: CombatPhase::RetreatOrCollapse,
-                    pressure_a: a_retreat_threshold,
-                    pressure_b: d_retreat_threshold,
-                    note: "Fleet B disengages and retreats".to_string(),
-                });
-                phase_summaries.push(CombatPhaseSummary {
-                    phase: CombatPhase::Resolution,
-                    pressure_a: new_a_int,
-                    pressure_b: new_d_int,
-                    note: "Engagement resolved with withdrawal".to_string(),
-                });
-                self.push_battle_report(BattleReport {
-                    report_id: BATTLE_REPORT_ID_PENDING,
-                    turn: self.state.turn,
-                    star: star_id,
-                    fleet_a: arrived_fleet_id,
-                    fleet_b: enemy_fleet_id,
-                    empire_a: arrived_owner,
-                    empire_b: d_owner,
-                    role_a,
-                    role_b,
-                    formation_a,
-                    formation_b,
-                    doctrine_a,
-                    doctrine_b,
-                    supply_a,
-                    supply_b,
-                    kind_a,
-                    kind_b,
-                    ships_a,
-                    ships_b,
-                    integrity_a_start: a_int,
-                    integrity_b_start: d_int,
-                    integrity_a_end: new_a_int,
-                    integrity_b_end: new_d_int,
-                    fleet_a_destroyed,
-                    fleet_b_destroyed,
-                    fleet_a_retreated: false,
-                    fleet_b_retreated: true,
-                    phases: phase_summaries,
-                    system_outcome: "Fleet B retreat; system contested".to_string(),
-                });
-                continue;
-            }
-
-            phase_summaries.push(CombatPhaseSummary {
-                phase: CombatPhase::RetreatOrCollapse,
-                pressure_a: a_retreat_threshold,
-                pressure_b: d_retreat_threshold,
-                note: "No withdrawal; battle pressed to outcome".to_string(),
-            });
-            let system_outcome = match (fleet_a_destroyed, fleet_b_destroyed) {
-                (true, true) => "Mutual destruction at contested system".to_string(),
-                (true, false) => "Fleet B holds system".to_string(),
-                (false, true) => "Fleet A holds system".to_string(),
-                (false, false) => "Both fleets survive; control unresolved".to_string(),
-            };
-            phase_summaries.push(CombatPhaseSummary {
-                phase: CombatPhase::Resolution,
-                pressure_a: new_a_int,
-                pressure_b: new_d_int,
-                note: system_outcome.clone(),
-            });
-            self.push_battle_report(BattleReport {
-                report_id: BATTLE_REPORT_ID_PENDING,
-                turn: self.state.turn,
-                star: star_id,
-                fleet_a: arrived_fleet_id,
-                fleet_b: enemy_fleet_id,
-                empire_a: arrived_owner,
-                empire_b: d_owner,
-                role_a,
-                role_b,
-                formation_a,
-                formation_b,
-                doctrine_a,
-                doctrine_b,
-                supply_a,
-                supply_b,
-                kind_a,
-                kind_b,
-                ships_a,
-                ships_b,
-                integrity_a_start: a_int,
-                integrity_b_start: d_int,
-                integrity_a_end: new_a_int,
-                integrity_b_end: new_d_int,
-                fleet_a_destroyed,
-                fleet_b_destroyed,
-                fleet_a_retreated: false,
-                fleet_b_retreated: false,
-                phases: phase_summaries,
-                system_outcome,
-            });
-
-            if fleet_a_destroyed {
+            if self.resolve_battle_v3(star_id, arrived_fleet_id, enemy_fleet_id, events) {
+                // Player-involved battle paused the turn. Stop processing
+                // further enemies this turn.
                 break;
             }
         }
@@ -5989,94 +5572,15 @@ impl Engine {
         if self.state.battle_reports.len() >= BATTLE_REPORT_MAX_HISTORY {
             self.state.battle_reports.pop_front();
         }
-        // Mirror into the v3 report log so the TUI can render a
-        // card-driven view.  Damage still flows from the v2 formula;
-        // a follow-up PR will replace the formula with per-verb
-        // card-driven resolution.
-        self.push_battle_report_v3_from_v2(&report);
         self.state.battle_reports.push_back(report);
     }
 
-    /// Build a v3 report that mirrors a v2 report.  Hands are drafted
-    /// deterministically from fleet composition.  The v3 round log is a
-    /// synthetic per-round view: each round shows the top card from each
-    /// hand and the integrity after that round.  This lets the TUI render
-    /// the v3 report now; the damage formula in v3 will be filled in by
-    /// a follow-up PR.
-    fn push_battle_report_v3_from_v2(&mut self, v2: &BattleReport) {
-        use crate::combat_v3::{BattleReportV3, BattleRoundSummary, CardId, build_hand};
-        let hand_a = build_hand(&self.state, v2.fleet_a, v2.empire_a);
-        let hand_b = build_hand(&self.state, v2.fleet_b, v2.empire_b);
-        let total_rounds = crate::combat_v3::MAX_ROUNDS as u32;
-        let start_a = v2.integrity_a_start;
-        let start_b = v2.integrity_b_start;
-        let end_a = v2.integrity_a_end;
-        let end_b = v2.integrity_b_end;
-        let rounds = (0..crate::combat_v3::MAX_ROUNDS)
-            .map(|i| {
-                let slice = i as u32 + 1;
-                let a_int_after = if slice == total_rounds {
-                    end_a
-                } else {
-                    start_a.saturating_sub((start_a.saturating_sub(end_a)) * slice / total_rounds)
-                };
-                let b_int_after = if slice == total_rounds {
-                    end_b
-                } else {
-                    start_b.saturating_sub((start_b.saturating_sub(end_b)) * slice / total_rounds)
-                };
-                BattleRoundSummary {
-                    round: i,
-                    card_a: hand_a.get(i as usize).copied(),
-                    card_b: hand_b.get(i as usize).copied(),
-                    effect_a: hand_a
-                        .get(i as usize)
-                        .map(|c| format!("played {} (v2 damage applied)", c.0))
-                        .unwrap_or_else(|| "(no card)".to_string()),
-                    effect_b: hand_b
-                        .get(i as usize)
-                        .map(|c| format!("played {} (v2 damage applied)", c.0))
-                        .unwrap_or_else(|| "(no card)".to_string()),
-                    integrity_a_after: a_int_after,
-                    integrity_b_after: b_int_after,
-                }
-            })
-            .collect();
-        let v3 = BattleReportV3 {
-            report_id: self.state.allocate_battle_report_v3_id(),
-            turn: v2.turn,
-            star: v2.star,
-            fleet_a: v2.fleet_a,
-            fleet_b: v2.fleet_b,
-            empire_a: v2.empire_a,
-            empire_b: v2.empire_b,
-            role_a: v2.role_a,
-            role_b: v2.role_b,
-            formation_a: v2.formation_a,
-            formation_b: v2.formation_b,
-            supply_a: v2.supply_a,
-            supply_b: v2.supply_b,
-            ships_a: v2.ships_a,
-            ships_b: v2.ships_b,
-            integrity_a_start: v2.integrity_a_start,
-            integrity_b_start: v2.integrity_b_start,
-            integrity_a_end: v2.integrity_a_end,
-            integrity_b_end: v2.integrity_b_end,
-            fleet_a_destroyed: v2.fleet_a_destroyed,
-            fleet_b_destroyed: v2.fleet_b_destroyed,
-            fleet_a_retreated: v2.fleet_a_retreated,
-            fleet_b_retreated: v2.fleet_b_retreated,
-            hand_a,
-            hand_b,
-            rounds,
-            system_outcome: v2.system_outcome.clone(),
-        };
-        if self.state.battle_reports_v3.len() >= BATTLE_REPORT_MAX_HISTORY {
-            self.state.battle_reports_v3.pop_front();
-        }
-        // The CardId import is used in the round-log effect strings above.
-        let _ = std::marker::PhantomData::<CardId>;
-        self.state.battle_reports_v3.push_back(v3);
+    /// Legacy: kept as a stub so older code that referenced it still
+    /// compiles.  v3 reports are now produced directly by
+    /// `combat_v3::apply_battle`; this helper is a no-op.
+    #[allow(dead_code)]
+    fn push_battle_report_v3_from_v2(&mut self, _v2: &BattleReport) {
+        // Intentionally empty — v3 reports come from apply_battle now.
     }
 
     fn start_retreat_if_possible(

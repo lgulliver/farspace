@@ -2737,6 +2737,15 @@ impl App {
         {
             self.state.status_message = Some(format!("Error: {}", message));
         }
+
+        // If a player-involved battle is paused, auto-open the BattleScreen.
+        if let Some(engine) = &self.engine
+            && let Some(session) = &engine.state.pending_battle_session
+        {
+            self.state.overlay.battle_session_id = Some(session.session_id);
+            self.state.overlay.battle_show_help = false;
+            self.state.overlay.show_battle = true;
+        }
     }
 
     /// Select the highlighted technology for research

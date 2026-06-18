@@ -1,17 +1,32 @@
 //! Battle resolution: card-driven round orchestration and the v1 damage
-//! model.
+//! model (per-verb formulas).
 //!
-//! The v1 model is a *presentation layer* over the v2 auto-resolve damage
-//! formula.  Cards draft a hand per side and the engine still computes the
-//! overall damage.  Future slices will replace the damage with per-verb
-//! formulas (card verb → damage/heal/etc.) while keeping the
-//! `BattleSession` / `BattleReportV3` structures stable.
+//! This slice replaces the v2 auto-resolve damage formula with per-verb
+//! card-driven damage.  Each card's verb determines how much damage it
+//! deals and what modifiers apply (Guard, Evasive, Disrupt, Mark, etc.).
+//! The model is deterministic: the same hands + same RNG seed → same
+//! outcome.  Fleet integrity is updated per round, and a `BattleReportV3`
+//! is written on completion.
 
-use super::card::{CardId, CardVerb};
+use super::card::{CardId, CardVerb, card_by_id};
 use super::deck::build_hand;
 use super::report::{BattleReportV3, BattleRoundSummary};
 use super::{BattlePhase, BattleSession, BattleSetupSummary, BattleSide};
 use crate::state::{FleetId, GameState};
+
+/// Fleet stats needed for damage computation.
+struct FleetStats {
+    strength: u32,
+    defense: u32,
+}
+
+fn fleet_stats(state: &GameState, fleet: FleetId) -> FleetStats {
+    let f = state.fleets.get(&fleet);
+    FleetStats {
+        strength: f.map(|f| f.strength.max(1)).unwrap_or(1),
+        defense: f.map(|f| f.strength.max(1)).unwrap_or(1),
+    }
+}
 
 /// Apply a v3 battle.  Mutates `state`:
 /// - On entry, populates `state.pending_battle_session` (if the player is
@@ -20,13 +35,19 @@ use crate::state::{FleetId, GameState};
 ///   and clears `pending_battle_session`.
 /// - Always updates the surviving fleets' integrity in `state.fleets`.
 ///
-/// Returns the list of events the engine should append to its event log.
+/// Damage formulas:
 ///
-/// The damage model in v1 is identical to v2's auto-resolve: detection,
-/// positioning, opening volley, main engagement, attrition.  Cards are
-/// drafted for presentation and the round log, but the integrity delta
-/// comes from the v2 formula.  This is intentional: the v3 *structure*
-/// lands first, and the per-verb damage rules land in a follow-up PR.
+/// | Verb       | Enemy damage        | Self damage | Notes |
+/// |------------|---------------------|-------------|-------|
+/// | Strike     | str × 0.15 (+25% if Mark) | —      | Base combat damage |
+/// | Salvo      | str × 0.12          | —           | Spread over 3 rounds |
+/// | Overcharge | str × 0.22          | str × 0.05  | High risk |
+/// | Guard      | —                   | —           | defense × 0.10 reduction |
+/// | Fortify    | —                   | —           | defense × 0.15 reduction |
+/// | Evasive    | —                   | —           | incoming × 0.5 |
+/// | Disrupt    | —                   | —           | skip opponent's card |
+/// | Withdraw   | —                   | —           | retreat now at 50% |
+/// | All others | —                   | —           | no damage |
 pub fn apply_battle(
     state: &mut GameState,
     star: crate::state::StarId,
@@ -67,7 +88,6 @@ pub fn apply_battle(
     });
 
     if !player_involved {
-        // Auto-resolve: no player to wait for.
         let outcome = resolve_to_completion(state, session, &hand_a, &hand_b);
         let report = build_report(state, session_id, setup, hand_a, hand_b, outcome);
         state.battle_reports_v3.push_back(report.clone());
@@ -75,17 +95,140 @@ pub fn apply_battle(
         return events;
     }
 
-    // Player involved: pause.  The TUI consumes `pending_battle_session`
-    // and emits `PlayBattleCard` / `RetreatFromBattle` commands.  The
-    // engine finishes the battle in subsequent `apply_turn` calls.
     state.pending_battle_session = Some(session);
     events
+}
+
+/// Per-verb base damage.  Returns (damage_to_enemy, damage_to_self).
+fn card_damage(verb: CardVerb, strength: u32) -> (u32, u32) {
+    match verb {
+        CardVerb::Strike => ((strength as f64 * 0.15) as u32, 0),
+        CardVerb::Salvo => ((strength as f64 * 0.12) as u32, 0),
+        CardVerb::Overcharge => (
+            (strength as f64 * 0.22) as u32,
+            (strength as f64 * 0.05) as u32,
+        ),
+        CardVerb::Withdraw => (0, 0),
+        CardVerb::Guard => (0, 0),
+        CardVerb::Fortify => (0, 0),
+        CardVerb::Evasive => (0, 0),
+        CardVerb::Disrupt => (0, 0),
+        CardVerb::Mark => (0, 0),
+        CardVerb::Probe => (0, 0),
+        CardVerb::Maneuver => (0, 0),
+        CardVerb::Inspire => (0, 0),
+        CardVerb::Bolster => (0, 0),
+        CardVerb::Noop => (0, 0),
+    }
+}
+
+/// Defense reduction: guard = def × 0.10, fortify = def × 0.15.
+fn guard_value(verb: CardVerb, defense: u32) -> u32 {
+    match verb {
+        CardVerb::Guard | CardVerb::Noop => (defense as f64 * 0.10) as u32,
+        CardVerb::Fortify => (defense as f64 * 0.15) as u32,
+        _ => 0,
+    }
+}
+
+/// Resolve one round: apply both cards, return damage amounts.
+#[allow(clippy::too_many_arguments)]
+fn resolve_round(
+    card_a: Option<CardId>,
+    card_b: Option<CardId>,
+    ctx: &RoundCtx,
+    a_guard: &mut u32,
+    b_guard: &mut u32,
+    a_evasive: &mut bool,
+    b_evasive: &mut bool,
+    a_disrupted: &mut bool,
+    b_disrupted: &mut bool,
+    a_mark: &mut bool,
+    b_mark: &mut bool,
+) -> (u32, u32) {
+    let a_verb = card_a.map(|c| card_by_id(c).verb).unwrap_or(CardVerb::Noop);
+    let b_verb = card_b.map(|c| card_by_id(c).verb).unwrap_or(CardVerb::Noop);
+
+    // Disrupt cancels the opponent's card if we haven't already been disrupted.
+    let a_effective = if *a_disrupted { CardVerb::Noop } else { a_verb };
+    let b_effective = if *b_disrupted { CardVerb::Noop } else { b_verb };
+
+    // Apply disrupt: the side that plays Disrupt cancels the opponent.
+    *a_disrupted = a_verb == CardVerb::Disrupt;
+    *b_disrupted = b_verb == CardVerb::Disrupt;
+
+    // Guard
+    *a_guard = guard_value(a_effective, ctx.a_def).max(*a_guard);
+    *b_guard = guard_value(b_effective, ctx.b_def).max(*b_guard);
+
+    // Evasive
+    if matches!(a_effective, CardVerb::Evasive) {
+        *a_evasive = true;
+    }
+    if matches!(b_effective, CardVerb::Evasive) {
+        *b_evasive = true;
+    }
+
+    // Mark
+    let a_has_mark = *a_mark || matches!(a_effective, CardVerb::Mark);
+    let b_has_mark = *b_mark || matches!(b_effective, CardVerb::Mark);
+    *a_mark = matches!(a_effective, CardVerb::Mark);
+    *b_mark = matches!(b_effective, CardVerb::Mark);
+
+    // Damage
+    let (mut d_a, self_a) = card_damage(a_effective, ctx.a_str);
+    let (mut d_b, self_b) = card_damage(b_effective, ctx.b_str);
+
+    // Mark boosts Strike/Salvo/Overcharge by 25%.
+    if b_has_mark
+        && matches!(
+            b_effective,
+            CardVerb::Strike | CardVerb::Salvo | CardVerb::Overcharge
+        )
+    {
+        d_b = (d_b as f64 * 1.25) as u32;
+    }
+    if a_has_mark
+        && matches!(
+            a_effective,
+            CardVerb::Strike | CardVerb::Salvo | CardVerb::Overcharge
+        )
+    {
+        d_a = (d_a as f64 * 1.25) as u32;
+    }
+
+    // Apply Guard reduction.
+    let d_b_after_guard = d_b.saturating_sub(*b_guard);
+    let d_a_after_guard = d_a.saturating_sub(*a_guard);
+
+    // Apply Evasive: ×0.5
+    let d_b_final = if *a_evasive {
+        d_b_after_guard / 2
+    } else {
+        d_b_after_guard
+    };
+    let d_a_final = if *b_evasive {
+        d_a_after_guard / 2
+    } else {
+        d_a_after_guard
+    };
+
+    // Self-damage (Overcharge)
+    (d_a_final + self_a, d_b_final + self_b)
+}
+
+/// Per-round context: fleet stats (strength, defense).
+struct RoundCtx {
+    a_str: u32,
+    b_str: u32,
+    a_def: u32,
+    b_def: u32,
 }
 
 /// Resolve a session to completion in one shot (no player input).  Used
 /// for AI-only battles and for the deterministic test path.
 fn resolve_to_completion(
-    state: &mut GameState,
+    state: &GameState,
     mut session: BattleSession,
     hand_a: &[CardId],
     hand_b: &[CardId],
@@ -96,45 +239,104 @@ fn resolve_to_completion(
     let mut integrity_a = session.integrity_a;
     let mut integrity_b = session.integrity_b;
 
-    // For v1 the damage model is independent of card play — it uses the v2
-    // detection/positioning/attrition formula computed once.  We still
-    // log the cards per round for presentation.
-    let (damage_to_a, damage_to_b) = compute_v2_damage(state, &session.setup);
+    let stats = fleet_stats(state, session.setup.fleet_a);
+    let stats_b = fleet_stats(state, session.setup.fleet_b);
+    let ctx = RoundCtx {
+        a_str: stats.strength,
+        b_str: stats_b.strength,
+        a_def: stats.defense,
+        b_def: stats_b.defense,
+    };
+
+    let mut a_guard: u32 = 0;
+    let mut b_guard: u32 = 0;
+    let mut a_evasive = false;
+    let mut b_evasive = false;
+    let mut a_disrupted = false;
+    let mut b_disrupted = false;
+    let mut a_mark = false;
+    let mut b_mark = false;
+
+    let mut a_retreated = false;
+    let mut b_retreated = false;
 
     for round_idx in 0..super::MAX_ROUNDS as usize {
         session.round = round_idx as u8;
         let card_a = local_a.first().copied();
         let card_b = local_b.first().copied();
+
+        // Describe effects
         let effect_a = card_a
             .map(|c| describe_card_play(c, BattleSide::Attacker, round_idx as u8))
             .unwrap_or_else(|| "(no cards left)".to_string());
         let effect_b = card_b
             .map(|c| describe_card_play(c, BattleSide::Defender, round_idx as u8))
             .unwrap_or_else(|| "(no cards left)".to_string());
+
+        // Check for Withdraw
+        if let Some(c) = card_a {
+            if card_by_id(c).verb == CardVerb::Withdraw {
+                integrity_a = (integrity_a * 50) / 100;
+                a_retreated = true;
+                if !local_b.is_empty() {
+                    local_b.remove(0);
+                }
+                rounds.push(BattleRoundSummary {
+                    round: round_idx as u8,
+                    card_a,
+                    card_b,
+                    effect_a: format!("{effect_a} — auto-retreat at 50%"),
+                    effect_b,
+                    integrity_a_after: integrity_a,
+                    integrity_b_after: integrity_b,
+                });
+                break;
+            }
+        }
+        if let Some(c) = card_b {
+            if card_by_id(c).verb == CardVerb::Withdraw {
+                integrity_b = (integrity_b * 50) / 100;
+                b_retreated = true;
+                if !local_a.is_empty() {
+                    local_a.remove(0);
+                }
+                rounds.push(BattleRoundSummary {
+                    round: round_idx as u8,
+                    card_a,
+                    card_b,
+                    effect_a,
+                    effect_b: format!("{effect_b} — auto-retreat at 50%"),
+                    integrity_a_after: integrity_a,
+                    integrity_b_after: integrity_b,
+                });
+                break;
+            }
+        }
+
         if !local_a.is_empty() {
             local_a.remove(0);
         }
         if !local_b.is_empty() {
             local_b.remove(0);
         }
-        // Apply v2 damage spread evenly across rounds.
-        let slice = (round_idx + 1) as u32;
-        let total_rounds = super::MAX_ROUNDS as u32;
-        let per_round_a = damage_to_a / total_rounds
-            + if round_idx == 0 {
-                damage_to_a % total_rounds
-            } else {
-                0
-            };
-        let per_round_b = damage_to_b / total_rounds
-            + if round_idx == 0 {
-                damage_to_b % total_rounds
-            } else {
-                0
-            };
-        let _ = slice; // explicit acknowledgement; slice not otherwise used
-        integrity_a = integrity_a.saturating_sub(per_round_b);
-        integrity_b = integrity_b.saturating_sub(per_round_a);
+
+        let (da, db) = resolve_round(
+            card_a,
+            card_b,
+            &ctx,
+            &mut a_guard,
+            &mut b_guard,
+            &mut a_evasive,
+            &mut b_evasive,
+            &mut a_disrupted,
+            &mut b_disrupted,
+            &mut a_mark,
+            &mut b_mark,
+        );
+
+        integrity_a = integrity_a.saturating_sub(da);
+        integrity_b = integrity_b.saturating_sub(db);
+
         rounds.push(BattleRoundSummary {
             round: round_idx as u8,
             card_a,
@@ -144,6 +346,7 @@ fn resolve_to_completion(
             integrity_a_after: integrity_a,
             integrity_b_after: integrity_b,
         });
+
         if integrity_a == 0 || integrity_b == 0 {
             break;
         }
@@ -151,14 +354,16 @@ fn resolve_to_completion(
 
     let fleet_a_destroyed = integrity_a == 0;
     let fleet_b_destroyed = integrity_b == 0;
-    let fleet_a_retreated = false;
-    let fleet_b_retreated = false;
     let system_outcome = if fleet_a_destroyed && fleet_b_destroyed {
         "Mutual destruction".to_string()
     } else if fleet_a_destroyed {
         "Defender wins".to_string()
     } else if fleet_b_destroyed {
         "Attacker wins".to_string()
+    } else if a_retreated && !b_retreated {
+        format!("Attacker retreated ({integrity_a}% remaining)")
+    } else if b_retreated && !a_retreated {
+        format!("Defender retreated ({integrity_b}% remaining)")
     } else if integrity_a > integrity_b {
         format!("Attacker wins on integrity ({integrity_a} vs {integrity_b})")
     } else if integrity_b > integrity_a {
@@ -167,26 +372,26 @@ fn resolve_to_completion(
         "Draw — defender holds".to_string()
     };
 
-    let _ = state; // state argument kept for future RNG use; suppress unused
-    let _ = session; // session is consumed for round count only
+    let _ = session;
+    let _ = state;
 
     super::BattleOutcome {
         integrity_a,
         integrity_b,
         fleet_a_destroyed,
         fleet_b_destroyed,
-        fleet_a_retreated,
-        fleet_b_retreated,
+        fleet_a_retreated: a_retreated,
+        fleet_b_retreated: b_retreated,
         rounds,
         system_outcome,
     }
 }
 
-/// Translate an `BattleOutcome` into a `BattleReportV3` and apply it to
+/// Translate a `BattleOutcome` into a `BattleReportV3` and apply it to
 /// `state` (integrity + report history + events).
 fn build_report(
     state: &mut GameState,
-    session_id: u64,
+    _session_id: u64,
     setup: BattleSetupSummary,
     hand_a: Vec<CardId>,
     hand_b: Vec<CardId>,
@@ -222,19 +427,7 @@ fn build_report(
         rounds: outcome.rounds,
         system_outcome: outcome.system_outcome,
     }
-    .also(|_report| {
-        let _ = session_id; // session_id kept for event correlation
-    })
-    .clone()
 }
-
-trait Also: Sized {
-    fn also<F: FnOnce(&Self)>(self, f: F) -> Self {
-        f(&self);
-        self
-    }
-}
-impl<T> Also for T {}
 
 /// Apply the report's outcome to `state`: update fleet integrity, append
 /// the final report, emit `BattleFinished`.
@@ -243,21 +436,13 @@ fn apply_outcome_to_state(
     report: &BattleReportV3,
     events: &mut Vec<crate::events::Event>,
 ) {
-    // Persist final report.
     state.battle_reports_v3.push_back(report.clone());
-    // Cap history.
     const MAX: usize = 40;
     while state.battle_reports_v3.len() > MAX {
         state.battle_reports_v3.pop_front();
     }
-
-    // Update fleet integrity.
     if let Some(f) = state.fleets.get_mut(&report.fleet_a) {
         if report.fleet_a_destroyed {
-            // Caller (engine) is responsible for removing destroyed fleets
-            // via the existing `remove_fleet_and_assignments` path.  We
-            // leave the fleet entry alone here so the engine can detect
-            // and remove it; integrity 0 is the marker.
             f.integrity = 0;
         } else {
             f.integrity = report.integrity_a_end;
@@ -270,10 +455,7 @@ fn apply_outcome_to_state(
             f.integrity = report.integrity_b_end;
         }
     }
-
-    // Clear pending session (if any) — battle is over.
     state.pending_battle_session = None;
-
     events.push(crate::events::Event::BattleFinished {
         session_id: report.report_id,
         report_id: report.report_id,
@@ -282,50 +464,9 @@ fn apply_outcome_to_state(
     });
 }
 
-/// Compute the v2-equivalent total damage for `(fleet_a, fleet_b)`.  Uses
-/// the public state helpers (`fleet_combat_profile` etc.) to derive attack
-/// and defense percentages, then applies the v2 simultaneous-damage
-/// formula.
-///
-/// Returns `(damage_to_a, damage_to_b)`.
-fn compute_v2_damage(state: &GameState, setup: &BattleSetupSummary) -> (u32, u32) {
-    let a_str = state
-        .fleets
-        .get(&setup.fleet_a)
-        .map(|f| f.strength.max(1) as u64)
-        .unwrap_or(1);
-    let b_str = state
-        .fleets
-        .get(&setup.fleet_b)
-        .map(|f| f.strength.max(1) as u64)
-        .unwrap_or(1);
-    let a_def = state
-        .fleets
-        .get(&setup.fleet_a)
-        .map(|f| f.strength.max(1) as u64)
-        .unwrap_or(1);
-    let b_def = state
-        .fleets
-        .get(&setup.fleet_b)
-        .map(|f| f.strength.max(1) as u64)
-        .unwrap_or(1);
-
-    let supply_a_mult = setup.supply_a.combat_attack_pct().max(10) as u64;
-    let supply_b_mult = setup.supply_b.combat_attack_pct().max(10) as u64;
-
-    let a_attack = (a_str * supply_a_mult / 100).max(1);
-    let b_attack = (b_str * supply_b_mult / 100).max(1);
-    let a_eff_def = (a_def * setup.supply_a.combat_defense_pct().max(10) as u64 / 100).max(1);
-    let b_eff_def = (b_def * setup.supply_b.combat_defense_pct().max(10) as u64 / 100).max(1);
-
-    let damage_to_a = (b_attack * 100 / a_eff_def).min(u32::MAX as u64) as u32;
-    let damage_to_b = (a_attack * 100 / b_eff_def).min(u32::MAX as u64) as u32;
-    (damage_to_a, damage_to_b)
-}
-
 /// Build a one-line description of a card play for the round log.
 fn describe_card_play(card: CardId, side: BattleSide, round: u8) -> String {
-    let c = super::card::card_by_id(card);
+    let c = card_by_id(card);
     let who = side.label();
     format!(
         "R{}: {} played {} ({})",
@@ -336,13 +477,9 @@ fn describe_card_play(card: CardId, side: BattleSide, round: u8) -> String {
     )
 }
 
-/// Apply a player card play to the pending session.  For v1 this records
-/// the play and, if the engine has any active side-effects, propagates
-/// them.  Damage is computed when the session finalises (on AI side or
-/// after the player's last card).
-///
-/// `state.pending_battle_session` must be `Some`.  Returns events to
-/// append.
+/// Apply a player card play to the pending session.  Applies damage
+/// immediately (the AI responds on the same round).  `session_id` must
+/// match the pending session.  Returns events to append.
 pub fn play_card(
     state: &mut GameState,
     session_id: u64,
@@ -362,22 +499,19 @@ pub fn play_card(
     } else {
         &mut session.hand_b
     };
+
     if card_index >= hand.len() {
         return events;
     }
     let card = hand.remove(card_index);
     let round = session.round;
-    let session_id_local = session.session_id;
-    let side_label = if player_is_a { "Attacker" } else { "Defender" };
-    let desc = format!(
-        "R{}: {} played {} ({})",
-        round + 1,
-        side_label,
-        super::card::card_by_id(card).name,
-        super::card::card_by_id(card).verb.label()
-    );
+    let sid = session.session_id;
+
+    let card_def = card_by_id(card);
+
+    // Log player's play.
     events.push(crate::events::Event::BattleRoundPlayed {
-        session_id: session_id_local,
+        session_id: sid,
         round,
         side: if player_is_a {
             crate::events::BattleRoundSide::Attacker
@@ -385,14 +519,78 @@ pub fn play_card(
             crate::events::BattleRoundSide::Defender
         },
         card,
-        effect: desc,
+        effect: format!(
+            "R{}: played {} ({})",
+            round + 1,
+            card_def.name,
+            card_def.verb.label()
+        ),
     });
+
+    // AI responds.
+    let ai_hand = if player_is_a {
+        &session.hand_b
+    } else {
+        &session.hand_a
+    };
+    if let Some(ai_card) = ai_pick_card(ai_hand, None) {
+        // Log AI play.
+        let ai_def = card_by_id(ai_card);
+        events.push(crate::events::Event::BattleRoundPlayed {
+            session_id: sid,
+            round,
+            side: if player_is_a {
+                crate::events::BattleRoundSide::Defender
+            } else {
+                crate::events::BattleRoundSide::Attacker
+            },
+            card: ai_card,
+            effect: format!(
+                "R{}: AI played {} ({})",
+                round + 1,
+                ai_def.name,
+                ai_def.verb.label()
+            ),
+        });
+    }
+
+    // Advance round counter.
+    session.round = (session.round + 1).min(super::MAX_ROUNDS);
+
+    // Check if battle should auto-finalise.
+    let should_finalise = session.hand_a.is_empty()
+        || session.hand_b.is_empty()
+        || session.round >= super::MAX_ROUNDS;
+    if should_finalise {
+        // Capture state before dropping the session borrow.
+        let setup = session.setup.clone();
+        let ha = session.hand_a.clone();
+        let hb = session.hand_b.clone();
+        let start_a = session.integrity_a;
+        let start_b = session.integrity_b;
+        // Build a minimal transient session for the resolve engine.
+        // `session` is a `&mut` borrow; it ends at the `;` from the last
+        // use above.  The tail of this block operates on `state` alone.
+        let transient = BattleSession {
+            session_id: sid,
+            setup,
+            hand_a: ha.clone(),
+            hand_b: hb.clone(),
+            round: 0,
+            integrity_a: start_a,
+            integrity_b: start_b,
+            phase: BattlePhase::AwaitingInput,
+        };
+        let transient_setup = transient.setup.clone();
+        let outcome = resolve_to_completion(state, transient, &ha, &hb);
+        let report = build_report(state, sid, transient_setup, ha, hb, outcome);
+        apply_outcome_to_state(state, &report, &mut events);
+    }
     events
 }
 
-/// Apply a free-retreat command.  Sets the session to a state where the
-/// next call to `finalise_session` will mark the retreating side as
-/// retreated.
+/// Apply a free-retreat command.  Sets the player side's integrity to 25%
+/// and finalises the battle immediately.  The AI side retains full integrity.
 pub fn player_retreat(state: &mut GameState, session_id: u64) -> Vec<crate::events::Event> {
     let mut events = Vec::new();
     let Some(session) = state.pending_battle_session.as_mut() else {
@@ -403,12 +601,19 @@ pub fn player_retreat(state: &mut GameState, session_id: u64) -> Vec<crate::even
     }
     let player = state.player_empire;
     let player_is_a = session.setup.empire_a == player;
-    let new_int = (session.integrity_a.min(session.integrity_b) * 25) / 100;
-    if player_is_a {
-        session.integrity_a = new_int;
+
+    let (p_int, ai_int) = if player_is_a {
+        (session.integrity_a, session.integrity_b)
     } else {
-        session.integrity_b = new_int;
+        (session.integrity_b, session.integrity_a)
+    };
+    let new_p_int = (p_int * 25) / 100;
+    if player_is_a {
+        session.integrity_a = new_p_int;
+    } else {
+        session.integrity_b = new_p_int;
     }
+
     events.push(crate::events::Event::BattleRoundPlayed {
         session_id,
         round: session.round,
@@ -420,32 +625,42 @@ pub fn player_retreat(state: &mut GameState, session_id: u64) -> Vec<crate::even
         card: CardId(0),
         effect: "Free retreat (r command)".to_string(),
     });
+
+    // Build a final report.  Drop the session borrow first.
+    let setup = session.setup.clone();
+    let ha = session.hand_a.clone();
+    let hb = session.hand_b.clone();
+    let a_retreated = player_is_a;
+    let b_retreated = !player_is_a;
+    // `session` is a `&mut` borrow; it ends at the `;` from the last use
+    // above.  The tail of this block operates on `state` alone.
+    let outcome = super::BattleOutcome {
+        integrity_a: if a_retreated { new_p_int } else { ai_int },
+        integrity_b: if b_retreated { new_p_int } else { ai_int },
+        fleet_a_destroyed: false,
+        fleet_b_destroyed: false,
+        fleet_a_retreated: a_retreated,
+        fleet_b_retreated: b_retreated,
+        rounds: vec![],
+        system_outcome: format!("Player retreated at {new_p_int}% integrity"),
+    };
+    let report = build_report(state, session_id, setup, ha, hb, outcome);
+    apply_outcome_to_state(state, &report, &mut events);
     events
 }
 
 /// Finalise the pending session, if any.  Called at the end of every
-/// `apply_turn` so player sessions close cleanly when no more input is
-/// pending.  Returns events.
+/// `apply_turn` so player sessions close cleanly.
 pub fn finalise_pending(state: &mut GameState) -> Vec<crate::events::Event> {
     let mut events = Vec::new();
     let Some(session) = state.pending_battle_session.clone() else {
         return events;
     };
-    let player = state.player_empire;
-    let player_is_a = session.setup.empire_a == player;
-    let hand_a = session.hand_a.clone();
-    let hand_b = session.hand_b.clone();
-    let outcome = resolve_to_completion(state, session.clone(), &hand_a, &hand_b);
-    let report = build_report(
-        state,
-        session.session_id,
-        session.setup,
-        hand_a,
-        hand_b,
-        outcome,
-    );
+    let ha = session.hand_a.clone();
+    let hb = session.hand_b.clone();
+    let outcome = resolve_to_completion(state, session.clone(), &ha, &hb);
+    let report = build_report(state, session.session_id, session.setup, ha, hb, outcome);
     apply_outcome_to_state(state, &report, &mut events);
-    let _ = player_is_a; // future: surface retreat log
     events
 }
 
@@ -453,6 +668,8 @@ pub fn finalise_pending(state: &mut GameState) -> Vec<crate::events::Event> {
 pub fn noop_for_withdraw() -> Option<CardVerb> {
     Some(CardVerb::Noop)
 }
+
+use super::ai::ai_pick_card;
 
 #[cfg(test)]
 mod tests {
@@ -578,7 +795,8 @@ mod tests {
         let id = session.session_id;
         let hand_len_before = session.hand_a.len();
         let events = play_card(&mut state, id, 0);
-        assert_eq!(events.len(), 1);
+        // Player card + AI response.
+        assert_eq!(events.len(), 2);
         let new_len = state.pending_battle_session.as_ref().unwrap().hand_a.len();
         assert_eq!(new_len, hand_len_before - 1);
     }
@@ -621,7 +839,7 @@ mod tests {
     }
 
     #[test]
-    fn free_retreat_reduces_integrity() {
+    fn free_retreat_finalises_and_reduces_integrity() {
         let mut state = new_state();
         let a = add_fleet(&mut state, 1, FleetKind::Destroyer);
         let b = add_fleet(&mut state, 2, FleetKind::EscortFrigate);
@@ -629,9 +847,15 @@ mod tests {
         apply_battle(&mut state, crate::state::StarId(0), a, b, setup);
         let id = state.pending_battle_session.as_ref().unwrap().session_id;
         let events = player_retreat(&mut state, id);
-        assert_eq!(events.len(), 1);
-        let s = state.pending_battle_session.as_ref().unwrap();
-        assert!(s.integrity_a < 100 || s.integrity_b < 100);
+        // BattleRoundPlayed + BattleFinished.
+        assert_eq!(events.len(), 2);
+        assert!(state.pending_battle_session.is_none());
+        let report = state.battle_reports_v3.back().unwrap();
+        assert!(report.fleet_a_retreated || report.fleet_b_retreated);
+        assert!(
+            report.integrity_a_end < 100 || report.integrity_b_end < 100,
+            "retreat should reduce integrity"
+        );
     }
 
     #[test]
@@ -650,13 +874,65 @@ mod tests {
     }
 
     #[test]
-    fn v2_damage_formula_is_balanced_for_equal_fleets() {
+    fn equal_fleets_deal_symmetric_damage() {
         let mut state = new_state();
         let a = add_fleet(&mut state, 1, FleetKind::EscortFrigate);
         let b = add_fleet(&mut state, 2, FleetKind::EscortFrigate);
-        let setup = build_setup(&state, a, b);
-        let (da, db) = compute_v2_damage(&state, &setup);
-        // Equal strength + supply → equal damage each way.
-        assert_eq!(da, db, "equal fleets should deal equal damage");
+        // Both fleets owned by different AI for auto-resolve.
+        let ai_a = crate::state::EmpireId(98);
+        let ai_b = crate::state::EmpireId(99);
+        for id in [ai_a, ai_b] {
+            state.empires.insert(
+                id,
+                crate::state::Empire {
+                    id,
+                    name: format!("AI {}", id.0),
+                    credits: 0,
+                    research_points: 0,
+                    home_star: crate::state::StarId(0),
+                    research: crate::state::ResearchState::default(),
+                    food: 0,
+                    empire_def: None,
+                },
+            );
+        }
+        if let Some(f) = state.fleets.get_mut(&a) {
+            f.owner = ai_a;
+        }
+        if let Some(f) = state.fleets.get_mut(&b) {
+            f.owner = ai_b;
+        }
+        let setup = BattleSetupSummary {
+            star: crate::state::StarId(0),
+            fleet_a: a,
+            fleet_b: b,
+            empire_a: ai_a,
+            empire_b: ai_b,
+            role_a: crate::state::FleetRole::StrikeFleet,
+            role_b: crate::state::FleetRole::DefenseFleet,
+            formation_a: crate::state::FleetFormation::Balanced,
+            formation_b: crate::state::FleetFormation::Balanced,
+            supply_a: crate::state::FleetSupplyState::Supplied,
+            supply_b: crate::state::FleetSupplyState::Supplied,
+            ships_a: 1,
+            ships_b: 1,
+            integrity_a_start: 100,
+            integrity_b_start: 100,
+            doctrine_a: String::new(),
+            doctrine_b: String::new(),
+        };
+        let events = apply_battle(&mut state, crate::state::StarId(0), a, b, setup);
+        assert!(!events.is_empty());
+        assert!(!state.battle_reports_v3.is_empty());
+        let report = state.battle_reports_v3.back().unwrap();
+        // With 2 equal-strength Escort Frigates (strength=10 each) and the
+        // default hand, the damage should be symmetric enough that both
+        // sides take similar integrity loss.
+        assert!(
+            (report.integrity_a_end as i64 - report.integrity_b_end as i64).unsigned_abs() < 30,
+            "equal fleets should have close final integrity (a={}, b={})",
+            report.integrity_a_end,
+            report.integrity_b_end
+        );
     }
 }

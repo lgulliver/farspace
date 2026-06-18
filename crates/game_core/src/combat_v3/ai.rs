@@ -4,8 +4,8 @@
 //! `score = sum(card.doctrine_weight[d] * empire.doctrine_weights[d])`.
 //! Ties broken by `CardId` ascending.  No RNG.
 
-use super::card::{card_by_id, CardId};
-use crate::state::{empire_definition_by_id, EmpireDefinition, EmpireId};
+use super::card::{CardId, card_by_id};
+use crate::state::{EmpireDefinition, EmpireId, empire_definition_by_id};
 use std::collections::BTreeMap;
 
 /// Pick a card for the AI to play this round.  Returns `None` if the

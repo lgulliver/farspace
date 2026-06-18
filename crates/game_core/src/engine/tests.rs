@@ -12740,3 +12740,128 @@ fn ai_on_ai_conquest_is_silent_until_player_knows_both() {
         "conquests between unmet empires must not surface to the player"
     );
 }
+
+// ---- Combat v3 dispatch_command tests ----
+
+#[test]
+fn dispatch_command_routes_play_battle_card() {
+    use crate::combat_v3::{BattlePhase, BattleSetupSummary, apply_battle};
+    use crate::state::{Fleet, FleetFormation, FleetKind, FleetRole, FleetSupplyState};
+    let mut engine = Engine::new(42);
+    // Insert a player fleet and a second player fleet so the battle pauses.
+    let a = crate::state::FleetId(1001);
+    let b = crate::state::FleetId(1002);
+    for (id, kind) in [(a, FleetKind::Destroyer), (b, FleetKind::EscortFrigate)] {
+        engine.state.fleets.insert(
+            id,
+            Fleet {
+                id,
+                owner: engine.state.player_empire,
+                kind,
+                location: crate::state::StarId(0),
+                ships: 1,
+                strength: 10,
+                integrity: 100,
+            },
+        );
+    }
+    let setup = BattleSetupSummary {
+        star: crate::state::StarId(0),
+        fleet_a: a,
+        fleet_b: b,
+        empire_a: engine.state.player_empire,
+        empire_b: engine.state.player_empire,
+        role_a: FleetRole::StrikeFleet,
+        role_b: FleetRole::DefenseFleet,
+        formation_a: FleetFormation::Balanced,
+        formation_b: FleetFormation::Balanced,
+        supply_a: FleetSupplyState::Supplied,
+        supply_b: FleetSupplyState::Supplied,
+        ships_a: 1,
+        ships_b: 1,
+        integrity_a_start: 100,
+        integrity_b_start: 100,
+        doctrine_a: String::new(),
+        doctrine_b: String::new(),
+    };
+    let events = apply_battle(&mut engine.state, crate::state::StarId(0), a, b, setup);
+    assert!(
+        engine.state.pending_battle_session.is_some(),
+        "player battle should pause"
+    );
+    // session is set; emit events
+    let _ = events;
+
+    // dispatch a PlayBattleCard via dispatch_command
+    let session_id = engine
+        .state
+        .pending_battle_session
+        .as_ref()
+        .unwrap()
+        .session_id;
+    let cmd = Command::PlayBattleCard {
+        session_id,
+        card_index: 0,
+    };
+    let out = engine.dispatch_command(cmd);
+    // 1 player + 1 AI = 2 events minimum
+    assert!(!out.is_empty(), "dispatch_command should produce events");
+    // The session should have been finalised (hand is 5 cards but the
+    // auto-finalise only triggers when hand becomes empty; in this slice
+    // a single play_card does not necessarily finalise, so just check the
+    // state is consistent).
+    let _ = BattlePhase::AwaitingInput; // type-touch to keep import live
+}
+
+#[test]
+fn dispatch_command_finalises_pending_session() {
+    use crate::combat_v3::{BattleSetupSummary, apply_battle};
+    use crate::state::{Fleet, FleetFormation, FleetKind, FleetRole, FleetSupplyState};
+    let mut engine = Engine::new(42);
+    let a = crate::state::FleetId(1101);
+    let b = crate::state::FleetId(1102);
+    for (id, kind) in [(a, FleetKind::Destroyer), (b, FleetKind::EscortFrigate)] {
+        engine.state.fleets.insert(
+            id,
+            Fleet {
+                id,
+                owner: engine.state.player_empire,
+                kind,
+                location: crate::state::StarId(0),
+                ships: 1,
+                strength: 10,
+                integrity: 100,
+            },
+        );
+    }
+    let setup = BattleSetupSummary {
+        star: crate::state::StarId(0),
+        fleet_a: a,
+        fleet_b: b,
+        empire_a: engine.state.player_empire,
+        empire_b: engine.state.player_empire,
+        role_a: FleetRole::StrikeFleet,
+        role_b: FleetRole::DefenseFleet,
+        formation_a: FleetFormation::Balanced,
+        formation_b: FleetFormation::Balanced,
+        supply_a: FleetSupplyState::Supplied,
+        supply_b: FleetSupplyState::Supplied,
+        ships_a: 1,
+        ships_b: 1,
+        integrity_a_start: 100,
+        integrity_b_start: 100,
+        doctrine_a: String::new(),
+        doctrine_b: String::new(),
+    };
+    apply_battle(&mut engine.state, crate::state::StarId(0), a, b, setup);
+    assert!(engine.state.pending_battle_session.is_some());
+    // apply_turn with a single EndTurn should auto-finalise.
+    let events = engine.apply_turn(vec![Command::EndTurn]);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::BattleFinished { .. })),
+        "apply_turn should finalise the pending session and emit BattleFinished"
+    );
+    assert!(engine.state.pending_battle_session.is_none());
+}

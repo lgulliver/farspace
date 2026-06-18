@@ -1758,6 +1758,13 @@ impl Engine {
             self.state.empire_resource_access = self.state.recompute_empire_resource_access();
         }
 
+        // Auto-finalise any pending v3 battle session.  In v1 we don't
+        // support pause-for-input across turns; if a player session is
+        // still open at the end of a turn batch, we close it
+        // deterministically using the AI's hand + the current integrity.
+        let finalise_events = crate::combat_v3::finalise_pending(&mut self.state);
+        events.extend(finalise_events);
+
         // Add events to log
         for event in &events {
             self.state.event_log.push(event.to_log_message());
@@ -1770,6 +1777,198 @@ impl Engine {
         }
 
         events
+    }
+
+    /// Dispatch a single command without ending the turn.  Used by the
+    /// TUI for mid-turn interactions (e.g. playing battle cards while a
+    /// `pending_battle_session` is active).  Returns the events produced
+    /// by the command.  Does not call `process_end_turn` and does not
+    /// advance the turn counter.
+    pub fn dispatch_command(&mut self, command: Command) -> Vec<Event> {
+        let mut events = Vec::new();
+        self.dispatch_command_inner(command, &mut events);
+        for event in &events {
+            self.state.event_log.push(event.to_log_message());
+        }
+        if self.state.event_log.len() > 50 {
+            let excess = self.state.event_log.len() - 50;
+            self.state.event_log.drain(0..excess);
+        }
+        events
+    }
+
+    /// Internal: route one command to its handler.  Shared by
+    /// `apply_turn` (batch path) and `dispatch_command` (single-command
+    /// path).  Does not call `process_end_turn` — that stays in
+    /// `apply_turn`.
+    fn dispatch_command_inner(&mut self, command: Command, events: &mut Vec<Event>) {
+        match command {
+            Command::EndTurn => {
+                self.process_end_turn(events);
+            }
+            Command::SetColonyFocus {
+                colony,
+                prod_pct,
+                research_pct,
+            } => {
+                self.process_set_colony_focus(colony, prod_pct, research_pct, events);
+            }
+            Command::MoveFleet { fleet, destination } => {
+                self.process_move_fleet(fleet, destination, events);
+            }
+            Command::QueueBuild { colony, item } => {
+                self.process_queue_build(colony, item, events);
+            }
+            Command::CancelBuild { colony, index } => {
+                self.process_cancel_build(colony, index, events);
+            }
+            Command::SelectResearch { tech } => {
+                self.process_select_research(tech, events);
+            }
+            Command::QueueResearch { tech } => {
+                self.process_queue_research(tech, events);
+            }
+            Command::RemoveQueuedResearch { tech } => {
+                self.process_remove_queued_research(tech, events);
+            }
+            Command::MoveQueuedResearchUp { tech } => {
+                self.process_move_queued_research_up(tech, events);
+            }
+            Command::MoveQueuedResearchDown { tech } => {
+                self.process_move_queued_research_down(tech, events);
+            }
+            Command::ClearResearchQueue => {
+                self.process_clear_research_queue(events);
+            }
+            Command::SendScout { fleet, destination } => {
+                self.process_send_scout(fleet, destination, events);
+            }
+            Command::SurveyPlanet {
+                fleet,
+                star,
+                planet_index,
+            } => {
+                self.process_survey_planet(fleet, star, planet_index, events);
+            }
+            Command::Colonize {
+                fleet,
+                star,
+                planet_index,
+            } => {
+                self.process_colonize(fleet, star, planet_index, events);
+            }
+            Command::Invade {
+                fleet,
+                star,
+                planet_index,
+            } => {
+                self.process_invade(fleet, star, planet_index, events);
+            }
+            Command::SetColonyRole { colony, role } => {
+                self.process_set_colony_role(colony, role, events);
+            }
+            Command::SetSectorDirective { sector, directive } => {
+                self.process_set_sector_directive(sector, directive, events);
+            }
+            Command::SetColonyAutomation { colony, automation } => {
+                self.process_set_colony_automation(colony, automation, events);
+            }
+            Command::SetRallyPoint { colony, star } => {
+                self.process_set_rally_point(colony, star, events);
+            }
+            Command::ClearRallyPoint { colony } => {
+                self.process_clear_rally_point(colony, events);
+            }
+            Command::SetFleetOrder { fleet, order } => {
+                self.process_set_fleet_order(fleet, order, events);
+            }
+            Command::SetFleetRole { fleet, role } => {
+                self.process_set_fleet_role(fleet, role, events);
+            }
+            Command::SetFleetFormation { fleet, formation } => {
+                self.process_set_fleet_formation(fleet, formation, events);
+            }
+            Command::RenameFleet { fleet, name } => {
+                self.process_rename_fleet(fleet, name, events);
+            }
+            Command::DeclareWar { target } => {
+                self.process_declare_war(target, events);
+            }
+            Command::OfferPeace { target } => {
+                self.process_offer_peace(target, events);
+            }
+            Command::AcceptPeace { target } => {
+                self.process_accept_peace(target, events);
+            }
+            Command::RejectPeace { target } => {
+                self.process_reject_peace(target, events);
+            }
+            Command::ProposeNonAggressionPact { target } => {
+                self.process_propose_non_aggression(target, events);
+            }
+            Command::AcceptNonAggressionPact { target } => {
+                self.process_accept_non_aggression(target, events);
+            }
+            Command::RejectNonAggressionPact { target } => {
+                self.process_reject_non_aggression(target, events);
+            }
+            Command::CancelTreaty {
+                target,
+                treaty_type,
+            } => {
+                self.process_cancel_treaty(target, treaty_type, events);
+            }
+            Command::IssueWarning { target } => {
+                self.process_issue_warning(target, events);
+            }
+            Command::DemandTribute { target } => {
+                self.process_demand_tribute(target, events);
+            }
+            Command::SendGreeting { target } => {
+                self.process_send_greeting(target, events);
+            }
+            Command::RespondToCommunication {
+                communication_id,
+                response,
+            } => {
+                self.process_respond_to_communication(communication_id, response, events);
+            }
+            Command::GatherIntelligence { target } => {
+                self.process_gather_intelligence(target, events);
+            }
+            Command::SabotageProduction { target } => {
+                self.process_placeholder_espionage(
+                    target,
+                    EspionageMission::SabotageProduction,
+                    events,
+                );
+            }
+            Command::StealResearch { target } => {
+                self.process_placeholder_espionage(target, EspionageMission::StealResearch, events);
+            }
+            Command::CreateShipDesign {
+                hull_id,
+                components,
+                name,
+            } => {
+                self.create_ship_design(hull_id, components, name, events);
+            }
+            Command::DeleteShipDesign { design_id } => {
+                self.delete_ship_design(design_id, events);
+            }
+            Command::PlayBattleCard {
+                session_id,
+                card_index,
+            } => {
+                let v3_events =
+                    crate::combat_v3::play_card(&mut self.state, session_id, card_index);
+                events.extend(v3_events);
+            }
+            Command::RetreatFromBattle { session_id } => {
+                let v3_events = crate::combat_v3::player_retreat(&mut self.state, session_id);
+                events.extend(v3_events);
+            }
+        }
     }
 
     fn process_end_turn(&mut self, events: &mut Vec<Event>) {

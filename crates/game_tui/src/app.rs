@@ -4,8 +4,8 @@ mod logging;
 
 use crate::animation::{ScreenTransition, TransitionState};
 use crate::components::{
-    EventLog, LogEntryKind, PaletteCommand, render_battle_reports, render_dispatch, render_help,
-    render_palette,
+    EventLog, LogEntryKind, PaletteCommand, render_battle_reports, render_battle_reports_v3,
+    render_dispatch, render_help, render_palette,
 };
 use crate::keys::KeyMap;
 use crate::screens::Screen;
@@ -162,6 +162,10 @@ pub(crate) struct OverlayState {
     /// Combat v3 BattleScreen overlay.
     pub(crate) show_battle: bool,
     pub(crate) battle_show_help: bool,
+    /// Active battle session id (when the BattleScreen is open).  Lets
+    /// the key handler route PlayBattleCard / RetreatFromBattle
+    /// commands to the engine.
+    pub(crate) battle_session_id: Option<u64>,
 }
 
 /// Campaign Archives overlay state. Holds the scanned save summaries plus the
@@ -340,6 +344,43 @@ impl Default for AppConfig {
 }
 
 impl App {
+    /// If the engine has a pending battle session, open the BattleScreen
+    /// with the session id captured.  Called after every command batch
+    /// (or after `dispatch_command` mid-turn) so the player can interact
+    /// with a freshly-paused battle.
+    fn open_battle_if_pending(&mut self) {
+        if self.state.overlay.show_battle {
+            return;
+        }
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        if let Some(session) = &engine.state.pending_battle_session {
+            self.state.overlay.battle_session_id = Some(session.session_id);
+            self.state.overlay.battle_show_help = false;
+            self.state.overlay.show_battle = true;
+        }
+    }
+
+    /// Close the BattleScreen if the pending session has been finalised
+    /// (e.g. hand empty after a card play, or retreat resolved).  Called
+    /// after each `dispatch_command` to keep the UI in sync.
+    fn close_battle_if_finalised(&mut self) {
+        let Some(engine) = &self.engine else {
+            self.state.overlay.show_battle = false;
+            self.state.overlay.battle_session_id = None;
+            return;
+        };
+        if engine.state.pending_battle_session.is_none() {
+            self.state.overlay.show_battle = false;
+            self.state.overlay.battle_session_id = None;
+        } else if let Some(session) = &engine.state.pending_battle_session {
+            // Keep the session id in sync with the engine in case it
+            // was re-allocated (it isn't in v1, but defensive).
+            self.state.overlay.battle_session_id = Some(session.session_id);
+        }
+    }
+
     fn load_config_from_path(path: &std::path::Path) -> AppConfig {
         let Ok(contents) = std::fs::read_to_string(path) else {
             return AppConfig::default();
@@ -959,14 +1000,27 @@ impl App {
         if self.state.overlay.show_battle_reports
             && let Some(engine) = &self.engine
         {
-            render_battle_reports(
-                frame,
-                area,
-                &engine.state.battle_reports,
-                self.state.overlay.battle_report_index,
-                self.state.overlay.battle_report_inspect,
-                self.state.visual_mode,
-            );
+            // Prefer v3 reports (card-driven) when any exist.  Falls back
+            // to v2 reports from older saves that pre-date v3.
+            if engine.state.battle_reports_v3.is_empty() {
+                render_battle_reports(
+                    frame,
+                    area,
+                    &engine.state.battle_reports,
+                    self.state.overlay.battle_report_index,
+                    self.state.overlay.battle_report_inspect,
+                    self.state.visual_mode,
+                );
+            } else {
+                render_battle_reports_v3(
+                    frame,
+                    area,
+                    &engine.state.battle_reports_v3,
+                    self.state.overlay.battle_report_index,
+                    self.state.overlay.battle_report_inspect,
+                    self.state.visual_mode,
+                );
+            }
         }
 
         if self.state.overlay.show_settings {
@@ -1007,15 +1061,53 @@ impl App {
     /// Handle a key event
     fn handle_key(&mut self, key: KeyEvent) {
         // Combat v3 BattleScreen takes priority over every other input
-        // path.  It is a read-only viewer for the latest report (or
-        // active session) — no engine mutation in v1.
+        // path.  Routes 1-5 to `Command::PlayBattleCard` and `r` to
+        // `Command::RetreatFromBattle` via `Engine::dispatch_command`.
         if self.state.overlay.show_battle {
+            // Help overlay captures any key first.
+            if self.state.overlay.battle_show_help {
+                self.state.overlay.battle_show_help = false;
+                return;
+            }
+
+            let card_index = match key.code {
+                KeyCode::Char('1') => Some(0),
+                KeyCode::Char('2') => Some(1),
+                KeyCode::Char('3') => Some(2),
+                KeyCode::Char('4') => Some(3),
+                KeyCode::Char('5') => Some(4),
+                _ => None,
+            };
+            if let Some(idx) = card_index {
+                if let (Some(engine), Some(session)) =
+                    (self.engine.as_mut(), self.state.overlay.battle_session_id)
+                {
+                    let _ = engine.dispatch_command(Command::PlayBattleCard {
+                        session_id: session,
+                        card_index: idx,
+                    });
+                }
+                // If the session is gone (auto-finalised), close the screen.
+                self.close_battle_if_finalised();
+                return;
+            }
             match key.code {
+                KeyCode::Char('r') | KeyCode::Char('R') => {
+                    if let (Some(engine), Some(session)) =
+                        (self.engine.as_mut(), self.state.overlay.battle_session_id)
+                    {
+                        let _ = engine.dispatch_command(Command::RetreatFromBattle {
+                            session_id: session,
+                        });
+                    }
+                    self.close_battle_if_finalised();
+                    return;
+                }
                 KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                     self.state.overlay.show_battle = false;
                 }
                 KeyCode::Char('?') => {
-                    self.state.overlay.battle_show_help = !self.state.overlay.battle_show_help;
+                    self.state.overlay.battle_show_help = true;
                 }
                 _ => {}
             }
@@ -1068,7 +1160,14 @@ impl App {
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     if let Some(engine) = &self.engine {
-                        let max = engine.state.battle_reports.len().saturating_sub(1);
+                        // Iterate the same log the renderer picks (v3 if any,
+                        // otherwise v2) so the index stays in sync.
+                        let len = if engine.state.battle_reports_v3.is_empty() {
+                            engine.state.battle_reports.len()
+                        } else {
+                            engine.state.battle_reports_v3.len()
+                        };
+                        let max = len.saturating_sub(1);
                         if self.state.overlay.battle_report_index < max {
                             self.state.overlay.battle_report_index += 1;
                         }
@@ -1195,6 +1294,12 @@ impl App {
         // viewer is suppressed there to preserve the existing binding.
         if key.code == KeyCode::Char('M') && self.state.active != Screen::SectorMap {
             self.state.overlay.battle_show_help = false;
+            // Capture the live session id (if any) so 1-5/r route correctly.
+            self.state.overlay.battle_session_id = self
+                .engine
+                .as_ref()
+                .and_then(|e| e.state.pending_battle_session.as_ref())
+                .map(|s| s.session_id);
             self.state.overlay.show_battle = true;
             return;
         }
@@ -1215,6 +1320,10 @@ impl App {
             Screen::ShipDesigner => self.handle_ship_designer_key(key),
             Screen::SectorGovernance => self.handle_sector_governance_key(key),
         }
+
+        // After any global command, auto-open the BattleScreen if a
+        // pending battle session was just created.
+        self.open_battle_if_pending();
     }
 
     fn handle_menu_key(&mut self, key: KeyEvent) {

@@ -13,7 +13,7 @@ pub mod meter;
 pub mod palette;
 
 pub use advisor::{AlertSeverity, advisor_strip_text, render_advisor_strip, render_turn_brief};
-pub use battle_report::render_battle_reports;
+pub use battle_report::{render_battle_reports, render_battle_reports_v3};
 pub use chrome::{key_hint, page_block, panel_block, quiet_panel_block, section_heading};
 pub use dispatch::render_dispatch;
 pub use emblem::{EmblemPattern, EmpireEmblem, EmpireEmblemPalette, render_empire_emblem};

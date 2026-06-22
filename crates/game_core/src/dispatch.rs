@@ -498,6 +498,80 @@ pub fn generate_dispatch(
                 }
             }
 
+            // --- Combat v3 ---
+            Event::BattleFinished {
+                star,
+                fleet_a_destroyed,
+                fleet_b_destroyed,
+                winner,
+                ..
+            } => {
+                let player = state.player_empire;
+                let player_involved = state
+                    .fleets
+                    .get(
+                        &state
+                            .battle_reports_v3
+                            .back()
+                            .map(|r| r.fleet_a)
+                            .unwrap_or(crate::FleetId(0)),
+                    )
+                    .map(|f| f.owner == player)
+                    .unwrap_or(false);
+                // Player-involved if either combatant belongs to the
+                // player.  We infer that from the most-recent report.
+                let player_faction_in_match = state
+                    .battle_reports_v3
+                    .back()
+                    .map(|r| r.empire_a == player || r.empire_b == player)
+                    .unwrap_or(false);
+                if !player_faction_in_match && !player_involved {
+                    // AI-only battle: still surface as a Notable dispatch
+                    // if the player has intel.
+                    let _ = player;
+                }
+                let major_battle = *fleet_a_destroyed || *fleet_b_destroyed;
+                let severity = if player_faction_in_match {
+                    if major_battle {
+                        DispatchSeverity::Historic
+                    } else {
+                        DispatchSeverity::Urgent
+                    }
+                } else if major_battle {
+                    DispatchSeverity::Urgent
+                } else {
+                    DispatchSeverity::Notable
+                };
+                let headline = if player_faction_in_match {
+                    let known_star = star_name_if_known(state, *star);
+                    match (winner, known_star) {
+                        (Some(_), Some(name)) => format!("Victory Reported at {name} Sector"),
+                        (Some(_), None) => "Victory Reported in Contested Space".to_string(),
+                        (None, Some(name)) => {
+                            format!("Draw Reported at {name} Sector")
+                        }
+                        (None, None) => "Draw Reported in Contested Space".to_string(),
+                    }
+                } else {
+                    "Combat v3 Engagement Concluded".to_string()
+                };
+                let known_star = star_name_if_known(state, *star);
+                let related_star = if known_star.is_some() {
+                    Some(*star)
+                } else {
+                    None
+                };
+                items.push(item(
+                    DispatchCategory::War,
+                    severity,
+                    headline,
+                    "Card-driven battle has concluded.",
+                    None,
+                    related_star,
+                    None,
+                ));
+            }
+
             // --- Blockades ---
             Event::BlockadeStarted {
                 colony,
@@ -1099,6 +1173,9 @@ mod tests {
             last_colony_yields: Default::default(),
             empire_trade_routes: Default::default(),
             empire_trade_income: Default::default(),
+            next_battle_session_id: 1,
+            pending_battle_session: None,
+            battle_reports_v3: VecDeque::new(),
         }
     }
     // Cadence behaviour

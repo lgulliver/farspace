@@ -307,6 +307,9 @@ impl Engine {
             last_colony_yields: std::collections::BTreeMap::new(),
             empire_trade_routes: std::collections::BTreeMap::new(),
             empire_trade_income: std::collections::BTreeMap::new(),
+            next_battle_session_id: 1,
+            pending_battle_session: None,
+            battle_reports_v3: std::collections::VecDeque::new(),
         };
 
         // Generate initial ship designs for all AI empires

@@ -2841,6 +2841,11 @@ fn default_next_battle_report_id() -> u64 {
     1
 }
 
+#[cfg(feature = "serde")]
+fn default_next_battle_session_id() -> u64 {
+    1
+}
+
 /// An in-flight scout mission heading toward an unexplored system
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -3665,6 +3670,20 @@ pub struct GameState {
     /// Derived from `empire_trade_routes` — sum of `route.net_value` per empire.
     #[cfg_attr(feature = "serde", serde(default))]
     pub empire_trade_income: BTreeMap<EmpireId, i64>,
+    /// Monotonic identifier for Combat v3 battle sessions.
+    ///
+    /// Defaults to `1` so v40→v41 migrations can stay empty-handed.
+    #[cfg_attr(feature = "serde", serde(default = "default_next_battle_session_id"))]
+    pub next_battle_session_id: u64,
+    /// Active Combat v3 battle awaiting player input.  `Some` while a
+    /// player-involved engagement is paused for card plays.  `None` when
+    /// no battle is pending (most turns).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub pending_battle_session: Option<crate::combat_v3::BattleSession>,
+    /// Recent Combat v3 battle reports.  Bounded to the same history
+    /// limit as `battle_reports` (legacy v2 reports).  Oldest at front.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub battle_reports_v3: VecDeque<crate::combat_v3::BattleReportV3>,
 }
 
 impl GameState {
@@ -4646,6 +4665,9 @@ impl PartialEq for GameState {
             && self.last_colony_yields == other.last_colony_yields
             && self.empire_trade_routes == other.empire_trade_routes
             && self.empire_trade_income == other.empire_trade_income
+            && self.next_battle_session_id == other.next_battle_session_id
+            && self.pending_battle_session == other.pending_battle_session
+            && self.battle_reports_v3 == other.battle_reports_v3
     }
 }
 
@@ -4762,6 +4784,9 @@ impl Default for GameState {
             last_colony_yields: BTreeMap::new(),
             empire_trade_routes: BTreeMap::new(),
             empire_trade_income: BTreeMap::new(),
+            next_battle_session_id: 1,
+            pending_battle_session: None,
+            battle_reports_v3: VecDeque::new(),
         }
     }
 }

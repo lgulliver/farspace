@@ -4,11 +4,12 @@ mod logging;
 
 use crate::animation::{ScreenTransition, TransitionState};
 use crate::components::{
-    EventLog, LogEntryKind, MockBattleState, PaletteCommand, render_battle_mock,
-    render_battle_reports, render_dispatch, render_help, render_palette,
+    EventLog, LogEntryKind, PaletteCommand, render_battle_reports, render_dispatch, render_help,
+    render_palette,
 };
 use crate::keys::KeyMap;
 use crate::screens::Screen;
+use crate::screens::battle::{BattleOverlayState, render_battle};
 use crate::screens::empire_overview::{EmpireOverviewData, OverviewSort, derive_empire_overview};
 use crate::screens::menu::{MenuAction, menu_action_count};
 use crate::screens::research::{
@@ -159,9 +160,9 @@ pub(crate) struct OverlayState {
     pub(crate) update_confirm: Option<UpdateConfirmKind>,
     /// Campaign Archives (save browser) overlay state.
     pub(crate) archives: ArchivesState,
-    /// Combat v3 mock overlay (prototype; no game-core dependency).
-    pub(crate) show_battle_mock: bool,
-    pub(crate) battle_mock_state: MockBattleState,
+    /// Combat v3 real battle overlay state.  The overlay auto-opens
+    /// when `engine.state.pending_battle_session.is_some()`.
+    pub(crate) battle_overlay: BattleOverlayState,
 }
 
 /// Campaign Archives overlay state. Holds the scanned save summaries plus the
@@ -990,8 +991,15 @@ impl App {
             render_update_confirm(frame, area, confirm);
         }
 
-        if self.state.overlay.show_battle_mock {
-            render_battle_mock(frame, area, &self.state.overlay.battle_mock_state);
+        if let Some(engine) = &self.engine
+            && engine.state.pending_battle_session.is_some()
+        {
+            render_battle(
+                frame,
+                area,
+                &engine.state,
+                &self.state.overlay.battle_overlay,
+            );
         }
 
         self.apply_visual_mode_fallback(frame);
@@ -1000,12 +1008,12 @@ impl App {
 
     /// Handle a key event
     fn handle_key(&mut self, key: KeyEvent) {
-        // Combat v3 mock overlay takes priority over every other input path.
-        // It is a standalone prototype with no engine wiring.
-        if self.state.overlay.show_battle_mock {
-            if self.state.overlay.battle_mock_state.handle_key(key) {
-                self.state.overlay.show_battle_mock = false;
-            }
+        // Combat v3 real battle overlay takes priority over every other
+        // input path while a pending battle session is active.
+        if let Some(engine) = &self.engine
+            && engine.state.pending_battle_session.is_some()
+        {
+            self.handle_battle_key(key);
             return;
         }
 
@@ -1177,14 +1185,9 @@ impl App {
             return;
         }
 
-        // 'M' opens the Combat v3 mock overlay from any non-SectorMap screen.
-        // The SectorMap reserves 'M' for fleet-move dispatch, so the mock is
-        // suppressed there to preserve the existing binding.
-        if key.code == KeyCode::Char('M') && self.state.active != Screen::SectorMap {
-            self.state.overlay.battle_mock_state.reset();
-            self.state.overlay.show_battle_mock = true;
-            return;
-        }
+        // The 'M' binding for the old Combat v3 mock is intentionally
+        // removed; the real battle overlay opens automatically when a
+        // Combat v3 session is pending in `GameState`.
 
         // Screen-specific handling
         match self.state.active {
@@ -1561,6 +1564,52 @@ impl App {
 
         if KeyMap::is_end_turn(key) {
             self.end_turn();
+        }
+    }
+
+    /// Handle a key while a Combat v3 battle is pending.
+    ///
+    /// Reads the pending session from the engine, lets the overlay
+    /// state consume help/tab/esc, and emits `Command::PlayBattleCard`
+    /// or `Command::RetreatFromBattle` to the engine for card play.
+    fn handle_battle_key(&mut self, key: KeyEvent) {
+        use crate::screens::battle::BattleAction;
+        let Some(engine) = self.engine.as_mut() else {
+            return;
+        };
+        let Some(session) = engine.state.pending_battle_session.as_ref() else {
+            return;
+        };
+        let session_id = session.session_id;
+        let player_side = if session.empire_a == engine.state.player_empire {
+            game_core::BattleSide::Attacker
+        } else {
+            game_core::BattleSide::Defender
+        };
+        let player_hand_len = match player_side {
+            game_core::BattleSide::Attacker => session.hand_a.len(),
+            game_core::BattleSide::Defender => session.hand_b.len(),
+        };
+
+        let action = self
+            .state
+            .overlay
+            .battle_overlay
+            .handle_key(key, player_hand_len);
+        match action {
+            Some(BattleAction::PlayCard(idx)) => {
+                self.dispatch_command(Command::PlayBattleCard {
+                    session_id,
+                    card_index: idx,
+                    target: None,
+                });
+            }
+            Some(BattleAction::Retreat) => {
+                self.dispatch_command(Command::RetreatFromBattle { session_id });
+            }
+            Some(BattleAction::ToggleHelp) | Some(BattleAction::Dismiss) | None => {
+                // No command; overlay state already updated.
+            }
         }
     }
 

@@ -4054,6 +4054,9 @@ fn make_two_empire_state() -> (Engine, StarId, StarId, EmpireId) {
         last_colony_yields: BTreeMap::new(),
         empire_trade_routes: BTreeMap::new(),
         empire_trade_income: BTreeMap::new(),
+        next_battle_session_id: 1,
+        pending_battle_session: None,
+        battle_reports_v3: std::collections::VecDeque::new(),
     };
 
     // Player star
@@ -4285,6 +4288,9 @@ fn scout_arrival_at_ai_colony_establishes_contact() {
         last_colony_yields: BTreeMap::new(),
         empire_trade_routes: BTreeMap::new(),
         empire_trade_income: BTreeMap::new(),
+        next_battle_session_id: 1,
+        pending_battle_session: None,
+        battle_reports_v3: std::collections::VecDeque::new(),
     };
 
     // Populate stars, empires, colonies, fleet
@@ -4677,6 +4683,9 @@ fn contact_detection_is_deterministic() {
         last_colony_yields: BTreeMap::new(),
         empire_trade_routes: BTreeMap::new(),
         empire_trade_income: BTreeMap::new(),
+        next_battle_session_id: 1,
+        pending_battle_session: None,
+        battle_reports_v3: std::collections::VecDeque::new(),
     };
 
     // Two AI empires each have a colony at target_star
@@ -5276,13 +5285,17 @@ fn combat_triggers_after_fleet_arrival() {
     // End turn — fleet arrives, combat should fire
     let events = engine.apply_turn(vec![Command::EndTurn]);
 
+    // Combat v3 emits BattleStarted and (since the player is involved)
+    // parks a pending session.  The new v3 events are the source of
+    // truth for the combat signal — `Event::CombatResolved` is
+    // intentionally not emitted by the v3 path.
     let combat_events: Vec<_> = events
         .iter()
-        .filter(|e| matches!(e, Event::CombatResolved { .. }))
+        .filter(|e| matches!(e, Event::BattleStarted { .. }))
         .collect();
     assert!(
         !combat_events.is_empty(),
-        "CombatResolved should be emitted after fleet arrival"
+        "BattleStarted should be emitted after fleet arrival (Combat v3)"
     );
 }
 
@@ -9884,6 +9897,9 @@ fn make_blockade_state() -> (GameState, StarId, ColonyId, EmpireId, EmpireId) {
         last_colony_yields: BTreeMap::new(),
         empire_trade_routes: BTreeMap::new(),
         empire_trade_income: BTreeMap::new(),
+        next_battle_session_id: 1,
+        pending_battle_session: None,
+        battle_reports_v3: std::collections::VecDeque::new(),
     };
 
     state.stars.insert(
@@ -10263,14 +10279,15 @@ fn combat_resolves_before_blockade_on_fleet_arrival() {
     let mut engine = Engine::from_state(state);
     let events = engine.apply_turn(vec![Command::EndTurn]);
 
-    // Combat should fire (player fleet arrives + war status)
+    // Combat v3: player-involved battles emit BattleStarted and park a
+    // pending session.  This replaces the v2 CombatResolved signal.
     let combat: Vec<_> = events
         .iter()
-        .filter(|e| matches!(e, Event::CombatResolved { .. }))
+        .filter(|e| matches!(e, Event::BattleStarted { .. }))
         .collect();
     assert!(
         !combat.is_empty(),
-        "Combat should fire when war fleet is at star"
+        "BattleStarted should fire when war fleet is at star (Combat v3)"
     );
 
     // After combat, check that no blockade event was emitted
@@ -12723,4 +12740,381 @@ fn ai_on_ai_conquest_is_silent_until_player_knows_both() {
         )),
         "conquests between unmet empires must not surface to the player"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Combat v3 — engine-level integration tests
+// ---------------------------------------------------------------------------
+
+/// Build a minimal state with a player and an AI empire at war, plus one
+/// fleet each.  Used by the v3 engine tests below.
+fn make_v3_combat_state() -> (
+    crate::Engine,
+    crate::state::StarId,
+    crate::state::FleetId,
+    crate::state::FleetId,
+) {
+    let mut engine = crate::Engine::new(7);
+    let player = engine.state.player_empire;
+    let ai = engine
+        .state
+        .ai_empire
+        .expect("AI empire present in default engine");
+
+    // Establish war.
+    engine.state.diplomacy.insert(ai, RelationshipStatus::War);
+
+    // Place a player and AI fleet on the player's home star.
+    let home = engine.state.empires.get(&player).unwrap().home_star;
+    let player_fleet_id = crate::state::FleetId(9001);
+    let ai_fleet_id = crate::state::FleetId(9002);
+    engine.state.fleets.insert(
+        player_fleet_id,
+        Fleet {
+            id: player_fleet_id,
+            owner: player,
+            location: home,
+            ships: 1,
+            kind: FleetKind::Destroyer,
+            strength: 1,
+            integrity: 100,
+        },
+    );
+    engine.state.fleets.insert(
+        ai_fleet_id,
+        Fleet {
+            id: ai_fleet_id,
+            owner: ai,
+            location: home,
+            ships: 1,
+            kind: FleetKind::EscortFrigate,
+            strength: 1,
+            integrity: 100,
+        },
+    );
+    (engine, home, player_fleet_id, ai_fleet_id)
+}
+
+#[test]
+fn combat_v3_player_battle_creates_pending_session() {
+    let (mut engine, _star, _pf, _af) = make_v3_combat_state();
+    let mut events = Vec::new();
+    engine.start_battle_v3(_star, _pf, _af, &mut events);
+
+    assert!(
+        engine.state.pending_battle_session.is_some(),
+        "player-involved battle must create a pending session"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::BattleStarted { .. })),
+        "BattleStarted must be emitted"
+    );
+    // Battle reports history is empty until finalisation.
+    assert!(engine.state.battle_reports_v3.is_empty());
+}
+
+#[test]
+fn combat_v3_ai_only_battle_fully_resolves() {
+    // Add a second AI empire and pit two AI fleets against each other.
+    let mut engine = crate::Engine::new(11);
+    let ai1 = engine.state.ai_empire.expect("AI1");
+    let ai2 = crate::state::EmpireId(ai1.0 + 1);
+    engine.state.empires.insert(
+        ai2,
+        crate::state::Empire {
+            id: ai2,
+            name: "AI2".to_string(),
+            credits: 0,
+            research_points: 0,
+            home_star: crate::state::StarId(0),
+            research: Default::default(),
+            food: 0,
+            empire_def: None,
+        },
+    );
+    // Mark AI1 vs AI2 as combat-eligible.
+    engine
+        .state
+        .set_ai_relation(ai1, ai2, RelationshipStatus::War);
+
+    let star = crate::state::StarId(0);
+    let f1 = crate::state::FleetId(8001);
+    let f2 = crate::state::FleetId(8002);
+    engine.state.fleets.insert(
+        f1,
+        Fleet {
+            id: f1,
+            owner: ai1,
+            location: star,
+            ships: 1,
+            kind: FleetKind::Destroyer,
+            strength: 1,
+            integrity: 100,
+        },
+    );
+    engine.state.fleets.insert(
+        f2,
+        Fleet {
+            id: f2,
+            owner: ai2,
+            location: star,
+            ships: 1,
+            kind: FleetKind::EscortFrigate,
+            strength: 1,
+            integrity: 100,
+        },
+    );
+
+    let mut events = Vec::new();
+    engine.start_battle_v3(star, f1, f2, &mut events);
+
+    // No pending session for AI-only.
+    assert!(
+        engine.state.pending_battle_session.is_none(),
+        "AI-only battle must not create a pending session"
+    );
+    // BattleFinished must be emitted.
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::BattleFinished { .. })),
+        "BattleFinished must be emitted for AI-only battle"
+    );
+    // At least one report in history.
+    assert!(
+        !engine.state.battle_reports_v3.is_empty(),
+        "AI-only battle must produce a BattleReportV3"
+    );
+}
+
+#[test]
+fn combat_v3_destroyed_fleet_is_removed() {
+    let (mut engine, _star, _pf, _af) = make_v3_combat_state();
+    // Drop the player's fleet integrity to 0; the v3 path removes
+    // destroyed fleets on finalise.
+    engine.state.fleets.get_mut(&_pf).unwrap().integrity = 0;
+    let mut events = Vec::new();
+    engine.start_battle_v3(_star, _pf, _af, &mut events);
+    // Manually finalise by playing cards until the battle ends.
+    while engine.state.pending_battle_session.is_some() {
+        let Some(session) = engine.state.pending_battle_session.as_ref() else {
+            break;
+        };
+        let session_id = session.session_id;
+        engine.apply_turn(vec![Command::PlayBattleCard {
+            session_id,
+            card_index: 0,
+            target: None,
+        }]);
+    }
+    // Player fleet at integrity 0 should be removed.
+    assert!(
+        !engine.state.fleets.contains_key(&_pf),
+        "destroyed player fleet must be removed"
+    );
+}
+
+#[test]
+fn combat_v3_retreat_finalizes_battle() {
+    let (mut engine, _star, _pf, _af) = make_v3_combat_state();
+    let mut events = Vec::new();
+    engine.start_battle_v3(_star, _pf, _af, &mut events);
+    let session_id = engine
+        .state
+        .pending_battle_session
+        .as_ref()
+        .unwrap()
+        .session_id;
+    let retreat_events = engine.apply_turn(vec![Command::RetreatFromBattle { session_id }]);
+    assert!(
+        engine.state.pending_battle_session.is_none(),
+        "pending session must be cleared after retreat"
+    );
+    assert!(
+        retreat_events
+            .iter()
+            .any(|e| matches!(e, Event::BattleFinished { .. })),
+        "BattleFinished must be emitted on retreat"
+    );
+}
+
+#[test]
+fn combat_v3_invalid_card_index_emits_error() {
+    let (mut engine, _star, _pf, _af) = make_v3_combat_state();
+    let mut events = Vec::new();
+    engine.start_battle_v3(_star, _pf, _af, &mut events);
+    let session_id = engine
+        .state
+        .pending_battle_session
+        .as_ref()
+        .unwrap()
+        .session_id;
+    let events = engine.apply_turn(vec![Command::PlayBattleCard {
+        session_id,
+        card_index: 99,
+        target: None,
+    }]);
+    assert!(
+        events.iter().any(|e| matches!(e, Event::Error { .. })),
+        "out-of-range card index must emit Event::Error"
+    );
+    // Pending session is preserved on error.
+    assert!(
+        engine.state.pending_battle_session.is_some(),
+        "error must not clear the pending session"
+    );
+}
+
+#[test]
+fn combat_v3_serializes_through_state_round_trip() {
+    let (mut engine, _star, _pf, _af) = make_v3_combat_state();
+    let mut events = Vec::new();
+    engine.start_battle_v3(_star, _pf, _af, &mut events);
+    let json = serde_json::to_string(&engine.state).expect("serialize");
+    let restored: GameState = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(
+        restored.pending_battle_session,
+        engine.state.pending_battle_session
+    );
+    assert_eq!(
+        restored.next_battle_session_id,
+        engine.state.next_battle_session_id
+    );
+}
+
+#[test]
+fn combat_v3_fixed_seed_battle_produces_identical_report() {
+    // Two engines from the same seed, both running the same AI-vs-AI
+    // battle, must produce byte-identical BattleReportV3.
+    let mut engine_a = crate::Engine::new(1234);
+    let mut engine_b = crate::Engine::new(1234);
+    let ai1_a = engine_a.state.ai_empire.expect("AI1");
+    let ai1_b = engine_b.state.ai_empire.expect("AI1");
+    // Use the same empire id for the second AI in both engines so the
+    // report's `empire_b` field is identical.
+    let ai2_a = crate::state::EmpireId(ai1_a.0 + 1);
+    let ai2_b = crate::state::EmpireId(ai1_b.0 + 1);
+
+    for (engine, ai2) in [(&mut engine_a, ai2_a), (&mut engine_b, ai2_b)] {
+        engine.state.empires.insert(
+            ai2,
+            crate::state::Empire {
+                id: ai2,
+                name: "AI2".to_string(),
+                credits: 0,
+                research_points: 0,
+                home_star: crate::state::StarId(0),
+                research: Default::default(),
+                food: 0,
+                empire_def: None,
+            },
+        );
+        engine.state.set_ai_relation(
+            engine.state.ai_empire.unwrap(),
+            ai2,
+            RelationshipStatus::War,
+        );
+        engine.state.fleets.insert(
+            crate::state::FleetId(7001),
+            Fleet {
+                id: crate::state::FleetId(7001),
+                owner: engine.state.ai_empire.unwrap(),
+                location: crate::state::StarId(0),
+                ships: 1,
+                kind: FleetKind::Destroyer,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+        engine.state.fleets.insert(
+            crate::state::FleetId(7002),
+            Fleet {
+                id: crate::state::FleetId(7002),
+                owner: ai2,
+                location: crate::state::StarId(0),
+                ships: 1,
+                kind: FleetKind::EscortFrigate,
+                strength: 1,
+                integrity: 100,
+            },
+        );
+    }
+
+    let mut events_a = Vec::new();
+    engine_a.start_battle_v3(
+        crate::state::StarId(0),
+        crate::state::FleetId(7001),
+        crate::state::FleetId(7002),
+        &mut events_a,
+    );
+    let mut events_b = Vec::new();
+    engine_b.start_battle_v3(
+        crate::state::StarId(0),
+        crate::state::FleetId(7001),
+        crate::state::FleetId(7002),
+        &mut events_b,
+    );
+
+    assert_eq!(
+        engine_a.state.battle_reports_v3,
+        engine_b.state.battle_reports_v3
+    );
+}
+
+#[test]
+fn combat_v3_commands_serialize() {
+    let cmd = Command::PlayBattleCard {
+        session_id: 7,
+        card_index: 2,
+        target: None,
+    };
+    let json = serde_json::to_string(&cmd).unwrap();
+    let parsed: Command = serde_json::from_str(&json).unwrap();
+    assert_eq!(cmd, parsed);
+
+    let cmd2 = Command::RetreatFromBattle { session_id: 9 };
+    let json2 = serde_json::to_string(&cmd2).unwrap();
+    let parsed2: Command = serde_json::from_str(&json2).unwrap();
+    assert_eq!(cmd2, parsed2);
+}
+
+#[test]
+fn combat_v3_events_serialize() {
+    use crate::combat_v3::{BattleSide, CardId};
+    let ev = Event::BattleStarted {
+        session_id: 1,
+        attacker: FleetId(2),
+        defender: FleetId(3),
+        star: StarId(4),
+    };
+    let json = serde_json::to_string(&ev).unwrap();
+    let parsed: Event = serde_json::from_str(&json).unwrap();
+    assert_eq!(ev, parsed);
+
+    let ev2 = Event::BattleRoundPlayed {
+        session_id: 1,
+        round: 2,
+        side: BattleSide::Attacker,
+        card: CardId::KINETIC_SALVO,
+        effect_summary: "Strike -18 hp".to_string(),
+    };
+    let json2 = serde_json::to_string(&ev2).unwrap();
+    let parsed2: Event = serde_json::from_str(&json2).unwrap();
+    assert_eq!(ev2, parsed2);
+
+    let ev3 = Event::BattleFinished {
+        session_id: 1,
+        report_id: 11,
+        star: StarId(4),
+        winner: Some(BattleSide::Attacker),
+        fleet_a_destroyed: false,
+        fleet_b_destroyed: true,
+        fleet_a_retreated: false,
+        fleet_b_retreated: false,
+    };
+    let json3 = serde_json::to_string(&ev3).unwrap();
+    let parsed3: Event = serde_json::from_str(&json3).unwrap();
+    assert_eq!(ev3, parsed3);
 }

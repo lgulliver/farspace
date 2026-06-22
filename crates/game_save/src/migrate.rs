@@ -223,6 +223,13 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                             .insert(home);
                     }
                 }
+                save.metadata.schema_version = 40;
+                save.version = 40;
+            }
+            40 => {
+                // Combat v3 — pending session, v3 reports, and session id
+                // counter are all `#[serde(default)]`.  Nothing to do
+                // beyond bumping the version stamp.
                 save.metadata.schema_version = CURRENT_VERSION;
                 save.version = CURRENT_VERSION;
             }
@@ -1221,5 +1228,24 @@ mod tests {
             loaded.ai_relations.is_empty(),
             "AI relations start empty after migration"
         );
+    }
+
+    /// v40 saves carry no Combat v3 state.  Migration must add the
+    /// new fields with safe defaults and bump the version stamp.
+    #[test]
+    fn migrate_v40_to_v41_passes_through_with_combat_v3_defaults() {
+        let state = GameState::default();
+        let save = SaveFile {
+            version: 40,
+            state,
+            metadata: Default::default(),
+        };
+        let migrated = migrate(save).expect("v40→v41 migration should succeed");
+        assert_eq!(migrated.version, CURRENT_VERSION);
+        assert_eq!(migrated.metadata.schema_version, CURRENT_VERSION);
+        // Combat v3 fields default to safe empty values.
+        assert_eq!(migrated.state.next_battle_session_id, 1);
+        assert!(migrated.state.pending_battle_session.is_none());
+        assert!(migrated.state.battle_reports_v3.is_empty());
     }
 }

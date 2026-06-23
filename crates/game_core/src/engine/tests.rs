@@ -13018,6 +13018,74 @@ fn combat_v3_retreat_command_clears_pending_session() {
 }
 
 #[test]
+fn combat_v3_mutual_destruction_reports_destruction_not_withdrawal() {
+    // When both fleets are at integrity 0, the v3 path produces a
+    // `None` winner and must label the report "both fleets
+    // destroyed" — *not* "both fleets withdrew", which is reserved
+    // for the max-rounds/empty-hands draw case.
+    let mut engine = crate::Engine::new(123);
+    let ai = engine.state.ai_empire.expect("AI empire");
+    let ai2 = crate::state::EmpireId(ai.0 + 1);
+    engine.state.empires.insert(
+        ai2,
+        crate::state::Empire {
+            id: ai2,
+            name: "AI2".to_string(),
+            credits: 0,
+            research_points: 0,
+            home_star: crate::state::StarId(0),
+            research: Default::default(),
+            food: 0,
+            empire_def: None,
+        },
+    );
+    engine
+        .state
+        .set_ai_relation(ai, ai2, RelationshipStatus::War);
+    let f1 = crate::state::FleetId(5001);
+    let f2 = crate::state::FleetId(5002);
+    engine.state.fleets.insert(
+        f1,
+        Fleet {
+            id: f1,
+            owner: ai,
+            location: crate::state::StarId(0),
+            ships: 1,
+            kind: FleetKind::Destroyer,
+            strength: 1,
+            integrity: 1, // tiny so a single Strike destroys both
+        },
+    );
+    engine.state.fleets.insert(
+        f2,
+        Fleet {
+            id: f2,
+            owner: ai2,
+            location: crate::state::StarId(0),
+            ships: 1,
+            kind: FleetKind::Destroyer,
+            strength: 1,
+            integrity: 1,
+        },
+    );
+
+    let mut events = Vec::new();
+    engine.start_battle_v3(crate::state::StarId(0), f1, f2, &mut events);
+    let report = engine
+        .state
+        .battle_reports_v3
+        .back()
+        .expect("a report must have been pushed");
+    assert_eq!(
+        report.system_outcome, "Draw — both fleets destroyed",
+        "mutual destruction must not be labelled withdrawal"
+    );
+    // No second dispatch variant — defeated-side fleets are removed.
+    assert!(!engine.state.fleets.contains_key(&f1));
+    assert!(!engine.state.fleets.contains_key(&f2));
+}
+
+#[test]
 fn combat_v3_serializes_through_state_round_trip() {
     let (mut engine, _star, _pf, _af) = make_v3_combat_state();
     let mut events = Vec::new();

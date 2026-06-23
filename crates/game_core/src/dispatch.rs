@@ -500,7 +500,7 @@ pub fn generate_dispatch(
 
             // --- Combat v3 ---
             Event::BattleFinished {
-                session_id,
+                session_id: _,
                 report_id,
                 star,
                 fleet_a_destroyed,
@@ -508,9 +508,11 @@ pub fn generate_dispatch(
                 winner,
                 ..
             } => {
-                // Look up the corresponding report by id; using .back()
-                // would mis-classify any earlier event in the same
-                // turn that happened to push a v3 report first.
+                // Look up the corresponding report by id; using
+                // `.back()` would mis-classify any earlier event in
+                // the same turn that happened to push a v3 report
+                // first.  `report_id` is monotonic and unique within
+                // a game.
                 let player = state.player_empire;
                 let report = state
                     .battle_reports_v3
@@ -529,8 +531,10 @@ pub fn generate_dispatch(
                     })
                     .unwrap_or(false);
                 if !player_faction_in_match && !ai_only_visible {
-                    // Player has no intel on either combatant — drop.
-                    let _ = session_id;
+                    // Player has no intel on either combatant — skip
+                    // the rest of this event so we don't emit a
+                    // visible dispatch for hidden AI-only combat.
+                    continue;
                 }
                 let major_battle = *fleet_a_destroyed || *fleet_b_destroyed;
                 let severity = if player_faction_in_match {
@@ -1482,6 +1486,90 @@ mod tests {
             war_items[0].severity,
             DispatchSeverity::Urgent,
             "player-involved combat should be Urgent"
+        );
+    }
+
+    #[test]
+    fn v3_battle_finished_drops_dispatch_when_no_intel() {
+        // AI-only v3 battle between two empires the player has no
+        // contact with.  The dispatch must NOT produce a War item
+        // (no intel gate passes); previously the gate fell through
+        // and emitted a visible dispatch anyway.
+        use crate::GameState;
+        let mut state = GameState::default();
+        let player = state.player_empire;
+        let ai1 = EmpireId(50);
+        let ai2 = EmpireId(51);
+        state.empires.insert(
+            ai1,
+            crate::state::Empire {
+                id: ai1,
+                name: "AI1".to_string(),
+                credits: 0,
+                research_points: 0,
+                home_star: StarId(0),
+                research: Default::default(),
+                food: 0,
+                empire_def: None,
+            },
+        );
+        state.empires.insert(
+            ai2,
+            crate::state::Empire {
+                id: ai2,
+                name: "AI2".to_string(),
+                credits: 0,
+                research_points: 0,
+                home_star: StarId(0),
+                research: Default::default(),
+                food: 0,
+                empire_def: None,
+            },
+        );
+        state.set_ai_relation(ai1, ai2, RelationshipStatus::War);
+        // No diplomacy entries for ai1/ai2 — player has no intel.
+
+        // Push a v3 report and emit a matching BattleFinished.
+        let mut report = crate::BattleReportV3::new(
+            1,
+            0,
+            StarId(0),
+            FleetId(101),
+            FleetId(102),
+            ai1,
+            ai2,
+            crate::BattleSetupSummary::default(),
+            vec![],
+            vec![],
+            vec![],
+            100,
+            100,
+            0,
+            100,
+        );
+        report.system_outcome = "AI-only".to_string();
+        state.battle_reports_v3.push_back(report);
+
+        let events = vec![Event::BattleFinished {
+            session_id: 1,
+            report_id: 1,
+            star: StarId(0),
+            winner: Some(crate::BattleSide::Attacker),
+            fleet_a_destroyed: true,
+            fleet_b_destroyed: false,
+            fleet_a_retreated: false,
+            fleet_b_retreated: false,
+        }];
+        let _ = player; // silence unused if no other reference
+        let d = generate_dispatch(0, &events, &state).unwrap();
+        let war_items: Vec<_> = d
+            .items
+            .iter()
+            .filter(|i| i.category == DispatchCategory::War)
+            .collect();
+        assert!(
+            war_items.is_empty(),
+            "hidden AI-only battle must not produce a War dispatch"
         );
     }
 

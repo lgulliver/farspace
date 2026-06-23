@@ -6175,10 +6175,18 @@ impl Engine {
         // Build and push the report.
         let report_id = self.state.next_battle_report_id;
         self.state.next_battle_report_id = self.state.next_battle_report_id.saturating_add(1);
-        let system_outcome = match winner {
-            Some(BattleSide::Attacker) => "Attacker holds the field".to_string(),
-            Some(BattleSide::Defender) => "Defender holds the field".to_string(),
-            None => "Draw — both fleets withdrew".to_string(),
+        // `winner == None` is reached for two distinct cases: mutual
+        // destruction (both fleets at 0 integrity) and a true draw
+        // (max-rounds tiebreak on equal integrity).  Distinguish them
+        // so the report text reflects what actually happened.
+        let system_outcome = if attacker_destroyed && defender_destroyed {
+            "Draw — both fleets destroyed".to_string()
+        } else {
+            match winner {
+                Some(BattleSide::Attacker) => "Attacker holds the field".to_string(),
+                Some(BattleSide::Defender) => "Defender holds the field".to_string(),
+                None => "Draw — both fleets withdrew".to_string(),
+            }
         };
         let mut report = BattleReportV3::new(
             report_id,

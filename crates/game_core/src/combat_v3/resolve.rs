@@ -76,8 +76,11 @@ pub fn apply_round(
                 BattleSide::Attacker,
                 BattleSide::Defender,
             );
-            let p_retreated = matches!(card_by_id(player_card).verb, CardVerb::Withdraw);
-            let f_retreated = matches!(card_by_id(ai_card).verb, CardVerb::Withdraw);
+            // Use the *resolved* cards (post-CIWS) for retreat
+            // detection: a cancelled WARP_RETREAT is no longer a
+            // retreat.
+            let p_retreated = matches!(card_by_id(player_card_resolved).verb, CardVerb::Withdraw);
+            let f_retreated = matches!(card_by_id(ai_card_resolved).verb, CardVerb::Withdraw);
             (
                 Some(player_card),
                 Some(ai_card),
@@ -97,8 +100,11 @@ pub fn apply_round(
                 BattleSide::Attacker,
                 BattleSide::Defender,
             );
-            let p_retreated = matches!(card_by_id(player_card).verb, CardVerb::Withdraw);
-            let f_retreated = matches!(card_by_id(ai_card).verb, CardVerb::Withdraw);
+            // See the attacker branch above: use the *resolved* cards
+            // so a CIWS-cancelled WARP_RETREAT does not trigger a
+            // retreat.
+            let p_retreated = matches!(card_by_id(player_card_resolved).verb, CardVerb::Withdraw);
+            let f_retreated = matches!(card_by_id(ai_card_resolved).verb, CardVerb::Withdraw);
             // Swap so the *attacker-side* retreat flag is the AI's and
             // the *defender-side* flag is the player's.
             (
@@ -531,6 +537,46 @@ mod tests {
         // Defender (the player) drops to 50 hp; attacker is untouched.
         assert_eq!(s.integrity_a, 100, "attacker integrity must be untouched");
         assert_eq!(s.integrity_b, 50, "defender integrity must be halved");
+    }
+
+    #[test]
+    fn ciws_cancels_withdraw_no_retreat_no_halving() {
+        // Regression: when CIWS Grid cancels a WARP_RETREAT, the
+        // cancelled card becomes HOLD_FIRE (Noop), and the retreat
+        // must NOT apply — neither side retreats, no halving occurs,
+        // and the round continues.
+        let mut s = make_session(
+            vec![
+                CardId::WARP_RETREAT,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+            vec![
+                CardId::CIWS_GRID,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+        );
+        let (outcome, _) = apply_round(&mut s, BattleSide::Attacker, CardId::WARP_RETREAT);
+        // Round is not a finished battle — the cancelled retreat does
+        // not finalise the session.
+        assert!(matches!(outcome, BattleOutcome::Continue));
+        // Neither integrity is halved by a cancelled retreat; the
+        // post-round values depend only on damage from HOLD_FIRE
+        // exchanges (zero) and the round log has been appended.
+        assert_eq!(
+            s.integrity_a, 100,
+            "cancelled retreat must not halve attacker"
+        );
+        assert_eq!(
+            s.integrity_b, 100,
+            "cancelled retreat must not halve defender"
+        );
+        assert_eq!(s.rounds.len(), 1, "round must be recorded");
     }
 
     #[test]

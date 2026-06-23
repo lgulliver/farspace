@@ -4,18 +4,11 @@
 //! play this round.  No RNG is used; no lookahead is performed.  The
 //! policy uses a single scoring function over the current hand and
 //! resolves ties by `CardId` ascending then hand index ascending.
-//!
-//! When the playing side has an `EmpireDefinition` available, the
-//! score is augmented by the card's `doctrine_bias` parsed against
-//! the empire's `doctrine_weights` and `playstyle` tags.  This makes
-//! the AI's behaviour vary by faction while remaining fully
-//! deterministic.
 
 #[cfg(test)]
 use crate::combat_v3::BattleSessionState;
 use crate::combat_v3::card::{CardId, CardVerb, card_by_id};
 use crate::combat_v3::{BattleSession, BattleSide, HAND_SIZE};
-use crate::state::{AiDoctrine, EmpireDefinition, PlaystyleTag};
 
 /// Score for a given card on a given side, given the current session
 /// state.  Higher scores are preferred.  Deterministic.
@@ -77,116 +70,13 @@ fn card_score(session: &BattleSession, side: BattleSide, card: CardId) -> i32 {
     score
 }
 
-/// Parse a `doctrine_bias` string of the form
-/// `"Militarist +2, Merchant +1"` into `(label, weight)` pairs.
+/// Pick a hand index for the AI to play this round.
 ///
-/// Unrecognised labels (e.g. the "Unity" placeholder) are silently
-/// dropped.  Returns an empty `Vec` for the neutral bias `"—"` or
-/// any other non-matching input.  The function never panics.
-fn parse_doctrine_bias(s: &str) -> Vec<(&str, i32)> {
-    let mut out = Vec::new();
-    for chunk in s.split(',') {
-        let chunk = chunk.trim();
-        if chunk.is_empty() || chunk == "—" {
-            continue;
-        }
-        // Expect "<Label> +<n>" or "<Label> -<n>".
-        let mut parts = chunk.split_whitespace();
-        let label = parts.next().unwrap_or("");
-        let sign = parts.next().unwrap_or("");
-        let n: i32 = match sign {
-            "+1" => 1,
-            "+2" => 2,
-            "+3" => 3,
-            "+4" => 4,
-            "+5" => 5,
-            "-1" => -1,
-            "-2" => -2,
-            "-3" => -3,
-            _ => continue,
-        };
-        out.push((label, n));
-    }
-    out
-}
-
-/// Compute the doctrine-derived score contribution for a card given
-/// an empire definition.  Sums the bias weights for each label that
-/// matches an `AiDoctrine` the empire weights, plus `1` per matching
-/// `PlaystyleTag` occurrence.  `0` if the empire has no definition.
-fn doctrine_bonus(def: &EmpireDefinition, card: CardId) -> i32 {
-    let bias = parse_doctrine_bias(card_by_id(card).doctrine_bias);
-    if bias.is_empty() {
-        return 0;
-    }
-    let mut bonus: i32 = 0;
-    for (label, w) in bias {
-        // Try AiDoctrine first.
-        if let Some(d) = doctrine_from_label(label) {
-            let weight = def.doctrine_weight(d) as i32;
-            // Bias "Militarist +2" against a Militarist-3 empire
-            // contributes 2 × 3 = 6.
-            bonus = bonus.saturating_add(w.saturating_mul(weight));
-        } else if playstyle_from_label(label).is_some()
-            && def.playstyle.iter().any(|t| t.label() == label)
-        {
-            // Playstyle match: a flat contribution equal to the bias
-            // weight (we don't have a playstyle weight table, so the
-            // magnitude is just the bias itself).
-            bonus = bonus.saturating_add(w);
-        }
-        // Unrecognised labels (e.g. "Unity") silently dropped.
-    }
-    bonus
-}
-
-/// Map a label string back to an `AiDoctrine` variant.  Returns
-/// `None` for any label that does not match.
-fn doctrine_from_label(label: &str) -> Option<AiDoctrine> {
-    Some(match label {
-        "Explorer" => AiDoctrine::Explorer,
-        "Technologist" => AiDoctrine::Technologist,
-        "Merchant" => AiDoctrine::Merchant,
-        "Imperial" => AiDoctrine::Imperial,
-        "Militarist" => AiDoctrine::Militarist,
-        "Industrialist" => AiDoctrine::Industrialist,
-        "Expansionist" => AiDoctrine::Expansionist,
-        "Isolationist" => AiDoctrine::Isolationist,
-        "Biologist" => AiDoctrine::Biologist,
-        _ => return None,
-    })
-}
-
-/// Map a label string back to a `PlaystyleTag` variant.  Returns
-/// `None` for any label that does not match.
-fn playstyle_from_label(label: &str) -> Option<PlaystyleTag> {
-    Some(match label {
-        "Industrial" => PlaystyleTag::Industrial,
-        "Scientific" => PlaystyleTag::Scientific,
-        "Expansionist" => PlaystyleTag::Expansionist,
-        "Militarist" => PlaystyleTag::Militarist,
-        "Agrarian" => PlaystyleTag::Agrarian,
-        "Diplomatic" => PlaystyleTag::Diplomatic,
-        _ => return None,
-    })
-}
-
-/// Pick a hand index for the AI to play this round, with optional
-/// doctrine awareness.
-///
-/// Returns the smallest hand index whose card has the highest score;
-/// ties are broken by `CardId` ascending.  The function panics only if
-/// the hand is empty — that condition is unreachable at the call
-/// sites (resolvers only call the picker when the hand has cards).
-///
-/// `empire_def` is the empire definition of the playing side.  When
-/// `Some`, the card's `doctrine_bias` is folded into the score; when
-/// `None`, scoring is the legacy "verb-only" baseline.
-pub fn ai_pick_card(
-    session: &BattleSession,
-    side: BattleSide,
-    empire_def: Option<&EmpireDefinition>,
-) -> usize {
+/// Returns the smallest hand index whose card has the highest score; ties
+/// are broken by `CardId` ascending.  The function panics only if the
+/// hand is empty — that condition is unreachable at the call sites
+/// (resolvers only call the picker when the hand has cards).
+pub fn ai_pick_card(session: &BattleSession, side: BattleSide) -> usize {
     let hand: &[CardId] = match side {
         BattleSide::Attacker => &session.hand_a,
         BattleSide::Defender => &session.hand_b,
@@ -196,18 +86,10 @@ pub fn ai_pick_card(
 
     let mut best_idx: usize = 0;
     let mut best_card: CardId = hand[0];
-    let mut best_score: i32 = match empire_def {
-        Some(def) => {
-            card_score(session, side, best_card).saturating_add(doctrine_bonus(def, best_card))
-        }
-        None => card_score(session, side, best_card),
-    };
+    let mut best_score: i32 = card_score(session, side, best_card);
 
     for (i, &card) in hand.iter().enumerate().skip(1) {
-        let score = match empire_def {
-            Some(def) => card_score(session, side, card).saturating_add(doctrine_bonus(def, card)),
-            None => card_score(session, side, card),
-        };
+        let score = card_score(session, side, card);
         let better = score > best_score
             || (score == best_score
                 && (card.0 < best_card.0 || (card.0 == best_card.0 && i < best_idx)));
@@ -225,7 +107,7 @@ pub fn ai_pick_card(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat_v3::{BattleSession, BattleSetupSummary, HOLD_FIRE};
+    use crate::combat_v3::{BattleSession, BattleSetupSummary, BattleSide, HOLD_FIRE};
     use crate::state::{
         EmpireId, FleetFormation, FleetId, FleetKind, FleetRole, FleetSupplyState, StarId,
     };
@@ -261,10 +143,6 @@ mod tests {
                 ships_b: 1,
             },
             state: BattleSessionState::AwaitingPlayer,
-            mark_a_pending: false,
-            mark_b_pending: false,
-            salvo_a_recurring: 0,
-            salvo_b_recurring: 0,
         }
     }
 
@@ -273,7 +151,7 @@ mod tests {
         let mut s = empty_session();
         s.integrity_b = 20;
         s.hand_a = vec![HOLD_FIRE.id, CardId::ABLATIVE_HULL, CardId::KINETIC_SALVO];
-        let idx = ai_pick_card(&s, BattleSide::Attacker, None);
+        let idx = ai_pick_card(&s, BattleSide::Attacker);
         assert_eq!(s.hand_a[idx], CardId::KINETIC_SALVO);
     }
 
@@ -282,7 +160,7 @@ mod tests {
         let mut s = empty_session();
         s.integrity_a = 10;
         s.hand_a = vec![HOLD_FIRE.id, CardId::KINETIC_SALVO, CardId::ABLATIVE_HULL];
-        let idx = ai_pick_card(&s, BattleSide::Attacker, None);
+        let idx = ai_pick_card(&s, BattleSide::Attacker);
         assert_eq!(s.hand_a[idx], CardId::ABLATIVE_HULL);
     }
 
@@ -294,7 +172,7 @@ mod tests {
         // Two Strike cards with no weak-side boost and no other
         // distinguishing feature: the lower CardId must win.
         s.hand_a = vec![CardId::KINETIC_SALVO, CardId::COERCIVE_MANDATE];
-        let idx = ai_pick_card(&s, BattleSide::Attacker, None);
+        let idx = ai_pick_card(&s, BattleSide::Attacker);
         assert_eq!(s.hand_a[idx], CardId::KINETIC_SALVO);
     }
 
@@ -303,31 +181,13 @@ mod tests {
         let mut s = empty_session();
         s.integrity_a = 90;
         s.hand_a = vec![CardId::WARP_RETREAT, CardId::KINETIC_SALVO];
-        let idx = ai_pick_card(&s, BattleSide::Attacker, None);
+        let idx = ai_pick_card(&s, BattleSide::Attacker);
         assert_eq!(s.hand_a[idx], CardId::KINETIC_SALVO);
 
         let mut s = empty_session();
         s.integrity_a = 20;
         s.hand_a = vec![CardId::WARP_RETREAT, CardId::KINETIC_SALVO];
-        let idx = ai_pick_card(&s, BattleSide::Attacker, None);
+        let idx = ai_pick_card(&s, BattleSide::Attacker);
         assert_eq!(s.hand_a[idx], CardId::WARP_RETREAT);
-    }
-
-    #[test]
-    fn parse_doctrine_bias_handles_compound_strings() {
-        assert!(parse_doctrine_bias("—").is_empty());
-        assert!(parse_doctrine_bias("").is_empty());
-        assert_eq!(
-            parse_doctrine_bias("Militarist +2"),
-            vec![("Militarist", 2)]
-        );
-        assert_eq!(
-            parse_doctrine_bias("Explorer +2, Merchant +1"),
-            vec![("Explorer", 2), ("Merchant", 1)]
-        );
-        assert_eq!(
-            parse_doctrine_bias("Unity +3, Militarist +1"),
-            vec![("Unity", 3), ("Militarist", 1)]
-        );
     }
 }

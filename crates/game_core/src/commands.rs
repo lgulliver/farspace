@@ -138,9 +138,8 @@ pub enum Command {
         session_id: u64,
         card_index: usize,
         /// Reserved for future targeting (snipe, etc.).  v1 ignores
-        /// this field.  Type is the domain `FleetId` so the public
-        /// command API doesn't leak a raw integer.
-        target: Option<FleetId>,
+        /// this field.
+        target: Option<u32>,
     },
     /// Combat v3 — free retreat from the pending battle.
     ///

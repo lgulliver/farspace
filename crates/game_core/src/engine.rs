@@ -6088,30 +6088,18 @@ impl Engine {
             // `BattleRoundPlayed` events from that single summary
             // keeps the log symmetric without consuming an extra
             // card from the defender's hand.
-            // Look up the defender's empire definition for doctrine-aware
-            // AI picking on the defender side (apply_round's "AI side").
-            let defender_def = self
-                .state
-                .empires
-                .get(&session.empire_b)
-                .and_then(|e| e.empire_def)
-                .and_then(crate::empire_definition_by_id);
             let a_idx = if session.hand_a.is_empty() {
                 0
             } else {
-                ai_pick_card(&session, BattleSide::Attacker, defender_def)
+                ai_pick_card(&session, BattleSide::Attacker)
             };
             let a_card = session
                 .hand_a
                 .get(a_idx)
                 .copied()
                 .unwrap_or(crate::combat_v3::HOLD_FIRE.id);
-            let (outcome, summary) = crate::combat_v3::apply_round(
-                &mut session,
-                BattleSide::Attacker,
-                a_card,
-                defender_def,
-            );
+            let (outcome, summary) =
+                crate::combat_v3::apply_round(&mut session, BattleSide::Attacker, a_card);
             events.push(Event::BattleRoundPlayed {
                 session_id: session.session_id,
                 round: summary.round,
@@ -6191,25 +6179,12 @@ impl Engine {
         // Build and push the report.
         let report_id = self.state.next_battle_report_id;
         self.state.next_battle_report_id = self.state.next_battle_report_id.saturating_add(1);
-        // Build the system_outcome text.  Cases in priority order:
-        //   1. Mutual destruction: both fleets at 0 integrity.
-        //   2. Mutual withdrawal: neither destroyed, both retreated.
-        //   3. One destroyed, other retreated: the surviving side
-        //      holds; mention both events so the report is accurate.
-        //   4. Solo retreat: exactly one side played WARP_RETREAT.
-        //   5. Otherwise: by integrity, with equal-integrity draw.
+        // `winner == None` is reached for two distinct cases: mutual
+        // destruction (both fleets at 0 integrity) and a true draw
+        // (max-rounds tiebreak on equal integrity).  Distinguish them
+        // so the report text reflects what actually happened.
         let system_outcome = if attacker_destroyed && defender_destroyed {
             "Draw — both fleets destroyed".to_string()
-        } else if attacker_retreated && defender_retreated {
-            "Draw — both fleets withdrew".to_string()
-        } else if attacker_destroyed && defender_retreated {
-            "Defender destroyed, attacker retreated".to_string()
-        } else if defender_destroyed && attacker_retreated {
-            "Attacker destroyed, defender retreated".to_string()
-        } else if attacker_retreated {
-            "Defender holds the field — attacker retreated".to_string()
-        } else if defender_retreated {
-            "Attacker holds the field — defender retreated".to_string()
         } else {
             match winner {
                 Some(BattleSide::Attacker) => "Attacker holds the field".to_string(),
@@ -6322,26 +6297,10 @@ impl Engine {
             return;
         };
 
-        // Look up the AI side's empire definition for doctrine-aware
-        // AI picking.  The AI side is whichever side is *not* the
-        // player's.  If the empire has no definition, fall back to the
-        // verb-only baseline.
-        let ai_empire_id = match player_side {
-            BattleSide::Attacker => session.empire_b,
-            BattleSide::Defender => session.empire_a,
-        };
-        let ai_empire_def = self
-            .state
-            .empires
-            .get(&ai_empire_id)
-            .and_then(|e| e.empire_def)
-            .and_then(crate::empire_definition_by_id);
-
         let (outcome, summary) = crate::combat_v3::apply_round(
             &mut *self.state.pending_battle_session.as_mut().unwrap(),
             player_side,
             card,
-            ai_empire_def,
         );
         // Use the effect text that matches the *player's* side: a is
         // attacker-side, b is defender-side.

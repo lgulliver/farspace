@@ -85,15 +85,15 @@ fn build_hand_pads_with_hold_fire() {
 #[test]
 fn ai_pick_card_is_deterministic() {
     let session = sample_session();
-    let idx_a = ai_pick_card(&session, BattleSide::Attacker, None);
-    let idx_b = ai_pick_card(&session, BattleSide::Attacker, None);
+    let idx_a = ai_pick_card(&session, BattleSide::Attacker);
+    let idx_b = ai_pick_card(&session, BattleSide::Attacker);
     assert_eq!(idx_a, idx_b);
 }
 
 #[test]
 fn ai_pick_card_returns_hand_index() {
     let session = sample_session();
-    let idx = ai_pick_card(&session, BattleSide::Attacker, None);
+    let idx = ai_pick_card(&session, BattleSide::Attacker);
     let hand = session.hand(BattleSide::Attacker);
     assert!(idx < hand.len());
 }
@@ -103,7 +103,7 @@ fn play_card_advances_session() {
     let mut session = sample_session();
     let starting_round = session.round;
     let card = session.hand_a[0];
-    let (outcome, _) = apply_round(&mut session, BattleSide::Attacker, card, None);
+    let (outcome, _) = apply_round(&mut session, BattleSide::Attacker, card);
     if matches!(outcome, BattleOutcome::Continue) {
         assert!(session.round > starting_round);
     }
@@ -116,7 +116,7 @@ fn invalid_card_in_hand_does_not_crash() {
     // CIWS Grid is not in the hand; apply_round should still process
     // the round (it just resolves whatever the AI chose).  The card
     // removal is a no-op for unknown ids and the resolver still runs.
-    let (outcome, _) = apply_round(&mut session, BattleSide::Attacker, CardId::CIWS_GRID, None);
+    let (outcome, _) = apply_round(&mut session, BattleSide::Attacker, CardId::CIWS_GRID);
     // We don't assert which outcome — just that no panic occurred.
     let _ = outcome;
 }
@@ -180,9 +180,9 @@ fn signature_for_each_faction_is_unique() {
 fn battle_round_summary_round_number_is_stable() {
     let mut session = sample_session();
     let card0 = session.hand_a[0];
-    let _ = apply_round(&mut session, BattleSide::Attacker, card0, None);
+    let _ = apply_round(&mut session, BattleSide::Attacker, card0);
     let card1 = session.hand_a[0];
-    let _ = apply_round(&mut session, BattleSide::Attacker, card1, None);
+    let _ = apply_round(&mut session, BattleSide::Attacker, card1);
     for (i, round) in session.rounds.iter().enumerate() {
         // Round numbers are 1-based; the i-th round summary has round = i+1.
         assert_eq!(round.round as usize, i + 1);
@@ -193,12 +193,7 @@ fn battle_round_summary_round_number_is_stable() {
 fn withdraw_card_finalizes_battle_immediately() {
     let mut session = sample_session();
     session.hand_a[0] = CardId::WARP_RETREAT;
-    let (outcome, _) = apply_round(
-        &mut session,
-        BattleSide::Attacker,
-        CardId::WARP_RETREAT,
-        None,
-    );
+    let (outcome, _) = apply_round(&mut session, BattleSide::Attacker, CardId::WARP_RETREAT);
     assert!(matches!(outcome, BattleOutcome::Finished { .. }));
     assert_eq!(session.integrity_a, 50);
 }
@@ -303,7 +298,7 @@ fn drive_battle(mut session: BattleSession) -> Vec<crate::events::Event> {
         } else {
             session.hand_a[0]
         };
-        let (outcome, _summary) = apply_round(&mut session, BattleSide::Attacker, a_card, None);
+        let (outcome, _summary) = apply_round(&mut session, BattleSide::Attacker, a_card);
         events.push(crate::events::Event::BattleRoundPlayed {
             session_id: session.session_id,
             round: session.round,
@@ -319,7 +314,7 @@ fn drive_battle(mut session: BattleSession) -> Vec<crate::events::Event> {
         } else {
             session.hand_b[0]
         };
-        let (outcome, _summary) = apply_round(&mut session, BattleSide::Defender, b_card, None);
+        let (outcome, _summary) = apply_round(&mut session, BattleSide::Defender, b_card);
         events.push(crate::events::Event::BattleRoundPlayed {
             session_id: session.session_id,
             round: session.round,

@@ -209,16 +209,17 @@ pub fn play_player_card(
 /// reduces the player's integrity to 50% (clamped at 0), and finalises
 /// the session.
 pub fn apply_retreat(session: &mut BattleSession, side: BattleSide) {
-    let (int_a, int_b) = match side {
-        BattleSide::Attacker => (session.integrity_a, session.integrity_b),
-        BattleSide::Defender => (session.integrity_b, session.integrity_a),
+    // Snapshot the pre-retreat integrity for the retreating side, then
+    // halve it directly in a single match.  No unused-variable dance.
+    let pre = match side {
+        BattleSide::Attacker => session.integrity_a,
+        BattleSide::Defender => session.integrity_b,
     };
-    let halved = int_a / 2;
+    let halved = pre / 2;
     match side {
         BattleSide::Attacker => session.integrity_a = halved,
         BattleSide::Defender => session.integrity_b = halved,
     }
-    let _ = int_b; // silence unused warning
     session.state = BattleSessionState::Finished;
 }
 

@@ -500,35 +500,37 @@ pub fn generate_dispatch(
 
             // --- Combat v3 ---
             Event::BattleFinished {
+                session_id,
+                report_id,
                 star,
                 fleet_a_destroyed,
                 fleet_b_destroyed,
                 winner,
                 ..
             } => {
+                // Look up the corresponding report by id; using .back()
+                // would mis-classify any earlier event in the same
+                // turn that happened to push a v3 report first.
                 let player = state.player_empire;
-                let player_involved = state
-                    .fleets
-                    .get(
-                        &state
-                            .battle_reports_v3
-                            .back()
-                            .map(|r| r.fleet_a)
-                            .unwrap_or(crate::FleetId(0)),
-                    )
-                    .map(|f| f.owner == player)
-                    .unwrap_or(false);
-                // Player-involved if either combatant belongs to the
-                // player.  We infer that from the most-recent report.
-                let player_faction_in_match = state
+                let report = state
                     .battle_reports_v3
-                    .back()
+                    .iter()
+                    .find(|r| r.report_id == *report_id);
+                let player_faction_in_match = report
                     .map(|r| r.empire_a == player || r.empire_b == player)
                     .unwrap_or(false);
-                if !player_faction_in_match && !player_involved {
-                    // AI-only battle: still surface as a Notable dispatch
-                    // if the player has intel.
-                    let _ = player;
+                // AI-only intel gate: only surface a dispatch when the
+                // player has intel on at least one of the combatants.
+                let ai_only_visible = report
+                    .map(|r| {
+                        let a_known = player_knows_empire(state, r.empire_a);
+                        let b_known = player_knows_empire(state, r.empire_b);
+                        a_known || b_known
+                    })
+                    .unwrap_or(false);
+                if !player_faction_in_match && !ai_only_visible {
+                    // Player has no intel on either combatant — drop.
+                    let _ = session_id;
                 }
                 let major_battle = *fleet_a_destroyed || *fleet_b_destroyed;
                 let severity = if player_faction_in_match {

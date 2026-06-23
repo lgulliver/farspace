@@ -324,16 +324,25 @@ fn render_mid(
         .constraints([Constraint::Length(2), Constraint::Min(2)])
         .split(area);
 
-    let (player_int, enemy_int) = match player_side {
-        BattleSide::Attacker => (session.integrity_a, session.integrity_b),
-        BattleSide::Defender => (session.integrity_b, session.integrity_a),
+    // Integrity bars: each side uses its *own* starting integrity as
+    // the denominator so the gauges reflect the correct proportion.
+    let (player_int, enemy_int, player_start, enemy_start) = match player_side {
+        BattleSide::Attacker => (
+            session.integrity_a,
+            session.integrity_b,
+            session.integrity_a_start,
+            session.integrity_b_start,
+        ),
+        BattleSide::Defender => (
+            session.integrity_b,
+            session.integrity_a,
+            session.integrity_b_start,
+            session.integrity_a_start,
+        ),
     };
     let bar = format!(
         "Integrity  YOU [{:>3}/{:>3}]   ENEMY [{:>3}/{:>3}]",
-        player_int,
-        session.integrity_a_start.max(session.integrity_b_start),
-        enemy_int,
-        session.integrity_b_start.max(session.integrity_a_start)
+        player_int, player_start, enemy_int, enemy_start
     );
     let integrity_p = Paragraph::new(Line::from(Span::styled(bar, Theme::header_style())))
         .style(Theme::default_style());
@@ -349,19 +358,16 @@ fn render_mid(
         .into_iter()
         .rev()
     {
+        // Show the round from the player's perspective: "YOU" is the
+        // side the player controls this battle; "FOE" is the other.
+        // effect_a/effect_b already carry the resolved text per side.
+        let (you_effect, foe_effect) = match player_side {
+            BattleSide::Attacker => (&round.effect_a, &round.effect_b),
+            BattleSide::Defender => (&round.effect_b, &round.effect_a),
+        };
         let entry = format!(
-            "R{}: A={} B={}  [{}hp / {}hp]",
-            round.round,
-            round
-                .card_a
-                .map(|c| card_by_id(c).name.to_string())
-                .unwrap_or_else(|| "—".to_string()),
-            round
-                .card_b
-                .map(|c| card_by_id(c).name.to_string())
-                .unwrap_or_else(|| "—".to_string()),
-            round.integrity_a_after,
-            round.integrity_b_after,
+            "R{}: YOU={}  FOE={}  [{}hp / {}hp]",
+            round.round, you_effect, foe_effect, round.integrity_a_after, round.integrity_b_after,
         );
         log_lines.push(Line::from(Span::styled(entry, Theme::text_primary_style())));
     }

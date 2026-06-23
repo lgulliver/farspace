@@ -330,10 +330,10 @@ fn drive_battle(mut session: BattleSession) -> Vec<crate::events::Event> {
         session_id: session.session_id,
         report_id: 1,
         star: session.star,
-        winner: if session.integrity_a > session.integrity_b {
-            Some(BattleSide::Attacker)
-        } else {
-            Some(BattleSide::Defender)
+        winner: match session.integrity_a.cmp(&session.integrity_b) {
+            std::cmp::Ordering::Greater => Some(BattleSide::Attacker),
+            std::cmp::Ordering::Less => Some(BattleSide::Defender),
+            std::cmp::Ordering::Equal => None,
         },
         fleet_a_destroyed: session.integrity_a == 0,
         fleet_b_destroyed: session.integrity_b == 0,

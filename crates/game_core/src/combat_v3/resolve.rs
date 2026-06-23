@@ -57,20 +57,9 @@ pub fn apply_round(
     let round = session.round;
 
     // Resolve cards.  Each side may be cancelled by the other's Disrupt.
+    let (player_card_resolved, ai_card_resolved) = apply_disrupt(player_card, ai_card);
     let (player_effect, ai_effect) = match player_side {
         BattleSide::Attacker => {
-            // Disrupt first: if the AI played Disrupt it cancels the player card.
-            let player_card_resolved = if ai_card == CardId::CIWS_GRID {
-                HOLD_FIRE.id
-            } else {
-                player_card
-            };
-            let ai_card_resolved = if player_card == CardId::CIWS_GRID {
-                HOLD_FIRE.id
-            } else {
-                ai_card
-            };
-
             let (eff_a, eff_b) = resolve_pair(
                 session,
                 player_card_resolved,
@@ -81,17 +70,6 @@ pub fn apply_round(
             (eff_a, eff_b)
         }
         BattleSide::Defender => {
-            let player_card_resolved = if ai_card == CardId::CIWS_GRID {
-                HOLD_FIRE.id
-            } else {
-                player_card
-            };
-            let ai_card_resolved = if player_card == CardId::CIWS_GRID {
-                HOLD_FIRE.id
-            } else {
-                ai_card
-            };
-
             let (eff_a, eff_b) = resolve_pair(
                 session,
                 ai_card_resolved,
@@ -181,6 +159,23 @@ pub fn apply_round(
     (outcome, summary)
 }
 
+/// Apply the Disrupt card cancellation.  If either side plays
+/// `CIWS Grid`, the opposing card is replaced with `Hold Fire` for this
+/// round.  Returns the resolved `(player_card, ai_card)` pair.
+fn apply_disrupt(player_card: CardId, ai_card: CardId) -> (CardId, CardId) {
+    let player_resolved = if ai_card == CardId::CIWS_GRID {
+        HOLD_FIRE.id
+    } else {
+        player_card
+    };
+    let ai_resolved = if player_card == CardId::CIWS_GRID {
+        HOLD_FIRE.id
+    } else {
+        ai_card
+    };
+    (player_resolved, ai_resolved)
+}
+
 /// Resolve a pair of cards simultaneously.  Each side deals damage to the
 /// other based on the verb, applying guard/evasive/fortify reductions
 /// against the incoming strike.  Self-damage (Overcharge) is applied to
@@ -197,15 +192,26 @@ fn resolve_pair(
     let def_a = card_by_id(card_a);
     let def_b = card_by_id(card_b);
 
-    // 1. Compute attacker's outgoing damage and guard reduction.
+    // 1. Compute attacker's outgoing damage.
     let atk_a = outgoing_damage(session, side_a, card_a);
+    // Defender's Evasive halves the incoming attack directly, before
+    // the guard subtraction.  This avoids the "huge guard = zero
+    // damage" trap from the earlier model.
+    let mut dmg_b = atk_a;
+    if matches!(def_b.verb, CardVerb::Evasive) {
+        dmg_b /= 2;
+    }
     let guard_b = incoming_reduction(session, side_b, card_b);
-    let dmg_b = atk_a.saturating_sub(guard_b);
+    dmg_b = dmg_b.saturating_sub(guard_b);
 
-    // 2. Compute defender's outgoing damage and guard reduction.
+    // 2. Compute defender's outgoing damage.
     let atk_b = outgoing_damage(session, side_b, card_b);
+    let mut dmg_a = atk_b;
+    if matches!(def_a.verb, CardVerb::Evasive) {
+        dmg_a /= 2;
+    }
     let guard_a = incoming_reduction(session, side_a, card_a);
-    let dmg_a = atk_b.saturating_sub(guard_a);
+    dmg_a = dmg_a.saturating_sub(guard_a);
 
     // 3. Apply damage to integrity, clamped at zero.
     let start_a = session.integrity_a;
@@ -259,23 +265,14 @@ fn outgoing_damage(session: &BattleSession, side: BattleSide, card: CardId) -> u
     }
 }
 
-/// Compute incoming damage reduction for a card.  Returns `0` for
-/// non-guard verbs.
-fn incoming_reduction(session: &BattleSession, side: BattleSide, card: CardId) -> u32 {
+/// Compute incoming damage reduction for a Guard / Fortify card.
+/// Returns `0` for any other verb (Evasive is handled in `resolve_pair`
+/// to halve the attack directly).
+fn incoming_reduction(_session: &BattleSession, side: BattleSide, card: CardId) -> u32 {
     let def = card_by_id(card);
-    let (own_int, _enemy_int) = match side {
-        BattleSide::Attacker => (session.integrity_a, session.integrity_b),
-        BattleSide::Defender => (session.integrity_b, session.integrity_a),
-    };
-
+    let _ = side;
     let base = match def.verb {
         CardVerb::Guard | CardVerb::Fortify => def.base_defense,
-        CardVerb::Evasive => {
-            // Evasive: halves incoming damage.  Convert to "defense" by
-            // scaling the enemy attack's known ceiling; we approximate by
-            // returning a high reduction that guarantees a halving.
-            u32::MAX / 2
-        }
         _ => 0,
     };
 
@@ -285,17 +282,7 @@ fn incoming_reduction(session: &BattleSession, side: BattleSide, card: CardId) -
     } else {
         100
     };
-    let scaled = (base.saturating_mul(factor_pct)) / 100;
-
-    // Evasive actually halves the enemy's attack.  We model that by
-    // adding a synthetic big reduction.  Cap so saturating_sub behaves.
-    if def.verb == CardVerb::Evasive {
-        // Use 50% of own_int as a stand-in for "halve incoming".
-        // Combined with the scale below, this keeps the math bounded.
-        scaled.max(own_int / 2)
-    } else {
-        scaled
-    }
+    base.saturating_mul(factor_pct) / 100
 }
 
 /// Self-damage dealt by a card (Overcharge).  Returns `(self_a, self_b)`.
@@ -345,18 +332,6 @@ fn card_for_side(session: &BattleSession, side: BattleSide, _card: CardId) -> Op
     let _ = session;
     let _ = side;
     Some(_card)
-}
-
-#[allow(dead_code)]
-fn check_retreat_flags_unused(
-    _session: &BattleSession,
-    _player_side: BattleSide,
-    _player_card: CardId,
-    _ai_card: CardId,
-) -> (bool, bool) {
-    // Withdraw handling is now inlined in `apply_round`.  Kept for
-    // potential future use; suppress the dead-code warning.
-    (false, false)
 }
 
 fn format_effect(name: &str, dmg: u32, self_dmg: u32) -> String {
@@ -509,6 +484,41 @@ mod tests {
         assert!(matches!(outcome, BattleOutcome::Finished { .. }));
         // Player retains 50% integrity (50 hp from 100).
         assert_eq!(s.integrity_a, 50);
+    }
+
+    #[test]
+    fn evasive_halves_incoming_damage_not_zeroes_it() {
+        // Attacker (side A) hand is a single Kinetic Salvo; defender
+        // (side B) hand is a single Burn Maneuver (Evasive).  The AI
+        // for the attacker plays the only card in hand_a, so a Strike
+        // hits an Evasive.  Evasive should halve the incoming
+        // damage, not negate it entirely.
+        let mut s = make_session(
+            vec![
+                CardId::KINETIC_SALVO,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+            vec![
+                CardId::BURN_MANEUVER,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+        );
+        // Defender (side B) plays Evasive; attacker (side A) plays Strike.
+        let _ = apply_round(&mut s, BattleSide::Defender, CardId::BURN_MANEUVER);
+        // Attacker (side A) played Strike 18 hp; defender (side B)
+        // played Evasive.  Defender's integrity should drop, but not
+        // to zero.  18 / 2 = 9 hp lost, so integrity_b = 91.
+        assert!(
+            s.integrity_b < 100 && s.integrity_b >= 80,
+            "Evasive should halve the incoming strike (got {})",
+            s.integrity_b
+        );
     }
 
     #[test]

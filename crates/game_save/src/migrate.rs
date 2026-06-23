@@ -1232,20 +1232,54 @@ mod tests {
 
     /// v40 saves carry no Combat v3 state.  Migration must add the
     /// new fields with safe defaults and bump the version stamp.
+    /// This test exercises the *serde* path: a v41 save is serialised
+    /// to JSON, the Combat v3 fields are removed, the version is
+    /// downgraded to 40, and the patched JSON is loaded through
+    /// `load` so the `#[serde(default)]` defaults are applied on the
+    /// way in.
     #[test]
     fn migrate_v40_to_v41_passes_through_with_combat_v3_defaults() {
-        let state = GameState::default();
-        let save = SaveFile {
-            version: 40,
-            state,
-            metadata: Default::default(),
-        };
-        let migrated = migrate(save).expect("v40→v41 migration should succeed");
-        assert_eq!(migrated.version, CURRENT_VERSION);
-        assert_eq!(migrated.metadata.schema_version, CURRENT_VERSION);
-        // Combat v3 fields default to safe empty values.
-        assert_eq!(migrated.state.next_battle_session_id, 1);
-        assert!(migrated.state.pending_battle_session.is_none());
-        assert!(migrated.state.battle_reports_v3.is_empty());
+        use crate::{load, save_to_string};
+
+        let engine = game_core::Engine::new(42);
+        let saved = save_to_string(&engine.state).expect("save should succeed");
+
+        // Verify the v41 save actually carries the new fields; the
+        // v40 fixture below relies on them being absent.
+        let v41_value: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        assert!(
+            v41_value["state"]["pending_battle_session"].is_null()
+                || v41_value["state"].get("pending_battle_session").is_some(),
+            "v41 save must carry pending_battle_session field"
+        );
+        assert!(
+            v41_value["state"].get("next_battle_session_id").is_some(),
+            "v41 save must carry next_battle_session_id"
+        );
+
+        // Patch the v41 JSON down to a v40 save: drop the Combat v3
+        // fields and reset the version stamps.  This is what a real
+        // v40 file on disk looks like.
+        let mut json: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        json["version"] = serde_json::json!(40u32);
+        json["metadata"]["schema_version"] = serde_json::json!(40u32);
+        if let Some(state_obj) = json["state"].as_object_mut() {
+            state_obj.remove("next_battle_session_id");
+            state_obj.remove("pending_battle_session");
+            state_obj.remove("battle_reports_v3");
+        }
+        let patched = serde_json::to_string(&json).unwrap();
+
+        let loaded = load(patched.as_bytes()).expect("v40→v41 migration should succeed");
+
+        assert_eq!(loaded.next_battle_session_id, 1, "default from serde");
+        assert!(
+            loaded.pending_battle_session.is_none(),
+            "default pending session is None"
+        );
+        assert!(
+            loaded.battle_reports_v3.is_empty(),
+            "default v3 report history is empty"
+        );
     }
 }

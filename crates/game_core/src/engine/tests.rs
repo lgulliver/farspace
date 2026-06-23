@@ -12897,11 +12897,10 @@ fn combat_v3_destroyed_fleet_is_removed() {
     engine.state.fleets.get_mut(&_pf).unwrap().integrity = 0;
     let mut events = Vec::new();
     engine.start_battle_v3(_star, _pf, _af, &mut events);
-    // Manually finalise by playing cards until the battle ends.
-    while engine.state.pending_battle_session.is_some() {
-        let Some(session) = engine.state.pending_battle_session.as_ref() else {
-            break;
-        };
+    // Manually finalise by playing cards until the battle ends.  The
+    // outer `while` already guarantees `pending_battle_session` is
+    // `Some`, so the inner match never falls through.
+    while let Some(session) = engine.state.pending_battle_session.as_ref() {
         let session_id = session.session_id;
         engine.apply_turn(vec![Command::PlayBattleCard {
             session_id,
@@ -12968,6 +12967,63 @@ fn combat_v3_invalid_card_index_emits_error() {
 }
 
 #[test]
+fn combat_v3_blocks_non_battle_commands_while_pending() {
+    // While a battle is pending, only PlayBattleCard and
+    // RetreatFromBattle are accepted.  All other commands (including
+    // EndTurn) must be rejected with an `Event::Error` and must not
+    // mutate the pending session or the turn counter.
+    let (mut engine, _star, _pf, _af) = make_v3_combat_state();
+    let turn_before = engine.state.turn;
+    let mut events = Vec::new();
+    engine.start_battle_v3(_star, _pf, _af, &mut events);
+    let _ = events;
+
+    let mixed = engine.apply_turn(vec![
+        Command::EndTurn,
+        Command::PlayBattleCard {
+            session_id: 0, // ignored; superseded by the gate check
+            card_index: 0,
+            target: None,
+        },
+    ]);
+    // EndTurn is rejected with Event::Error, then PlayBattleCard
+    // reaches the engine (and emits its own error for the bad
+    // session id, which is also fine).
+    assert!(
+        mixed
+            .iter()
+            .any(|e| matches!(e, Event::Error { .. })),
+        "EndTurn while a battle is pending must emit an error"
+    );
+    assert_eq!(
+        engine.state.turn, turn_before,
+        "turn counter must not advance while a battle is pending"
+    );
+    assert!(
+        engine.state.pending_battle_session.is_some(),
+        "pending session must survive a rejected non-battle command"
+    );
+
+    // The single accepted command (RetreatFromBattle) clears the
+    // session and emits BattleFinished.
+    let session_id = engine
+        .state
+        .pending_battle_session
+        .as_ref()
+        .unwrap()
+        .session_id;
+    let final_events =
+        engine.apply_turn(vec![Command::RetreatFromBattle { session_id }]);
+    assert!(
+        final_events
+            .iter()
+            .any(|e| matches!(e, Event::BattleFinished { .. })),
+        "RetreatFromBattle must clear the pending session"
+    );
+    assert!(engine.state.pending_battle_session.is_none());
+}
+
+#[test]
 fn combat_v3_serializes_through_state_round_trip() {
     let (mut engine, _star, _pf, _af) = make_v3_combat_state();
     let mut events = Vec::new();
@@ -12982,6 +13038,7 @@ fn combat_v3_serializes_through_state_round_trip() {
         restored.next_battle_session_id,
         engine.state.next_battle_session_id
     );
+    assert_eq!(restored.battle_reports_v3, engine.state.battle_reports_v3);
 }
 
 #[test]

@@ -1379,10 +1379,6 @@ impl Event {
                 fleet_a_retreated,
                 fleet_b_retreated,
             } => {
-                let winner_str = match winner {
-                    Some(side) => side.label().to_string(),
-                    None => "draw".to_string(),
-                };
                 let mut details = Vec::new();
                 if *fleet_a_destroyed {
                     details.push("A destroyed".to_string());
@@ -1401,10 +1397,20 @@ impl Event {
                 } else {
                     format!(" [{}]", details.join(", "))
                 };
-                format!(
-                    "Combat v3: session {} finished at system {} — {} wins (report #{}){}",
-                    session_id, star.0, winner_str, report_id, detail_str
-                )
+                match winner {
+                    Some(side) => format!(
+                        "Combat v3: session {} finished at system {} — {} wins (report #{}){}",
+                        session_id,
+                        star.0,
+                        side.label(),
+                        report_id,
+                        detail_str
+                    ),
+                    None => format!(
+                        "Combat v3: session {} finished at system {} — draw (report #{}){}",
+                        session_id, star.0, report_id, detail_str
+                    ),
+                }
             }
         }
     }

@@ -1578,6 +1578,25 @@ impl Engine {
         let mut processed_end_turn = false;
 
         for command in commands {
+            // While a Combat v3 session is pending, only the two
+            // battle-related commands are allowed.  All other commands
+            // are rejected with an `Event::Error` and the turn does
+            // not advance until the player resolves the battle.
+            if self.state.pending_battle_session.is_some()
+                && !matches!(
+                    command,
+                    Command::PlayBattleCard { .. } | Command::RetreatFromBattle { .. }
+                )
+            {
+                events.push(Event::Error {
+                    message: format!(
+                        "cannot {:?} while a battle is pending — resolve it first",
+                        command_label(&command)
+                    ),
+                });
+                continue;
+            }
+
             match command {
                 Command::EndTurn => {
                     processed_end_turn = true;
@@ -6061,14 +6080,14 @@ impl Engine {
                 .get(a_idx)
                 .copied()
                 .unwrap_or(crate::combat_v3::HOLD_FIRE.id);
-            let (outcome, _summary) =
+            let (outcome, summary_a) =
                 crate::combat_v3::apply_round(&mut session, BattleSide::Attacker, a_card);
             events.push(Event::BattleRoundPlayed {
                 session_id: session.session_id,
-                round: session.round,
+                round: summary_a.round,
                 side: BattleSide::Attacker,
                 card: a_card,
-                effect_summary: format!("AI round {}", session.round),
+                effect_summary: summary_a.effect_a.clone(),
             });
 
             if matches!(outcome, BattleOutcome::Finished { .. })
@@ -6089,14 +6108,14 @@ impl Engine {
                 .get(b_idx)
                 .copied()
                 .unwrap_or(crate::combat_v3::HOLD_FIRE.id);
-            let (outcome, _summary) =
+            let (outcome, summary_b) =
                 crate::combat_v3::apply_round(&mut session, BattleSide::Defender, b_card);
             events.push(Event::BattleRoundPlayed {
                 session_id: session.session_id,
-                round: session.round,
+                round: summary_b.round,
                 side: BattleSide::Defender,
                 card: b_card,
-                effect_summary: format!("AI round {}", session.round),
+                effect_summary: summary_b.effect_b.clone(),
             });
 
             if matches!(outcome, BattleOutcome::Finished { .. })
@@ -6263,12 +6282,18 @@ impl Engine {
             player_side,
             card,
         );
+        // Use the effect text that matches the *player's* side: a is
+        // attacker-side, b is defender-side.
+        let effect_for_player = match player_side {
+            BattleSide::Attacker => summary.effect_a.clone(),
+            BattleSide::Defender => summary.effect_b.clone(),
+        };
         events.push(Event::BattleRoundPlayed {
             session_id,
             round: summary.round,
             side: player_side,
             card,
-            effect_summary: summary.effect_a.clone(),
+            effect_summary: effect_for_player,
         });
 
         if matches!(outcome, crate::combat_v3::BattleOutcome::Finished { .. }) {
@@ -6349,10 +6374,13 @@ impl Engine {
 /// Build a 5-card hand for the given fleet/empire combination.
 ///
 /// Falls back to a Hold Fire hand when the fleet has no hull, no
-/// components, and no faction definition.
+/// components, and no faction definition.  Components come from the
+/// fleet's custom ship design when one is recorded in
+/// `state.fleet_custom_designs`; otherwise the hand uses hull + tech
+/// cards only.
 fn build_hand_for_side(
     state: &GameState,
-    _fleet_id: FleetId,
+    fleet_id: FleetId,
     empire_id: EmpireId,
     fleet_kind: FleetKind,
 ) -> Vec<crate::combat_v3::CardId> {
@@ -6362,7 +6390,7 @@ fn build_hand_for_side(
     // Use a stub Fleet for hull lookup.  The hand draft only reads
     // `kind` from the fleet.
     let stub_fleet = crate::state::Fleet {
-        id: _fleet_id,
+        id: fleet_id,
         owner: empire_id,
         location: crate::state::StarId(0),
         ships: 1,
@@ -6378,10 +6406,15 @@ fn build_hand_for_side(
         .map(|e| e.research.completed.clone())
         .unwrap_or_default();
 
-    // Custom-design components: pull from any matching fleet.  v1 doesn't
-    // // custom-design per-fleet composition for battle cards, so we
-    // // pass an empty list and rely on hull + techs.
-    let components: Vec<ComponentId> = Vec::new();
+    // Components: pull from the fleet's custom design when present.
+    // For stock-ship fleets (no custom design), fall back to an empty
+    // component list and rely on hull + tech cards.
+    let components: Vec<ComponentId> = state
+        .fleet_custom_designs
+        .get(&fleet_id)
+        .and_then(|design_id| state.custom_designs.get(design_id))
+        .map(|design| design.components.clone())
+        .unwrap_or_default();
 
     let empire_def_id = state
         .empires
@@ -6427,6 +6460,57 @@ fn is_combat_eligible(state: &GameState, empire_a: EmpireId, empire_b: EmpireId)
     state
         .relationship_status(empire_a, empire_b)
         .is_combat_eligible()
+}
+
+/// Short, stable label for a `Command` variant.  Used by
+/// `apply_turn` to surface a clean error message when a command is
+/// rejected because a Combat v3 session is pending.
+fn command_label(cmd: &Command) -> &'static str {
+    match cmd {
+        Command::EndTurn => "EndTurn",
+        Command::SetColonyFocus { .. } => "SetColonyFocus",
+        Command::MoveFleet { .. } => "MoveFleet",
+        Command::QueueBuild { .. } => "QueueBuild",
+        Command::CancelBuild { .. } => "CancelBuild",
+        Command::SelectResearch { .. } => "SelectResearch",
+        Command::QueueResearch { .. } => "QueueResearch",
+        Command::RemoveQueuedResearch { .. } => "RemoveQueuedResearch",
+        Command::MoveQueuedResearchUp { .. } => "MoveQueuedResearchUp",
+        Command::MoveQueuedResearchDown { .. } => "MoveQueuedResearchDown",
+        Command::ClearResearchQueue => "ClearResearchQueue",
+        Command::SendScout { .. } => "SendScout",
+        Command::SurveyPlanet { .. } => "SurveyPlanet",
+        Command::Colonize { .. } => "Colonize",
+        Command::Invade { .. } => "Invade",
+        Command::SetColonyRole { .. } => "SetColonyRole",
+        Command::SetSectorDirective { .. } => "SetSectorDirective",
+        Command::SetColonyAutomation { .. } => "SetColonyAutomation",
+        Command::SetRallyPoint { .. } => "SetRallyPoint",
+        Command::ClearRallyPoint { .. } => "ClearRallyPoint",
+        Command::SetFleetOrder { .. } => "SetFleetOrder",
+        Command::SetFleetRole { .. } => "SetFleetRole",
+        Command::SetFleetFormation { .. } => "SetFleetFormation",
+        Command::RenameFleet { .. } => "RenameFleet",
+        Command::DeclareWar { .. } => "DeclareWar",
+        Command::OfferPeace { .. } => "OfferPeace",
+        Command::AcceptPeace { .. } => "AcceptPeace",
+        Command::RejectPeace { .. } => "RejectPeace",
+        Command::ProposeNonAggressionPact { .. } => "ProposeNonAggressionPact",
+        Command::AcceptNonAggressionPact { .. } => "AcceptNonAggressionPact",
+        Command::RejectNonAggressionPact { .. } => "RejectNonAggressionPact",
+        Command::CancelTreaty { .. } => "CancelTreaty",
+        Command::IssueWarning { .. } => "IssueWarning",
+        Command::DemandTribute { .. } => "DemandTribute",
+        Command::SendGreeting { .. } => "SendGreeting",
+        Command::RespondToCommunication { .. } => "RespondToCommunication",
+        Command::GatherIntelligence { .. } => "GatherIntelligence",
+        Command::SabotageProduction { .. } => "SabotageProduction",
+        Command::StealResearch { .. } => "StealResearch",
+        Command::CreateShipDesign { .. } => "CreateShipDesign",
+        Command::DeleteShipDesign { .. } => "DeleteShipDesign",
+        Command::PlayBattleCard { .. } => "PlayBattleCard",
+        Command::RetreatFromBattle { .. } => "RetreatFromBattle",
+    }
 }
 
 #[cfg(test)]

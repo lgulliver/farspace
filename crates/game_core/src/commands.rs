@@ -129,6 +129,23 @@ pub enum Command {
     },
     /// Delete an existing custom ship design
     DeleteShipDesign { design_id: CustomDesignId },
+    /// Combat v3 — play a card from the player's hand.
+    ///
+    /// The engine rejects this with an `Event::Error` if the session is
+    /// not awaiting input, the card index is out of range, or the
+    /// session id does not match the pending session.
+    PlayBattleCard {
+        session_id: u64,
+        card_index: usize,
+        /// Reserved for future targeting (snipe, etc.).  v1 ignores
+        /// this field.
+        target: Option<u32>,
+    },
+    /// Combat v3 — free retreat from the pending battle.
+    ///
+    /// Burns the current turn, reduces the player's fleet integrity to
+    /// 50% (clamped at 0), and finalises the session.
+    RetreatFromBattle { session_id: u64 },
 }
 
 #[cfg(test)]

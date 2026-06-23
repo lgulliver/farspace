@@ -510,6 +510,42 @@ pub enum Event {
         from: StarId,
         to: StarId,
     },
+    /// Combat v3 — a battle session has been created.
+    BattleStarted {
+        /// Newly-allocated session id.
+        session_id: u64,
+        /// Attacking fleet.
+        attacker: FleetId,
+        /// Defending fleet.
+        defender: FleetId,
+        /// Star system where the battle takes place.
+        star: StarId,
+    },
+    /// Combat v3 — a single card was played and the round resolved.
+    BattleRoundPlayed {
+        session_id: u64,
+        /// 1-based round number.
+        round: u8,
+        /// Side that played the card.
+        side: crate::combat_v3::BattleSide,
+        /// Card that was played.
+        card: crate::combat_v3::CardId,
+        /// Short effect text describing what happened.
+        effect_summary: String,
+    },
+    /// Combat v3 — the battle finalised and a `BattleReportV3` was
+    /// pushed to history.
+    BattleFinished {
+        session_id: u64,
+        report_id: u64,
+        star: StarId,
+        /// Winning side.  `None` for a draw.
+        winner: Option<crate::combat_v3::BattleSide>,
+        fleet_a_destroyed: bool,
+        fleet_b_destroyed: bool,
+        fleet_a_retreated: bool,
+        fleet_b_retreated: bool,
+    },
 }
 
 impl Event {
@@ -1307,6 +1343,75 @@ impl Event {
                 "Trade route {}–{} restored for Empire {}",
                 from.0, to.0, empire.0
             ),
+            Event::BattleStarted {
+                session_id,
+                attacker,
+                defender,
+                star,
+            } => format!(
+                "Combat v3: session {} started at system {} (fleets {} vs {})",
+                session_id, star.0, attacker.0, defender.0
+            ),
+            Event::BattleRoundPlayed {
+                session_id,
+                round,
+                side,
+                card,
+                effect_summary,
+            } => {
+                let card_name = crate::combat_v3::card::card_by_id(*card).name;
+                format!(
+                    "Combat v3: session {} round {} — {} played {} ({})",
+                    session_id,
+                    round,
+                    side.label(),
+                    card_name,
+                    effect_summary
+                )
+            }
+            Event::BattleFinished {
+                session_id,
+                report_id,
+                star,
+                winner,
+                fleet_a_destroyed,
+                fleet_b_destroyed,
+                fleet_a_retreated,
+                fleet_b_retreated,
+            } => {
+                let mut details = Vec::new();
+                if *fleet_a_destroyed {
+                    details.push("A destroyed".to_string());
+                }
+                if *fleet_b_destroyed {
+                    details.push("B destroyed".to_string());
+                }
+                if *fleet_a_retreated {
+                    details.push("A retreated".to_string());
+                }
+                if *fleet_b_retreated {
+                    details.push("B retreated".to_string());
+                }
+                let detail_str = if details.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", details.join(", "))
+                };
+                match winner {
+                    Some(side) => format!(
+                        "Combat v3: session {} finished at system {} — {} wins (report #{}){}",
+                        session_id,
+                        star.0,
+                        side.label(),
+                        report_id,
+                        detail_str
+                    ),
+                    None => format!(
+                        "Combat v3: session {} finished at system {} — draw (report #{}){}",
+                        session_id, star.0, report_id, detail_str
+                    ),
+                }
+            }
         }
     }
 

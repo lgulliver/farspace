@@ -6,6 +6,7 @@
 pub mod advisor;
 pub mod ai;
 pub mod balance;
+pub mod combat_v3;
 pub mod commands;
 pub mod deterministic;
 pub mod dispatch;
@@ -16,6 +17,11 @@ pub mod state;
 pub mod victory;
 pub mod yield_model;
 
+pub use combat_v3::{
+    BattleOutcome, BattleReportV3, BattleRoundSummary, BattleSession, BattleSessionState,
+    BattleSetupSummary, BattleSide, CardId, CardVerb, HAND_SIZE, MAX_ROUNDS, apply_retreat,
+    apply_round, build_hand, build_setup_summary, card_by_id, play_player_card,
+};
 pub use commands::Command;
 pub use dispatch::{
     DISPATCH_CADENCE, DISPATCH_MAX_HISTORY, DispatchCategory, DispatchItem, DispatchSeverity,

@@ -1578,6 +1578,25 @@ impl Engine {
         let mut processed_end_turn = false;
 
         for command in commands {
+            // While a Combat v3 session is pending, only the two
+            // battle-related commands are allowed.  All other commands
+            // are rejected with an `Event::Error` and the turn does
+            // not advance until the player resolves the battle.
+            if self.state.pending_battle_session.is_some()
+                && !matches!(
+                    command,
+                    Command::PlayBattleCard { .. } | Command::RetreatFromBattle { .. }
+                )
+            {
+                events.push(Event::Error {
+                    message: format!(
+                        "cannot {:?} while a battle is pending — resolve it first",
+                        command_label(&command)
+                    ),
+                });
+                continue;
+            }
+
             match command {
                 Command::EndTurn => {
                     processed_end_turn = true;
@@ -1736,6 +1755,16 @@ impl Engine {
                 }
                 Command::DeleteShipDesign { design_id } => {
                     self.delete_ship_design(design_id, &mut events);
+                }
+                Command::PlayBattleCard {
+                    session_id,
+                    card_index,
+                    target: _,
+                } => {
+                    self.process_play_battle_card(session_id, card_index, &mut events);
+                }
+                Command::RetreatFromBattle { session_id } => {
+                    self.process_retreat_from_battle(session_id, &mut events);
                 }
             }
         }
@@ -2445,7 +2474,7 @@ impl Engine {
                 }
 
                 // Check for hostile fleet encounters after arrival
-                self.check_combat_at_star(destination, fleet_id, events);
+                self.check_combat_v3(destination, fleet_id, events);
             }
         }
 
@@ -2513,7 +2542,7 @@ impl Engine {
                 }
 
                 // Check for hostile fleet encounters after arrival
-                self.check_combat_at_star(destination, fleet_id, events);
+                self.check_combat_v3(destination, fleet_id, events);
             }
         }
 
@@ -5148,6 +5177,10 @@ impl Engine {
     /// Combat is simultaneous: both sides deal damage proportional to the
     /// opposing fleet's strength.  The arrived fleet stops fighting if it is
     /// destroyed.
+    /// Legacy v2 combat-at-star path.  Retained for tests and for
+    /// backward-compatibility callers; the engine itself uses
+    /// [`Engine::check_combat_v3`] for new combat.
+    #[allow(dead_code)]
     fn check_combat_at_star(
         &mut self,
         star_id: StarId,
@@ -5573,6 +5606,7 @@ impl Engine {
         }
     }
 
+    #[allow(dead_code)]
     fn should_avoid_engagement(
         &self,
         fleet_id: FleetId,
@@ -5586,6 +5620,7 @@ impl Engine {
             && enemy_strength > own_strength.saturating_mul(EXPLORER_AVOID_ENGAGEMENT_MULTIPLIER)
     }
 
+    #[allow(dead_code)]
     fn fleet_combat_profile(&self, fleet_id: FleetId, star_id: StarId) -> (u32, u32, u32) {
         let fleet = match self.state.fleets.get(&fleet_id) {
             Some(fleet) => fleet,
@@ -5709,6 +5744,7 @@ impl Engine {
             .unwrap_or_else(|| "N/A".to_string())
     }
 
+    #[allow(dead_code)]
     fn fleet_detection_score(
         &self,
         fleet_id: FleetId,
@@ -5738,6 +5774,7 @@ impl Engine {
         score
     }
 
+    #[allow(dead_code)]
     fn fleet_opening_volley_bonus(
         &self,
         kind: FleetKind,
@@ -5772,6 +5809,7 @@ impl Engine {
         bonus
     }
 
+    #[allow(dead_code)]
     fn push_battle_report(&mut self, mut report: BattleReport) {
         report.report_id = self.state.next_battle_report_id;
         self.state.next_battle_report_id = self.state.next_battle_report_id.saturating_add(1);
@@ -5781,6 +5819,7 @@ impl Engine {
         self.state.battle_reports.push_back(report);
     }
 
+    #[allow(dead_code)]
     fn start_retreat_if_possible(
         &mut self,
         fleet_id: FleetId,
@@ -5842,6 +5881,582 @@ impl Engine {
         });
         true
     }
+
+    // -----------------------------------------------------------------
+    // Combat v3 entry points
+    // -----------------------------------------------------------------
+
+    /// Start a Combat v3 battle between `attacker` and `defender` at `star`.
+    ///
+    /// If the player empire is one of the combatants, the session is
+    /// created and parked in `state.pending_battle_session`; no rounds
+    /// are resolved.  The TUI then renders the battle overlay and
+    /// emits `Command::PlayBattleCard` / `Command::RetreatFromBattle`
+    /// until the battle finishes.
+    ///
+    /// If no player empire is involved, the battle is auto-resolved:
+    /// all rounds play out deterministically, the report is pushed to
+    /// `state.battle_reports_v3`, and the affected fleets are removed
+    /// on destruction.
+    ///
+    /// Calling this when a battle is already pending is a no-op (the
+    /// second battle is dropped to preserve determinism).
+    pub fn start_battle_v3(
+        &mut self,
+        star: StarId,
+        attacker: FleetId,
+        defender: FleetId,
+        events: &mut Vec<Event>,
+    ) {
+        if self.state.pending_battle_session.is_some() {
+            return;
+        }
+
+        let (attacker_owner, attacker_kind, attacker_integrity) =
+            match self.state.fleets.get(&attacker) {
+                Some(f) => (f.owner, f.kind, f.integrity),
+                None => return,
+            };
+        let (defender_owner, defender_kind, defender_integrity) =
+            match self.state.fleets.get(&defender) {
+                Some(f) => (f.owner, f.kind, f.integrity),
+                None => return,
+            };
+
+        if !is_combat_eligible(&self.state, attacker_owner, defender_owner) {
+            return;
+        }
+
+        let player = self.state.player_empire;
+        let player_involved = attacker_owner == player || defender_owner == player;
+
+        // Build setup summary using the same data the v2 path used.
+        let (role_a, formation_a, supply_a) = self.fleet_setup_snapshot(attacker);
+        let (role_b, formation_b, supply_b) = self.fleet_setup_snapshot(defender);
+        let doctrine_a = self.empire_doctrine_summary(attacker_owner);
+        let doctrine_b = self.empire_doctrine_summary(defender_owner);
+        let fleet_a = self.state.fleets.get(&attacker).cloned().unwrap();
+        let fleet_b = self.state.fleets.get(&defender).cloned().unwrap();
+        let setup = crate::combat_v3::build_setup_summary(
+            &fleet_a,
+            &fleet_b,
+            role_a,
+            role_b,
+            formation_a,
+            formation_b,
+            supply_a,
+            supply_b,
+            doctrine_a,
+            doctrine_b,
+        );
+
+        // Draft hands.
+        let hand_a = build_hand_for_side(&self.state, attacker, attacker_owner, attacker_kind);
+        let hand_b = build_hand_for_side(&self.state, defender, defender_owner, defender_kind);
+
+        // Allocate session id.
+        let session_id = self.state.next_battle_session_id;
+        self.state.next_battle_session_id = self.state.next_battle_session_id.saturating_add(1);
+
+        let session = crate::combat_v3::BattleSession::new(
+            session_id,
+            star,
+            attacker,
+            defender,
+            attacker_owner,
+            defender_owner,
+            hand_a,
+            hand_b,
+            attacker_integrity,
+            defender_integrity,
+            setup,
+        );
+
+        // Visibility gate: hidden AI-only battles (no player
+        // involvement, no intel on either combatant) emit no v3
+        // events to the public stream.  Their rounds and finalisation
+        // still run (the report is still pushed to history) but the
+        // events go to a local buffer so the event log and dispatch
+        // pipeline see nothing.
+        let visible_to_player = player_involved
+            || (self.state.player_knows_empire(attacker_owner)
+                && self.state.player_knows_empire(defender_owner));
+
+        if visible_to_player {
+            events.push(Event::BattleStarted {
+                session_id,
+                attacker,
+                defender,
+                star,
+            });
+        }
+
+        if player_involved {
+            // Park the session and wait for the player.
+            self.state.pending_battle_session = Some(session);
+        } else if visible_to_player {
+            self.auto_resolve_ai_battle(session, events);
+        } else {
+            // Hidden AI-only battle: still resolve internally so the
+            // fleet removals and history report happen, but route the
+            // round events into a local buffer.
+            let mut hidden_events = Vec::new();
+            self.auto_resolve_ai_battle(session, &mut hidden_events);
+        }
+    }
+
+    /// Combat v3 entry point used at fleet arrival.  Scans the destination
+    /// star for hostile combat fleets and either pauses the game (player
+    /// involved) or auto-resolves (AI-only).
+    fn check_combat_v3(
+        &mut self,
+        star_id: StarId,
+        arrived_fleet_id: FleetId,
+        events: &mut Vec<Event>,
+    ) {
+        if self.state.pending_battle_session.is_some() {
+            return;
+        }
+
+        let arrived_owner = match self.state.fleets.get(&arrived_fleet_id) {
+            Some(f) => f.owner,
+            None => return,
+        };
+
+        // Collect hostile idle fleet IDs at this star in FleetId order.
+        let enemy_fleet_ids: Vec<FleetId> = self
+            .state
+            .fleets
+            .iter()
+            .filter(|(fid, f)| {
+                **fid != arrived_fleet_id
+                    && f.location == star_id
+                    && f.owner != arrived_owner
+                    && !self.state.fleet_missions.contains_key(*fid)
+                    && !self.state.scout_missions.contains_key(*fid)
+                    && !self.state.survey_missions.contains_key(*fid)
+                    && is_combat_eligible(&self.state, arrived_owner, f.owner)
+            })
+            .map(|(fid, _)| *fid)
+            .collect();
+
+        for enemy in enemy_fleet_ids {
+            // Refetch in case the prior iteration already destroyed the
+            // arrived fleet.
+            if !self.state.fleets.contains_key(&arrived_fleet_id) {
+                break;
+            }
+            if !self.state.fleets.contains_key(&enemy) {
+                continue;
+            }
+            self.start_battle_v3(star_id, arrived_fleet_id, enemy, events);
+            // Only one battle per fleet arrival.
+            break;
+        }
+    }
+
+    /// Drive an AI-only battle to completion.  Consumes the session,
+    /// mutates integrity, removes destroyed fleets, and pushes the
+    /// final report.
+    fn auto_resolve_ai_battle(
+        &mut self,
+        mut session: crate::combat_v3::BattleSession,
+        events: &mut Vec<Event>,
+    ) {
+        use crate::combat_v3::{BattleOutcome, BattleSide, ai::ai_pick_card};
+
+        let mut iterations: u32 = 0;
+        loop {
+            iterations = iterations.saturating_add(1);
+            if iterations > 32 {
+                break;
+            }
+            if session.hand_a.is_empty() && session.hand_b.is_empty() {
+                break;
+            }
+            if matches!(
+                session.state,
+                crate::combat_v3::BattleSessionState::Finished
+            ) {
+                break;
+            }
+
+            // One round = one `apply_round` call.  `apply_round` already
+            // resolves both sides and returns a single summary that
+            // carries the resolved effect text for each side, plus the
+            // side that played the round's lead card.  Emitting two
+            // `BattleRoundPlayed` events from that single summary
+            // keeps the log symmetric without consuming an extra
+            // card from the defender's hand.
+            let a_idx = if session.hand_a.is_empty() {
+                0
+            } else {
+                ai_pick_card(&session, BattleSide::Attacker)
+            };
+            let a_card = session
+                .hand_a
+                .get(a_idx)
+                .copied()
+                .unwrap_or(crate::combat_v3::HOLD_FIRE.id);
+            let (outcome, summary) =
+                crate::combat_v3::apply_round(&mut session, BattleSide::Attacker, a_card);
+            events.push(Event::BattleRoundPlayed {
+                session_id: session.session_id,
+                round: summary.round,
+                side: BattleSide::Attacker,
+                card: a_card,
+                effect_summary: summary.effect_a.clone(),
+            });
+            if let Some(b_card) = summary.card_b {
+                events.push(Event::BattleRoundPlayed {
+                    session_id: session.session_id,
+                    round: summary.round,
+                    side: BattleSide::Defender,
+                    card: b_card,
+                    effect_summary: summary.effect_b.clone(),
+                });
+            }
+
+            if matches!(outcome, BattleOutcome::Finished { .. })
+                || matches!(
+                    session.state,
+                    crate::combat_v3::BattleSessionState::Finished
+                )
+            {
+                break;
+            }
+        }
+
+        // Finalise: build report, push to history, remove destroyed fleets.
+        self.finalise_battle_v3(session, events);
+    }
+
+    /// Convert a finished `BattleSession` into a `BattleReportV3`, push
+    /// it to history, remove destroyed fleets, and emit `BattleFinished`.
+    fn finalise_battle_v3(
+        &mut self,
+        session: crate::combat_v3::BattleSession,
+        events: &mut Vec<Event>,
+    ) {
+        use crate::combat_v3::BattleReportV3;
+        use crate::combat_v3::BattleSide;
+
+        let attacker_destroyed = session.integrity_a == 0;
+        let defender_destroyed = session.integrity_b == 0;
+        let attacker_retreated = session
+            .rounds
+            .iter()
+            .any(|r| r.card_a == Some(crate::combat_v3::CardId::WARP_RETREAT));
+        let defender_retreated = session
+            .rounds
+            .iter()
+            .any(|r| r.card_b == Some(crate::combat_v3::CardId::WARP_RETREAT));
+
+        let winner = if attacker_destroyed && defender_destroyed {
+            None
+        } else if attacker_destroyed {
+            Some(BattleSide::Defender)
+        } else if defender_destroyed {
+            Some(BattleSide::Attacker)
+        } else if attacker_retreated && defender_retreated {
+            // Both sides withdrew in the same round — a true draw,
+            // not a defender win.
+            None
+        } else if attacker_retreated {
+            Some(BattleSide::Defender)
+        } else if defender_retreated {
+            Some(BattleSide::Attacker)
+        } else {
+            // Tiebreaker by integrity: equal integrity is a draw, not
+            // a defender win.
+            match session.integrity_a.cmp(&session.integrity_b) {
+                std::cmp::Ordering::Greater => Some(BattleSide::Attacker),
+                std::cmp::Ordering::Less => Some(BattleSide::Defender),
+                std::cmp::Ordering::Equal => None,
+            }
+        };
+
+        // Build and push the report.
+        let report_id = self.state.next_battle_report_id;
+        self.state.next_battle_report_id = self.state.next_battle_report_id.saturating_add(1);
+        // `winner == None` is reached for two distinct cases: mutual
+        // destruction (both fleets at 0 integrity) and a true draw
+        // (max-rounds tiebreak on equal integrity).  Distinguish them
+        // so the report text reflects what actually happened.
+        let system_outcome = if attacker_destroyed && defender_destroyed {
+            "Draw — both fleets destroyed".to_string()
+        } else {
+            match winner {
+                Some(BattleSide::Attacker) => "Attacker holds the field".to_string(),
+                Some(BattleSide::Defender) => "Defender holds the field".to_string(),
+                None => "Draw — both fleets withdrew".to_string(),
+            }
+        };
+        let mut report = BattleReportV3::new(
+            report_id,
+            self.state.turn,
+            session.star,
+            session.attacker,
+            session.defender,
+            session.empire_a,
+            session.empire_b,
+            session.setup_summary.clone(),
+            session.hand_a.clone(),
+            session.hand_b.clone(),
+            session.rounds.clone(),
+            session.integrity_a_start,
+            session.integrity_b_start,
+            session.integrity_a,
+            session.integrity_b,
+        );
+        report.fleet_a_retreated = attacker_retreated;
+        report.fleet_b_retreated = defender_retreated;
+        report.system_outcome = system_outcome;
+
+        // Cap history at the same limit as v2 reports.
+        if self.state.battle_reports_v3.len() >= BATTLE_REPORT_MAX_HISTORY {
+            self.state.battle_reports_v3.pop_front();
+        }
+        self.state.battle_reports_v3.push_back(report);
+
+        // Apply final integrity back to fleets and remove destroyed.
+        if let Some(f) = self.state.fleets.get_mut(&session.attacker) {
+            f.integrity = session.integrity_a;
+        }
+        if let Some(f) = self.state.fleets.get_mut(&session.defender) {
+            f.integrity = session.integrity_b;
+        }
+        if attacker_destroyed {
+            self.remove_fleet_and_assignments(session.attacker);
+        }
+        if defender_destroyed {
+            self.remove_fleet_and_assignments(session.defender);
+        }
+        // Refresh the persisted blockade cache so a destroyed
+        // blockading fleet stops penalising the local economy on
+        // the very next read.  `recompute_colony_blockade` is the
+        // same derivation `process_end_turn` runs after fleet
+        // movements; doing it here too means a battle finalisation
+        // mid-turn is immediately visible to subsequent code paths
+        // (UI, dispatch, the next `apply_turn`).
+        self.state.colony_blockade = self.state.recompute_colony_blockade();
+
+        events.push(Event::BattleFinished {
+            session_id: session.session_id,
+            report_id,
+            star: session.star,
+            winner,
+            fleet_a_destroyed: attacker_destroyed,
+            fleet_b_destroyed: defender_destroyed,
+            fleet_a_retreated: attacker_retreated,
+            fleet_b_retreated: defender_retreated,
+        });
+    }
+
+    /// Process `Command::PlayBattleCard` for the pending v3 session.
+    pub fn process_play_battle_card(
+        &mut self,
+        session_id: u64,
+        card_index: usize,
+        events: &mut Vec<Event>,
+    ) {
+        use crate::combat_v3::BattleSide;
+        let Some(session) = self.state.pending_battle_session.as_mut() else {
+            events.push(Event::Error {
+                message: "no pending battle session".to_string(),
+            });
+            return;
+        };
+        if session.session_id != session_id {
+            events.push(Event::Error {
+                message: format!(
+                    "battle session id mismatch: expected {}, got {}",
+                    session.session_id, session_id
+                ),
+            });
+            return;
+        }
+        // Player side is whichever side owns the player empire.
+        let player = self.state.player_empire;
+        let player_side = if session.empire_a == player {
+            BattleSide::Attacker
+        } else if session.empire_b == player {
+            BattleSide::Defender
+        } else {
+            events.push(Event::Error {
+                message: "pending session does not involve the player".to_string(),
+            });
+            return;
+        };
+
+        let hand = session.hand(player_side);
+        let Some(card) = hand.get(card_index).copied() else {
+            events.push(Event::Error {
+                message: format!("card index {card_index} out of range"),
+            });
+            return;
+        };
+
+        let (outcome, summary) = crate::combat_v3::apply_round(
+            &mut *self.state.pending_battle_session.as_mut().unwrap(),
+            player_side,
+            card,
+        );
+        // Use the effect text that matches the *player's* side: a is
+        // attacker-side, b is defender-side.
+        let effect_for_player = match player_side {
+            BattleSide::Attacker => summary.effect_a.clone(),
+            BattleSide::Defender => summary.effect_b.clone(),
+        };
+        events.push(Event::BattleRoundPlayed {
+            session_id,
+            round: summary.round,
+            side: player_side,
+            card,
+            effect_summary: effect_for_player,
+        });
+
+        if matches!(outcome, crate::combat_v3::BattleOutcome::Finished { .. }) {
+            let session = self
+                .state
+                .pending_battle_session
+                .take()
+                .expect("session present");
+            self.finalise_battle_v3(session, events);
+        }
+    }
+
+    /// Process `Command::RetreatFromBattle` for the pending v3 session.
+    pub fn process_retreat_from_battle(&mut self, session_id: u64, events: &mut Vec<Event>) {
+        use crate::combat_v3::BattleSide;
+        let Some(session) = self.state.pending_battle_session.as_mut() else {
+            events.push(Event::Error {
+                message: "no pending battle session".to_string(),
+            });
+            return;
+        };
+        if session.session_id != session_id {
+            events.push(Event::Error {
+                message: format!(
+                    "battle session id mismatch: expected {}, got {}",
+                    session.session_id, session_id
+                ),
+            });
+            return;
+        }
+        let player = self.state.player_empire;
+        let player_side = if session.empire_a == player {
+            BattleSide::Attacker
+        } else if session.empire_b == player {
+            BattleSide::Defender
+        } else {
+            events.push(Event::Error {
+                message: "pending session does not involve the player".to_string(),
+            });
+            return;
+        };
+        crate::combat_v3::apply_retreat(
+            &mut *self.state.pending_battle_session.as_mut().unwrap(),
+            player_side,
+        );
+        let session = self
+            .state
+            .pending_battle_session
+            .take()
+            .expect("session present");
+        self.finalise_battle_v3(session, events);
+    }
+
+    /// Read-only snapshot of the fleet's role, formation, and supply
+    /// state.  Used by `start_battle_v3` to populate the v2-style
+    /// `setup_summary` fields.
+    fn fleet_setup_snapshot(
+        &self,
+        fleet_id: FleetId,
+    ) -> (FleetRole, FleetFormation, FleetSupplyState) {
+        let role = self
+            .state
+            .fleet_roles
+            .get(&fleet_id)
+            .copied()
+            .unwrap_or(FleetRole::StrikeFleet);
+        let formation = self.state.fleet_formation_for(fleet_id);
+        let supply = self
+            .state
+            .fleet_supply
+            .get(&fleet_id)
+            .copied()
+            .unwrap_or(FleetSupplyState::Supplied);
+        (role, formation, supply)
+    }
+}
+
+/// Build a 5-card hand for the given fleet/empire combination.
+///
+/// Falls back to a Hold Fire hand when the fleet has no hull, no
+/// components, and no faction definition.  Components come from the
+/// fleet's custom ship design when one is recorded in
+/// `state.fleet_custom_designs`; otherwise the hand uses hull + tech
+/// cards only.
+fn build_hand_for_side(
+    state: &GameState,
+    fleet_id: FleetId,
+    empire_id: EmpireId,
+    fleet_kind: FleetKind,
+) -> Vec<crate::combat_v3::CardId> {
+    use crate::combat_v3::HOLD_FIRE;
+    use crate::combat_v3::deck::{HAND_SIZE, HandInputs, build_hand};
+
+    // Use a stub Fleet for hull lookup.  The hand draft only reads
+    // `kind` from the fleet.
+    let stub_fleet = crate::state::Fleet {
+        id: fleet_id,
+        owner: empire_id,
+        location: crate::state::StarId(0),
+        ships: 1,
+        kind: fleet_kind,
+        strength: 1,
+        integrity: 100,
+    };
+
+    // Pull completed techs from the empire record.
+    let completed_techs: Vec<TechId> = state
+        .empires
+        .get(&empire_id)
+        .map(|e| e.research.completed.clone())
+        .unwrap_or_default();
+
+    // Components: pull from the fleet's custom design when present.
+    // For stock-ship fleets (no custom design), fall back to an empty
+    // component list and rely on hull + tech cards.
+    let components: Vec<ComponentId> = state
+        .fleet_custom_designs
+        .get(&fleet_id)
+        .and_then(|design_id| state.custom_designs.get(design_id))
+        .map(|design| design.components.clone())
+        .unwrap_or_default();
+
+    let empire_def_id = state
+        .empires
+        .get(&empire_id)
+        .and_then(|e| e.empire_def)
+        .map(|d| d.0);
+
+    let inputs = HandInputs {
+        fleet: &stub_fleet,
+        empire_id,
+        components: &components,
+        completed_techs: &completed_techs,
+        empire_def_id,
+    };
+
+    let mut hand = build_hand(&inputs);
+    if hand.len() < HAND_SIZE {
+        while hand.len() < HAND_SIZE {
+            hand.push(HOLD_FIRE.id);
+        }
+    }
+    hand
 }
 
 /// Returns true if `empire_a` and `empire_b` are combat-eligible against each other.
@@ -5865,6 +6480,57 @@ fn is_combat_eligible(state: &GameState, empire_a: EmpireId, empire_b: EmpireId)
     state
         .relationship_status(empire_a, empire_b)
         .is_combat_eligible()
+}
+
+/// Short, stable label for a `Command` variant.  Used by
+/// `apply_turn` to surface a clean error message when a command is
+/// rejected because a Combat v3 session is pending.
+fn command_label(cmd: &Command) -> &'static str {
+    match cmd {
+        Command::EndTurn => "EndTurn",
+        Command::SetColonyFocus { .. } => "SetColonyFocus",
+        Command::MoveFleet { .. } => "MoveFleet",
+        Command::QueueBuild { .. } => "QueueBuild",
+        Command::CancelBuild { .. } => "CancelBuild",
+        Command::SelectResearch { .. } => "SelectResearch",
+        Command::QueueResearch { .. } => "QueueResearch",
+        Command::RemoveQueuedResearch { .. } => "RemoveQueuedResearch",
+        Command::MoveQueuedResearchUp { .. } => "MoveQueuedResearchUp",
+        Command::MoveQueuedResearchDown { .. } => "MoveQueuedResearchDown",
+        Command::ClearResearchQueue => "ClearResearchQueue",
+        Command::SendScout { .. } => "SendScout",
+        Command::SurveyPlanet { .. } => "SurveyPlanet",
+        Command::Colonize { .. } => "Colonize",
+        Command::Invade { .. } => "Invade",
+        Command::SetColonyRole { .. } => "SetColonyRole",
+        Command::SetSectorDirective { .. } => "SetSectorDirective",
+        Command::SetColonyAutomation { .. } => "SetColonyAutomation",
+        Command::SetRallyPoint { .. } => "SetRallyPoint",
+        Command::ClearRallyPoint { .. } => "ClearRallyPoint",
+        Command::SetFleetOrder { .. } => "SetFleetOrder",
+        Command::SetFleetRole { .. } => "SetFleetRole",
+        Command::SetFleetFormation { .. } => "SetFleetFormation",
+        Command::RenameFleet { .. } => "RenameFleet",
+        Command::DeclareWar { .. } => "DeclareWar",
+        Command::OfferPeace { .. } => "OfferPeace",
+        Command::AcceptPeace { .. } => "AcceptPeace",
+        Command::RejectPeace { .. } => "RejectPeace",
+        Command::ProposeNonAggressionPact { .. } => "ProposeNonAggressionPact",
+        Command::AcceptNonAggressionPact { .. } => "AcceptNonAggressionPact",
+        Command::RejectNonAggressionPact { .. } => "RejectNonAggressionPact",
+        Command::CancelTreaty { .. } => "CancelTreaty",
+        Command::IssueWarning { .. } => "IssueWarning",
+        Command::DemandTribute { .. } => "DemandTribute",
+        Command::SendGreeting { .. } => "SendGreeting",
+        Command::RespondToCommunication { .. } => "RespondToCommunication",
+        Command::GatherIntelligence { .. } => "GatherIntelligence",
+        Command::SabotageProduction { .. } => "SabotageProduction",
+        Command::StealResearch { .. } => "StealResearch",
+        Command::CreateShipDesign { .. } => "CreateShipDesign",
+        Command::DeleteShipDesign { .. } => "DeleteShipDesign",
+        Command::PlayBattleCard { .. } => "PlayBattleCard",
+        Command::RetreatFromBattle { .. } => "RetreatFromBattle",
+    }
 }
 
 #[cfg(test)]

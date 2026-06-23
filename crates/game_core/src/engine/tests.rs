@@ -12990,9 +12990,7 @@ fn combat_v3_blocks_non_battle_commands_while_pending() {
     // reaches the engine (and emits its own error for the bad
     // session id, which is also fine).
     assert!(
-        mixed
-            .iter()
-            .any(|e| matches!(e, Event::Error { .. })),
+        mixed.iter().any(|e| matches!(e, Event::Error { .. })),
         "EndTurn while a battle is pending must emit an error"
     );
     assert_eq!(
@@ -13012,8 +13010,7 @@ fn combat_v3_blocks_non_battle_commands_while_pending() {
         .as_ref()
         .unwrap()
         .session_id;
-    let final_events =
-        engine.apply_turn(vec![Command::RetreatFromBattle { session_id }]);
+    let final_events = engine.apply_turn(vec![Command::RetreatFromBattle { session_id }]);
     assert!(
         final_events
             .iter()

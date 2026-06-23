@@ -113,6 +113,21 @@ pub struct BattleSession {
     pub rounds: Vec<BattleRoundSummary>,
     /// Current session state.
     pub state: BattleSessionState,
+    /// Attacker has a pending Mark buff waiting to be consumed by
+    /// their next Strike / Salvo / Overcharge.  `serde(default)`
+    /// keeps old saves compatible.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub mark_a_pending: bool,
+    /// Defender has a pending Mark buff.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub mark_b_pending: bool,
+    /// Attacker recurring Salvo pressure — applied to the defender at
+    /// the start of every round after the Salvo was played.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub salvo_a_recurring: u32,
+    /// Defender recurring Salvo pressure.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub salvo_b_recurring: u32,
 }
 
 impl BattleSession {
@@ -150,6 +165,10 @@ impl BattleSession {
             setup_summary,
             rounds: Vec::new(),
             state: BattleSessionState::AwaitingPlayer,
+            mark_a_pending: false,
+            mark_b_pending: false,
+            salvo_a_recurring: 0,
+            salvo_b_recurring: 0,
         }
     }
 
@@ -197,12 +216,18 @@ impl BattleSession {
 /// Apply a player card.  Returns the outcome and the new round summary
 /// for the engine to emit `BattleRoundPlayed` and (if the round ended
 /// the battle) `BattleFinished`.
+///
+/// The optional `ai_empire_def` is the empire definition of the
+/// non-player side.  When `Some`, the AI's card pick is augmented by
+/// the doctrine-bias contribution.  When `None`, the AI uses the
+/// verb-only baseline.
 pub fn play_player_card(
     session: &mut BattleSession,
     player_side: BattleSide,
     card: CardId,
+    ai_empire_def: Option<&crate::EmpireDefinition>,
 ) -> (BattleOutcome, BattleRoundSummary) {
-    apply_round(session, player_side, card)
+    apply_round(session, player_side, card, ai_empire_def)
 }
 
 /// Apply a free retreat from the player side.  Burns the current round,

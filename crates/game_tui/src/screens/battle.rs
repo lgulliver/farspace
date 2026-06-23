@@ -360,14 +360,26 @@ fn render_mid(
     {
         // Show the round from the player's perspective: "YOU" is the
         // side the player controls this battle; "FOE" is the other.
-        // effect_a/effect_b already carry the resolved text per side.
-        let (you_effect, foe_effect) = match player_side {
-            BattleSide::Attacker => (&round.effect_a, &round.effect_b),
-            BattleSide::Defender => (&round.effect_b, &round.effect_a),
+        // Remap both the effect strings and the integrity values so
+        // the player always sees their own side first, regardless of
+        // whether they are the attacker or defender.
+        let (you_effect, foe_effect, you_hp, foe_hp) = match player_side {
+            BattleSide::Attacker => (
+                &round.effect_a,
+                &round.effect_b,
+                round.integrity_a_after,
+                round.integrity_b_after,
+            ),
+            BattleSide::Defender => (
+                &round.effect_b,
+                &round.effect_a,
+                round.integrity_b_after,
+                round.integrity_a_after,
+            ),
         };
         let entry = format!(
             "R{}: YOU={}  FOE={}  [{}hp / {}hp]",
-            round.round, you_effect, foe_effect, round.integrity_a_after, round.integrity_b_after,
+            round.round, you_effect, foe_effect, you_hp, foe_hp,
         );
         log_lines.push(Line::from(Span::styled(entry, Theme::text_primary_style())));
     }

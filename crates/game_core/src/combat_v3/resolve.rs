@@ -58,7 +58,16 @@ pub fn apply_round(
 
     // Resolve cards.  Each side may be cancelled by the other's Disrupt.
     let (player_card_resolved, ai_card_resolved) = apply_disrupt(player_card, ai_card);
-    let (player_effect, ai_effect) = match player_side {
+
+    // Normalize *all* side-indexed state to the attacker/defender
+    // frame of reference.  Doing this once up-front means the
+    // mutation block, the round summary, and the outcome decision
+    // can all use a single set of variables and never need to know
+    // which side the player is on.  This is critical for
+    // WARP_RETREAT — if the player is the defender and plays
+    // Withdraw, the halving must hit `integrity_b` (the
+    // defender-side value), not `integrity_a`.
+    let (card_a, card_b, effect_a, effect_b, a_retreated, b_retreated) = match player_side {
         BattleSide::Attacker => {
             let (eff_a, eff_b) = resolve_pair(
                 session,
@@ -67,9 +76,20 @@ pub fn apply_round(
                 BattleSide::Attacker,
                 BattleSide::Defender,
             );
-            (eff_a, eff_b)
+            let p_retreated = matches!(card_by_id(player_card).verb, CardVerb::Withdraw);
+            let f_retreated = matches!(card_by_id(ai_card).verb, CardVerb::Withdraw);
+            (
+                Some(player_card),
+                Some(ai_card),
+                eff_a,
+                eff_b,
+                p_retreated,
+                f_retreated,
+            )
         }
         BattleSide::Defender => {
+            // Player is side B; the AI's card is the attacker's card.
+            // resolve_pair still expects (attacker, defender) order.
             let (eff_a, eff_b) = resolve_pair(
                 session,
                 ai_card_resolved,
@@ -77,9 +97,18 @@ pub fn apply_round(
                 BattleSide::Attacker,
                 BattleSide::Defender,
             );
-            // Return (player_effect, ai_effect) — player is defender, so
-            // eff_a is AI's and eff_b is player's.
-            (eff_b, eff_a)
+            let p_retreated = matches!(card_by_id(player_card).verb, CardVerb::Withdraw);
+            let f_retreated = matches!(card_by_id(ai_card).verb, CardVerb::Withdraw);
+            // Swap so the *attacker-side* retreat flag is the AI's and
+            // the *defender-side* flag is the player's.
+            (
+                Some(ai_card),
+                Some(player_card),
+                eff_a,
+                eff_b,
+                f_retreated,
+                p_retreated,
+            )
         }
     };
 
@@ -94,13 +123,11 @@ pub fn apply_round(
     // integrity (clamped at 0).  Using the pre-round value mirrors the
     // design-doc "preserves 50% of current integrity" wording and
     // makes the result independent of which card the opponent played.
-    let player_retreated = matches!(card_by_id(player_card).verb, CardVerb::Withdraw);
-    let ai_retreated = matches!(card_by_id(ai_card).verb, CardVerb::Withdraw);
-    if player_retreated {
+    if a_retreated {
         let halved = start_a / 2;
         session.integrity_a = halved;
     }
-    if ai_retreated {
+    if b_retreated {
         let halved = start_b / 2;
         session.integrity_b = halved;
     }
@@ -112,10 +139,10 @@ pub fn apply_round(
     // Append the round summary.
     let summary = BattleRoundSummary {
         round,
-        card_a: card_for_side(session, player_side, player_card),
-        card_b: card_for_side(session, ai_side, ai_card),
-        effect_a: player_effect,
-        effect_b: ai_effect,
+        card_a,
+        card_b,
+        effect_a,
+        effect_b,
         integrity_a_after: session.integrity_a,
         integrity_b_after: session.integrity_b,
     };
@@ -124,8 +151,8 @@ pub fn apply_round(
     // Decide outcome.
     let a_destroyed = session.integrity_a == 0;
     let b_destroyed = session.integrity_b == 0;
-    let a_dead = a_destroyed || player_retreated;
-    let b_dead = b_destroyed || ai_retreated;
+    let a_dead = a_destroyed || a_retreated;
+    let b_dead = b_destroyed || b_retreated;
     let max_rounds = session.round >= MAX_ROUNDS;
     let exhausted = session.hand_a.is_empty() && session.hand_b.is_empty();
 
@@ -326,14 +353,6 @@ fn remove_card_from_hand(session: &mut BattleSession, side: BattleSide, card: Ca
     }
 }
 
-fn card_for_side(session: &BattleSession, side: BattleSide, _card: CardId) -> Option<CardId> {
-    // Caller passes the *played* card; report it back.  We don't pull
-    // from the hand because it has already been removed by this point.
-    let _ = session;
-    let _ = side;
-    Some(_card)
-}
-
 fn format_effect(name: &str, dmg: u32, self_dmg: u32) -> String {
     match (dmg, self_dmg) {
         (0, 0) => format!("{} (no effect)", name),
@@ -487,6 +506,34 @@ mod tests {
     }
 
     #[test]
+    fn withdraw_as_defender_halves_defender_integrity() {
+        // Regression for the side-indexing bug: when the player is the
+        // defender and plays WARP_RETREAT, integrity_b (the defender's
+        // integrity) must be halved, not integrity_a.
+        let mut s = make_session(
+            vec![
+                CardId::KINETIC_SALVO,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+            vec![
+                CardId::WARP_RETREAT,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+        );
+        let (outcome, _) = apply_round(&mut s, BattleSide::Defender, CardId::WARP_RETREAT);
+        assert!(matches!(outcome, BattleOutcome::Finished { .. }));
+        // Defender (the player) drops to 50 hp; attacker is untouched.
+        assert_eq!(s.integrity_a, 100, "attacker integrity must be untouched");
+        assert_eq!(s.integrity_b, 50, "defender integrity must be halved");
+    }
+
+    #[test]
     fn evasive_halves_incoming_damage_not_zeroes_it() {
         // Attacker (side A) hand is a single Kinetic Salvo; defender
         // (side B) hand is a single Burn Maneuver (Evasive).  The AI
@@ -512,13 +559,11 @@ mod tests {
         // Defender (side B) plays Evasive; attacker (side A) plays Strike.
         let _ = apply_round(&mut s, BattleSide::Defender, CardId::BURN_MANEUVER);
         // Attacker (side A) played Strike 18 hp; defender (side B)
-        // played Evasive.  Defender's integrity should drop, but not
-        // to zero.  18 / 2 = 9 hp lost, so integrity_b = 91.
-        assert!(
-            s.integrity_b < 100 && s.integrity_b >= 80,
-            "Evasive should halve the incoming strike (got {})",
-            s.integrity_b
-        );
+        // played Evasive.  Evasive halves 18 → 9 damage, so
+        // integrity_b = 100 - 9 = 91 exactly.  Exact equality is
+        // required to catch any future regression in the halving math.
+        assert_eq!(s.integrity_a, 100, "attacker integrity must be untouched");
+        assert_eq!(s.integrity_b, 91, "Evasive should halve 18 → 9 damage");
     }
 
     #[test]

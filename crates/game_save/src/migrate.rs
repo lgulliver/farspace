@@ -1245,16 +1245,21 @@ mod tests {
         let saved = save_to_string(&engine.state).expect("save should succeed");
 
         // Verify the v41 save actually carries the new fields; the
-        // v40 fixture below relies on them being absent.
+        // v40 fixture below relies on them being absent.  All three
+        // v3 fields use the `.get(key).is_some()` form so a missing
+        // key is reported as absent (rather than as a JSON `null`).
         let v41_value: serde_json::Value = serde_json::from_str(&saved).unwrap();
         assert!(
-            v41_value["state"]["pending_battle_session"].is_null()
-                || v41_value["state"].get("pending_battle_session").is_some(),
+            v41_value["state"].get("pending_battle_session").is_some(),
             "v41 save must carry pending_battle_session field"
         );
         assert!(
             v41_value["state"].get("next_battle_session_id").is_some(),
             "v41 save must carry next_battle_session_id"
+        );
+        assert!(
+            v41_value["state"].get("battle_reports_v3").is_some(),
+            "v41 save must carry battle_reports_v3 field"
         );
 
         // Patch the v41 JSON down to a v40 save: drop the Combat v3

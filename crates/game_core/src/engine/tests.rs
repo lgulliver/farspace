@@ -12967,30 +12967,20 @@ fn combat_v3_invalid_card_index_emits_error() {
 }
 
 #[test]
-fn combat_v3_blocks_non_battle_commands_while_pending() {
-    // While a battle is pending, only PlayBattleCard and
-    // RetreatFromBattle are accepted.  All other commands (including
-    // EndTurn) must be rejected with an `Event::Error` and must not
-    // mutate the pending session or the turn counter.
+fn combat_v3_blocks_end_turn_while_pending() {
+    // While a battle is pending, `EndTurn` is rejected with
+    // `Event::Error` and the turn counter does not advance.  Tested
+    // in isolation so the gate check is not masked by another
+    // command's error event in the same batch.
     let (mut engine, _star, _pf, _af) = make_v3_combat_state();
     let turn_before = engine.state.turn;
     let mut events = Vec::new();
     engine.start_battle_v3(_star, _pf, _af, &mut events);
     let _ = events;
 
-    let mixed = engine.apply_turn(vec![
-        Command::EndTurn,
-        Command::PlayBattleCard {
-            session_id: 0, // ignored; superseded by the gate check
-            card_index: 0,
-            target: None,
-        },
-    ]);
-    // EndTurn is rejected with Event::Error, then PlayBattleCard
-    // reaches the engine (and emits its own error for the bad
-    // session id, which is also fine).
+    let events = engine.apply_turn(vec![Command::EndTurn]);
     assert!(
-        mixed.iter().any(|e| matches!(e, Event::Error { .. })),
+        events.iter().any(|e| matches!(e, Event::Error { .. })),
         "EndTurn while a battle is pending must emit an error"
     );
     assert_eq!(
@@ -12999,11 +12989,18 @@ fn combat_v3_blocks_non_battle_commands_while_pending() {
     );
     assert!(
         engine.state.pending_battle_session.is_some(),
-        "pending session must survive a rejected non-battle command"
+        "pending session must survive a rejected EndTurn"
     );
+}
 
+#[test]
+fn combat_v3_retreat_command_clears_pending_session() {
     // The single accepted command (RetreatFromBattle) clears the
     // session and emits BattleFinished.
+    let (mut engine, _star, _pf, _af) = make_v3_combat_state();
+    let mut events = Vec::new();
+    engine.start_battle_v3(_star, _pf, _af, &mut events);
+    let _ = events;
     let session_id = engine
         .state
         .pending_battle_session

@@ -6220,6 +6220,14 @@ impl Engine {
         if defender_destroyed {
             self.remove_fleet_and_assignments(session.defender);
         }
+        // Refresh the persisted blockade cache so a destroyed
+        // blockading fleet stops penalising the local economy on
+        // the very next read.  `recompute_colony_blockade` is the
+        // same derivation `process_end_turn` runs after fleet
+        // movements; doing it here too means a battle finalisation
+        // mid-turn is immediately visible to subsequent code paths
+        // (UI, dispatch, the next `apply_turn`).
+        self.state.colony_blockade = self.state.recompute_colony_blockade();
 
         events.push(Event::BattleFinished {
             session_id: session.session_id,

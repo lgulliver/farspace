@@ -545,14 +545,35 @@ pub fn generate_dispatch(
                     DispatchSeverity::Notable
                 };
                 let headline = if player_faction_in_match {
+                    // Figure out whether the player won, lost, or drew.
+                    // The player controls the empire that matches their
+                    // side in the report; the `winner` tells us which
+                    // side is the victor.
+                    let player_won = report
+                        .zip(*winner)
+                        .map(|(r, w)| {
+                            let player_side = if r.empire_a == player {
+                                crate::BattleSide::Attacker
+                            } else {
+                                crate::BattleSide::Defender
+                            };
+                            w == player_side
+                        })
+                        .unwrap_or(false);
                     let known_star = star_name_if_known(state, *star);
-                    match (winner, known_star) {
-                        (Some(_), Some(name)) => format!("Victory Reported at {name} Sector"),
-                        (Some(_), None) => "Victory Reported in Contested Space".to_string(),
-                        (None, Some(name)) => {
+                    match (player_won, *winner, known_star) {
+                        (true, _, Some(name)) => {
+                            format!("Victory Reported at {name} Sector")
+                        }
+                        (true, _, None) => "Victory Reported in Contested Space".to_string(),
+                        (false, Some(_), Some(name)) => {
+                            format!("Defeat Reported at {name} Sector")
+                        }
+                        (false, Some(_), None) => "Defeat Reported in Contested Space".to_string(),
+                        (false, None, Some(name)) => {
                             format!("Draw Reported at {name} Sector")
                         }
-                        (None, None) => "Draw Reported in Contested Space".to_string(),
+                        (false, None, None) => "Draw Reported in Contested Space".to_string(),
                     }
                 } else {
                     "Combat v3 Engagement Concluded".to_string()

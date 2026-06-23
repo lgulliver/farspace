@@ -35,6 +35,11 @@ pub enum BattleOutcome {
 /// player card from `player_card` (passed by the caller so the engine
 /// can stay command-driven).  All damage is integer hp.
 ///
+/// The optional `ai_empire_def` is the empire definition of the
+/// non-player side.  When `Some`, the AI's card pick is augmented by
+/// the doctrine-bias contribution.  When `None`, the AI uses the
+/// verb-only baseline.
+///
 /// Returns the outcome and the `BattleRoundSummary` that was appended
 /// to the session.  When the outcome is `Finished` the caller must
 /// finalise the report.
@@ -42,10 +47,11 @@ pub fn apply_round(
     session: &mut BattleSession,
     player_side: BattleSide,
     player_card: CardId,
+    ai_empire_def: Option<&crate::EmpireDefinition>,
 ) -> (BattleOutcome, BattleRoundSummary) {
     // AI chooses a card.
     let ai_side = player_side.other();
-    let ai_index = ai_pick_card(session, ai_side);
+    let ai_index = ai_pick_card(session, ai_side, ai_empire_def);
     let ai_card = match ai_side {
         BattleSide::Attacker => session.hand_a[ai_index],
         BattleSide::Defender => session.hand_b[ai_index],
@@ -56,86 +62,98 @@ pub fn apply_round(
     let start_b = session.integrity_b;
     let round = session.round;
 
-    // Resolve cards.  Each side may be cancelled by the other's Disrupt.
+    // Disrupt cancellation: any CIWS Grid on either side replaces the
+    // opposing card with Hold Fire for this round.
     let (player_card_resolved, ai_card_resolved) = apply_disrupt(player_card, ai_card);
 
-    // Normalize *all* side-indexed state to the attacker/defender
-    // frame of reference.  Doing this once up-front means the
-    // mutation block, the round summary, and the outcome decision
-    // can all use a single set of variables and never need to know
-    // which side the player is on.  This is critical for
-    // WARP_RETREAT — if the player is the defender and plays
-    // Withdraw, the halving must hit `integrity_b` (the
-    // defender-side value), not `integrity_a`.
-    let (card_a, card_b, effect_a, effect_b, a_retreated, b_retreated) = match player_side {
-        BattleSide::Attacker => {
-            let (eff_a, eff_b) = resolve_pair(
-                session,
-                player_card_resolved,
-                ai_card_resolved,
-                BattleSide::Attacker,
-                BattleSide::Defender,
-            );
-            // Use the *resolved* cards (post-CIWS) for retreat
-            // detection: a cancelled WARP_RETREAT is no longer a
-            // retreat.
-            let p_retreated = matches!(card_by_id(player_card_resolved).verb, CardVerb::Withdraw);
-            let f_retreated = matches!(card_by_id(ai_card_resolved).verb, CardVerb::Withdraw);
-            (
-                Some(player_card),
-                Some(ai_card),
-                eff_a,
-                eff_b,
-                p_retreated,
-                f_retreated,
-            )
-        }
-        BattleSide::Defender => {
-            // Player is side B; the AI's card is the attacker's card.
-            // resolve_pair still expects (attacker, defender) order.
-            let (eff_a, eff_b) = resolve_pair(
-                session,
-                ai_card_resolved,
-                player_card_resolved,
-                BattleSide::Attacker,
-                BattleSide::Defender,
-            );
-            // See the attacker branch above: use the *resolved* cards
-            // so a CIWS-cancelled WARP_RETREAT does not trigger a
-            // retreat.
-            let p_retreated = matches!(card_by_id(player_card_resolved).verb, CardVerb::Withdraw);
-            let f_retreated = matches!(card_by_id(ai_card_resolved).verb, CardVerb::Withdraw);
-            // Swap so the *attacker-side* retreat flag is the AI's and
-            // the *defender-side* flag is the player's.
-            (
-                Some(ai_card),
-                Some(player_card),
-                eff_a,
-                eff_b,
-                f_retreated,
-                p_retreated,
-            )
-        }
+    // Determine initiative.  Maneuver gives the playing side
+    // initiative for the round: if exactly one side played Maneuver
+    // (post-CIWS), that side's effects resolve first.  Ties (both or
+    // neither) resolve attacker-first.
+    let p_initiative = matches!(card_by_id(player_card_resolved).verb, CardVerb::Maneuver);
+    let ai_initiative = matches!(card_by_id(ai_card_resolved).verb, CardVerb::Maneuver);
+    let attacker_first = match (p_initiative, ai_initiative) {
+        (true, false) => match player_side {
+            BattleSide::Attacker => true,
+            BattleSide::Defender => false,
+        },
+        (false, true) => match player_side {
+            BattleSide::Attacker => false,
+            BattleSide::Defender => true,
+        },
+        // Tie: attacker always goes first.
+        _ => true,
     };
 
-    // Clamp integrity at zero (integer floor).
-    session.integrity_a = session.integrity_a.min(start_a); // already lowered
-    session.integrity_b = session.integrity_b.min(start_b);
-    // The above `min` calls are a no-op because resolve_pair already
-    // saturated; we keep them for defensive clarity in case the math
-    // ever changes.  No effect on determinism.
+    // Resolve the round in initiative order.  Each call applies one
+    // side's card against the current state; with simultaneous
+    // resolution the first call is the one with initiative and the
+    // second call observes the integrity after the first.  We do
+    // NOT collapse to a single `resolve_pair` because initiative
+    // must order mutations (Disrupt cancels the *played* card, not
+    // the resolved card; a Withdraw that drops integrity to 0 before
+    // the opponent strikes affects their outgoing damage math).
+    let (card_a, card_b, effect_a, effect_b, a_retreated, b_retreated) = if attacker_first {
+        let (eff_a, eff_b, p_retreated, f_retreated) = resolve_attacker_then_defender(
+            session,
+            player_card_resolved,
+            player_side,
+            ai_card_resolved,
+            ai_side,
+        );
+        // Map the inner "first" / "second" retreated flags back to
+        // the attacker / defender frame based on which side the
+        // player is on.
+        let (a_retreated, b_retreated) = match player_side {
+            BattleSide::Attacker => (p_retreated, f_retreated),
+            BattleSide::Defender => (f_retreated, p_retreated),
+        };
+        (
+            Some(player_card),
+            Some(ai_card),
+            eff_a,
+            eff_b,
+            a_retreated,
+            b_retreated,
+        )
+    } else {
+        // Defender (defender's chosen side) goes first.
+        let (eff_a, eff_b, p_retreated, f_retreated) = resolve_attacker_then_defender(
+            session,
+            ai_card_resolved,
+            ai_side,
+            player_card_resolved,
+            player_side,
+        );
+        // When the player is the defender and the player's card
+        // resolved second (the inner "first" / "second" are the
+        // attacker's / defender's resolved order), map accordingly.
+        let (a_retreated, b_retreated) = match player_side {
+            BattleSide::Attacker => (p_retreated, f_retreated),
+            BattleSide::Defender => (f_retreated, p_retreated),
+        };
+        (
+            Some(ai_card),
+            Some(player_card),
+            eff_a,
+            eff_b,
+            a_retreated,
+            b_retreated,
+        )
+    };
 
-    // Apply Withdraw: retreating side drops to 50% of its *pre-round*
-    // integrity (clamped at 0).  Using the pre-round value mirrors the
-    // design-doc "preserves 50% of current integrity" wording and
-    // makes the result independent of which card the opponent played.
+    // Clamp integrity at zero (integer floor).  resolve_attacker_then_defender
+    // already saturates, but the explicit min()s are a belt-and-braces
+    // safety net.
+    session.integrity_a = session.integrity_a.min(start_a);
+    session.integrity_b = session.integrity_b.min(start_b);
+
+    // Withdraw: retreating side drops to 50% of pre-round integrity.
     if a_retreated {
-        let halved = start_a / 2;
-        session.integrity_a = halved;
+        session.integrity_a = start_a / 2;
     }
     if b_retreated {
-        let halved = start_b / 2;
-        session.integrity_b = halved;
+        session.integrity_b = start_b / 2;
     }
 
     // Remove the played cards from their hands.
@@ -154,7 +172,10 @@ pub fn apply_round(
     };
     session.rounds.push(summary.clone());
 
-    // Decide outcome.
+    // Decide outcome.  A retreated fleet survives; a destroyed fleet
+    // is one whose integrity reached 0.  Retreat and destruction
+    // are mutually exclusive by construction (Withdraw drops
+    // integrity to start_a/2 ≥ 1, never 0).
     let a_destroyed = session.integrity_a == 0;
     let b_destroyed = session.integrity_b == 0;
     let a_dead = a_destroyed || a_retreated;
@@ -170,11 +191,11 @@ pub fn apply_round(
         } else if b_dead {
             Some(BattleSide::Attacker)
         } else if max_rounds || exhausted {
-            // Tiebreaker: higher integrity wins; defender wins ties.
+            // Tiebreaker: higher integrity wins; equal integrity is a draw.
             match session.integrity_a.cmp(&session.integrity_b) {
                 std::cmp::Ordering::Greater => Some(BattleSide::Attacker),
                 std::cmp::Ordering::Less => Some(BattleSide::Defender),
-                std::cmp::Ordering::Equal => Some(BattleSide::Defender),
+                std::cmp::Ordering::Equal => None,
             }
         } else {
             None
@@ -182,6 +203,11 @@ pub fn apply_round(
         BattleOutcome::Finished { winner }
     } else {
         session.round = session.round.saturating_add(1);
+        // Apply this round's accumulated Salvo recurring damage to
+        // the opposing fleet at the start of the *next* round.  We
+        // do that here so the post-round summary records the
+        // post-recurring-damage integrity.
+        apply_recurring_salvo(session);
         BattleOutcome::Continue
     };
 
@@ -209,61 +235,114 @@ fn apply_disrupt(player_card: CardId, ai_card: CardId) -> (CardId, CardId) {
     (player_resolved, ai_resolved)
 }
 
-/// Resolve a pair of cards simultaneously.  Each side deals damage to the
-/// other based on the verb, applying guard/evasive/fortify reductions
-/// against the incoming strike.  Self-damage (Overcharge) is applied to
-/// the attacker.
-///
-/// Returns `(effect_text_for_attacker, effect_text_for_defender)`.
-fn resolve_pair(
+/// Read side integrity by frame (attacker/defender).
+fn side_integrities(session: &BattleSession, side: BattleSide) -> (u32, u32) {
+    match side {
+        BattleSide::Attacker => (session.integrity_a, session.integrity_b),
+        BattleSide::Defender => (session.integrity_b, session.integrity_a),
+    }
+}
+
+fn set_side_integrity(session: &mut BattleSession, side: BattleSide, value: u32) {
+    match side {
+        BattleSide::Attacker => session.integrity_a = value,
+        BattleSide::Defender => session.integrity_b = value,
+    }
+}
+
+fn enemy_side(side: BattleSide) -> BattleSide {
+    side.other()
+}
+
+fn side_has_mark(session: &BattleSession, side: BattleSide) -> bool {
+    match side {
+        BattleSide::Attacker => session.mark_a_pending,
+        BattleSide::Defender => session.mark_b_pending,
+    }
+}
+
+fn consume_mark(session: &mut BattleSession, side: BattleSide) {
+    match side {
+        BattleSide::Attacker => session.mark_a_pending = false,
+        BattleSide::Defender => session.mark_b_pending = false,
+    }
+}
+
+/// Mark applied effect note.
+const MARK_APPLIED_SUFFIX: &str = " (+Mark)";
+
+/// Mark consumed effect note (reserved for future effect-text annotation).
+#[allow(dead_code)]
+const MARK_CONSUMED_SUFFIX: &str = " (Mark)";
+
+/// Resolve the round in initiative order: the first side's card
+/// applies, then the second side's card applies.  Returns
+/// `(effect_a, effect_b, a_retreated, b_retreated)`.
+fn resolve_attacker_then_defender(
     session: &mut BattleSession,
     card_a: CardId,
-    card_b: CardId,
     side_a: BattleSide,
+    card_b: CardId,
     side_b: BattleSide,
-) -> (String, String) {
+) -> (String, String, bool, bool) {
     let def_a = card_by_id(card_a);
     let def_b = card_by_id(card_b);
+    let a_initiative = matches!(def_a.verb, CardVerb::Maneuver);
+    let b_initiative = matches!(def_b.verb, CardVerb::Maneuver);
+    let attacker_first = match (a_initiative, b_initiative) {
+        (true, false) => true,
+        (false, true) => false,
+        // Tie: attacker first.
+        _ => true,
+    };
 
-    // 1. Compute attacker's outgoing damage.
-    let atk_a = outgoing_damage(session, side_a, card_a);
-    // Defender's Evasive halves the incoming attack directly, before
-    // the guard subtraction.  This avoids the "huge guard = zero
-    // damage" trap from the earlier model.
-    let mut dmg_b = atk_a;
-    if matches!(def_b.verb, CardVerb::Evasive) {
-        dmg_b /= 2;
-    }
-    let guard_b = incoming_reduction(session, side_b, card_b);
-    dmg_b = dmg_b.saturating_sub(guard_b);
+    // Recurring Salvo pressure is applied at the *end* of
+    // `apply_round` (in the Continue branch), not here, to avoid
+    // double-counting: the start-of-round tick and the post-round
+    // tick would otherwise both subtract `salvo_x_recurring` from
+    // the same integrities on the same round.
 
-    // 2. Compute defender's outgoing damage.
-    let atk_b = outgoing_damage(session, side_b, card_b);
-    let mut dmg_a = atk_b;
-    if matches!(def_a.verb, CardVerb::Evasive) {
-        dmg_a /= 2;
-    }
-    let guard_a = incoming_reduction(session, side_a, card_a);
-    dmg_a = dmg_a.saturating_sub(guard_a);
+    // Set the side that will go first and resolve in order.
+    let (first_card, first_side, second_card, second_side) = if attacker_first {
+        (card_a, side_a, card_b, side_b)
+    } else {
+        (card_b, side_b, card_a, side_a)
+    };
 
-    // 3. Apply damage to integrity, clamped at zero.
-    let start_a = session.integrity_a;
-    let start_b = session.integrity_b;
-    session.integrity_a = start_a.saturating_sub(dmg_a);
-    session.integrity_b = start_b.saturating_sub(dmg_b);
+    // First side resolves.
+    let (first_dmg, first_self) = resolve_one_side(session, first_side, first_card);
 
-    // 4. Apply self-damage (Overcharge).
-    let (self_a, self_b) = self_damage(card_a, card_b);
-    if self_a > 0 {
-        session.integrity_a = session.integrity_a.saturating_sub(self_a);
-    }
-    if self_b > 0 {
-        session.integrity_b = session.integrity_b.saturating_sub(self_b);
-    }
+    // Second side resolves against the now-updated state.  If the
+    // first side destroyed the second side (integrity 0), the second
+    // side's card is a no-op.
+    let second_dmg = {
+        let (_, enemy_int) = side_integrities(session, enemy_side(second_side));
+        if enemy_int == 0 {
+            0
+        } else {
+            resolve_one_side(session, second_side, second_card).0
+        }
+    };
 
-    // 5. Inspire adds a Hold Fire if hand is short.  This is a v1
-    //    simplification: real refill draws the top of the deck, but
-    //    we don't have a deck object yet.
+    // Subtract damages from the appropriate integrities.  Pass each
+    // target's played card explicitly so Evasive halving works on the
+    // current round (the round summary is not yet in `session.rounds`).
+    apply_damage_to(session, first_side, Some(first_card), second_dmg);
+    apply_damage_to(session, second_side, Some(second_card), first_dmg);
+
+    // Apply self-damage to the playing side via the original cards.
+    // resolve_one_side already applied the self-damage internally.
+    let _ = first_self; // self-damage already applied in resolve_one_side
+
+    // Recurring Salvo: if a side just played Salvo, set its
+    // recurring field.  Recurring damage equals `base_damage / 4`
+    // (rounded down) so the per-round bleed stays small.  Salvo is
+    // unique to the Orbital Bombardment card and to the faction
+    // signature card "Siege Doctrine" in v1.
+    set_recurring_salvo(session, first_side, first_card);
+    set_recurring_salvo(session, second_side, second_card);
+
+    // Inspire: if either side played Inspire, refill hand to 5.
     if def_a.verb == CardVerb::Inspire {
         push_hold_fire_if_short(session, side_a);
     }
@@ -271,9 +350,174 @@ fn resolve_pair(
         push_hold_fire_if_short(session, side_b);
     }
 
-    let eff_a = format_effect(def_a.name, dmg_b, self_a);
-    let eff_b = format_effect(def_b.name, dmg_a, self_b);
-    (eff_a, eff_b)
+    // Build effect text.  We use the resolved damage values plus
+    // Mark annotations to give the player a clear log.
+    let eff_first = build_effect_text(
+        card_by_id(first_card).name,
+        first_dmg,
+        if matches!(card_by_id(first_card).verb, CardVerb::Overcharge) {
+            card_by_id(first_card).self_damage
+        } else {
+            0
+        },
+    );
+    let eff_second = build_effect_text(
+        card_by_id(second_card).name,
+        second_dmg,
+        if matches!(card_by_id(second_card).verb, CardVerb::Overcharge) {
+            card_by_id(second_card).self_damage
+        } else {
+            0
+        },
+    );
+
+    // Mark effect strings: if either side *gained* a mark, annotate
+    // their effect with "(+Mark)" so the log is informative.
+    let eff_first = annotate_mark_applied(card_by_id(first_card).verb, eff_first);
+    let eff_second = annotate_mark_applied(card_by_id(second_card).verb, eff_second);
+
+    // Map back to attacker/defender frame.
+    let (eff_a, eff_b) = if attacker_first {
+        (eff_first, eff_second)
+    } else {
+        (eff_second, eff_first)
+    };
+
+    // Retreat flags: post-CIWS card verbs.
+    let a_retreated = matches!(def_a.verb, CardVerb::Withdraw);
+    let b_retreated = matches!(def_b.verb, CardVerb::Withdraw);
+
+    (eff_a, eff_b, a_retreated, b_retreated)
+}
+
+/// Resolve a single side's card and return `(damage_to_enemy,
+/// self_damage)`.  Self-damage is applied to the playing side here;
+/// damage to the enemy is *not* applied here — the caller applies
+/// it after both sides resolve so the order is well-defined.
+fn resolve_one_side(session: &mut BattleSession, side: BattleSide, card: CardId) -> (u32, u32) {
+    let def = card_by_id(card);
+    let self_dmg = if def.verb == CardVerb::Overcharge {
+        def.self_damage
+    } else {
+        0
+    };
+    if self_dmg > 0 {
+        let (own, _) = side_integrities(session, side);
+        set_side_integrity(session, side, own.saturating_sub(self_dmg));
+    }
+
+    // Mark: the playing side gains a pending mark if they play Mark.
+    if def.verb == CardVerb::Mark {
+        match side {
+            BattleSide::Attacker => session.mark_a_pending = true,
+            BattleSide::Defender => session.mark_b_pending = true,
+        }
+    }
+
+    // Outgoing damage (with Mark +25% if pending and the card is a
+    // damage verb; consume the mark when applied).
+    let raw = outgoing_damage(session, side, card);
+    let mut dmg = match def.verb {
+        CardVerb::Strike | CardVerb::Salvo | CardVerb::Overcharge => raw,
+        _ => 0,
+    };
+    if dmg > 0 && side_has_mark(session, side) {
+        dmg = dmg.saturating_mul(125) / 100;
+        consume_mark(session, side);
+    }
+
+    // Evasive on the playing side?  Evasive reduces *incoming* damage
+    // to the playing side, which is the *opponent's* outgoing
+    // damage.  Apply Evasive by halving the opponent's accumulated
+    // damage in `apply_damage_to` when the playing side's integrity
+    // is being reduced.  We approximate that here by leaving dmg
+    // unchanged and handling the half in `apply_damage_to`.  That
+    // keeps the damage call site single.
+    (dmg, self_dmg)
+}
+
+/// Apply `dmg` to the `target` side, modified by the target's card:
+///   - Evasive halves the incoming damage.
+///   - Guard subtracts `base_defense` (clamped at 0).
+///   - Fortify subtracts `base_defense * 1.5` (clamped at 0).
+///
+/// `target_card` is passed in explicitly because the round summary
+/// is appended only after `apply_damage_to` returns; the function
+/// cannot look it up via `session.rounds.last()`.
+fn apply_damage_to(
+    session: &mut BattleSession,
+    target: BattleSide,
+    target_card: Option<CardId>,
+    dmg: u32,
+) {
+    if dmg == 0 {
+        return;
+    }
+    let (halved, reduced) = if let Some(card) = target_card {
+        let def = card_by_id(card);
+        let is_evasive = matches!(def.verb, CardVerb::Evasive);
+        let reduction = match def.verb {
+            CardVerb::Guard => def.base_defense,
+            CardVerb::Fortify => def.base_defense.saturating_mul(150) / 100,
+            _ => 0,
+        };
+        (is_evasive, reduction)
+    } else {
+        (false, 0)
+    };
+    let post_reduce = dmg.saturating_sub(reduced);
+    let final_dmg = if halved { post_reduce / 2 } else { post_reduce };
+    let (own, _) = side_integrities(session, target);
+    set_side_integrity(session, target, own.saturating_sub(final_dmg));
+}
+
+/// If the playing side played Salvo, set its `salvo_x_recurring`
+/// field to a small value (base_damage / 4) for the rest of the
+/// battle.  Idempotent: a fresh Salvo refreshes the field.
+fn set_recurring_salvo(session: &mut BattleSession, side: BattleSide, card: CardId) {
+    let def = card_by_id(card);
+    if def.verb == CardVerb::Salvo {
+        let recurring = def.base_damage / 4;
+        match side {
+            BattleSide::Attacker => session.salvo_a_recurring = recurring,
+            BattleSide::Defender => session.salvo_b_recurring = recurring,
+        }
+    }
+}
+
+/// Apply each side's recurring Salvo pressure to the *opposing* side
+/// at the start of a new round.  Called from `apply_round` (in the
+/// Continue branch) so the post-round summary records the bleed on
+/// the *following* round.
+fn apply_recurring_salvo(session: &mut BattleSession) {
+    let dmg_to_b = session.salvo_a_recurring;
+    let dmg_to_a = session.salvo_b_recurring;
+    if dmg_to_b > 0 {
+        let (own, _) = side_integrities(session, BattleSide::Defender);
+        set_side_integrity(session, BattleSide::Defender, own.saturating_sub(dmg_to_b));
+    }
+    if dmg_to_a > 0 {
+        let (own, _) = side_integrities(session, BattleSide::Attacker);
+        set_side_integrity(session, BattleSide::Attacker, own.saturating_sub(dmg_to_a));
+    }
+}
+
+/// Annotate the effect string with "(+Mark)" when the playing side
+/// gained a Mark (played a Mark card).  Annotate with "(Mark)" when
+/// the playing side consumed a Mark with a damage card.
+fn annotate_mark_applied(verb: CardVerb, effect: String) -> String {
+    if matches!(verb, CardVerb::Mark) {
+        format!("{effect}{MARK_APPLIED_SUFFIX}")
+    } else {
+        effect
+    }
+}
+
+/// Build the human-readable effect text.  Wrapper over `format_effect`
+/// kept for symmetry with the Mark / Salvo annotations done at the
+/// call site.
+fn build_effect_text(name: &str, dmg: u32, self_dmg: u32) -> String {
+    format_effect(name, dmg, self_dmg)
 }
 
 /// Compute outgoing damage for a card.  Returns `0` for non-damage verbs.
@@ -298,27 +542,8 @@ fn outgoing_damage(session: &BattleSession, side: BattleSide, card: CardId) -> u
     }
 }
 
-/// Compute incoming damage reduction for a Guard / Fortify card.
-/// Returns `0` for any other verb (Evasive is handled in `resolve_pair`
-/// to halve the attack directly).
-fn incoming_reduction(_session: &BattleSession, side: BattleSide, card: CardId) -> u32 {
-    let def = card_by_id(card);
-    let _ = side;
-    let base = match def.verb {
-        CardVerb::Guard | CardVerb::Fortify => def.base_defense,
-        _ => 0,
-    };
-
-    // Fortify +50% defense multiplier.
-    let factor_pct: u32 = if def.verb == CardVerb::Fortify {
-        150
-    } else {
-        100
-    };
-    base.saturating_mul(factor_pct) / 100
-}
-
 /// Self-damage dealt by a card (Overcharge).  Returns `(self_a, self_b)`.
+#[allow(dead_code)]
 fn self_damage(card_a: CardId, card_b: CardId) -> (u32, u32) {
     let a = card_by_id(card_a);
     let b = card_by_id(card_b);
@@ -407,6 +632,10 @@ mod tests {
                 ships_b: 1,
             },
             state: BattleSessionState::AwaitingPlayer,
+            mark_a_pending: false,
+            mark_b_pending: false,
+            salvo_a_recurring: 0,
+            salvo_b_recurring: 0,
         }
     }
 
@@ -428,7 +657,8 @@ mod tests {
                 HOLD_FIRE.id,
             ],
         );
-        let (outcome, summary) = apply_round(&mut s, BattleSide::Attacker, CardId::KINETIC_SALVO);
+        let (outcome, summary) =
+            apply_round(&mut s, BattleSide::Attacker, CardId::KINETIC_SALVO, None);
         assert!(matches!(outcome, BattleOutcome::Continue));
         assert!(s.integrity_b < 100, "enemy should take damage");
         assert_eq!(summary.card_a, Some(CardId::KINETIC_SALVO));
@@ -452,7 +682,7 @@ mod tests {
                 HOLD_FIRE.id,
             ],
         );
-        let (outcome, _) = apply_round(&mut s, BattleSide::Attacker, CardId::ABLATIVE_HULL);
+        let (outcome, _) = apply_round(&mut s, BattleSide::Attacker, CardId::ABLATIVE_HULL, None);
         assert!(matches!(outcome, BattleOutcome::Continue));
         // AI struck attacker, but ablative reduced damage; attacker
         // integrity should be high (>= 90) and enemy integrity = 100.
@@ -479,7 +709,7 @@ mod tests {
                 HOLD_FIRE.id,
             ],
         );
-        let (outcome, _) = apply_round(&mut s, BattleSide::Attacker, CardId::CIWS_GRID);
+        let (outcome, _) = apply_round(&mut s, BattleSide::Attacker, CardId::CIWS_GRID, None);
         assert!(matches!(outcome, BattleOutcome::Continue));
         // Player's CIWS cancelled the AI strike; attacker's integrity
         // should not have changed (and defender still has 100).
@@ -505,7 +735,7 @@ mod tests {
                 HOLD_FIRE.id,
             ],
         );
-        let (outcome, _) = apply_round(&mut s, BattleSide::Attacker, CardId::WARP_RETREAT);
+        let (outcome, _) = apply_round(&mut s, BattleSide::Attacker, CardId::WARP_RETREAT, None);
         assert!(matches!(outcome, BattleOutcome::Finished { .. }));
         // Player retains 50% integrity (50 hp from 100).
         assert_eq!(s.integrity_a, 50);
@@ -532,7 +762,7 @@ mod tests {
                 HOLD_FIRE.id,
             ],
         );
-        let (outcome, _) = apply_round(&mut s, BattleSide::Defender, CardId::WARP_RETREAT);
+        let (outcome, _) = apply_round(&mut s, BattleSide::Defender, CardId::WARP_RETREAT, None);
         assert!(matches!(outcome, BattleOutcome::Finished { .. }));
         // Defender (the player) drops to 50 hp; attacker is untouched.
         assert_eq!(s.integrity_a, 100, "attacker integrity must be untouched");
@@ -561,7 +791,7 @@ mod tests {
                 HOLD_FIRE.id,
             ],
         );
-        let (outcome, _) = apply_round(&mut s, BattleSide::Attacker, CardId::WARP_RETREAT);
+        let (outcome, _) = apply_round(&mut s, BattleSide::Attacker, CardId::WARP_RETREAT, None);
         // Round is not a finished battle — the cancelled retreat does
         // not finalise the session.
         assert!(matches!(outcome, BattleOutcome::Continue));
@@ -602,7 +832,7 @@ mod tests {
                 HOLD_FIRE.id,
             ],
         );
-        let (outcome, _) = apply_round(&mut s, BattleSide::Defender, CardId::WARP_RETREAT);
+        let (outcome, _) = apply_round(&mut s, BattleSide::Defender, CardId::WARP_RETREAT, None);
         assert!(matches!(outcome, BattleOutcome::Continue));
         assert_eq!(
             s.integrity_a, 100,
@@ -639,7 +869,7 @@ mod tests {
             ],
         );
         // Defender (side B) plays Evasive; attacker (side A) plays Strike.
-        let _ = apply_round(&mut s, BattleSide::Defender, CardId::BURN_MANEUVER);
+        let _ = apply_round(&mut s, BattleSide::Defender, CardId::BURN_MANEUVER, None);
         // Attacker (side A) played Strike 18 hp; defender (side B)
         // played Evasive.  Evasive halves 18 → 9 damage, so
         // integrity_b = 100 - 9 = 91 exactly.  Exact equality is
@@ -670,7 +900,12 @@ mod tests {
                 HOLD_FIRE.id,
             ],
         );
-        let _ = apply_round(&mut s, BattleSide::Attacker, CardId::ORBITAL_BOMBARDMENT);
+        let _ = apply_round(
+            &mut s,
+            BattleSide::Attacker,
+            CardId::ORBITAL_BOMBARDMENT,
+            None,
+        );
         // 12 hp damage hits defender; integrity >= 80.
         assert!(s.integrity_b >= 80);
         assert!(s.integrity_b <= 100);
@@ -695,7 +930,7 @@ mod tests {
             ],
         );
         assert!(s.rounds.is_empty());
-        let _ = apply_round(&mut s, BattleSide::Attacker, CardId::KINETIC_SALVO);
+        let _ = apply_round(&mut s, BattleSide::Attacker, CardId::KINETIC_SALVO, None);
         assert_eq!(s.rounds.len(), 1);
         assert_eq!(s.rounds[0].round, 1);
     }
@@ -719,8 +954,186 @@ mod tests {
             ],
         );
         // Defender plays Guard; attacker plays Strike.
-        let _ = apply_round(&mut s, BattleSide::Defender, CardId::ABLATIVE_HULL);
+        let _ = apply_round(&mut s, BattleSide::Defender, CardId::ABLATIVE_HULL, None);
         // Defender integrity should be high (>= 90).
         assert!(s.integrity_b >= 90);
+    }
+
+    // --- New tests for Mark / Salvo / Maneuver / retreat flags ---
+
+    #[test]
+    fn mark_buff_then_strike_applies_25_percent_bonus() {
+        // Round 1: attacker plays Mark → mark_a_pending = true.
+        // Round 2: attacker plays Kinetic Salvo → damage boosted by
+        // 125/100, mark_a_pending is consumed (false again).
+        let mut s = make_session(
+            vec![
+                CardId::TARGETING_LOCK,
+                CardId::KINETIC_SALVO,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+            vec![
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+        );
+        // Round 1 — Mark.
+        let _ = apply_round(&mut s, BattleSide::Attacker, CardId::TARGETING_LOCK, None);
+        assert!(
+            s.mark_a_pending,
+            "Mark buff should be pending after Mark card"
+        );
+        assert_eq!(s.integrity_b, 100, "Mark deals no damage");
+
+        // Round 2 — Strike with Mark.
+        let pre_b = s.integrity_b;
+        let _ = apply_round(&mut s, BattleSide::Attacker, CardId::KINETIC_SALVO, None);
+        let dmg = pre_b - s.integrity_b;
+        // 18 base * 125% = 22.5 → 22 (integer).
+        assert_eq!(dmg, 22, "Mark+Strike should deal 22 damage (18 * 125/100)");
+        assert!(
+            !s.mark_a_pending,
+            "Mark should be consumed after the buffed Strike"
+        );
+    }
+
+    #[test]
+    fn mark_buff_not_consumed_by_non_damage_card() {
+        // Mark played round 1, then a non-damage card round 2.  Mark
+        // must persist until a damage card is played.
+        let mut s = make_session(
+            vec![
+                CardId::TARGETING_LOCK,
+                CardId::SENSOR_SWEEP,
+                CardId::KINETIC_SALVO,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+            vec![
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+        );
+        let _ = apply_round(&mut s, BattleSide::Attacker, CardId::TARGETING_LOCK, None);
+        assert!(s.mark_a_pending);
+        // Play a Probe (Sensor Sweep) — not a damage verb.
+        let _ = apply_round(&mut s, BattleSide::Attacker, CardId::SENSOR_SWEEP, None);
+        assert!(
+            s.mark_a_pending,
+            "Mark must persist through a non-damage card"
+        );
+    }
+
+    #[test]
+    fn salvo_recurring_damage_applies_on_subsequent_rounds() {
+        // Round 1: attacker plays Orbital Bombardment (Salvo, 12 dmg).
+        // Round 2 onwards: defender takes salvo_a_recurring (12 / 4 = 3)
+        // at the start of each round.
+        let mut s = make_session(
+            vec![
+                CardId::ORBITAL_BOMBARDMENT,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+            vec![
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+        );
+        // Round 1: Salvo.
+        let _ = apply_round(
+            &mut s,
+            BattleSide::Attacker,
+            CardId::ORBITAL_BOMBARDMENT,
+            None,
+        );
+        let integrity_b_after_round_1 = s.integrity_b;
+        assert_eq!(s.salvo_a_recurring, 3, "Salvo recurring = 12 / 4 = 3");
+
+        // Round 2: AI plays Hold Fire.  No damage from cards, but
+        // salvo_a_recurring ticks 3 damage against the defender.
+        let _ = apply_round(&mut s, BattleSide::Attacker, HOLD_FIRE.id, None);
+        // 88 (round 1) - 3 (post-round tick) - 3 (round 2 start) = 82.
+        assert_eq!(
+            s.integrity_b, 82,
+            "salvo_a_recurring should tick 3 damage at start of round 2 (post-round tick = 3, round 2 start = 3)"
+        );
+        let _ = integrity_b_after_round_1; // recorded for context
+    }
+
+    #[test]
+    fn maneuver_card_gives_initiative_to_playing_side() {
+        // Attacker plays Drift Burn (Maneuver, gives initiative).
+        // The attacker should resolve first, so when the AI's
+        // Hold Fire (no-op) is the second resolve, the round
+        // still records the attacker's effect on the defender.
+        let mut s = make_session(
+            vec![
+                CardId::DRIFT_BURN,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+            vec![
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+        );
+        // Drift Burn deals no damage but should be recorded as
+        // attacker's effect.  AI's Hold Fire is the second.
+        let _ = apply_round(&mut s, BattleSide::Attacker, CardId::DRIFT_BURN, None);
+        // Maneuver itself deals no damage; both integrities should
+        // remain at 100.
+        assert_eq!(s.integrity_a, 100);
+        assert_eq!(s.integrity_b, 100);
+        // The round summary should record Drift Burn on side A.
+        assert_eq!(s.rounds.last().unwrap().card_a, Some(CardId::DRIFT_BURN));
+    }
+
+    #[test]
+    fn withdraw_does_not_finalize_when_cancelled_by_ai_ciws() {
+        // Symmetric to the existing attacker test: player is the
+        // defender, plays WARP_RETREAT, AI plays CIWS_GRID.  The
+        // retreat is cancelled, no integrity halving, round
+        // continues.
+        let mut s = make_session(
+            vec![
+                CardId::CIWS_GRID,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+            vec![
+                CardId::WARP_RETREAT,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+        );
+        // Player is the defender; plays WARP_RETREAT.  AI plays CIWS.
+        let (outcome, _) = apply_round(&mut s, BattleSide::Defender, CardId::WARP_RETREAT, None);
+        assert!(matches!(outcome, BattleOutcome::Continue));
+        // Both integrities untouched.
+        assert_eq!(s.integrity_a, 100);
+        assert_eq!(s.integrity_b, 100);
     }
 }

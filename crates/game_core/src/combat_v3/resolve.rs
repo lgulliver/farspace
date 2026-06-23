@@ -580,6 +580,42 @@ mod tests {
     }
 
     #[test]
+    fn ciws_cancels_withdraw_as_defender_no_retreat() {
+        // Mirror of `ciws_cancels_withdraw_no_retreat_no_halving`:
+        // the player is the defender and plays WARP_RETREAT; the
+        // AI attacks with CIWS_GRID and cancels the retreat.  The
+        // same contract holds: round continues, no integrity
+        // halving, no finalisation.
+        let mut s = make_session(
+            vec![
+                CardId::CIWS_GRID,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+            vec![
+                CardId::WARP_RETREAT,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+                HOLD_FIRE.id,
+            ],
+        );
+        let (outcome, _) = apply_round(&mut s, BattleSide::Defender, CardId::WARP_RETREAT);
+        assert!(matches!(outcome, BattleOutcome::Continue));
+        assert_eq!(
+            s.integrity_a, 100,
+            "cancelled defender retreat must not halve attacker"
+        );
+        assert_eq!(
+            s.integrity_b, 100,
+            "cancelled defender retreat must not halve defender"
+        );
+        assert_eq!(s.rounds.len(), 1, "round must be recorded");
+    }
+
+    #[test]
     fn evasive_halves_incoming_damage_not_zeroes_it() {
         // Attacker (side A) hand is a single Kinetic Salvo; defender
         // (side B) hand is a single Burn Maneuver (Evasive).  The AI

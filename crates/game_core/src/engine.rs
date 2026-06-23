@@ -5972,22 +5972,36 @@ impl Engine {
             setup,
         );
 
-        // Emit BattleStarted.
-        events.push(Event::BattleStarted {
-            session_id,
-            attacker,
-            defender,
-            star,
-        });
+        // Visibility gate: hidden AI-only battles (no player
+        // involvement, no intel on either combatant) emit no v3
+        // events to the public stream.  Their rounds and finalisation
+        // still run (the report is still pushed to history) but the
+        // events go to a local buffer so the event log and dispatch
+        // pipeline see nothing.
+        let visible_to_player = player_involved
+            || (self.state.player_knows_empire(attacker_owner)
+                && self.state.player_knows_empire(defender_owner));
+
+        if visible_to_player {
+            events.push(Event::BattleStarted {
+                session_id,
+                attacker,
+                defender,
+                star,
+            });
+        }
 
         if player_involved {
             // Park the session and wait for the player.
             self.state.pending_battle_session = Some(session);
-        } else {
-            // Auto-resolve.  The session is consumed; we drive it through
-            // apply_round until finished, then push the report and
-            // remove destroyed fleets.
+        } else if visible_to_player {
             self.auto_resolve_ai_battle(session, events);
+        } else {
+            // Hidden AI-only battle: still resolve internally so the
+            // fleet removals and history report happen, but route the
+            // round events into a local buffer.
+            let mut hidden_events = Vec::new();
+            self.auto_resolve_ai_battle(session, &mut hidden_events);
         }
     }
 
@@ -6067,9 +6081,13 @@ impl Engine {
                 break;
             }
 
-            // Play a side per iteration.  Determine which side is the
-            // "attacker" in v3 terms (it has hand_a); we just drive both
-            // sides in order.
+            // One round = one `apply_round` call.  `apply_round` already
+            // resolves both sides and returns a single summary that
+            // carries the resolved effect text for each side, plus the
+            // side that played the round's lead card.  Emitting two
+            // `BattleRoundPlayed` events from that single summary
+            // keeps the log symmetric without consuming an extra
+            // card from the defender's hand.
             let a_idx = if session.hand_a.is_empty() {
                 0
             } else {
@@ -6080,43 +6098,24 @@ impl Engine {
                 .get(a_idx)
                 .copied()
                 .unwrap_or(crate::combat_v3::HOLD_FIRE.id);
-            let (outcome, summary_a) =
+            let (outcome, summary) =
                 crate::combat_v3::apply_round(&mut session, BattleSide::Attacker, a_card);
             events.push(Event::BattleRoundPlayed {
                 session_id: session.session_id,
-                round: summary_a.round,
+                round: summary.round,
                 side: BattleSide::Attacker,
                 card: a_card,
-                effect_summary: summary_a.effect_a.clone(),
+                effect_summary: summary.effect_a.clone(),
             });
-
-            if matches!(outcome, BattleOutcome::Finished { .. })
-                || matches!(
-                    session.state,
-                    crate::combat_v3::BattleSessionState::Finished
-                )
-            {
-                break;
+            if let Some(b_card) = summary.card_b {
+                events.push(Event::BattleRoundPlayed {
+                    session_id: session.session_id,
+                    round: summary.round,
+                    side: BattleSide::Defender,
+                    card: b_card,
+                    effect_summary: summary.effect_b.clone(),
+                });
             }
-
-            if session.hand_b.is_empty() {
-                continue;
-            }
-            let b_idx = ai_pick_card(&session, BattleSide::Defender);
-            let b_card = session
-                .hand_b
-                .get(b_idx)
-                .copied()
-                .unwrap_or(crate::combat_v3::HOLD_FIRE.id);
-            let (outcome, summary_b) =
-                crate::combat_v3::apply_round(&mut session, BattleSide::Defender, b_card);
-            events.push(Event::BattleRoundPlayed {
-                session_id: session.session_id,
-                round: summary_b.round,
-                side: BattleSide::Defender,
-                card: b_card,
-                effect_summary: summary_b.effect_b.clone(),
-            });
 
             if matches!(outcome, BattleOutcome::Finished { .. })
                 || matches!(
@@ -6159,16 +6158,21 @@ impl Engine {
             Some(BattleSide::Defender)
         } else if defender_destroyed {
             Some(BattleSide::Attacker)
+        } else if attacker_retreated && defender_retreated {
+            // Both sides withdrew in the same round — a true draw,
+            // not a defender win.
+            None
         } else if attacker_retreated {
             Some(BattleSide::Defender)
         } else if defender_retreated {
             Some(BattleSide::Attacker)
         } else {
-            // Tiebreaker by integrity: defender wins ties.
+            // Tiebreaker by integrity: equal integrity is a draw, not
+            // a defender win.
             match session.integrity_a.cmp(&session.integrity_b) {
                 std::cmp::Ordering::Greater => Some(BattleSide::Attacker),
                 std::cmp::Ordering::Less => Some(BattleSide::Defender),
-                std::cmp::Ordering::Equal => Some(BattleSide::Defender),
+                std::cmp::Ordering::Equal => None,
             }
         };
 

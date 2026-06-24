@@ -312,11 +312,11 @@ mod tests {
         assert_eq!(hand[1], CardId::ABLATIVE_HULL); // REINFORCED_PLATING id 10
         assert_eq!(hand[2], CardId::BURN_MANEUVER); // ION_DRIVE id 21
         assert_eq!(hand[3], CardId::TARGETING_LOCK); // TARGETING_SUITE id 30
-        // Slot 4: tech card (RAPID_TRANSIT → WARP_RETREAT).  Only
-        // one tech slot available, so the lower-id tech wins.  We
-        // do not assert on the exact card because tech ordering is
-        // an implementation detail, only that slot 4 is not a
-        // Hold Fire pad.
-        assert_ne!(hand[4], HOLD_FIRE.id);
+        // Slot 4: tech card in ascending `TechId` order.  TechIds
+        // are RAPID_TRANSIT (13) and STRIKE_DOCTRINE (17), so the
+        // lower-id one (RAPID_TRANSIT) wins and grants
+        // WARP_RETREAT.  Exact equality — anything else is a
+        // regression in the bucket-priority sort.
+        assert_eq!(hand[4], CardId::WARP_RETREAT);
     }
 }

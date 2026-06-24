@@ -6088,8 +6088,18 @@ impl Engine {
             // `BattleRoundPlayed` events from that single summary
             // keeps the log symmetric without consuming an extra
             // card from the defender's hand.
-            // Look up the defender's empire definition for doctrine-aware
-            // AI picking on the defender side (apply_round's "AI side").
+            // Look up the attacker and defender empire definitions for
+            // doctrine-aware AI picking.  Each side picks cards from
+            // its OWN doctrine, not the opposing side's.  The
+            // `defender_def` is also passed to `apply_round` as the
+            // "AI side" doctrine (the side opposite the player /
+            // attacker slot used to drive the round).
+            let attacker_def = self
+                .state
+                .empires
+                .get(&session.empire_a)
+                .and_then(|e| e.empire_def)
+                .and_then(crate::empire_definition_by_id);
             let defender_def = self
                 .state
                 .empires
@@ -6099,7 +6109,7 @@ impl Engine {
             let a_idx = if session.hand_a.is_empty() {
                 0
             } else {
-                ai_pick_card(&session, BattleSide::Attacker, defender_def)
+                ai_pick_card(&session, BattleSide::Attacker, attacker_def)
             };
             let a_card = session
                 .hand_a
@@ -6194,18 +6204,21 @@ impl Engine {
         // Build the system_outcome text.  Cases in priority order:
         //   1. Mutual destruction: both fleets at 0 integrity.
         //   2. Mutual withdrawal: neither destroyed, both retreated.
-        //   3. One destroyed, other retreated: the surviving side
-        //      holds; mention both events so the report is accurate.
+        //   3. One destroyed, other retreated: unreachable in v1
+        //      because retreat finalises the battle synchronously,
+        //      but the branches are kept defensive.
         //   4. Solo retreat: exactly one side played WARP_RETREAT.
-        //   5. Otherwise: by integrity, with equal-integrity draw.
+        //   5. Otherwise: by integrity.  Equal integrity at max
+        //      rounds is a "draw" but NOT a "withdrawal" unless one
+        //      or both sides actually retreated.
         let system_outcome = if attacker_destroyed && defender_destroyed {
             "Draw — both fleets destroyed".to_string()
         } else if attacker_retreated && defender_retreated {
             "Draw — both fleets withdrew".to_string()
         } else if attacker_destroyed && defender_retreated {
-            "Defender destroyed, attacker retreated".to_string()
-        } else if defender_destroyed && attacker_retreated {
             "Attacker destroyed, defender retreated".to_string()
+        } else if defender_destroyed && attacker_retreated {
+            "Defender destroyed, attacker retreated".to_string()
         } else if attacker_retreated {
             "Defender holds the field — attacker retreated".to_string()
         } else if defender_retreated {
@@ -6214,7 +6227,12 @@ impl Engine {
             match winner {
                 Some(BattleSide::Attacker) => "Attacker holds the field".to_string(),
                 Some(BattleSide::Defender) => "Defender holds the field".to_string(),
-                None => "Draw — both fleets withdrew".to_string(),
+                None => {
+                    // No destruction, no retreat, no integrity
+                    // advantage — this is a max-rounds draw on
+                    // equal integrity, not a withdrawal.
+                    "Draw — equal integrity at max rounds".to_string()
+                }
             }
         };
         let mut report = BattleReportV3::new(

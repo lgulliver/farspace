@@ -63,84 +63,31 @@ pub fn apply_round(
     let round = session.round;
 
     // Disrupt cancellation: any CIWS Grid on either side replaces the
-    // opposing card with Hold Fire for this round.
+    // opposing card with Hold Fire for this round.  Cancellation
+    // happens in *player / AI* frame because CIWS only knows which
+    // card was *played* by which side, not the attacker/defender
+    // frame.  We then re-project to attacker/defender frame below.
     let (player_card_resolved, ai_card_resolved) = apply_disrupt(player_card, ai_card);
 
-    // Determine initiative.  Maneuver gives the playing side
-    // initiative for the round: if exactly one side played Maneuver
-    // (post-CIWS), that side's effects resolve first.  Ties (both or
-    // neither) resolve attacker-first.
-    let p_initiative = matches!(card_by_id(player_card_resolved).verb, CardVerb::Maneuver);
-    let ai_initiative = matches!(card_by_id(ai_card_resolved).verb, CardVerb::Maneuver);
-    let attacker_first = match (p_initiative, ai_initiative) {
-        (true, false) => match player_side {
-            BattleSide::Attacker => true,
-            BattleSide::Defender => false,
-        },
-        (false, true) => match player_side {
-            BattleSide::Attacker => false,
-            BattleSide::Defender => true,
-        },
-        // Tie: attacker always goes first.
-        _ => true,
+    // Project cards into attacker / defender frame so the inner
+    // resolver never needs to remap.  From here on, `attacker_card`
+    // / `defender_card` are unambiguous and the inner function
+    // returns its effects and retreat flags in attacker/defender
+    // frame too.
+    let (attacker_card, defender_card) = match player_side {
+        BattleSide::Attacker => (player_card_resolved, ai_card_resolved),
+        BattleSide::Defender => (ai_card_resolved, player_card_resolved),
+    };
+    let (attacker_card_orig, defender_card_orig) = match player_side {
+        BattleSide::Attacker => (player_card, ai_card),
+        BattleSide::Defender => (ai_card, player_card),
     };
 
-    // Resolve the round in initiative order.  Each call applies one
-    // side's card against the current state; with simultaneous
-    // resolution the first call is the one with initiative and the
-    // second call observes the integrity after the first.  We do
-    // NOT collapse to a single `resolve_pair` because initiative
-    // must order mutations (Disrupt cancels the *played* card, not
-    // the resolved card; a Withdraw that drops integrity to 0 before
-    // the opponent strikes affects their outgoing damage math).
-    let (card_a, card_b, effect_a, effect_b, a_retreated, b_retreated) = if attacker_first {
-        let (eff_a, eff_b, p_retreated, f_retreated) = resolve_attacker_then_defender(
-            session,
-            player_card_resolved,
-            player_side,
-            ai_card_resolved,
-            ai_side,
-        );
-        // Map the inner "first" / "second" retreated flags back to
-        // the attacker / defender frame based on which side the
-        // player is on.
-        let (a_retreated, b_retreated) = match player_side {
-            BattleSide::Attacker => (p_retreated, f_retreated),
-            BattleSide::Defender => (f_retreated, p_retreated),
-        };
-        (
-            Some(player_card),
-            Some(ai_card),
-            eff_a,
-            eff_b,
-            a_retreated,
-            b_retreated,
-        )
-    } else {
-        // Defender (defender's chosen side) goes first.
-        let (eff_a, eff_b, p_retreated, f_retreated) = resolve_attacker_then_defender(
-            session,
-            ai_card_resolved,
-            ai_side,
-            player_card_resolved,
-            player_side,
-        );
-        // When the player is the defender and the player's card
-        // resolved second (the inner "first" / "second" are the
-        // attacker's / defender's resolved order), map accordingly.
-        let (a_retreated, b_retreated) = match player_side {
-            BattleSide::Attacker => (p_retreated, f_retreated),
-            BattleSide::Defender => (f_retreated, p_retreated),
-        };
-        (
-            Some(ai_card),
-            Some(player_card),
-            eff_a,
-            eff_b,
-            a_retreated,
-            b_retreated,
-        )
-    };
+    let (effect_a, effect_b, a_retreated, b_retreated) =
+        resolve_attacker_then_defender(session, attacker_card, defender_card);
+
+    let card_a = Some(attacker_card_orig);
+    let card_b = Some(defender_card_orig);
 
     // Clamp integrity at zero (integer floor).  resolve_attacker_then_defender
     // already saturates, but the explicit min()s are a belt-and-braces
@@ -275,21 +222,21 @@ const MARK_APPLIED_SUFFIX: &str = " (+Mark)";
 #[allow(dead_code)]
 const MARK_CONSUMED_SUFFIX: &str = " (Mark)";
 
-/// Resolve the round in initiative order: the first side's card
-/// applies, then the second side's card applies.  Returns
-/// `(effect_a, effect_b, a_retreated, b_retreated)`.
+/// Resolve the round in initiative order.  The attacker's card and
+/// the defender's card are passed in attacker/defender frame and
+/// the function returns its effects, retreat flags, and the round's
+/// effect text in the same frame.  No remapping is required at
+/// the call site.
 fn resolve_attacker_then_defender(
     session: &mut BattleSession,
-    card_a: CardId,
-    side_a: BattleSide,
-    card_b: CardId,
-    side_b: BattleSide,
+    attacker_card: CardId,
+    defender_card: CardId,
 ) -> (String, String, bool, bool) {
-    let def_a = card_by_id(card_a);
-    let def_b = card_by_id(card_b);
-    let a_initiative = matches!(def_a.verb, CardVerb::Maneuver);
-    let b_initiative = matches!(def_b.verb, CardVerb::Maneuver);
-    let attacker_first = match (a_initiative, b_initiative) {
+    let def_att = card_by_id(attacker_card);
+    let def_def = card_by_id(defender_card);
+    let att_initiative = matches!(def_att.verb, CardVerb::Maneuver);
+    let def_initiative = matches!(def_def.verb, CardVerb::Maneuver);
+    let attacker_first = match (att_initiative, def_initiative) {
         (true, false) => true,
         (false, true) => false,
         // Tie: attacker first.
@@ -302,11 +249,19 @@ fn resolve_attacker_then_defender(
     // tick would otherwise both subtract `salvo_x_recurring` from
     // the same integrities on the same round.
 
-    // Set the side that will go first and resolve in order.
-    let (first_card, first_side, second_card, second_side) = if attacker_first {
-        (card_a, side_a, card_b, side_b)
+    // Set the side that will go first and resolve in order.  Use
+    // a `((card, side), (card, side))` shape so we can pattern-match
+    // on which side resolves first without renumbering.
+    let ((first_card, first_side), (second_card, second_side)) = if attacker_first {
+        (
+            (attacker_card, BattleSide::Attacker),
+            (defender_card, BattleSide::Defender),
+        )
     } else {
-        (card_b, side_b, card_a, side_a)
+        (
+            (defender_card, BattleSide::Defender),
+            (attacker_card, BattleSide::Attacker),
+        )
     };
 
     // First side resolves.
@@ -330,9 +285,9 @@ fn resolve_attacker_then_defender(
     apply_damage_to(session, first_side, Some(first_card), second_dmg);
     apply_damage_to(session, second_side, Some(second_card), first_dmg);
 
-    // Apply self-damage to the playing side via the original cards.
-    // resolve_one_side already applied the self-damage internally.
-    let _ = first_self; // self-damage already applied in resolve_one_side
+    // Self-damage already applied in `resolve_one_side`; the
+    // first_self value is preserved for symmetry / future hooks.
+    let _ = first_self;
 
     // Recurring Salvo: if a side just played Salvo, set its
     // recurring field.  Recurring damage equals `base_damage / 4`
@@ -343,11 +298,11 @@ fn resolve_attacker_then_defender(
     set_recurring_salvo(session, second_side, second_card);
 
     // Inspire: if either side played Inspire, refill hand to 5.
-    if def_a.verb == CardVerb::Inspire {
-        push_hold_fire_if_short(session, side_a);
+    if def_att.verb == CardVerb::Inspire {
+        push_hold_fire_if_short(session, BattleSide::Attacker);
     }
-    if def_b.verb == CardVerb::Inspire {
-        push_hold_fire_if_short(session, side_b);
+    if def_def.verb == CardVerb::Inspire {
+        push_hold_fire_if_short(session, BattleSide::Defender);
     }
 
     // Build effect text.  We use the resolved damage values plus
@@ -376,16 +331,19 @@ fn resolve_attacker_then_defender(
     let eff_first = annotate_mark_applied(card_by_id(first_card).verb, eff_first);
     let eff_second = annotate_mark_applied(card_by_id(second_card).verb, eff_second);
 
-    // Map back to attacker/defender frame.
+    // Map back to attacker/defender frame.  When the attacker goes
+    // first, the order is preserved; when the defender goes first,
+    // the two strings are swapped.
     let (eff_a, eff_b) = if attacker_first {
         (eff_first, eff_second)
     } else {
         (eff_second, eff_first)
     };
 
-    // Retreat flags: post-CIWS card verbs.
-    let a_retreated = matches!(def_a.verb, CardVerb::Withdraw);
-    let b_retreated = matches!(def_b.verb, CardVerb::Withdraw);
+    // Retreat flags in attacker/defender frame, derived from the
+    // original played-card verbs (post-CIWS).
+    let a_retreated = matches!(def_att.verb, CardVerb::Withdraw);
+    let b_retreated = matches!(def_def.verb, CardVerb::Withdraw);
 
     (eff_a, eff_b, a_retreated, b_retreated)
 }

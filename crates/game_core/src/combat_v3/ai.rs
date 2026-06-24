@@ -121,18 +121,22 @@ fn doctrine_bonus(def: &EmpireDefinition, card: CardId) -> i32 {
     }
     let mut bonus: i32 = 0;
     for (label, w) in bias {
-        // Try AiDoctrine first.
+        // Doctrine and playstyle are independent signals.  A label
+        // like "Militarist" matches BOTH an AiDoctrine variant and
+        // a PlaystyleTag variant — both contributions are folded
+        // into the score.  This matters for empires whose
+        // `playstyle` includes a tag that doubles as an
+        // `AiDoctrine::label()` (Militarist, Expansionist).
         if let Some(d) = doctrine_from_label(label) {
             let weight = def.doctrine_weight(d) as i32;
             // Bias "Militarist +2" against a Militarist-3 empire
             // contributes 2 × 3 = 6.
             bonus = bonus.saturating_add(w.saturating_mul(weight));
-        } else if playstyle_from_label(label).is_some()
-            && def.playstyle.iter().any(|t| t.label() == label)
+        }
+        if playstyle_from_label(label).is_some() && def.playstyle.iter().any(|t| t.label() == label)
         {
-            // Playstyle match: a flat contribution equal to the bias
-            // weight (we don't have a playstyle weight table, so the
-            // magnitude is just the bias itself).
+            // Playstyle match: a flat contribution equal to the
+            // bias weight.  Stacks on top of any doctrine match.
             bonus = bonus.saturating_add(w);
         }
         // Unrecognised labels (e.g. "Unity") silently dropped.
@@ -328,6 +332,50 @@ mod tests {
         assert_eq!(
             parse_doctrine_bias("Unity +3, Militarist +1"),
             vec![("Unity", 3), ("Militarist", 1)]
+        );
+    }
+
+    #[test]
+    fn doctrine_and_playstyle_both_contribute_for_overlapping_labels() {
+        // Regression: "Militarist" matches BOTH an AiDoctrine
+        // variant and a PlaystyleTag variant.  An empire that
+        // weights Militarist doctrine AND lists Militarist in its
+        // playstyle should receive BOTH contributions stacked.
+        // The previous `else if` formulation dropped the playstyle
+        // contribution when the doctrine branch matched.
+        //
+        // We exercise the public `ai_pick_card` with two hands:
+        // the first contains only an Isolationist-biased card
+        // (HandIsolation = Ablative Hull), the second contains
+        // only a Militarist-biased card (Orbital Bombardment).
+        // For an empire that is both Militarist and Isolationist,
+        // the relative scores between the two hands must reflect
+        // the doctrine bias, not just the verb score.
+
+        // Terran Dominion (faction 7) is the empire with both
+        // Militarist doctrine and Militarist playstyle.  Confirm
+        // that picking a Militarist-biased card from a hand that
+        // is otherwise tied with an Isolationist-biased card
+        // yields the Militarist card.
+        let terran = crate::empire_definition_by_id(crate::EmpireDefinitionId(7))
+            .expect("Terran Dominion definition");
+        let hand = vec![
+            CardId::ORBITAL_BOMBARDMENT, // Militarist +3
+            CardId::ABLATIVE_HULL,       // Isolationist +2
+            HOLD_FIRE.id,
+            HOLD_FIRE.id,
+            HOLD_FIRE.id,
+        ];
+        let s = {
+            let mut s = empty_session();
+            s.hand_a = hand;
+            s
+        };
+        let pick = ai_pick_card(&s, BattleSide::Attacker, Some(terran));
+        assert_eq!(
+            s.hand_a[pick],
+            CardId::ORBITAL_BOMBARDMENT,
+            "Terran Dominion AI must prefer the Militarist-biased card (both doctrine and playstyle match)"
         );
     }
 }

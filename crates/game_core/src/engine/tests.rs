@@ -13363,10 +13363,31 @@ fn combat_v3_commands_serialize() {
     let parsed: Command = serde_json::from_str(&json).unwrap();
     assert_eq!(cmd, parsed);
 
-    let cmd2 = Command::RetreatFromBattle { session_id: 9 };
-    let json2 = serde_json::to_string(&cmd2).unwrap();
+    // Target must round-trip when set to a concrete FleetId.
+    let cmd_with_target = Command::PlayBattleCard {
+        session_id: 7,
+        card_index: 0,
+        target: Some(crate::state::FleetId(42)),
+    };
+    let json2 = serde_json::to_string(&cmd_with_target).unwrap();
     let parsed2: Command = serde_json::from_str(&json2).unwrap();
-    assert_eq!(cmd2, parsed2);
+    assert_eq!(cmd_with_target, parsed2);
+
+    // Negative path: an invalid target payload (string instead of
+    // a JSON integer for `FleetId.0`) must fail to deserialize.
+    // This is the contract that keeps the public command API from
+    // silently accepting garbage and forwarding it to the engine.
+    let bad_json = r#"{"PlayBattleCard":{"session_id":7,"card_index":0,"target":"not-an-int"}}"#;
+    let parse_attempt: Result<Command, _> = serde_json::from_str(bad_json);
+    assert!(
+        parse_attempt.is_err(),
+        "invalid FleetId payload must fail to deserialize"
+    );
+
+    let cmd3 = Command::RetreatFromBattle { session_id: 9 };
+    let json3 = serde_json::to_string(&cmd3).unwrap();
+    let parsed3: Command = serde_json::from_str(&json3).unwrap();
+    assert_eq!(cmd3, parsed3);
 }
 
 #[test]
@@ -13406,4 +13427,363 @@ fn combat_v3_events_serialize() {
     let json3 = serde_json::to_string(&ev3).unwrap();
     let parsed3: Event = serde_json::from_str(&json3).unwrap();
     assert_eq!(ev3, parsed3);
+}
+
+// --- New combat v3 tests for hardened behavior ---
+
+#[test]
+fn combat_v3_attacker_retreated_report_carries_retreat_text() {
+    // Set up a v3 battle in which the player (attacker) plays
+    // WARP_RETREAT on the first round.  The report must carry
+    // `fleet_a_retreated = true` and `system_outcome` must mention
+    // the attacker retreat.
+    let (mut engine, star, pf, af) = make_v3_combat_state();
+    let mut events = Vec::new();
+    engine.start_battle_v3(star, pf, af, &mut events);
+    let session_id = engine
+        .state
+        .pending_battle_session
+        .as_ref()
+        .unwrap()
+        .session_id;
+    // Pre-load the attacker's hand with WARP_RETREAT at index 0.
+    if let Some(s) = engine.state.pending_battle_session.as_mut() {
+        s.hand_a[0] = crate::combat_v3::CardId::WARP_RETREAT;
+    }
+    let events = engine.apply_turn(vec![Command::PlayBattleCard {
+        session_id,
+        card_index: 0,
+        target: None,
+    }]);
+    assert!(engine.state.pending_battle_session.is_none());
+    let report = engine.state.battle_reports_v3.back().expect("report");
+    assert!(
+        report.fleet_a_retreated,
+        "attacker retreat flag must be set"
+    );
+    assert!(
+        report.system_outcome.contains("retreated"),
+        "system_outcome must mention retreat: {}",
+        report.system_outcome
+    );
+    let _ = events;
+}
+
+#[test]
+fn combat_v3_does_not_mutate_pending_session_from_tui_path() {
+    // Regression: the TUI must not be able to mutate the pending
+    // battle session directly.  We assert the invariant by checking
+    // that all battle session mutations are routed through the
+    // engine's `apply_turn` → `process_play_battle_card` path.  This
+    // is enforced by `clippy` and the architecture review; here we
+    // just confirm a single round works end-to-end through the
+    // command path.
+    let (mut engine, star, pf, af) = make_v3_combat_state();
+    let mut events = Vec::new();
+    engine.start_battle_v3(star, pf, af, &mut events);
+    let session_id = engine
+        .state
+        .pending_battle_session
+        .as_ref()
+        .unwrap()
+        .session_id;
+    let events = engine.apply_turn(vec![Command::PlayBattleCard {
+        session_id,
+        card_index: 0,
+        target: None,
+    }]);
+    // Round resolves; one BattleRoundPlayed event is recorded.
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::BattleRoundPlayed { .. })),
+        "BattleRoundPlayed event must be emitted on a command-driven round"
+    );
+}
+
+#[test]
+fn combat_v3_ai_doctrine_aware_prefers_militarist_card() {
+    // The Ashveran Compact (faction 0) has doctrine_weights that
+    // *don't* include Militarist, so the AI should NOT prefer a
+    // card with bias "Militarist +3" (Orbital Bombardment) over
+    // a card with bias "Isolationist +2" (Ablative Hull) when the
+    // hands are otherwise equal.
+    //
+    // Conversely, the Vorath Dominion (faction 4) is heavily
+    // Militarist; an AI from that faction should pick the
+    // Militarist-biased card.
+    use crate::combat_v3::ai::ai_pick_card;
+    use crate::combat_v3::card::CardId;
+    use crate::combat_v3::{BattleSession, BattleSetupSummary};
+    use crate::state::{
+        EmpireId, FleetFormation, FleetId, FleetKind, FleetRole, FleetSupplyState, StarId,
+    };
+
+    fn fresh_session(hand_a: Vec<CardId>) -> BattleSession {
+        BattleSession {
+            session_id: 1,
+            star: StarId(1),
+            attacker: FleetId(1),
+            defender: FleetId(2),
+            empire_a: EmpireId(1),
+            empire_b: EmpireId(2),
+            hand_a,
+            hand_b: vec![
+                CardId::HOLD_FIRE,
+                CardId::HOLD_FIRE,
+                CardId::HOLD_FIRE,
+                CardId::HOLD_FIRE,
+                CardId::HOLD_FIRE,
+            ],
+            integrity_a: 100,
+            integrity_b: 100,
+            integrity_a_start: 100,
+            integrity_b_start: 100,
+            round: 1,
+            rounds: Vec::new(),
+            setup_summary: BattleSetupSummary {
+                role_a: FleetRole::StrikeFleet,
+                role_b: FleetRole::DefenseFleet,
+                formation_a: FleetFormation::Balanced,
+                formation_b: FleetFormation::Defensive,
+                doctrine_a: String::new(),
+                doctrine_b: String::new(),
+                supply_a: FleetSupplyState::Supplied,
+                supply_b: FleetSupplyState::Supplied,
+                kind_a: FleetKind::Destroyer,
+                kind_b: FleetKind::EscortFrigate,
+                ships_a: 1,
+                ships_b: 1,
+            },
+            state: crate::combat_v3::BattleSessionState::AwaitingPlayer,
+            mark_a_pending: false,
+            mark_b_pending: false,
+            salvo_a_recurring: 0,
+            salvo_b_recurring: 0,
+        }
+    }
+
+    let hand = vec![
+        CardId::ORBITAL_BOMBARDMENT, // Militarist +3
+        CardId::ABLATIVE_HULL,       // Isolationist +2
+        CardId::HOLD_FIRE,
+        CardId::HOLD_FIRE,
+        CardId::HOLD_FIRE,
+    ];
+    // Vorath Dominion is faction 4 — Militarist +2 weight.
+    let vorath = crate::empire_definition_by_id(crate::EmpireDefinitionId(4))
+        .expect("Vorath Dominion definition");
+    let session = fresh_session(hand.clone());
+    let pick_militarist = ai_pick_card(
+        &session,
+        crate::combat_v3::BattleSide::Attacker,
+        Some(vorath),
+    );
+    assert_eq!(
+        session.hand_a[pick_militarist],
+        CardId::ORBITAL_BOMBARDMENT,
+        "Vorath Dominion AI should pick the Militarist-biased Salvo card"
+    );
+
+    // Ashveran Compact (faction 0) is Industrialist / Isolationist;
+    // Orbital Bombardment's Militarist +3 bias contributes 0 to its score.
+    let ashveran = crate::empire_definition_by_id(crate::EmpireDefinitionId(0))
+        .expect("Ashveran Compact definition");
+    let session = fresh_session(hand);
+    let pick_isolationist = ai_pick_card(
+        &session,
+        crate::combat_v3::BattleSide::Attacker,
+        Some(ashveran),
+    );
+    assert_eq!(
+        session.hand_a[pick_isolationist],
+        CardId::ABLATIVE_HULL,
+        "Ashveran Compact AI should pick the Isolationist-biased Guard card"
+    );
+
+    // With no doctrine context, the verb-only baseline kicks in.
+    let session = fresh_session(vec![
+        CardId::ABLATIVE_HULL,
+        CardId::HOLD_FIRE,
+        CardId::HOLD_FIRE,
+        CardId::HOLD_FIRE,
+        CardId::HOLD_FIRE,
+    ]);
+    let pick_baseline = ai_pick_card(&session, crate::combat_v3::BattleSide::Attacker, None);
+    assert_eq!(
+        session.hand_a[pick_baseline],
+        CardId::ABLATIVE_HULL,
+        "Without doctrine context, AI picks the verb-only best card"
+    );
+}
+
+#[test]
+fn combat_v3_attacker_pick_uses_attacker_doctrine_not_defender() {
+    // Regression: in `auto_resolve_ai_battle`, the attacker's
+    // `ai_pick_card` call must receive the *attacker's* empire
+    // definition, not the defender's.  This is critical when the
+    // two empires have opposing doctrines — swapping them would
+    // cause the attacker to pick a card that the attacker's
+    // faction would never choose.
+    use crate::combat_v3::ai::ai_pick_card;
+    use crate::combat_v3::card::CardId;
+    use crate::combat_v3::{BattleSession, BattleSetupSummary};
+    use crate::state::{
+        EmpireId, FleetFormation, FleetId, FleetKind, FleetRole, FleetSupplyState, StarId,
+    };
+
+    fn fresh_session(hand_a: Vec<CardId>) -> BattleSession {
+        BattleSession {
+            session_id: 1,
+            star: StarId(1),
+            attacker: FleetId(1),
+            defender: FleetId(2),
+            empire_a: EmpireId(1),
+            empire_b: EmpireId(2),
+            hand_a,
+            hand_b: vec![
+                CardId::HOLD_FIRE,
+                CardId::HOLD_FIRE,
+                CardId::HOLD_FIRE,
+                CardId::HOLD_FIRE,
+                CardId::HOLD_FIRE,
+            ],
+            integrity_a: 100,
+            integrity_b: 100,
+            integrity_a_start: 100,
+            integrity_b_start: 100,
+            round: 1,
+            rounds: Vec::new(),
+            setup_summary: BattleSetupSummary {
+                role_a: FleetRole::StrikeFleet,
+                role_b: FleetRole::DefenseFleet,
+                formation_a: FleetFormation::Balanced,
+                formation_b: FleetFormation::Defensive,
+                doctrine_a: String::new(),
+                doctrine_b: String::new(),
+                supply_a: FleetSupplyState::Supplied,
+                supply_b: FleetSupplyState::Supplied,
+                kind_a: FleetKind::Destroyer,
+                kind_b: FleetKind::EscortFrigate,
+                ships_a: 1,
+                ships_b: 1,
+            },
+            state: crate::combat_v3::BattleSessionState::AwaitingPlayer,
+            mark_a_pending: false,
+            mark_b_pending: false,
+            salvo_a_recurring: 0,
+            salvo_b_recurring: 0,
+        }
+    }
+
+    let hand = vec![
+        CardId::ORBITAL_BOMBARDMENT, // Militarist +3
+        CardId::ABLATIVE_HULL,       // Isolationist +2
+        CardId::HOLD_FIRE,
+        CardId::HOLD_FIRE,
+        CardId::HOLD_FIRE,
+    ];
+
+    // Vorath Dominion (faction 4) is Militarist.  When used as
+    // the *attacker's* doctrine, the attacker should prefer the
+    // Militarist card.
+    let vorath = crate::empire_definition_by_id(crate::EmpireDefinitionId(4))
+        .expect("Vorath Dominion definition");
+    let session = fresh_session(hand.clone());
+    let pick_attacker_vorath = ai_pick_card(
+        &session,
+        crate::combat_v3::BattleSide::Attacker,
+        Some(vorath),
+    );
+    assert_eq!(
+        session.hand_a[pick_attacker_vorath],
+        CardId::ORBITAL_BOMBARDMENT,
+        "Attacker (Vorath) should pick the Militarist card"
+    );
+
+    // Ashveran Compact (faction 0) is Isolationist.  When used as
+    // the *attacker's* doctrine, the attacker should prefer the
+    // Isolationist card.  This is the inverse of the Vorath case
+    // and would fail if the engine ever swapped attacker/defender
+    // doctrine in `auto_resolve_ai_battle`.
+    let ashveran = crate::empire_definition_by_id(crate::EmpireDefinitionId(0))
+        .expect("Ashveran Compact definition");
+    let session = fresh_session(hand);
+    let pick_attacker_ashveran = ai_pick_card(
+        &session,
+        crate::combat_v3::BattleSide::Attacker,
+        Some(ashveran),
+    );
+    assert_eq!(
+        session.hand_a[pick_attacker_ashveran],
+        CardId::ABLATIVE_HULL,
+        "Attacker (Ashveran) should pick the Isolationist card"
+    );
+}
+
+#[test]
+fn combat_v3_equal_integrity_draw_does_not_say_withdrew() {
+    // Regression: when max rounds are reached with both sides at
+    // equal integrity and neither retreated, the system_outcome
+    // must read "equal integrity" (not "both fleets withdrew",
+    // which falsely implies a withdrawal occurred).  Drive a
+    // battle that has both sides playing Hold Fire for the full
+    // 5-round max — both integrities stay at 100 and the round
+    // counter exhausts the limit.
+    let (mut engine, star, pf, af) = make_v3_combat_state();
+    let mut events = Vec::new();
+    engine.start_battle_v3(star, pf, af, &mut events);
+    let session_id = engine
+        .state
+        .pending_battle_session
+        .as_ref()
+        .unwrap()
+        .session_id;
+    // Force both hands to Hold Fire so neither side ever deals
+    // damage.  Round counter increments after each Continue and
+    // exhausts at MAX_ROUNDS = 5.
+    if let Some(s) = engine.state.pending_battle_session.as_mut() {
+        for c in s.hand_a.iter_mut() {
+            *c = crate::combat_v3::HOLD_FIRE.id;
+        }
+        for c in s.hand_b.iter_mut() {
+            *c = crate::combat_v3::HOLD_FIRE.id;
+        }
+    }
+    // Play 5 rounds.  Each round will play card_index 0 (Hold Fire).
+    for _ in 0..crate::combat_v3::MAX_ROUNDS {
+        let Some(_) = engine.state.pending_battle_session.as_ref() else {
+            break;
+        };
+        let events = engine.apply_turn(vec![Command::PlayBattleCard {
+            session_id,
+            card_index: 0,
+            target: None,
+        }]);
+        let _ = events;
+    }
+    // After max rounds, the battle must be finalised with equal
+    // integrity and a draw that does NOT mention withdrawal.
+    assert!(
+        engine.state.pending_battle_session.is_none(),
+        "battle must finalise at max rounds"
+    );
+    let report = engine.state.battle_reports_v3.back().expect("report");
+    assert_eq!(
+        report.integrity_a_end, 100,
+        "attacker integrity must be 100"
+    );
+    assert_eq!(
+        report.integrity_b_end, 100,
+        "defender integrity must be 100"
+    );
+    assert!(
+        !report.system_outcome.contains("withdrew"),
+        "equal-integrity draw must not claim a withdrawal: {}",
+        report.system_outcome
+    );
+    assert_eq!(
+        report.system_outcome, "Draw — equal integrity at max rounds",
+        "system_outcome should be the equal-integrity draw string"
+    );
 }

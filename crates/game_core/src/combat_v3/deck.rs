@@ -96,47 +96,71 @@ pub struct HandInputs<'a> {
 
 /// Build a deterministic 5-card hand from fleet/empire state.
 ///
-/// Always returns exactly `HAND_SIZE` cards.  Never consumes RNG.  Use
-/// `BTreeSet` for the candidate pool to keep ordering stable and to
-/// satisfy the "no HashMap iteration" determinism rule.
+/// The hand is filled in **bucket priority** order so that hull
+/// always lands in slot 0, components fill subsequent slots in
+/// sorted `ComponentId` order, techs fill following slots in sorted
+/// `TechId` order, the faction signature is slotted next (and may
+/// repeat), and `Hold Fire` is the final pad.  Duplicates are
+/// filtered (a hull card that also matches a component / tech is
+/// only placed once).
+///
+/// Always returns exactly `HAND_SIZE` cards.  Never consumes RNG.
+/// All input slices are expected to be already deduplicated by the
+/// caller; this function never iterates a `HashMap`.
 pub fn build_hand(inputs: &HandInputs<'_>) -> Vec<CardId> {
-    // Pool: deduplicate candidate ids.  Use a BTreeSet so iteration order
-    // is `CardId` ascending — the explicit sort key for hand-draft ties.
-    let mut pool: BTreeSet<CardId> = BTreeSet::new();
+    let mut hand: Vec<CardId> = Vec::with_capacity(HAND_SIZE);
+    let mut used: BTreeSet<CardId> = BTreeSet::new();
 
-    // 1. Hull-granted card
+    // 1. Hull-granted card (slot 0).
     if let Some(card) = hull_card_for_kind(inputs.fleet.kind) {
-        pool.insert(card);
+        hand.push(card);
+        used.insert(card);
     }
 
-    // 2. Component-granted cards
-    for comp in inputs.components {
-        if let Some(card) = component_card_for(*comp) {
-            pool.insert(card);
+    // 2. Component-granted cards in sorted `ComponentId` order.
+    // Caller passes a slice; sort a local copy so the caller's
+    // order is not required to be pre-sorted.
+    let mut components_sorted: Vec<ComponentId> = inputs.components.to_vec();
+    components_sorted.sort();
+    for comp in components_sorted {
+        if hand.len() >= HAND_SIZE {
+            break;
+        }
+        if let Some(card) = component_card_for(comp)
+            && used.insert(card)
+        {
+            hand.push(card);
         }
     }
 
-    // 3. Tech-granted cards
-    for tech in inputs.completed_techs {
-        if let Some(card) = tech_card_for(*tech) {
-            pool.insert(card);
+    // 3. Tech-granted cards in sorted `TechId` order.
+    let mut techs_sorted: Vec<TechId> = inputs.completed_techs.to_vec();
+    techs_sorted.sort();
+    for tech in techs_sorted {
+        if hand.len() >= HAND_SIZE {
+            break;
+        }
+        if let Some(card) = tech_card_for(tech)
+            && used.insert(card)
+        {
+            hand.push(card);
         }
     }
 
-    // 4. Sort and take first 5 (BTreeSet iter is ascending by `CardId`).
-    let mut hand: Vec<CardId> = pool.iter().copied().take(HAND_SIZE).collect();
-
-    // 5. Faction signature fallback (may repeat).
+    // 4. Faction signature card (may repeat to fill).
     if hand.len() < HAND_SIZE
         && let Some(faction) = inputs.empire_def_id
         && let Some(sig) = signature_for_faction(faction)
     {
+        // Signature is *not* added to `used`; it may repeat, per
+        // design (the signature is the "identity" of the empire and
+        // is allowed to fill multiple slots).
         while hand.len() < HAND_SIZE {
             hand.push(sig);
         }
     }
 
-    // 6. Hold Fire pad
+    // 5. Hold Fire pad.
     while hand.len() < HAND_SIZE {
         hand.push(HOLD_FIRE.id);
     }
@@ -255,36 +279,44 @@ mod tests {
     }
 
     #[test]
-    fn build_hand_sorts_pool_by_card_id() {
-        // Pool draft: components in reverse-id order.  The first 4 hand
-        // slots come from the pool, sorted ascending by CardId; the 5th
-        // slot is padded with `Hold Fire` (CardId(0)) per the design
-        // doc.
+    fn build_hand_buckets_hull_components_techs_signature_hold_fire() {
+        // Bucket-priority hand draft: slot 0 is the hull card; slots
+        // 1..k are component cards in ascending `ComponentId` order
+        // (duplicates dropped); subsequent slots are tech cards in
+        // ascending `TechId` order; the signature card fills the
+        // remaining slots; `Hold Fire` is the final pad.
         let f = fleet(FleetKind::EscortFrigate);
+        // Components deliberately given in a non-sorted order to
+        // confirm the function sorts internally.
         let components = vec![
-            ComponentId::TARGETING_SUITE,    // id 30 → CardId(7)
-            ComponentId::ION_DRIVE,          // id 21 → CardId(5)
-            ComponentId::REINFORCED_PLATING, // id 10 → CardId(2)
+            ComponentId::TARGETING_SUITE,    // id 30 → TARGETING_LOCK
+            ComponentId::ION_DRIVE,          // id 21 → BURN_MANEUVER
+            ComponentId::REINFORCED_PLATING, // id 10 → ABLATIVE_HULL
         ];
+        let techs = vec![TechId::STRIKE_DOCTRINE, TechId::RAPID_TRANSIT];
         let inputs = HandInputs {
             fleet: &f,
             empire_id: EmpireId(1),
             components: &components,
-            completed_techs: &[],
+            completed_techs: &techs,
             empire_def_id: None,
         };
         let hand = build_hand(&inputs);
         assert_eq!(hand.len(), HAND_SIZE);
-        // First 4 slots come from the pool (sorted).
-        let pool_part = &hand[..4];
-        let mut sorted = pool_part.to_vec();
-        sorted.sort();
+        // Slot 0: hull card for EscortFrigate.
         assert_eq!(
-            pool_part,
-            &sorted[..],
-            "hand pool part must be CardId-ascending"
+            hand[0],
+            hull_card_for_kind(FleetKind::EscortFrigate).unwrap()
         );
-        // Last slot is Hold Fire padding.
-        assert_eq!(hand[4], HOLD_FIRE.id);
+        // Slot 1..3: component cards in ascending ComponentId order.
+        assert_eq!(hand[1], CardId::ABLATIVE_HULL); // REINFORCED_PLATING id 10
+        assert_eq!(hand[2], CardId::BURN_MANEUVER); // ION_DRIVE id 21
+        assert_eq!(hand[3], CardId::TARGETING_LOCK); // TARGETING_SUITE id 30
+        // Slot 4: tech card in ascending `TechId` order.  TechIds
+        // are RAPID_TRANSIT (13) and STRIKE_DOCTRINE (17), so the
+        // lower-id one (RAPID_TRANSIT) wins and grants
+        // WARP_RETREAT.  Exact equality — anything else is a
+        // regression in the bucket-priority sort.
+        assert_eq!(hand[4], CardId::WARP_RETREAT);
     }
 }

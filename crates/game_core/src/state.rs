@@ -3655,6 +3655,15 @@ pub struct GameState {
     /// Deterministic victory-condition progress and winner state.
     #[cfg_attr(feature = "serde", serde(default))]
     pub victory_status: VictoryStatus,
+    /// Per-star constellation cluster assignment.  Set during galaxy
+    /// generation; used for AI strategic positioning and terrain-aware
+    /// behaviour.  Empty for pre-v migration saves.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub star_constellations: BTreeMap<StarId, u32>,
+    /// Per-star nebula membership.  Stars inside nebula bands get
+    /// modified planetary discovery weights.  Empty for pre-v saves.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub star_nebulae: BTreeMap<StarId, u32>,
     /// Recent Galactic Dispatch bulletins.  Bounded to
     /// `crate::dispatch::DISPATCH_MAX_HISTORY` entries.  Newest dispatch is at
     /// the back.
@@ -4803,6 +4812,8 @@ impl Default for GameState {
             colony_unrest_causes: BTreeMap::new(),
             colony_rebellion_risk_bp: BTreeMap::new(),
             colony_recent_conquest_turn: BTreeMap::new(),
+            star_constellations: BTreeMap::new(),
+            star_nebulae: BTreeMap::new(),
             empire_resource_access: BTreeMap::new(),
             victory_status: VictoryStatus::default(),
             galactic_dispatches: VecDeque::new(),

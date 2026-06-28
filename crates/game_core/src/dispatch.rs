@@ -1186,6 +1186,8 @@ mod tests {
             colony_unrest_causes: Default::default(),
             colony_rebellion_risk_bp: Default::default(),
             colony_recent_conquest_turn: Default::default(),
+            star_constellations: BTreeMap::new(),
+            star_nebulae: BTreeMap::new(),
             empire_resource_access: Default::default(),
             victory_status: Default::default(),
             galactic_dispatches: VecDeque::new(),

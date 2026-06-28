@@ -294,6 +294,8 @@ impl Engine {
             colony_rebellion_risk_bp: BTreeMap::new(),
             colony_recent_conquest_turn: BTreeMap::new(),
             empire_resource_access: BTreeMap::new(),
+            star_constellations: BTreeMap::new(),
+            star_nebulae: BTreeMap::new(),
             victory_status: crate::state::VictoryStatus::default(),
             galactic_dispatches: std::collections::VecDeque::new(),
             custom_designs: std::collections::BTreeMap::new(),
@@ -311,6 +313,10 @@ impl Engine {
             pending_battle_session: None,
             battle_reports_v3: std::collections::VecDeque::new(),
         };
+
+        // Populate terrain maps from galaxy generation.
+        state.star_constellations = galaxy.star_constellations;
+        state.star_nebulae = galaxy.star_nebulae;
 
         // Generate initial ship designs for all AI empires
         let ai_empire_ids_copy: Vec<_> = state.ai_empires.clone();

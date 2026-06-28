@@ -50,6 +50,10 @@ const SYNTHETIC_Y_PLANET_MULT: i32 = 17;
 pub struct GeneratedGalaxy {
     pub sectors: Vec<Sector>,
     pub stars: Vec<Star>,
+    /// Per-star constellation cluster assignment (empty until populated).
+    pub star_constellations: BTreeMap<StarId, u32>,
+    /// Per-star nebula band membership (empty until populated).
+    pub star_nebulae: BTreeMap<StarId, u32>,
 }
 
 /// Deterministic environment context for one planet resource roll.
@@ -576,7 +580,117 @@ pub fn generate_galaxy_with_config(
         });
     }
 
-    GeneratedGalaxy { sectors, stars }
+    // Assign constellation clusters per sector.
+    let star_constellations = assign_constellations(&stars, &sector_positions, &mut rng);
+
+    // Flag stars inside nebula bands.
+    let star_nebulae = flag_nebula_stars(&stars, seed);
+
+    GeneratedGalaxy {
+        sectors,
+        stars,
+        star_constellations,
+        star_nebulae,
+    }
+}
+
+/// Assign each star in a sector to a constellation cluster, creating
+/// natural territorial groupings with gaps between them.
+/// Uses seeded random centroids derived from sector positions.
+/// Returns a map from StarId to constellation id.
+fn assign_constellations(
+    stars: &[Star],
+    sector_positions: &[(i32, i32)],
+    rng: &mut SeededRng,
+) -> BTreeMap<StarId, u32> {
+    // Group stars by sector (using id-indexed references)
+    let mut by_sector: BTreeMap<u64, Vec<&Star>> = BTreeMap::new();
+    for star in stars {
+        by_sector.entry(star.sector.0).or_default().push(star);
+    }
+    let mut result = BTreeMap::new();
+    for (sector_idx, sector_stars) in by_sector {
+        let (sx, sy) = sector_positions
+            .get(sector_idx as usize)
+            .map(|p| (p.0, p.1))
+            .unwrap_or((0, 0));
+        if sector_stars.len() < 4 {
+            for star in sector_stars {
+                result.insert(star.id, 1);
+            }
+            continue;
+        }
+        let cluster_count = 2.max((sector_stars.len() / 8).min(5));
+        let mut centroids: Vec<(i32, i32)> = Vec::with_capacity(cluster_count);
+        for _ in 0..cluster_count {
+            let cx = sx + rng.random_range(-200..=200);
+            let cy = sy + rng.random_range(-200..=200);
+            centroids.push((cx, cy));
+        }
+        let base_id = id32_from_coords(sx, sy);
+        for star in sector_stars {
+            let mut best_d = i64::MAX;
+            let mut best_cid = 0u32;
+            for (cid, &(cx, cy)) in centroids.iter().enumerate() {
+                let dx = (star.x - cx) as i64;
+                let dy = (star.y - cy) as i64;
+                let d = dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy));
+                if d < best_d {
+                    best_d = d;
+                    best_cid = base_id + cid as u32;
+                }
+            }
+            result.insert(star.id, best_cid);
+        }
+    }
+    result
+}
+
+/// Generate deterministic nebula bands.  Stars within an elliptical band
+/// are flagged with a nebula id so planetary discovery weights can
+/// adjust (already supported by the existing weight functions but
+/// always passed as `false` previously).
+/// Returns a map from StarId to nebula band id.
+fn flag_nebula_stars(stars: &[Star], seed: u64) -> BTreeMap<StarId, u32> {
+    // Create 2-4 deterministic nebula bands from the seed.
+    let mut rng = SeededRng::new(seed.wrapping_mul(7_771_717));
+    let nebula_count: u32 = rng.random_range(2..=4);
+    let mut centers: Vec<(i32, i32)> = Vec::with_capacity(nebula_count as usize);
+    let mut radii: Vec<i64> = Vec::with_capacity(nebula_count as usize);
+    for _ in 0..nebula_count {
+        let cx: i32 = rng.random_range(-400..=400);
+        let cy: i32 = rng.random_range(-400..=400);
+        let rx: i32 = rng.random_range(100..=300);
+        let ry: i32 = rng.random_range(60..=180);
+        centers.push((cx, cy));
+        radii.push((rx * rx) as i64);
+        radii.push((ry * ry) as i64);
+    }
+    let mut result = BTreeMap::new();
+    for star in stars {
+        for (nid, &(cx, cy)) in centers.iter().enumerate() {
+            let dx = (star.x - cx) as i64;
+            let dy = (star.y - cy) as i64;
+            let rx2 = radii[nid * 2];
+            let ry2 = radii[nid * 2 + 1];
+            if rx2 == 0 || ry2 == 0 {
+                continue;
+            }
+            let val = dx.saturating_mul(dx).saturating_mul(ry2)
+                + dy.saturating_mul(dy).saturating_mul(rx2);
+            let bound = rx2.saturating_mul(ry2);
+            if val <= bound {
+                result.insert(star.id, nid as u32);
+                break;
+            }
+        }
+    }
+    result
+}
+
+/// Deterministic id seed from coordinates (no RNG consumed).
+fn id32_from_coords(x: i32, y: i32) -> u32 {
+    (x.wrapping_mul(31) + y.wrapping_mul(17)).unsigned_abs() % (1 << 24)
 }
 
 /// Generate sparse deterministic hyperspace lanes for the provided galaxy.
@@ -587,11 +701,7 @@ pub fn generate_galaxy_with_config(
 const MAX_LANE_COMPARE_STARS: usize = 30;
 
 /// Sort stars by squared distance to a reference coordinate.
-fn stars_nearby_sorted<'a>(
-    stars: &[&'a Star],
-    cx: i32,
-    cy: i32,
-) -> Vec<&'a Star> {
+fn stars_nearby_sorted<'a>(stars: &[&'a Star], cx: i32, cy: i32) -> Vec<&'a Star> {
     let mut sorted: Vec<_> = stars.to_vec();
     sorted.sort_by_key(|s| {
         let dx = (s.x - cx) as i64;

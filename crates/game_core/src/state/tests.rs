@@ -1,6 +1,56 @@
 use super::*;
 
 #[test]
+fn ascendancy_threshold_validation_accepts_in_range_values() {
+    let scenario = ScenarioSetup {
+        seed: 1,
+        galaxy_size: GalaxySize::Medium,
+        ai_empire_count: 1,
+        sector_count_override: None,
+        difficulty: DifficultyLevel::Standard,
+        player_empire_def: None,
+        victory_settings: VictorySettings {
+            enabled_paths: [VictoryPath::Ascendancy].into_iter().collect(),
+            conditions: vec![VictoryCondition::Ascendancy {
+                control_percent: 50,
+                consecutive_turns_required: 10,
+            }],
+            turn_limit_enabled: true,
+            turn_limit: 300,
+        },
+    };
+    assert!(scenario.validate().is_ok());
+}
+
+#[test]
+fn ascendancy_threshold_validation_rejects_out_of_range_values() {
+    for bad in [0u8, 101, 200] {
+        let scenario = ScenarioSetup {
+            seed: 1,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
+            victory_settings: VictorySettings {
+                enabled_paths: [VictoryPath::Ascendancy].into_iter().collect(),
+                conditions: vec![VictoryCondition::Ascendancy {
+                    control_percent: bad,
+                    consecutive_turns_required: 10,
+                }],
+                turn_limit_enabled: true,
+                turn_limit: 300,
+            },
+        };
+        let result = scenario.validate();
+        assert!(
+            result.is_err(),
+            "control_percent {bad} must be rejected, got {result:?}"
+        );
+    }
+}
+
+#[test]
 fn per_colony_yield_bonuses_sums_resource_contribution() {
     let mut engine = crate::Engine::new(42);
     let player = engine.state.player_empire;
@@ -389,7 +439,7 @@ fn tech_id_ordering() {
 #[test]
 fn all_techs_returns_large_tree_entries() {
     let techs = all_techs();
-    assert_eq!(techs.len(), 60);
+    assert_eq!(techs.len(), 61);
     assert!(
         techs.iter().any(|t| t.name == "Orbital Engineering"),
         "Orbital Engineering tech must be present"

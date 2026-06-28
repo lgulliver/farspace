@@ -193,7 +193,7 @@ fn evaluate_scientific(state: &GameState, condition: &VictoryCondition) -> Scien
             eligibility_tech,
             project_points_required,
         } => (*eligibility_tech, *project_points_required),
-        _ => (TechId(63), 0),
+        _ => (TechId(61), 0),
     };
     let mut per_empire_points: BTreeMap<EmpireId, i64> = BTreeMap::new();
     let mut ranked: Vec<(i64, EmpireId)> = Vec::new();
@@ -497,6 +497,117 @@ fn progress_status_for(
     VictoryPathStatus::InProgress
 }
 
+/// Compute a read-only snapshot of the four-path progress and per-empire
+/// status without ticking any counters or resolving `final_victory`.
+///
+/// Used by the save-migration path so that loading a v41 save does not
+/// silently advance `Ascendancy` hold turns, `Scientific` project points,
+/// warning milestones, or trigger a victory during load. The first
+/// real end-of-turn after load runs the mutating evaluator and starts
+/// all counters from a clean baseline derived from the loaded state.
+pub fn recompute_victory_snapshot(state: &mut GameState) {
+    let settings = state
+        .scenario
+        .as_ref()
+        .map(|scenario| scenario.victory_settings.clone())
+        .unwrap_or_else(VictorySettings::default_v1);
+
+    let ascendancy_condition = settings
+        .condition_for(VictoryPath::Ascendancy)
+        .cloned()
+        .unwrap_or(VictoryCondition::Ascendancy {
+            control_percent: 50,
+            consecutive_turns_required: 10,
+        });
+    let scientific_condition = settings
+        .condition_for(VictoryPath::Scientific)
+        .cloned()
+        .unwrap_or(VictoryCondition::Scientific {
+            eligibility_tech: TechId(61),
+            project_points_required: 1_500,
+        });
+    let legacy_condition = settings
+        .condition_for(VictoryPath::Legacy)
+        .cloned()
+        .unwrap_or(VictoryCondition::Legacy {
+            early_warning_percent: 75,
+        });
+
+    let supremacy = evaluate_supremacy(state);
+    let ascendancy = evaluate_ascendancy(state, &ascendancy_condition);
+    let scientific = evaluate_scientific(state, &scientific_condition);
+    let legacy = evaluate_legacy(state);
+
+    for empire in empire_ids_sorted(state) {
+        let entry = state.victory_status.per_empire.entry(empire).or_default();
+
+        for path in VictoryPath::tie_break_order() {
+            let status = if !settings.is_enabled(*path) {
+                VictoryPathStatus::Disabled
+            } else if state.victory_status.final_victory.is_some() {
+                VictoryPathStatus::Achieved
+            } else {
+                VictoryPathStatus::InProgress
+            };
+            entry.path_status.insert(*path, status);
+        }
+
+        let empire_systems = ascendancy
+            .per_empire_systems
+            .get(&empire)
+            .copied()
+            .unwrap_or(0);
+        let empire_percent = if ascendancy.total_colonized_systems == 0 {
+            0
+        } else {
+            ((empire_systems as u64).saturating_mul(100)
+                / ascendancy.total_colonized_systems as u64) as u8
+        };
+        entry.ascendancy_meets_threshold = empire_percent >= ascendancy.required_percent;
+        // Hold counter, project points, and warnings are NOT advanced here.
+        // Those ticks only fire from `evaluate_victory_end_turn`.
+
+        entry.scientific_eligible = state
+            .empires
+            .get(&empire)
+            .is_some_and(|e| e.research.completed.contains(&scientific.eligibility_tech));
+
+        if let Some(breakdown) = legacy.per_empire_score.get(&empire) {
+            entry.legacy_breakdown = breakdown.clone();
+        }
+    }
+
+    let progress = vec![
+        VictoryProgress {
+            path: VictoryPath::Supremacy,
+            status: progress_status_for(&settings, state, VictoryPath::Supremacy),
+            progress_percent: progress_percent_for_supremacy(&supremacy),
+            leading_empire: supremacy.leader,
+        },
+        VictoryProgress {
+            path: VictoryPath::Ascendancy,
+            status: progress_status_for(&settings, state, VictoryPath::Ascendancy),
+            progress_percent: progress_percent_for_ascendancy(&ascendancy),
+            leading_empire: ascendancy.leading_empire,
+        },
+        VictoryProgress {
+            path: VictoryPath::Scientific,
+            status: progress_status_for(&settings, state, VictoryPath::Scientific),
+            progress_percent: progress_percent_for_scientific(&scientific),
+            leading_empire: scientific.leading_empire,
+        },
+        VictoryProgress {
+            path: VictoryPath::Legacy,
+            status: progress_status_for(&settings, state, VictoryPath::Legacy),
+            progress_percent: progress_percent_for_legacy(&legacy),
+            leading_empire: legacy.leading_empire,
+        },
+    ];
+    state.victory_status.progress = progress;
+
+    let _ = legacy_condition;
+}
+
 /// Evaluate all four victory paths at end of turn. Mutates `state.victory_status`
 /// in place (per-empire progress, milestone markers, and final outcome) and
 /// returns the deterministic event stream.
@@ -518,7 +629,7 @@ pub fn evaluate_victory_end_turn(state: &mut GameState, completed_turn: u32) -> 
         .condition_for(VictoryPath::Scientific)
         .cloned()
         .unwrap_or(VictoryCondition::Scientific {
-            eligibility_tech: TechId(63),
+            eligibility_tech: TechId(61),
             project_points_required: 1_500,
         });
     let legacy_condition = settings
@@ -926,7 +1037,7 @@ mod tests {
                 consecutive_turns_required: 1,
             },
             VictoryCondition::Scientific {
-                eligibility_tech: TechId(63),
+                eligibility_tech: TechId(61),
                 project_points_required: 1_500,
             },
             VictoryCondition::Legacy {
@@ -970,7 +1081,7 @@ mod tests {
                 consecutive_turns_required: 2,
             },
             VictoryCondition::Scientific {
-                eligibility_tech: TechId(63),
+                eligibility_tech: TechId(61),
                 project_points_required: 1_500,
             },
             VictoryCondition::Legacy {
@@ -1019,7 +1130,7 @@ mod tests {
                 consecutive_turns_required: 1,
             },
             VictoryCondition::Scientific {
-                eligibility_tech: TechId(63),
+                eligibility_tech: TechId(61),
                 project_points_required: 1_500,
             },
             VictoryCondition::Legacy {
@@ -1058,7 +1169,7 @@ mod tests {
             .unwrap()
             .research
             .completed
-            .push(TechId(63));
+            .push(TechId(61));
         let turn = engine.state.turn;
         let _ = evaluate_victory_end_turn(&mut engine.state, turn);
         let after = engine
@@ -1082,7 +1193,7 @@ mod tests {
                 consecutive_turns_required: 10,
             },
             VictoryCondition::Scientific {
-                eligibility_tech: TechId(63),
+                eligibility_tech: TechId(61),
                 project_points_required: 0,
             },
             VictoryCondition::Legacy {
@@ -1098,7 +1209,7 @@ mod tests {
             .unwrap()
             .research
             .completed
-            .push(TechId(63));
+            .push(TechId(61));
         let _ = engine.apply_turn(vec![Command::EndTurn]);
         assert_eq!(
             engine
@@ -1122,7 +1233,7 @@ mod tests {
                 consecutive_turns_required: 10,
             },
             VictoryCondition::Scientific {
-                eligibility_tech: TechId(63),
+                eligibility_tech: TechId(61),
                 project_points_required: 100,
             },
             VictoryCondition::Legacy {
@@ -1138,7 +1249,7 @@ mod tests {
             .unwrap()
             .research
             .completed
-            .push(TechId(63));
+            .push(TechId(61));
         engine
             .state
             .victory_status
@@ -1202,7 +1313,7 @@ mod tests {
                 consecutive_turns_required: 10,
             },
             VictoryCondition::Scientific {
-                eligibility_tech: TechId(63),
+                eligibility_tech: TechId(61),
                 project_points_required: 1_500,
             },
             VictoryCondition::Legacy {
@@ -1268,7 +1379,7 @@ mod tests {
                 consecutive_turns_required: 10,
             },
             VictoryCondition::Scientific {
-                eligibility_tech: TechId(63),
+                eligibility_tech: TechId(61),
                 project_points_required: 1_500,
             },
             VictoryCondition::Legacy {

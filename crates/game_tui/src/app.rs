@@ -1167,7 +1167,10 @@ impl App {
             return;
         }
 
-        if matches!(key.code, KeyCode::Char('V') | KeyCode::Char('v')) && self.engine.is_some() {
+        if matches!(key.code, KeyCode::Char('V') | KeyCode::Char('v'))
+            && self.engine.is_some()
+            && self.state.active != Screen::Victory
+        {
             self.state.previous_screen = self.state.active;
             self.state.active = Screen::Victory;
             return;

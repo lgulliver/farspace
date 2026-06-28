@@ -407,6 +407,26 @@ fn v_key_opens_victory_screen() {
     app.handle_key(key(KeyCode::Char('V')));
 
     assert_eq!(app.state.active, Screen::Victory);
+    assert_eq!(app.state.previous_screen, Screen::SectorMap);
+}
+
+#[test]
+fn v_key_on_victory_preserves_previous_screen() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::Research;
+    app.handle_key(key(KeyCode::Char('V')));
+    assert_eq!(app.state.active, Screen::Victory);
+    assert_eq!(app.state.previous_screen, Screen::Research);
+
+    // Pressing V again while already on Victory must not overwrite the
+    // recorded return target — Esc should still go back to Research.
+    app.handle_key(key(KeyCode::Char('V')));
+    assert_eq!(app.state.active, Screen::Victory);
+    assert_eq!(app.state.previous_screen, Screen::Research);
+
+    app.handle_key(key(KeyCode::Esc));
+    assert_eq!(app.state.active, Screen::Research);
 }
 
 #[test]

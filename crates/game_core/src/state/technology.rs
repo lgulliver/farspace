@@ -1190,6 +1190,24 @@ pub fn all_techs() -> &'static [TechRecord] {
             display_order: 60,
             ai_weight: 0,
         },
+        // Late-game unlock that gates the Scientific victory path.  Original
+        // FARSPACE record; ties the project threshold to a real research
+        // choice rather than a hidden off-tree id.
+        TechRecord {
+            id: TechId(61),
+            name: "Transcendent Gate Theory",
+            description: "Unified field synthesis enabling the construction of galaxy-spanning gate networks.",
+            domain: TechDomain::Society,
+            tier: TechTier::VI,
+            prerequisites: &[TechId(60), TechId(59)],
+            unlocks: &[],
+            cost: 920,
+            rarity: TechRarity::Breakthrough,
+            tags: &[TechTag::Megastructure, TechTag::Command, TechTag::Sensors],
+            future_hook: false,
+            display_order: 61,
+            ai_weight: 0,
+        },
     ]
 }
 

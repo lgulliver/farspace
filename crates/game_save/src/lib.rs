@@ -2422,7 +2422,7 @@ mod tests {
             winner: engine.state.player_empire,
             path: game_core::VictoryPath::Scientific,
             turn: 9,
-            reason: "test".to_string(),
+            reason: "completed the Transcendent Gate project".to_string(),
         });
         if let Some(scenario) = engine.state.scenario.as_mut() {
             scenario
@@ -2441,6 +2441,10 @@ mod tests {
         assert_eq!(final_v.winner, loaded.player_empire);
         assert_eq!(final_v.path, game_core::VictoryPath::Scientific);
         assert_eq!(final_v.turn, 9);
+        assert_eq!(
+            final_v.reason, "completed the Transcendent Gate project",
+            "FinalVictory.reason must round-trip through save/load"
+        );
         assert!(
             !loaded
                 .scenario

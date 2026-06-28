@@ -305,6 +305,10 @@ fn empire_is_alive(state: &GameState, empire: EmpireId) -> bool {
     })
 }
 
+/// Render the Victory screen into `area`.  The screen is read-only:
+/// it always shows the current state and never emits commands.  The
+/// layout is resize-safe: on small terminals the Legacy breakdown is
+/// rendered inside the status column rather than being dropped.
 pub fn render_victory(
     frame: &mut Frame,
     area: Rect,
@@ -320,15 +324,22 @@ pub fn render_victory(
     let compact = main_area.width < MIN_WIDTH_FOR_SIDE_BY_SIDE
         || main_area.height < MIN_HEIGHT_FOR_SIDE_BY_SIDE;
     if compact {
+        // On small terminals, the Legacy breakdown is rendered inside the
+        // same column as the path list rather than being dropped.  The
+        // status banner sits on top; the path list + legacy block share
+        // the remaining height so the breakdown remains reachable even
+        // on 80x24.
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(8),
-                Constraint::Length(data.paths.len() as u16 * 3 + 4),
-            ])
+            .constraints([Constraint::Length(7), Constraint::Min(4)])
             .split(main_area);
-        render_status_block(frame, chunks[0], &data);
+        let upper = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(7), Constraint::Min(0)])
+            .split(chunks[0]);
+        render_status_block(frame, upper[0], &data);
         render_paths_block(frame, chunks[1], &data);
+        render_legacy_block(frame, upper[1], &data);
     } else {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -627,10 +638,51 @@ mod tests {
     #[test]
     fn renders_safely_when_rivals_list_is_empty() {
         let mut engine = Engine::new(42);
+        // Strip every non-player empire from `state.empires` so
+        // `derive_victory_data` has no rivals to list.  Clearing just
+        // `state.ai_empires` would leave the empire records in place.
+        let player = engine.state.player_empire;
+        let non_player_empires: Vec<_> = engine
+            .state
+            .empires
+            .keys()
+            .copied()
+            .filter(|id| *id != player)
+            .collect();
+        for id in non_player_empires {
+            engine.state.empires.remove(&id);
+        }
         engine.state.ai_empires.clear();
+        engine.state.ai_explored_stars.clear();
+        engine.state.ai_relations.clear();
+        engine.state.diplomacy.clear();
+        engine.state.diplomacy_relationships.clear();
+        engine.state.diplomacy_pending_communications.clear();
+        engine.state.colonies.retain(|_, c| c.owner == player);
+        engine.state.fleets.retain(|_, f| f.owner == player);
+        engine.state.empire_explored_stars.clear();
+        engine.state.empire_resource_access.clear();
+        engine.state.empire_intel.clear();
+        engine.state.empire_trade_routes.clear();
+        engine.state.empire_trade_income.clear();
         let app_state = AppState::default();
         let buffer = render_buffer(&engine, &app_state, 80, 24);
         let text = buffer_text(&buffer);
         assert!(text.contains("Campaign Status"));
+        // Sanity: data builder should report zero rivals.
+        let data = derive_victory_data(&engine.state);
+        assert!(data.rivals.is_empty());
+    }
+
+    #[test]
+    fn renders_with_rivals_populated() {
+        let engine = Engine::new(42);
+        let data = derive_victory_data(&engine.state);
+        assert!(!data.rivals.is_empty());
+        let app_state = AppState::default();
+        let buffer = render_buffer(&engine, &app_state, 120, 36);
+        let text = buffer_text(&buffer);
+        assert!(text.contains("Campaign Status"));
+        assert!(text.contains("Legacy Score Breakdown"));
     }
 }

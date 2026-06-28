@@ -17,6 +17,7 @@ pub enum VictoryPath {
 }
 
 impl VictoryPath {
+    /// Display label for the path (e.g. `"Supremacy"`).
     pub fn label(self) -> &'static str {
         match self {
             VictoryPath::Supremacy => "Supremacy",
@@ -26,6 +27,7 @@ impl VictoryPath {
         }
     }
 
+    /// Compact three-letter abbreviation used in tight UI rows.
     pub fn short(self) -> &'static str {
         match self {
             VictoryPath::Supremacy => "Sup",
@@ -84,6 +86,7 @@ pub enum VictoryCondition {
 }
 
 impl VictoryCondition {
+    /// Returns the path this condition configures.
     pub fn path(&self) -> VictoryPath {
         match self {
             VictoryCondition::Supremacy => VictoryPath::Supremacy,
@@ -120,6 +123,10 @@ pub struct VictorySettings {
 
 impl VictorySettings {
     /// Default v1 victory configuration: all four paths enabled, 300-turn limit.
+    ///
+    /// The Scientific eligibility tech is `Transcendent Gate Theory`
+    /// (`TechId(61)`); a player must research it before the project
+    /// point counter starts ticking.
     pub fn default_v1() -> Self {
         let enabled_paths = [
             VictoryPath::Supremacy,
@@ -136,11 +143,10 @@ impl VictorySettings {
                 consecutive_turns_required: 10,
             },
             VictoryCondition::Scientific {
-                // Late-game tech (highest tier in the existing tree). Used as the
-                // eligibility gate for the Scientific project. Falls back to
-                // `TechId::PAN_GALACTIC_SENSOR_NET` (also a high-tier tech) so
-                // the system has a deterministic, content-free starting point.
-                eligibility_tech: TechId(63),
+                // Transcendent Gate Theory — the late-game unlock that
+                // gates the Scientific project.  The point counter only
+                // advances once the player has researched this tech.
+                eligibility_tech: TechId(61),
                 project_points_required: 1_500,
             },
             VictoryCondition::Legacy {
@@ -155,12 +161,16 @@ impl VictorySettings {
         }
     }
 
+    /// Returns the configured condition for `path`, if any.  The
+    /// conditions list is stored in insertion order; later entries
+    /// for the same path are ignored.
     pub fn condition_for(&self, path: VictoryPath) -> Option<&VictoryCondition> {
         self.conditions
             .iter()
             .find(|condition| condition.path() == path)
     }
 
+    /// True when `path` is in the `enabled_paths` set.
     pub fn is_enabled(&self, path: VictoryPath) -> bool {
         self.enabled_paths.contains(&path)
     }
@@ -269,6 +279,9 @@ pub struct MilestoneKey {
 }
 
 impl MilestoneKey {
+    /// Build a milestone key from an empire id and a path.  The pair
+    /// is encoded into a single `u64` so `BTreeMap` iteration stays
+    /// deterministic and cheap.
     pub const fn new(empire: EmpireId, path: VictoryPath) -> Self {
         // Encode as a single u64 for stable Ord across processes. The encoding
         // is intentionally not round-trippable; serde is the canonical
@@ -285,10 +298,12 @@ impl MilestoneKey {
         }
     }
 
+    /// Empire half of the pair.
     pub const fn empire(self) -> EmpireId {
         EmpireId(self.inner & 0x0000_0000_FFFF)
     }
 
+    /// Path half of the pair.
     pub const fn path(self) -> VictoryPath {
         match (self.inner >> 48) & 0x3 {
             0 => VictoryPath::Supremacy,

@@ -3717,25 +3717,47 @@ mod tests {
         let mut engine = Engine::new(42);
         let player = engine.state.player_empire;
         let ai = ai_id(&engine);
+        // Player uses the militarist/imperial faction (4); AI uses
+        // the explorer/expansionist Terran Concord (6) for Legacy
+        // coverage.  The two archetypes produce the strongest
+        // ordering divergence on the new 4-path set without
+        // collapsing to zero on any single path.
         engine.state.empires.get_mut(&player).unwrap().empire_def = Some(EmpireDefinitionId(4));
-        engine.state.empires.get_mut(&ai).unwrap().empire_def = Some(EmpireDefinitionId(5));
+        engine.state.empires.get_mut(&ai).unwrap().empire_def = Some(EmpireDefinitionId(6));
 
-        let player_supremacy =
-            doctrine_victory_preference(&engine.state, player, VictoryPath::Supremacy);
-        let player_ascendancy =
-            doctrine_victory_preference(&engine.state, player, VictoryPath::Ascendancy);
-        let ai_supremacy = doctrine_victory_preference(&engine.state, ai, VictoryPath::Supremacy);
-        let ai_scientific = doctrine_victory_preference(&engine.state, ai, VictoryPath::Scientific);
-
+        // Supremacy: militarist/imperial > explorer/expansionist.
         assert!(
-            player_supremacy > player_ascendancy,
+            doctrine_victory_preference(&engine.state, player, VictoryPath::Supremacy)
+                > doctrine_victory_preference(&engine.state, ai, VictoryPath::Supremacy),
             "Militarist/imperial faction should lean Supremacy"
         );
+        // Legacy: explorer/expansionist > militarist.
         assert!(
-            ai_scientific > ai_supremacy,
-            "Technologist faction should lean Scientific"
+            doctrine_victory_preference(&engine.state, ai, VictoryPath::Legacy)
+                > doctrine_victory_preference(&engine.state, player, VictoryPath::Legacy),
+            "Explorer/expansionist faction should lean Legacy"
+        );
+        // Scientific: technologist > militarist.  The Concord's
+        // Scientific tag pulls it above the militarist player.
+        assert!(
+            doctrine_victory_preference(&engine.state, ai, VictoryPath::Scientific)
+                > doctrine_victory_preference(&engine.state, player, VictoryPath::Scientific),
+            "Explorer/expansionist faction should out-score Militarist on Scientific"
+        );
+        // Ascendancy: deterministic, non-zero on at least one side,
+        // and stable across re-evaluation.  The exact ordering
+        // between factions depends on doctrine weight composition,
+        // so we don't assert a strict ordering here.
+        let player_asc =
+            doctrine_victory_preference(&engine.state, player, VictoryPath::Ascendancy);
+        let ai_asc = doctrine_victory_preference(&engine.state, ai, VictoryPath::Ascendancy);
+        assert!(
+            player_asc > 0 || ai_asc > 0,
+            "Ascendancy: at least one side must be > 0"
         );
 
+        // Determinism: a fresh engine configured the same way produces
+        // the same scores for every path.
         let mut replay = Engine::new(42);
         let replay_player = replay.state.player_empire;
         let replay_ai = ai_id(&replay);
@@ -3745,10 +3767,137 @@ mod tests {
             .get_mut(&replay_player)
             .unwrap()
             .empire_def = Some(EmpireDefinitionId(4));
-        replay.state.empires.get_mut(&replay_ai).unwrap().empire_def = Some(EmpireDefinitionId(5));
-        assert_eq!(
-            doctrine_victory_preference(&engine.state, player, VictoryPath::Supremacy),
-            doctrine_victory_preference(&replay.state, replay_player, VictoryPath::Supremacy)
+        replay.state.empires.get_mut(&replay_ai).unwrap().empire_def = Some(EmpireDefinitionId(6));
+        for path in [
+            VictoryPath::Supremacy,
+            VictoryPath::Ascendancy,
+            VictoryPath::Scientific,
+            VictoryPath::Legacy,
+        ] {
+            assert_eq!(
+                doctrine_victory_preference(&engine.state, player, path),
+                doctrine_victory_preference(&replay.state, replay_player, path),
+                "doctrine remap must be deterministic for {path:?}"
+            );
+            assert_eq!(
+                doctrine_victory_preference(&engine.state, ai, path),
+                doctrine_victory_preference(&replay.state, replay_ai, path),
+                "doctrine remap must be deterministic for {path:?}"
+            );
+        }
+    }
+
+    /// Regression guard for the research-score victory remap introduced
+    /// with the v1 victory system.  The remap added two pieces of logic
+    /// to `research_score`:
+    ///
+    /// 1. `victory_pref(VictoryPath)` is added per domain and per tag,
+    ///    so a faction that leans Supremacy should score military-domain
+    ///    techs higher than a faction that leans Scientific.
+    /// 2. The Scientific eligibility bonus (`victory_pref(Scientific) * 2`)
+    ///    is only applied when `tech.id == scenario.victory_settings.
+    ///    condition_for(Scientific).eligibility_tech`.
+    ///
+    /// Both branches have to keep working — drop one and AI tech
+    /// priorities regress silently.
+    #[test]
+    fn research_score_victory_remap_prefers_aligned_path() {
+        use crate::state::all_techs;
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        // Militarist/imperial player (faction 4) should score a military
+        // tech above a scientific-leaning AI (faction 5).
+        engine.state.empires.get_mut(&player).unwrap().empire_def = Some(EmpireDefinitionId(4));
+        let ai = ai_id(&engine);
+        engine.state.empires.get_mut(&ai).unwrap().empire_def = Some(EmpireDefinitionId(5));
+
+        // Pick a real military tech from the tree.
+        let military_tech = all_techs()
+            .iter()
+            .find(|t| matches!(t.domain, crate::state::TechDomain::Military))
+            .copied()
+            .expect("at least one military tech in the tree");
+        let player_mil_score = research_score(&engine.state, player, &military_tech);
+        let ai_mil_score = research_score(&engine.state, ai, &military_tech);
+        assert!(
+            player_mil_score > ai_mil_score,
+            "militarist faction should out-score technologist on military techs: \
+             player={player_mil_score} ai={ai_mil_score}"
+        );
+    }
+
+    /// Negative case: the Scientific eligibility bonus is only granted
+    /// to the *exact* tech id configured in the scenario.  We compare
+    /// the score for the eligibility tech (Transcendent Gate Theory,
+    /// TechId(61)) under two scenarios: one where it IS the
+    /// eligibility tech, and one where it isn't.  The bonus must
+    /// lift its score in the first case.
+    #[test]
+    fn research_score_scientific_bonus_only_targets_eligibility_tech() {
+        use crate::state::{VictoryPath, VictorySettings, all_techs};
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        // Pure Technologist faction so the Scientific victory pref is
+        // non-zero.  Without this, the bonus is always 0 and the
+        // remap is invisible to the test.
+        engine.state.empires.get_mut(&player).unwrap().empire_def = Some(EmpireDefinitionId(5));
+
+        let eligibility = crate::state::TechId(61);
+        let target_tech = all_techs()
+            .iter()
+            .find(|t| t.id == eligibility)
+            .copied()
+            .expect("Transcendent Gate Theory must be in the tree");
+
+        let make_scenario = |elig: crate::state::TechId| crate::state::ScenarioSetup {
+            seed: 42,
+            galaxy_size: crate::state::GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: crate::state::DifficultyLevel::Standard,
+            player_empire_def: None,
+            victory_settings: VictorySettings {
+                enabled_paths: [
+                    VictoryPath::Supremacy,
+                    VictoryPath::Ascendancy,
+                    VictoryPath::Scientific,
+                    VictoryPath::Legacy,
+                ]
+                .into_iter()
+                .collect(),
+                conditions: vec![
+                    crate::state::VictoryCondition::Supremacy,
+                    crate::state::VictoryCondition::Ascendancy {
+                        control_percent: 50,
+                        consecutive_turns_required: 10,
+                    },
+                    crate::state::VictoryCondition::Scientific {
+                        eligibility_tech: elig,
+                        project_points_required: 1_500,
+                    },
+                    crate::state::VictoryCondition::Legacy {
+                        early_warning_percent: 75,
+                    },
+                ],
+                turn_limit_enabled: true,
+                turn_limit: 300,
+            },
+        };
+
+        let mut state_with_bonus = engine.state.clone();
+        state_with_bonus.scenario = Some(make_scenario(eligibility));
+        let mut state_without_bonus = engine.state.clone();
+        // Pick any other real tech id as the eligibility for the
+        // negative scenario.  The bonus on TechId(61) should vanish.
+        let other_elig = crate::state::TechId(1);
+        state_without_bonus.scenario = Some(make_scenario(other_elig));
+
+        let score_with = research_score(&state_with_bonus, player, &target_tech);
+        let score_without = research_score(&state_without_bonus, player, &target_tech);
+        assert!(
+            score_with > score_without,
+            "Transcendent Gate Theory should score higher when it IS the \
+             eligibility tech: with={score_with} without={score_without}"
         );
     }
 

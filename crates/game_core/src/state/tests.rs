@@ -2,24 +2,31 @@ use super::*;
 
 #[test]
 fn ascendancy_threshold_validation_accepts_in_range_values() {
-    let scenario = ScenarioSetup {
-        seed: 1,
-        galaxy_size: GalaxySize::Medium,
-        ai_empire_count: 1,
-        sector_count_override: None,
-        difficulty: DifficultyLevel::Standard,
-        player_empire_def: None,
-        victory_settings: VictorySettings {
-            enabled_paths: [VictoryPath::Ascendancy].into_iter().collect(),
-            conditions: vec![VictoryCondition::Ascendancy {
-                control_percent: 50,
-                consecutive_turns_required: 10,
-            }],
-            turn_limit_enabled: true,
-            turn_limit: 300,
-        },
-    };
-    assert!(scenario.validate().is_ok());
+    // Inclusive boundaries: both 1 and 100 are valid thresholds,
+    // and a representative mid-range value should also pass.
+    for good in [1u8, 50, 100] {
+        let scenario = ScenarioSetup {
+            seed: 1,
+            galaxy_size: GalaxySize::Medium,
+            ai_empire_count: 1,
+            sector_count_override: None,
+            difficulty: DifficultyLevel::Standard,
+            player_empire_def: None,
+            victory_settings: VictorySettings {
+                enabled_paths: [VictoryPath::Ascendancy].into_iter().collect(),
+                conditions: vec![VictoryCondition::Ascendancy {
+                    control_percent: good,
+                    consecutive_turns_required: 10,
+                }],
+                turn_limit_enabled: true,
+                turn_limit: 300,
+            },
+        };
+        assert!(
+            scenario.validate().is_ok(),
+            "control_percent {good} must be accepted as a valid Ascendancy threshold"
+        );
+    }
 }
 
 #[test]
@@ -456,6 +463,18 @@ fn all_techs_returns_large_tree_entries() {
     }));
     assert!(techs.iter().any(|t| t.domain == TechDomain::Society));
     assert!(techs.iter().any(|t| t.tier == TechTier::VI));
+    // Transcendent Gate Theory is the late-game eligibility gate for
+    // the Scientific victory path.  If this record is renamed or
+    // moved to a different id, the default victory settings will
+    // silently break (the AI bonus and the player eligibility check
+    // both target this exact id).  Pin the contract here.
+    let gate = techs
+        .iter()
+        .find(|t| t.id == TechId(61))
+        .expect("Transcendent Gate Theory (TechId(61)) must be present in the tech tree");
+    assert_eq!(gate.name, "Transcendent Gate Theory");
+    assert_eq!(gate.domain, TechDomain::Society);
+    assert_eq!(gate.tier, TechTier::VI);
 }
 
 #[test]

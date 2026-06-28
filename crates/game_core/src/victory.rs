@@ -187,6 +187,54 @@ fn evaluate_ascendancy(state: &GameState, condition: &VictoryCondition) -> Ascen
     }
 }
 
+/// Read-only Scientific evaluation. Returns the current per-empire
+/// project point totals as stored in `state.victory_status.per_empire`
+/// — no per-turn advance. Used by `recompute_victory_snapshot` so the
+/// snapshot path cannot silently tick scientific progress forward.
+fn evaluate_scientific_snapshot(
+    state: &GameState,
+    condition: &VictoryCondition,
+) -> ScientificEvaluation {
+    let (eligibility_tech, project_points_required) = match condition {
+        VictoryCondition::Scientific {
+            eligibility_tech,
+            project_points_required,
+        } => (*eligibility_tech, *project_points_required),
+        _ => (TechId(61), 0),
+    };
+    let mut per_empire_points: BTreeMap<EmpireId, i64> = BTreeMap::new();
+    let mut ranked: Vec<(i64, EmpireId)> = Vec::new();
+    for empire in empire_ids_sorted(state) {
+        let current = state
+            .victory_status
+            .per_empire
+            .get(&empire)
+            .map(|p| p.scientific_project_points)
+            .unwrap_or(0);
+        per_empire_points.insert(empire, current);
+        ranked.push((current, empire));
+    }
+    ranked.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    let (leading_empire, leading_percent) = ranked
+        .first()
+        .copied()
+        .map(|(points, empire)| (Some(empire), percent_i64(points, project_points_required)))
+        .unwrap_or((None, 0));
+    ScientificEvaluation {
+        per_empire_points,
+        eligibility_tech,
+        project_points_required,
+        leading_empire,
+        leading_percent,
+    }
+}
+
+/// Mutating Scientific evaluation. Advances each eligible empire's
+/// project point total by the per-turn max of science/industry yield
+/// across the empire's colonies, then returns the updated evaluation.
+/// This is the only path that should write to
+/// `entry.scientific_project_points`; the snapshot helper is
+/// strictly read-only.
 fn evaluate_scientific(state: &GameState, condition: &VictoryCondition) -> ScientificEvaluation {
     let (eligibility_tech, project_points_required) = match condition {
         VictoryCondition::Scientific {
@@ -535,7 +583,12 @@ pub fn recompute_victory_snapshot(state: &mut GameState) {
 
     let supremacy = evaluate_supremacy(state);
     let ascendancy = evaluate_ascendancy(state, &ascendancy_condition);
-    let scientific = evaluate_scientific(state, &scientific_condition);
+    // Use the snapshot variant for the read-only path so the
+    // migration does not silently advance Scientific project points
+    // by per-turn yields stored in `last_colony_yields`.  The
+    // mutating `evaluate_scientific` is only called from
+    // `evaluate_victory_end_turn`.
+    let scientific = evaluate_scientific_snapshot(state, &scientific_condition);
     let legacy = evaluate_legacy(state);
 
     for empire in empire_ids_sorted(state) {
@@ -1544,5 +1597,71 @@ mod tests {
         let restored: crate::state::VictoryStatus =
             serde_json::from_str(&json).expect("v deserialize");
         assert_eq!(restored.progress.len(), 4);
+    }
+
+    /// Regression guard: `recompute_victory_snapshot` must be truly
+    /// read-only.  The previous implementation called the mutating
+    /// `evaluate_scientific`, which advanced per-empire Scientific
+    /// project points by the per-turn `last_colony_yields`.  The
+    /// snapshot helper is now the read-only
+    /// `evaluate_scientific_snapshot`, so calling it twice must
+    /// return identical per-empire point totals.
+    #[test]
+    fn recompute_victory_snapshot_does_not_advance_scientific_points() {
+        let mut engine = Engine::new(42);
+        let player = engine.state.player_empire;
+        // Make the player eligible for the Scientific path.
+        engine
+            .state
+            .empires
+            .get_mut(&player)
+            .unwrap()
+            .research
+            .completed
+            .push(TechId(61));
+        // Seed some stored yields so a mutating evaluation would add
+        // a positive `production_turn`.
+        if let Some(yield_snapshot) = engine.state.last_colony_yields.values_mut().next() {
+            *yield_snapshot = crate::state::ColonyYieldSnapshot {
+                industry: 0,
+                credits: 0,
+                science: 50,
+                food: 0,
+                food_consumed: 0,
+                maintenance: 0,
+            };
+        }
+        let player_points_before = engine
+            .state
+            .victory_status
+            .per_empire
+            .get(&player)
+            .map(|p| p.scientific_project_points)
+            .unwrap_or(0);
+        recompute_victory_snapshot(&mut engine.state);
+        let player_points_after_first = engine
+            .state
+            .victory_status
+            .per_empire
+            .get(&player)
+            .unwrap()
+            .scientific_project_points;
+        assert_eq!(
+            player_points_after_first, player_points_before,
+            "snapshot must not advance the player's Scientific project points"
+        );
+        // A second call must also be a no-op.
+        recompute_victory_snapshot(&mut engine.state);
+        let player_points_after_second = engine
+            .state
+            .victory_status
+            .per_empire
+            .get(&player)
+            .unwrap()
+            .scientific_project_points;
+        assert_eq!(
+            player_points_after_second, player_points_before,
+            "snapshot must remain a no-op on repeated calls"
+        );
     }
 }

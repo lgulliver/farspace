@@ -792,7 +792,13 @@ pub fn evaluate_victory_end_turn(state: &mut GameState, completed_turn: u32) -> 
 
     if state.victory_status.final_victory.is_none() {
         let resolved: Option<(EmpireId, VictoryPath, String)> = None
-            .or_else(|| supremacy_winner(&supremacy).map(|(e, r)| (e, VictoryPath::Supremacy, r)))
+            .or_else(|| {
+                if settings.is_enabled(VictoryPath::Supremacy) {
+                    supremacy_winner(&supremacy).map(|(e, r)| (e, VictoryPath::Supremacy, r))
+                } else {
+                    None
+                }
+            })
             .or_else(|| {
                 ascendancy_winner(state, &ascendancy, &settings)
                     .map(|(e, r)| (e, VictoryPath::Ascendancy, r))
@@ -826,6 +832,22 @@ pub fn evaluate_victory_end_turn(state: &mut GameState, completed_turn: u32) -> 
             });
         }
     }
+
+    // Refresh the UI snapshot if `final_victory` was just resolved:
+    // the per-path `status` we built above was computed while
+    // `final_victory` was still `None`, so the enabled paths would
+    // read as `InProgress` instead of `Achieved` on the winning turn.
+    let progress = if state.victory_status.final_victory.is_some() {
+        progress
+            .into_iter()
+            .map(|mut entry| {
+                entry.status = progress_status_for(&settings, state, entry.path);
+                entry
+            })
+            .collect()
+    } else {
+        progress
+    };
 
     state.victory_status.progress = progress;
 
@@ -912,8 +934,12 @@ mod tests {
     fn set_victory_settings(engine: &mut Engine, settings: VictorySettings) {
         let scenario = engine.state.scenario.as_mut().expect("scenario must exist");
         scenario.victory_settings = settings;
-        let turn = engine.state.turn;
-        let _ = evaluate_victory_end_turn(&mut engine.state, turn);
+        // Refresh the read-only UI snapshot without advancing the
+        // Ascendancy hold counter, the Scientific project points, or
+        // resolving a final victory.  Tests that exercise the
+        // mutating pipeline should call `evaluate_victory_end_turn`
+        // explicitly to control the turn number and event stream.
+        recompute_victory_snapshot(&mut engine.state);
     }
 
     #[test]
@@ -1024,6 +1050,30 @@ mod tests {
         assert!(player_colonies_on_same_star >= player_stars);
         assert!(total_unique > 0);
         assert!(player_stars > 0);
+
+        // Cross-check the engine's own Ascendancy evaluator against
+        // the local recompute.  This is the regression guard: if the
+        // evaluator ever starts counting raw colonies (rather than
+        // unique systems), the totals will diverge.
+        let condition = engine
+            .state
+            .scenario
+            .as_ref()
+            .expect("scenario must exist")
+            .victory_settings
+            .condition_for(VictoryPath::Ascendancy)
+            .cloned()
+            .expect("ascendancy condition present");
+        let evaluated = evaluate_ascendancy(&engine.state, &condition);
+        assert_eq!(
+            evaluated.total_colonized_systems, total_unique,
+            "Ascendancy evaluator must report the same unique-system count as a manual set"
+        );
+        assert_eq!(
+            evaluated.per_empire_systems.get(&player).copied(),
+            Some(player_stars),
+            "Ascendancy evaluator must report the player's unique-system count correctly"
+        );
     }
 
     #[test]

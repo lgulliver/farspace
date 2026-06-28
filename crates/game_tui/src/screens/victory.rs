@@ -324,22 +324,21 @@ pub fn render_victory(
     let compact = main_area.width < MIN_WIDTH_FOR_SIDE_BY_SIDE
         || main_area.height < MIN_HEIGHT_FOR_SIDE_BY_SIDE;
     if compact {
-        // On small terminals, the Legacy breakdown is rendered inside the
-        // same column as the path list rather than being dropped.  The
-        // status banner sits on top; the path list + legacy block share
-        // the remaining height so the breakdown remains reachable even
-        // on 80x24.
+        // Compact layout: three real vertical regions.  A nested split
+        // from a Length(7) parent always leaves the inner Min(0) at
+        // height 0, so the Legacy breakdown must live in its own
+        // top-level slot of the constraint list.
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(7), Constraint::Min(4)])
+            .constraints([
+                Constraint::Length(7),
+                Constraint::Min(4),
+                Constraint::Length(8),
+            ])
             .split(main_area);
-        let upper = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(7), Constraint::Min(0)])
-            .split(chunks[0]);
-        render_status_block(frame, upper[0], &data);
+        render_status_block(frame, chunks[0], &data);
         render_paths_block(frame, chunks[1], &data);
-        render_legacy_block(frame, upper[1], &data);
+        render_legacy_block(frame, chunks[2], &data);
     } else {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -633,6 +632,21 @@ mod tests {
         let text = buffer_text(&buffer);
         assert!(text.contains("VICTORY ACHIEVED"));
         assert!(text.contains("Supremacy"));
+    }
+
+    /// Compact 80×24 must still reach the Legacy breakdown.  An
+    /// earlier layout nested a Length(7) + Min(0) split under a
+    /// Length(7) parent, which collapsed the inner Min(0) to zero
+    /// height and made the Legacy block invisible on small terminals.
+    /// This test pins the regression.
+    #[test]
+    fn compact_80x24_renders_legacy_breakdown() {
+        let engine = Engine::new(42);
+        let app_state = AppState::default();
+        let buffer = render_buffer(&engine, &app_state, 80, 24);
+        let text = buffer_text(&buffer);
+        assert!(text.contains("Legacy Score Breakdown"));
+        assert!(text.contains("Player Legacy total"));
     }
 
     #[test]

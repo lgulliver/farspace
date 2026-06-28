@@ -273,51 +273,38 @@ pub struct VictoryProgress {
 /// named struct with deterministic `Ord` for `BTreeMap` storage. The
 /// serde representation is a deterministic string of the form
 /// `"<empire>:<path_label>"`, which serde_json accepts as a map key.
+///
+/// The empire id is stored as a full `u64` (no truncation) so collisions
+/// like `EmpireId(1)` vs `EmpireId(65_537)` cannot occur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MilestoneKey {
-    inner: u64,
+    empire: EmpireId,
+    path: VictoryPath,
 }
 
 impl MilestoneKey {
-    /// Build a milestone key from an empire id and a path.  The pair
-    /// is encoded into a single `u64` so `BTreeMap` iteration stays
-    /// deterministic and cheap.
+    /// Build a milestone key from an empire id and a path.  Both
+    /// components are stored at full fidelity, so the key
+    /// round-trips losslessly through equality checks and serde.
     pub const fn new(empire: EmpireId, path: VictoryPath) -> Self {
-        // Encode as a single u64 for stable Ord across processes. The encoding
-        // is intentionally not round-trippable; serde is the canonical
-        // representation, this is only used for in-memory ordering.
-        let empire_part = empire.0 & 0x0000_FFFF;
-        let path_part: u64 = match path {
-            VictoryPath::Supremacy => 0,
-            VictoryPath::Ascendancy => 1,
-            VictoryPath::Scientific => 2,
-            VictoryPath::Legacy => 3,
-        };
-        Self {
-            inner: (path_part << 48) | empire_part,
-        }
+        Self { empire, path }
     }
 
     /// Empire half of the pair.
     pub const fn empire(self) -> EmpireId {
-        EmpireId(self.inner & 0x0000_0000_FFFF)
+        self.empire
     }
 
     /// Path half of the pair.
     pub const fn path(self) -> VictoryPath {
-        match (self.inner >> 48) & 0x3 {
-            0 => VictoryPath::Supremacy,
-            1 => VictoryPath::Ascendancy,
-            2 => VictoryPath::Scientific,
-            _ => VictoryPath::Legacy,
-        }
+        self.path
     }
 }
 
 #[cfg(feature = "serde")]
 impl Serialize for MilestoneKey {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&format!("{}:{}", self.empire().0, self.path().label()))
+        serializer.serialize_str(&format!("{}:{}", self.empire.0, self.path.label()))
     }
 }
 
@@ -376,4 +363,35 @@ fn default_true() -> bool {
 #[cfg(feature = "serde")]
 fn default_turn_limit() -> u32 {
     300
+}
+
+#[cfg(test)]
+mod milestone_key_tests {
+    use super::*;
+
+    /// Regression guard for the legacy truncation bug: `MilestoneKey`
+    /// previously stored only the low 16 bits of `EmpireId`, which
+    /// meant `EmpireId(1)` and `EmpireId(65_537)` collided.  Two
+    /// distinct empires should always map to distinct keys.
+    #[test]
+    fn milestone_keys_with_distant_empire_ids_do_not_collide() {
+        let a = MilestoneKey::new(EmpireId(1), VictoryPath::Supremacy);
+        let b = MilestoneKey::new(EmpireId(65_537), VictoryPath::Supremacy);
+        let c = MilestoneKey::new(EmpireId(1), VictoryPath::Ascendancy);
+        assert_ne!(a, b, "distant empire ids must not collide on the same path");
+        assert_ne!(a, c, "different paths must produce distinct keys");
+        assert_eq!(a.empire(), EmpireId(1));
+        assert_eq!(b.empire(), EmpireId(65_537));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn milestone_key_round_trips_full_empire_id() {
+        let key = MilestoneKey::new(EmpireId(65_537), VictoryPath::Ascendancy);
+        let json = serde_json::to_string(&key).expect("serialize");
+        let restored: MilestoneKey = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(restored, key);
+        assert_eq!(restored.empire(), EmpireId(65_537));
+        assert_eq!(restored.path(), VictoryPath::Ascendancy);
+    }
 }

@@ -2280,6 +2280,22 @@ impl Engine {
             }
         }
 
+        // Apply runaway-leader penalty: empires with >2x the colonies of
+        // the runner-up get reduced research output above turn 40.
+        let mut cnt_map: BTreeMap<EmpireId, usize> = BTreeMap::new();
+        for colony in self.state.colonies.values() {
+            *cnt_map.entry(colony.owner).or_insert(0) += 1;
+        }
+        let max_rival = cnt_map.values().copied().max().unwrap_or(0);
+        let turn = self.state.turn;
+        for (empire_id, gained) in empire_research.iter_mut() {
+            let cnt = cnt_map.get(empire_id).copied().unwrap_or(0);
+            let pct = crate::balance::runaway_research_penalty(cnt, max_rival, turn);
+            if pct != 0 {
+                *gained = (*gained * (100 + pct)) / 100;
+            }
+        }
+
         // Apply research progress for each empire that has a current tech
         let techs = all_techs();
         for (empire_id, research_gained) in &empire_research {

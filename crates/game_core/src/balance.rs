@@ -92,6 +92,45 @@ pub const MAX_UNEMPLOYMENT_STABILITY_PENALTY: u8 = 5;
 /// the empire supply network.
 pub const MAX_ISOLATED_FOOD_DEFICIT_STABILITY_PENALTY: u8 = 5;
 
+/// Runaway-leader penalty applied as a percentage reduction to research
+/// and industry output for empires that have outstripped all rivals by a
+/// wide margin.  The goal is to prevent snowballing without hard caps:
+/// a 3-colony empire is unaffected; a 20-colony empire feels the drag.
+///
+/// Penalty formula:
+///   - If colony_count > 2x the second-largest empire's count: -10%
+///   - If colony_count > 3x: -20%
+///   - No penalty before turn 40.
+///   - Scales in linearly between turn 40 and turn 100.
+///
+/// Returns a percentage (0 = no penalty, -20 = -20%).
+pub fn runaway_research_penalty(
+    empire_colonies: usize,
+    max_rival_colonies: usize,
+    turn: u32,
+) -> i64 {
+    if turn < 40 {
+        return 0;
+    }
+    if empire_colonies == 0 || max_rival_colonies == 0 {
+        return 0;
+    }
+    let ratio = empire_colonies as f64 / max_rival_colonies as f64;
+    let base_penalty = if ratio > 3.0 {
+        -20
+    } else if ratio > 2.0 {
+        -10
+    } else {
+        0
+    };
+    if base_penalty == 0 {
+        return 0;
+    }
+    // Scale in linearly from turn 40 to turn 100.
+    let scale = ((turn.saturating_sub(40)).min(60) as i64 * 100) / 60;
+    (base_penalty * scale) / 100
+}
+
 /// Stability lost per turn while a colony is under active blockade.
 ///
 /// **Changed from 5 → 8** to make blockades a meaningful strategic lever;

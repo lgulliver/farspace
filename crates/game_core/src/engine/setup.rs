@@ -99,7 +99,7 @@ impl Engine {
                 Empire {
                     id: ai_empire_id,
                     name: ai_name,
-                    credits: 100,
+                    credits: 100 + setup.difficulty.ai_credit_bonus(),
                     research_points: 0,
                     home_star: ai_home_star_ids[i],
                     research: ResearchState::default(),

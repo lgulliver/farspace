@@ -325,9 +325,7 @@ pub fn list_saves(dir: &std::path::Path) -> Vec<SaveSlotSummary> {
 /// because `DifficultyLevel` has no display method yet and this is purely a
 /// presentation concern for the save list.
 pub(crate) fn difficulty_label(difficulty: game_core::DifficultyLevel) -> &'static str {
-    match difficulty {
-        game_core::DifficultyLevel::Standard => "Standard",
-    }
+    difficulty.label()
 }
 
 /// Delete a save file from disk. Returns [`SaveError::Io`] if removal fails.

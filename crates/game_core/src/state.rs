@@ -3460,12 +3460,74 @@ impl Default for ScenarioSetup {
     }
 }
 
-/// Placeholder difficulty level (v1 — no mechanical effect).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Difficulty level affecting AI decision quality and (on Brutal) modest
+/// economic bonuses.  Difficulty primarily shapes planning quality,
+/// aggression threshold, and expansion confidence rather than raw
+/// resource yields; only the highest tier grants a small credit bonus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum DifficultyLevel {
+    /// Relaxed AI — slower expansion, lower aggression, no bonuses.
+    Easy,
+    /// Balanced AI — the default, intended for a fair challenge.
     #[default]
     Standard,
+    /// Sharper AI — more aggressive, faster decision pacing, small
+    /// research and expansion bonuses.
+    Hard,
+    /// Ruthless AI — the most aggressive with a modest +15% credit
+    /// income bonus to keep pressure on experienced players.
+    Brutal,
+}
+
+impl DifficultyLevel {
+    pub fn all() -> &'static [DifficultyLevel] {
+        &[
+            DifficultyLevel::Easy,
+            DifficultyLevel::Standard,
+            DifficultyLevel::Hard,
+            DifficultyLevel::Brutal,
+        ]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            DifficultyLevel::Easy => "Easy",
+            DifficultyLevel::Standard => "Standard",
+            DifficultyLevel::Hard => "Hard",
+            DifficultyLevel::Brutal => "Brutal",
+        }
+    }
+
+    /// Bonus multiplier applied to AI research scores (100 = baseline).
+    pub fn research_bonus_pct(self) -> i32 {
+        match self {
+            DifficultyLevel::Easy => 90,
+            DifficultyLevel::Standard => 100,
+            DifficultyLevel::Hard => 110,
+            DifficultyLevel::Brutal => 120,
+        }
+    }
+
+    /// Aggression threshold offset.  Lower values = more aggressive.
+    /// The engine reduces the threshold for going to war / demanding
+    /// tribute when this value is smaller.
+    pub fn aggression_offset(self) -> i32 {
+        match self {
+            DifficultyLevel::Easy => 15,
+            DifficultyLevel::Standard => 0,
+            DifficultyLevel::Hard => -5,
+            DifficultyLevel::Brutal => -10,
+        }
+    }
+
+    /// Extra starting credits for the AI on Brutal.
+    pub fn ai_credit_bonus(self) -> i64 {
+        match self {
+            DifficultyLevel::Brutal => 50,
+            _ => 0,
+        }
+    }
 }
 
 /// Seeded ChaCha8 RNG wrapper that implements Clone via serialization.

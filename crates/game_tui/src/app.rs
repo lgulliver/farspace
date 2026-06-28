@@ -261,6 +261,8 @@ pub(crate) struct NewGameSetupState {
     pub(crate) ai_count: u8,
     /// Seed string shown on the setup screen (ASCII digits only).
     pub(crate) seed_str: String,
+    /// Difficulty level selected on the setup screen.
+    pub(crate) difficulty: game_core::DifficultyLevel,
     /// Which field is currently highlighted on the setup screen.
     /// 0 = empire selection, 1 = galaxy size, 2 = AI count, 3 = seed.
     pub(crate) cursor: usize,
@@ -292,6 +294,7 @@ impl Default for NewGameSetupState {
             galaxy_size: GalaxySize::Medium,
             ai_count: 1,
             seed_str: "42".to_string(),
+            difficulty: game_core::DifficultyLevel::Standard,
             cursor: 0,
             seed_editing: false,
             seed_pre_edit: String::new(),
@@ -1413,7 +1416,7 @@ impl App {
     /// Handle keyboard input on the New Game Setup screen.
     fn handle_new_game_setup_key(&mut self, key: KeyEvent) {
         use crate::screens::new_game_setup::FIELD_SEED;
-        const NUM_FIELDS: usize = 4;
+        const NUM_FIELDS: usize = 5;
 
         // Seed editing mode intercepts most keys.
         if self.state.new_game_setup.seed_editing {
@@ -1488,9 +1491,12 @@ impl App {
 
     /// Cycle the currently selected setup field forward (true) or backward (false).
     fn setup_cycle_field(&mut self, forward: bool) {
-        use crate::screens::new_game_setup::{FIELD_AI_COUNT, FIELD_EMPIRE, FIELD_GALAXY_SIZE};
-        use game_core::GalaxySize;
+        use crate::screens::new_game_setup::{
+            FIELD_AI_COUNT, FIELD_DIFFICULTY, FIELD_EMPIRE, FIELD_GALAXY_SIZE,
+        };
+        use game_core::{DifficultyLevel, GalaxySize};
         let all_sizes = GalaxySize::all();
+        let all_diff = DifficultyLevel::all();
         match self.state.new_game_setup.cursor {
             FIELD_EMPIRE => {
                 let all_defs = game_core::all_empire_definitions();
@@ -1524,6 +1530,18 @@ impl App {
                     self.state.new_game_setup.ai_count -= 1;
                 }
             }
+            FIELD_DIFFICULTY => {
+                let idx = all_diff
+                    .iter()
+                    .position(|d| *d == self.state.new_game_setup.difficulty)
+                    .unwrap_or(0);
+                let new_idx = if forward {
+                    (idx + 1).min(all_diff.len() - 1)
+                } else {
+                    idx.saturating_sub(1)
+                };
+                self.state.new_game_setup.difficulty = all_diff[new_idx];
+            }
             _ => {}
         }
     }
@@ -1551,7 +1569,7 @@ impl App {
             ai_empire_count: self.state.new_game_setup.ai_count,
             sector_count_override: None,
             star_count_override: None,
-            difficulty: game_core::DifficultyLevel::Standard,
+            difficulty: self.state.new_game_setup.difficulty,
             player_empire_def,
             victory_settings: game_core::VictorySettings::default_v1(),
         };

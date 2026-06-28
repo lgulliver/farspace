@@ -412,14 +412,23 @@ fn pick_research_from_completed(
 }
 
 fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::TechRecord) -> i32 {
+    let difficulty = state
+        .scenario
+        .as_ref()
+        .map(|s| s.difficulty)
+        .unwrap_or_default();
+    let difficulty_mult = difficulty.research_bonus_pct();
+
     let Some(def) = state
         .empires
         .get(&empire_id)
         .and_then(|e| e.empire_def)
         .and_then(empire_definition_by_id)
     else {
-        return (tech.ai_weight as i32 * 8)
-            - future_penalty(tech.future_hook, tech.unlocks.is_empty()) as i32 * 8;
+        return ((tech.ai_weight as i32 * 8)
+            - future_penalty(tech.future_hook, tech.unlocks.is_empty()) as i32 * 8)
+            * difficulty_mult
+            / 100;
     };
     let doctrine = |axis| def.doctrine_weight(axis) as i32;
     let victory_pref = |path| doctrine_victory_preference(state, empire_id, path) as i32;
@@ -507,7 +516,7 @@ fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::T
         score += victory_pref(VictoryPath::Scientific) * 2;
     }
 
-    score
+    score * difficulty_mult / 100
 }
 
 fn doctrine_victory_preference(state: &GameState, empire_id: EmpireId, path: VictoryPath) -> u8 {

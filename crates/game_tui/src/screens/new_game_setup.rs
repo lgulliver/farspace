@@ -21,6 +21,7 @@ pub const FIELD_EMPIRE: usize = 0;
 pub const FIELD_GALAXY_SIZE: usize = 1;
 pub const FIELD_AI_COUNT: usize = 2;
 pub const FIELD_SEED: usize = 3;
+pub const FIELD_DIFFICULTY: usize = 4;
 
 const COMPACT_MIN_WIDTH: u16 = 80;
 const COMPACT_MIN_HEIGHT: u16 = 24;
@@ -350,6 +351,8 @@ fn render_galaxy_section(
     let is_size = app_state.new_game_setup.cursor == FIELD_GALAXY_SIZE;
     let is_ai = app_state.new_game_setup.cursor == FIELD_AI_COUNT;
     let is_seed = app_state.new_game_setup.cursor == FIELD_SEED;
+    let is_difficulty = app_state.new_game_setup.cursor == FIELD_DIFFICULTY;
+    let diff_label = app_state.new_game_setup.difficulty.label();
 
     let all_sizes = GalaxySize::all();
     let current_label = app_state.new_game_setup.galaxy_size.label();
@@ -378,6 +381,8 @@ fn render_galaxy_section(
         field_line("AI Empires", &ai_value, is_ai, inner.width),
         Line::from(""),
         field_line("Seed", &seed_display, is_seed, inner.width),
+        Line::from(""),
+        field_line("Difficulty", diff_label, is_difficulty, inner.width),
         Line::from(""),
         Line::from(vec![
             Span::styled("[Enter] ", Theme::title_style()),

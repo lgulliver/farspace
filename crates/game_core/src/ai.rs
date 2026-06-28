@@ -2195,6 +2195,14 @@ mod tests {
             .orbital_installations
             .push(crate::state::OrbitalStructureType::Shipyard);
 
+        // Ensure the AI has a food surplus so the build queue isn't
+        // short-circuited by a food crisis (the default empire assignment
+        // can give the AI a faction with traits that tip the colony into
+        // deficit).
+        if let Some(empire) = engine.state.empires.get_mut(&ai) {
+            empire.food = 100;
+        }
+
         // Add a fake colonizer fleet for the AI
         let fake_colonizer_id = crate::state::FleetId(99);
         engine.state.fleets.insert(
@@ -3227,6 +3235,7 @@ mod tests {
                 galaxy_size: GalaxySize::Medium,
                 ai_empire_count: 1,
                 sector_count_override: None,
+                star_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
                 victory_settings: crate::state::VictorySettings::default_v1(),
@@ -3272,6 +3281,7 @@ mod tests {
             galaxy_size: GalaxySize::Medium,
             ai_empire_count: 2,
             sector_count_override: None,
+            star_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(EmpireDefinitionId(0)),
             victory_settings: crate::state::VictorySettings::default_v1(),
@@ -3294,6 +3304,7 @@ mod tests {
             galaxy_size: GalaxySize::Large,
             ai_empire_count: 4,
             sector_count_override: None,
+            star_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(player_def),
             victory_settings: crate::state::VictorySettings::default_v1(),
@@ -3317,6 +3328,7 @@ mod tests {
                 galaxy_size: GalaxySize::Medium,
                 ai_empire_count: 1,
                 sector_count_override: None,
+                star_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
                 victory_settings: crate::state::VictorySettings::default_v1(),
@@ -3369,6 +3381,7 @@ mod tests {
                 galaxy_size: GalaxySize::Medium,
                 ai_empire_count: 1,
                 sector_count_override: None,
+                star_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
                 victory_settings: crate::state::VictorySettings::default_v1(),
@@ -3451,6 +3464,7 @@ mod tests {
                 galaxy_size: GalaxySize::Medium,
                 ai_empire_count: 1,
                 sector_count_override: None,
+                star_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
                 victory_settings: crate::state::VictorySettings::default_v1(),
@@ -3526,6 +3540,7 @@ mod tests {
                 galaxy_size: GalaxySize::Medium,
                 ai_empire_count: 1,
                 sector_count_override: None,
+                star_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
                 victory_settings: crate::state::VictorySettings::default_v1(),
@@ -3582,6 +3597,7 @@ mod tests {
                 galaxy_size: GalaxySize::Medium,
                 ai_empire_count: 1,
                 sector_count_override: None,
+                star_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
                 victory_settings: crate::state::VictorySettings::default_v1(),
@@ -3661,6 +3677,7 @@ mod tests {
                 galaxy_size: GalaxySize::Medium,
                 ai_empire_count: 1,
                 sector_count_override: None,
+                star_count_override: None,
                 difficulty: DifficultyLevel::Standard,
                 player_empire_def: Some(EmpireDefinitionId(0)),
                 victory_settings: crate::state::VictorySettings::default_v1(),
@@ -3854,6 +3871,7 @@ mod tests {
             galaxy_size: crate::state::GalaxySize::Medium,
             ai_empire_count: 1,
             sector_count_override: None,
+            star_count_override: None,
             difficulty: crate::state::DifficultyLevel::Standard,
             player_empire_def: None,
             victory_settings: VictorySettings {

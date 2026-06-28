@@ -3255,48 +3255,83 @@ pub struct DiplomaticCommunication {
 /// Each variant defines default star and sector counts.  Counts are kept in a
 /// range rather than a fixed value so that future per-size variation (e.g.
 /// slightly randomised counts) remains backward-compatible.
+///
+/// `Custom` has no fixed count; the caller provides `star_count_override`
+/// and/or `sector_count_override` in `ScenarioSetup`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum GalaxySize {
-    /// Compact galaxy — 10 stars, 2 sectors
+    /// Compact galaxy — 40 stars, 3 sectors
+    Tiny,
+    /// Small galaxy — 80 stars, 4 sectors
     Small,
-    /// Standard galaxy — 20 stars, 4 sectors
+    /// Standard galaxy — 150 stars, 6 sectors
     #[default]
     Medium,
-    /// Large sprawling galaxy — 40 stars, 6 sectors
+    /// Large galaxy — 250 stars, 8 sectors
     Large,
+    /// Huge galaxy — 400 stars, 12 sectors
+    Huge,
+    /// Epic galaxy — 700 stars, 16 sectors
+    Epic,
+    /// Custom size — use `star_count_override` and `sector_count_override`.
+    Custom,
 }
 
 impl GalaxySize {
     /// All available galaxy sizes in display order.
     pub fn all() -> &'static [GalaxySize] {
-        &[GalaxySize::Small, GalaxySize::Medium, GalaxySize::Large]
+        &[
+            GalaxySize::Tiny,
+            GalaxySize::Small,
+            GalaxySize::Medium,
+            GalaxySize::Large,
+            GalaxySize::Huge,
+            GalaxySize::Epic,
+            GalaxySize::Custom,
+        ]
     }
 
     /// Short display label.
     pub fn label(&self) -> &'static str {
         match self {
+            GalaxySize::Tiny => "Tiny",
             GalaxySize::Small => "Small",
             GalaxySize::Medium => "Medium",
             GalaxySize::Large => "Large",
+            GalaxySize::Huge => "Huge",
+            GalaxySize::Epic => "Epic",
+            GalaxySize::Custom => "Custom",
         }
     }
 
     /// Default number of star systems for this size.
+    /// Returns 0 for `Custom` — callers must use `effective_star_count`
+    /// on `ScenarioSetup` instead.
     pub fn default_star_count(&self) -> usize {
         match self {
-            GalaxySize::Small => 10,
-            GalaxySize::Medium => 20,
-            GalaxySize::Large => 40,
+            GalaxySize::Tiny => 40,
+            GalaxySize::Small => 80,
+            GalaxySize::Medium => 150,
+            GalaxySize::Large => 250,
+            GalaxySize::Huge => 400,
+            GalaxySize::Epic => 700,
+            GalaxySize::Custom => 0,
         }
     }
 
     /// Default number of sectors for this size.
+    /// Returns 0 for `Custom` — callers must use `effective_sector_count`
+    /// on `ScenarioSetup` instead.
     pub fn default_sector_count(&self) -> usize {
         match self {
-            GalaxySize::Small => 2,
-            GalaxySize::Medium => 4,
-            GalaxySize::Large => 6,
+            GalaxySize::Tiny => 3,
+            GalaxySize::Small => 4,
+            GalaxySize::Medium => 6,
+            GalaxySize::Large => 8,
+            GalaxySize::Huge => 12,
+            GalaxySize::Epic => 16,
+            GalaxySize::Custom => 0,
         }
     }
 }
@@ -3319,6 +3354,11 @@ pub struct ScenarioSetup {
     /// derived from `galaxy_size`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub sector_count_override: Option<usize>,
+    /// Override for the number of star systems.  When `None` the count
+    /// is derived from `galaxy_size`.  Required when `galaxy_size` is
+    /// `Custom`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub star_count_override: Option<usize>,
     /// Placeholder difficulty level label (v1 — no mechanical effect yet).
     #[cfg_attr(feature = "serde", serde(default))]
     pub difficulty: DifficultyLevel,
@@ -3333,12 +3373,17 @@ pub struct ScenarioSetup {
 
 impl ScenarioSetup {
     /// Construct a setup with sensible defaults.
+    /// Uses `Small` (80 stars, 4 sectors) as the default so that tests
+    /// and quick-start remain responsive while still providing a
+    /// meaningful map.  Real campaigns use `Medium` (150 stars) or
+    /// larger through the setup screen.
     pub fn default_for_seed(seed: u64) -> Self {
         ScenarioSetup {
             seed,
-            galaxy_size: GalaxySize::Medium,
+            galaxy_size: GalaxySize::Small,
             ai_empire_count: 1,
             sector_count_override: None,
+            star_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: None,
             victory_settings: VictorySettings::default_v1(),
@@ -3347,13 +3392,14 @@ impl ScenarioSetup {
 
     /// Effective number of star systems for this setup.
     pub fn effective_star_count(&self) -> usize {
-        self.galaxy_size.default_star_count()
+        self.star_count_override
+            .unwrap_or_else(|| self.galaxy_size.default_star_count())
     }
 
     /// Effective number of sectors for this setup.
     pub fn effective_sector_count(&self) -> usize {
         match self.sector_count_override {
-            Some(n) => n.clamp(2, 8),
+            Some(n) => n,
             None => self.galaxy_size.default_sector_count(),
         }
     }
@@ -3367,9 +3413,17 @@ impl ScenarioSetup {
             ));
         }
         if let Some(n) = self.sector_count_override
-            && !(2..=8).contains(&n)
+            && !(2..=16).contains(&n)
         {
-            return Err(format!("Sector count must be 2–8, got {}", n));
+            return Err(format!("Sector count must be 2–16, got {}", n));
+        }
+        if self.galaxy_size == GalaxySize::Custom && self.star_count_override.is_none() {
+            return Err("Custom galaxy size requires star_count_override to be set".to_string());
+        }
+        if let Some(n) = self.star_count_override
+            && !(10..=2000).contains(&n)
+        {
+            return Err(format!("Star count must be 10–2000, got {}", n));
         }
         if let Some(def_id) = self.player_empire_def
             && empire_definition_by_id(def_id).is_none()

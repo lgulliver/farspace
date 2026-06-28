@@ -471,8 +471,8 @@ pub fn generate_galaxy_with_config(
     sector_count: usize,
 ) -> GeneratedGalaxy {
     let mut rng = SeededRng::new(seed);
-    let star_count = star_count.clamp(10, 100);
-    let sector_count = sector_count.clamp(2, 8);
+    let star_count = star_count.clamp(10, 2000);
+    let sector_count = sector_count.clamp(2, 20);
 
     // Generate sector positions in a grid-like pattern across the galaxy
     let sector_positions = generate_sector_positions(sector_count, &mut rng);
@@ -496,11 +496,15 @@ pub fn generate_galaxy_with_config(
     let mut used_coords: BTreeSet<(i32, i32)> = BTreeSet::new();
     let mut used_names: BTreeSet<String> = BTreeSet::new();
 
+    // Scale the coordinate range with galaxy size so that larger galaxies
+    // have room to place stars without excessive collisions.  Tiny (40)
+    // gets the base 500 range; each additional star adds ~0.02 units.
+    let coord_range: i32 = 250 + (star_count as i32).saturating_mul(2).min(3000);
     for id in 0..star_count {
         // Generate unique coordinates
         let (x, y) = loop {
-            let x = rng.random_range(-500..=500);
-            let y = rng.random_range(-500..=500);
+            let x = rng.random_range(-coord_range..=coord_range);
+            let y = rng.random_range(-coord_range..=coord_range);
             if !used_coords.contains(&(x, y)) {
                 used_coords.insert((x, y));
                 break (x, y);

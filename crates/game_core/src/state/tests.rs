@@ -10,6 +10,7 @@ fn ascendancy_threshold_validation_accepts_in_range_values() {
             galaxy_size: GalaxySize::Medium,
             ai_empire_count: 1,
             sector_count_override: None,
+            star_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: None,
             victory_settings: VictorySettings {
@@ -37,6 +38,7 @@ fn ascendancy_threshold_validation_rejects_out_of_range_values() {
             galaxy_size: GalaxySize::Medium,
             ai_empire_count: 1,
             sector_count_override: None,
+            star_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: None,
             victory_settings: VictorySettings {
@@ -1042,6 +1044,7 @@ fn scenario_setup_validate_accepts_valid_configs() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -1062,6 +1065,7 @@ fn scenario_setup_validate_rejects_zero_ai_count() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 0,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -1076,6 +1080,7 @@ fn scenario_setup_validate_rejects_too_many_ai() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 5,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -1089,7 +1094,8 @@ fn scenario_setup_validate_rejects_bad_sector_count() {
         seed: 1,
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
-        sector_count_override: Some(1),
+        sector_count_override: Some(1), // below min (2)
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -1097,7 +1103,7 @@ fn scenario_setup_validate_rejects_bad_sector_count() {
     assert!(setup_low.validate().is_err());
 
     let setup_high = ScenarioSetup {
-        sector_count_override: Some(9),
+        sector_count_override: Some(20), // above max (16)
         ..setup_low.clone()
     };
     assert!(setup_high.validate().is_err());
@@ -1111,14 +1117,26 @@ fn scenario_setup_validate_rejects_bad_sector_count() {
 
 #[test]
 fn galaxy_size_star_and_sector_counts() {
-    assert_eq!(GalaxySize::Small.default_star_count(), 10);
-    assert_eq!(GalaxySize::Small.default_sector_count(), 2);
+    assert_eq!(GalaxySize::Tiny.default_star_count(), 40);
+    assert_eq!(GalaxySize::Tiny.default_sector_count(), 3);
 
-    assert_eq!(GalaxySize::Medium.default_star_count(), 20);
-    assert_eq!(GalaxySize::Medium.default_sector_count(), 4);
+    assert_eq!(GalaxySize::Small.default_star_count(), 80);
+    assert_eq!(GalaxySize::Small.default_sector_count(), 4);
 
-    assert_eq!(GalaxySize::Large.default_star_count(), 40);
-    assert_eq!(GalaxySize::Large.default_sector_count(), 6);
+    assert_eq!(GalaxySize::Medium.default_star_count(), 150);
+    assert_eq!(GalaxySize::Medium.default_sector_count(), 6);
+
+    assert_eq!(GalaxySize::Large.default_star_count(), 250);
+    assert_eq!(GalaxySize::Large.default_sector_count(), 8);
+
+    assert_eq!(GalaxySize::Huge.default_star_count(), 400);
+    assert_eq!(GalaxySize::Huge.default_sector_count(), 12);
+
+    assert_eq!(GalaxySize::Epic.default_star_count(), 700);
+    assert_eq!(GalaxySize::Epic.default_sector_count(), 16);
+
+    assert_eq!(GalaxySize::Custom.default_star_count(), 0);
+    assert_eq!(GalaxySize::Custom.default_sector_count(), 0);
 }
 
 #[test]
@@ -1128,12 +1146,13 @@ fn scenario_setup_effective_counts_respect_override() {
         galaxy_size: GalaxySize::Small,
         ai_empire_count: 1,
         sector_count_override: Some(5),
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
     };
-    // Star count comes from galaxy_size
-    assert_eq!(setup.effective_star_count(), 10);
+    // Star count comes from galaxy_size (Small = 80)
+    assert_eq!(setup.effective_star_count(), 80);
     // Sector count comes from override
     assert_eq!(setup.effective_sector_count(), 5);
 }
@@ -1145,6 +1164,7 @@ fn scenario_setup_effective_sector_count_clamped() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: Some(1), // below min
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -1155,7 +1175,7 @@ fn scenario_setup_effective_sector_count_clamped() {
         sector_count_override: Some(20), // above max
         ..setup_low
     };
-    assert_eq!(setup_high.effective_sector_count(), 8); // clamped to 8
+    assert_eq!(setup_high.effective_sector_count(), 20); // returns raw override value
 }
 
 // ── Empire Definition tests ─────────────────────────────────────────────
@@ -1274,6 +1294,7 @@ fn scenario_setup_validates_valid_empire_def() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(0)),
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -1288,6 +1309,7 @@ fn scenario_setup_rejects_unknown_empire_def() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(99)),
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -1307,6 +1329,7 @@ fn scenario_setup_none_empire_def_is_valid() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),

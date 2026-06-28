@@ -9218,6 +9218,7 @@ fn new_from_setup_same_options_produce_same_galaxy() {
         galaxy_size: GalaxySize::Small,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9244,6 +9245,7 @@ fn new_from_setup_different_seeds_produce_different_galaxies() {
             galaxy_size: GalaxySize::Medium,
             ai_empire_count: 1,
             sector_count_override: None,
+            star_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: None,
             victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9271,12 +9273,13 @@ fn new_from_setup_small_produces_expected_star_and_sector_counts() {
         galaxy_size: GalaxySize::Small,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
     });
-    assert_eq!(engine.state.stars.len(), 10, "Small: 10 stars");
-    assert_eq!(engine.state.sectors.len(), 2, "Small: 2 sectors");
+    assert_eq!(engine.state.stars.len(), 80, "Small: 80 stars");
+    assert_eq!(engine.state.sectors.len(), 4, "Small: 4 sectors");
 }
 
 #[test]
@@ -9287,12 +9290,13 @@ fn new_from_setup_medium_produces_expected_star_and_sector_counts() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
     });
-    assert_eq!(engine.state.stars.len(), 20, "Medium: 20 stars");
-    assert_eq!(engine.state.sectors.len(), 4, "Medium: 4 sectors");
+    assert_eq!(engine.state.stars.len(), 150, "Medium: 150 stars");
+    assert_eq!(engine.state.sectors.len(), 6, "Medium: 6 sectors");
 }
 
 #[test]
@@ -9303,12 +9307,13 @@ fn new_from_setup_large_produces_expected_star_and_sector_counts() {
         galaxy_size: GalaxySize::Large,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
     });
-    assert_eq!(engine.state.stars.len(), 40, "Large: 40 stars");
-    assert_eq!(engine.state.sectors.len(), 6, "Large: 6 sectors");
+    assert_eq!(engine.state.stars.len(), 250, "Large: 250 stars");
+    assert_eq!(engine.state.sectors.len(), 8, "Large: 8 sectors");
 }
 
 #[test]
@@ -9319,6 +9324,7 @@ fn new_from_setup_four_ai_empires_created() {
         galaxy_size: GalaxySize::Large,
         ai_empire_count: 4,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9349,6 +9355,7 @@ fn new_from_setup_ai_empire_placement_is_deterministic() {
         galaxy_size: GalaxySize::Large,
         ai_empire_count: 3,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9384,6 +9391,7 @@ fn new_from_setup_scenario_metadata_stored_in_state() {
         galaxy_size: GalaxySize::Large,
         ai_empire_count: 2,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9407,6 +9415,7 @@ fn validate_rejects_zero_ai_count() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 0, // invalid
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9424,6 +9433,7 @@ fn new_from_setup_invalid_ai_count_panics() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 0, // invalid — new_from_setup should panic
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9444,6 +9454,7 @@ fn player_can_select_valid_empire() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(def_id),
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9471,6 +9482,7 @@ fn player_can_select_terran_concord() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(6)),
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9492,6 +9504,7 @@ fn player_can_select_terran_dominion() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(7)),
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9513,6 +9526,7 @@ fn invalid_empire_selection_fails_validation() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(255)), // does not exist
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9528,6 +9542,7 @@ fn ai_empires_receive_distinct_definitions() {
         galaxy_size: GalaxySize::Large,
         ai_empire_count: 4,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(0)),
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9571,6 +9586,7 @@ fn same_seed_produces_same_ai_empire_definitions() {
             galaxy_size: GalaxySize::Large,
             ai_empire_count: 3,
             sector_count_override: None,
+            star_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(EmpireDefinitionId(1)),
             victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9611,6 +9627,7 @@ fn different_seeds_can_produce_different_ai_empire_definitions() {
             galaxy_size: GalaxySize::Large,
             ai_empire_count: 4,
             sector_count_override: None,
+            star_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(EmpireDefinitionId(0)),
             victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9653,6 +9670,7 @@ fn empire_trait_modifiers_applied_per_colony() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(2)), // Sylvaran Accord: +2 food
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9701,6 +9719,7 @@ fn terran_concord_science_bonus_applied_per_colony() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(6)),
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9762,6 +9781,7 @@ fn empire_identity_persists_through_save_load() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 2,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: Some(EmpireDefinitionId(3)), // Thalori Exchange
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -9808,6 +9828,7 @@ fn default_empire_assigned_when_no_player_def_specified() {
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
@@ -12281,6 +12302,7 @@ fn two_ai_engine(seed: u64) -> Engine {
         galaxy_size: GalaxySize::Large,
         ai_empire_count: 2,
         sector_count_override: None,
+        star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),

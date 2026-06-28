@@ -1550,6 +1550,7 @@ impl App {
             galaxy_size: self.state.new_game_setup.galaxy_size,
             ai_empire_count: self.state.new_game_setup.ai_count,
             sector_count_override: None,
+            star_count_override: None,
             difficulty: game_core::DifficultyLevel::Standard,
             player_empire_def,
             victory_settings: game_core::VictorySettings::default_v1(),

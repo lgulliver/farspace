@@ -24,8 +24,12 @@ fn main() -> anyhow::Result<()> {
             "--galaxy" => {
                 if let Some(size) = args.next() {
                     scenario.galaxy_size = match size.to_ascii_lowercase().as_str() {
+                        "tiny" => GalaxySize::Tiny,
                         "small" => GalaxySize::Small,
                         "large" => GalaxySize::Large,
+                        "huge" => GalaxySize::Huge,
+                        "epic" => GalaxySize::Epic,
+                        "custom" => GalaxySize::Custom,
                         _ => GalaxySize::Medium,
                     };
                 }

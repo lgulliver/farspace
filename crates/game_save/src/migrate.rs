@@ -827,6 +827,7 @@ mod tests {
             galaxy_size: GalaxySize::Medium,
             ai_empire_count: 1,
             sector_count_override: None,
+            star_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: Some(EmpireDefinitionId(5)), // Elarith Confluence
             victory_settings: game_core::VictorySettings::default_v1(),

@@ -923,6 +923,7 @@ mod tests {
             galaxy_size: GalaxySize::Large,
             ai_empire_count: 2,
             sector_count_override: None,
+            star_count_override: None,
             difficulty: DifficultyLevel::Standard,
             player_empire_def: None,
             victory_settings: VictorySettings::default_v1(),

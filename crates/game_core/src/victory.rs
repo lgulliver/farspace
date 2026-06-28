@@ -539,7 +539,16 @@ fn progress_status_for(
     if !settings.is_enabled(path) {
         return VictoryPathStatus::Disabled;
     }
-    if state.victory_status.final_victory.is_some() {
+    // Only the path that actually ended the campaign is Achieved.
+    // Other enabled paths stay InProgress so the UI snapshot
+    // shows the player which path fired rather than every path
+    // lighting up.
+    if state
+        .victory_status
+        .final_victory
+        .as_ref()
+        .is_some_and(|final_victory| final_victory.path == path)
+    {
         return VictoryPathStatus::Achieved;
     }
     VictoryPathStatus::InProgress
@@ -595,9 +604,19 @@ pub fn recompute_victory_snapshot(state: &mut GameState) {
         let entry = state.victory_status.per_empire.entry(empire).or_default();
 
         for path in VictoryPath::tie_break_order() {
+            // The status assignment for per-empire progress mirrors
+            // `progress_status_for`: only the path that actually
+            // ended the campaign is `Achieved`, enabled-but-non-
+            // winning paths stay `InProgress`, and disabled paths
+            // stay `Disabled`.
             let status = if !settings.is_enabled(*path) {
                 VictoryPathStatus::Disabled
-            } else if state.victory_status.final_victory.is_some() {
+            } else if state
+                .victory_status
+                .final_victory
+                .as_ref()
+                .is_some_and(|final_victory| final_victory.path == *path)
+            {
                 VictoryPathStatus::Achieved
             } else {
                 VictoryPathStatus::InProgress
@@ -874,7 +893,24 @@ pub fn evaluate_victory_end_turn(state: &mut GameState, completed_turn: u32) -> 
             });
             for entry in state.victory_status.per_empire.values_mut() {
                 for p in VictoryPath::tie_break_order() {
-                    entry.path_status.insert(*p, VictoryPathStatus::Achieved);
+                    // Only the path that actually ended the campaign
+                    // is `Achieved`.  Disabled paths stay `Disabled`
+                    // (a scenario toggle is a user choice) and any
+                    // other enabled path keeps its previous status so
+                    // the UI snapshot doesn't blanky light up every
+                    // path on the winning turn.
+                    let status = if *p == path {
+                        VictoryPathStatus::Achieved
+                    } else if settings.is_enabled(*p) {
+                        entry
+                            .path_status
+                            .get(p)
+                            .copied()
+                            .unwrap_or(VictoryPathStatus::InProgress)
+                    } else {
+                        VictoryPathStatus::Disabled
+                    };
+                    entry.path_status.insert(*p, status);
                 }
             }
             events.push(Event::VictoryAchieved {
@@ -1054,6 +1090,63 @@ mod tests {
                 .map(|f| f.path),
             Some(VictoryPath::Supremacy)
         );
+    }
+
+    /// Regression guard: when Supremacy ends the campaign, the
+    /// `VictoryStatus::progress` vector must mark **only** Supremacy
+    /// as `Achieved`.  The other enabled paths (Ascendancy,
+    /// Scientific, Legacy) stay `InProgress`, and disabled paths
+    /// stay `Disabled`.  The previous implementation blanket-set
+    /// every enabled path to `Achieved` and only preserved disabled
+    /// paths, which made the post-victory UI snapshot meaningless.
+    #[test]
+    fn winning_path_marks_only_itself_as_achieved_in_progress() {
+        let mut engine = Engine::new(42);
+        // Strip every non-player colony and non-player fleet so the
+        // player is the sole surviving major empire.  Supremacy is
+        // the only path that resolves from a liveness check, so we
+        // can use it as the deterministic winning path.
+        let player = engine.state.player_empire;
+        let non_player_colonies: Vec<_> = engine
+            .state
+            .colonies
+            .iter()
+            .filter_map(|(cid, c)| (c.owner != player).then_some(*cid))
+            .collect();
+        for cid in non_player_colonies {
+            engine.state.colonies.remove(&cid);
+        }
+        engine.state.fleets.retain(|_, f| f.owner == player);
+        let _ = engine.apply_turn(vec![Command::EndTurn]);
+        assert_eq!(
+            engine
+                .state
+                .victory_status
+                .final_victory
+                .as_ref()
+                .map(|f| f.path),
+            Some(VictoryPath::Supremacy),
+            "fixture: Supremacy must be the winning path"
+        );
+
+        // The progress vector is the contract the TUI reads.  Only
+        // Supremacy is `Achieved`; every other enabled path stays
+        // `InProgress` so the UI tells the player which path fired.
+        for entry in &engine.state.victory_status.progress {
+            match entry.path {
+                VictoryPath::Supremacy => {
+                    assert_eq!(entry.status, VictoryPathStatus::Achieved);
+                }
+                VictoryPath::Ascendancy | VictoryPath::Scientific | VictoryPath::Legacy => {
+                    assert_eq!(
+                        entry.status,
+                        VictoryPathStatus::InProgress,
+                        "{:?} must stay InProgress after Supremacy wins",
+                        entry.path
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -1609,6 +1702,14 @@ mod tests {
     #[test]
     fn recompute_victory_snapshot_does_not_advance_scientific_points() {
         let mut engine = Engine::new(42);
+        // Run one end-of-turn so `last_colony_yields` is populated
+        // for every colony.  We then reset the player's
+        // `scientific_project_points` to a known baseline and
+        // overwrite the player's yield with a non-zero science
+        // value so a mutating evaluation would advance the project
+        // points.  A second `recompute_victory_snapshot` call must
+        // not add the yield to the stored total.
+        let _ = engine.apply_turn(vec![Command::EndTurn]);
         let player = engine.state.player_empire;
         // Make the player eligible for the Scientific path.
         engine
@@ -1619,18 +1720,36 @@ mod tests {
             .research
             .completed
             .push(TechId(61));
-        // Seed some stored yields so a mutating evaluation would add
-        // a positive `production_turn`.
-        if let Some(yield_snapshot) = engine.state.last_colony_yields.values_mut().next() {
-            *yield_snapshot = crate::state::ColonyYieldSnapshot {
+        // Reset the player's stored Scientific project points so
+        // any advance is visible.
+        engine
+            .state
+            .victory_status
+            .per_empire
+            .entry(player)
+            .or_default()
+            .scientific_project_points = 0;
+        // Target a known player-owned colony for the seeded yield.
+        // A mutating evaluation would add the colony's
+        // `max(science, industry)` to the player's project points;
+        // the snapshot helper must not.
+        let player_colony_id = engine
+            .state
+            .colonies
+            .iter()
+            .find_map(|(cid, c)| (c.owner == player).then_some(*cid))
+            .expect("fixture: player must own a colony");
+        engine.state.last_colony_yields.insert(
+            player_colony_id,
+            crate::state::ColonyYieldSnapshot {
                 industry: 0,
                 credits: 0,
                 science: 50,
                 food: 0,
                 food_consumed: 0,
                 maintenance: 0,
-            };
-        }
+            },
+        );
         let player_points_before = engine
             .state
             .victory_status

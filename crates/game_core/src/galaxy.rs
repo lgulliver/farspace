@@ -584,6 +584,24 @@ pub fn generate_galaxy_with_config(
 /// v1 model:
 /// - at most one intra-sector lane per sector (closest pair)
 /// - at most one inter-sector lane per adjacent sector pair (closest cross-pair)
+const MAX_LANE_COMPARE_STARS: usize = 30;
+
+/// Sort stars by squared distance to a reference coordinate.
+fn stars_nearby_sorted<'a>(
+    stars: &[&'a Star],
+    cx: i32,
+    cy: i32,
+) -> Vec<&'a Star> {
+    let mut sorted: Vec<_> = stars.to_vec();
+    sorted.sort_by_key(|s| {
+        let dx = (s.x - cx) as i64;
+        let dy = (s.y - cy) as i64;
+        dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy))
+    });
+    sorted.truncate(MAX_LANE_COMPARE_STARS);
+    sorted
+}
+
 pub fn generate_hyperspace_lanes(
     seed: u64,
     sectors: &[Sector],
@@ -602,13 +620,21 @@ pub fn generate_hyperspace_lanes(
         stars_in_sector.sort_by_key(|s| s.id);
     }
 
-    // One closest pair per sector.
-    for stars_in_sector in stars_by_sector.values() {
+    // One closest pair per sector.  For large sectors (≥30 stars)
+    // we only examine the 30 closest stars to the sector center so
+    // the O(n²) comparison cost stays bounded.  This preserves the
+    // existing connectivity pattern for small galaxies while keeping
+    // 700-star Epics fast.
+    for (&sector_id, stars_in_sector) in &stars_by_sector {
+        let center = sectors.iter().find(|s| s.id == sector_id);
+        let (cx, cy) = center.map(|s| (s.x, s.y)).unwrap_or((0, 0));
+        let candidates = stars_nearby_sorted(stars_in_sector, cx, cy);
+
         let mut best: Option<(i64, StarId, StarId)> = None;
-        for i in 0..stars_in_sector.len() {
-            for j in (i + 1)..stars_in_sector.len() {
-                let a = stars_in_sector[i];
-                let b = stars_in_sector[j];
+        for i in 0..candidates.len() {
+            for j in (i + 1)..candidates.len() {
+                let a = candidates[i];
+                let b = candidates[j];
                 let dx = (a.x - b.x) as i64;
                 let dy = (a.y - b.y) as i64;
                 let sq = dx * dx + dy * dy;
@@ -626,6 +652,8 @@ pub fn generate_hyperspace_lanes(
     }
 
     // One closest pair per adjacent sector pair.
+    // Each side is also limited to the 30 stars nearest its sector
+    // center to avoid O(n·m) blowup on large galaxies.
     for (sa, sb) in adjacent_sector_pairs(sectors) {
         let Some(a_stars) = stars_by_sector.get(&sa) else {
             continue;
@@ -634,16 +662,20 @@ pub fn generate_hyperspace_lanes(
             continue;
         };
 
+        let a_center = sectors.iter().find(|s| s.id == sa);
+        let b_center = sectors.iter().find(|s| s.id == sb);
+        let (acx, acy) = a_center.map(|s| (s.x, s.y)).unwrap_or((0, 0));
+        let (bcx, bcy) = b_center.map(|s| (s.x, s.y)).unwrap_or((0, 0));
+        let a_pool = stars_nearby_sorted(a_stars, acx, acy);
+        let b_pool = stars_nearby_sorted(b_stars, bcx, bcy);
+
         let mut best: Option<(i64, StarId, StarId)> = None;
-        for a in a_stars {
-            for b in b_stars {
+        for a in &a_pool {
+            for b in &b_pool {
                 let dx = (a.x - b.x) as i64;
                 let dy = (a.y - b.y) as i64;
                 let sq = dx * dx + dy * dy;
                 let base = HyperspaceLane::new(a.id, b.id).expect("distinct stars");
-                // Deterministic seed-based tie-break for equal-distance pairs.
-                // Pack normalized endpoints into a stable 64-bit value and xor with seed
-                // so different seeds may pick different (still deterministic) equal-length lanes.
                 let tie_break = ((seed ^ ((base.a().0 << 32) | base.b().0)) & 0xFFFF) as i64;
                 let candidate = (sq * 65_536 + tie_break, base.a(), base.b());
                 if best.is_none_or(|current| candidate < current) {

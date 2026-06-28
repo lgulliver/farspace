@@ -1123,12 +1123,23 @@ mod tests {
         for cid in &ai_colony_ids {
             engine.state.colonies.remove(cid);
         }
+        // `Engine::new` already ran one end-of-turn at setup with the
+        // default settings, ticking the hold counter to 1.  Reset
+        // the counter so the test starts from a clean baseline it
+        // can drive forward.
+        engine
+            .state
+            .victory_status
+            .per_empire
+            .entry(player)
+            .or_default()
+            .ascendancy_hold_turns = 0;
         let mut s = VictorySettings::default_v1();
         s.conditions = vec![
             VictoryCondition::Supremacy,
             VictoryCondition::Ascendancy {
                 control_percent: 50,
-                consecutive_turns_required: 2,
+                consecutive_turns_required: 3,
             },
             VictoryCondition::Scientific {
                 eligibility_tech: TechId(61),
@@ -1139,7 +1150,8 @@ mod tests {
             },
         ];
         set_victory_settings(&mut engine, s);
-        // First turn: player holds 100% → 1 turn held.
+        // First turn: player holds 100% → 1 turn held.  Required
+        // hold is 3 so no winner yet.
         let _ = engine.apply_turn(vec![Command::EndTurn]);
         let initial = engine
             .state

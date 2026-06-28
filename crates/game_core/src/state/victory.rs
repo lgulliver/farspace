@@ -394,4 +394,37 @@ mod milestone_key_tests {
         assert_eq!(restored.empire(), EmpireId(65_537));
         assert_eq!(restored.path(), VictoryPath::Ascendancy);
     }
+
+    /// The custom deserializer must reject malformed JSON shapes:
+    /// missing `:` separator, unparseable empire id, unknown path
+    /// label.  A round-trip test alone is not enough — a future
+    /// schema change that silently round-trips a different value
+    /// would still pass it.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn milestone_key_deserializer_rejects_malformed_input() {
+        // Missing colon separator.
+        let err = serde_json::from_str::<MilestoneKey>("\"no-separator-here\"")
+            .expect_err("missing ':' must fail to deserialize");
+        assert!(
+            err.to_string().contains("MilestoneKey"),
+            "error should mention MilestoneKey"
+        );
+
+        // Non-numeric empire id.
+        let err = serde_json::from_str::<MilestoneKey>("\"abc:Supremacy\"")
+            .expect_err("non-numeric empire id must fail to deserialize");
+        assert!(
+            err.to_string().contains("empire"),
+            "error should mention empire"
+        );
+
+        // Unknown path label.
+        let err = serde_json::from_str::<MilestoneKey>("\"1:NotARealPath\"")
+            .expect_err("unknown victory path must fail to deserialize");
+        assert!(
+            err.to_string().contains("VictoryPath"),
+            "error should mention VictoryPath"
+        );
+    }
 }

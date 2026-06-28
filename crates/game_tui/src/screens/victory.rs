@@ -323,35 +323,23 @@ pub fn render_victory(
 
     let compact = main_area.width < MIN_WIDTH_FOR_SIDE_BY_SIDE
         || main_area.height < MIN_HEIGHT_FOR_SIDE_BY_SIDE;
-    if compact {
-        // Compact layout: three real vertical regions.  A nested split
-        // from a Length(7) parent always leaves the inner Min(0) at
-        // height 0, so the Legacy breakdown must live in its own
-        // top-level slot of the constraint list.
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(7),
-                Constraint::Min(4),
-                Constraint::Length(8),
-            ])
-            .split(main_area);
-        render_status_block(frame, chunks[0], &data);
-        render_paths_block(frame, chunks[1], &data);
-        render_legacy_block(frame, chunks[2], &data);
-    } else {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(7),
-                Constraint::Min(6),
-                Constraint::Length(8),
-            ])
-            .split(main_area);
-        render_status_block(frame, chunks[0], &data);
-        render_paths_block(frame, chunks[1], &data);
-        render_legacy_block(frame, chunks[2], &data);
-    }
+    // Three real top-level vertical regions in both modes.  A nested
+    // split from a Length(7) parent collapses an inner Min(0) to
+    // height 0, so the Legacy breakdown must always own a dedicated
+    // top-level slot.  Compact mode only tightens the paths-region
+    // minimum.
+    let paths_min = if compact { 4 } else { 6 };
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(7),
+            Constraint::Min(paths_min),
+            Constraint::Length(8),
+        ])
+        .split(main_area);
+    render_status_block(frame, chunks[0], &data);
+    render_paths_block(frame, chunks[1], &data);
+    render_legacy_block(frame, chunks[2], &data);
 
     let hint = if data.final_victory.is_some() {
         "Esc returns to the previous screen · campaign complete."

@@ -42,6 +42,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
         Screen::ShipDesigner => " Ship Designer Help ",
         Screen::SectorGovernance => " Sector Governance Help ",
         Screen::Settings => " Settings Help ",
+        Screen::Victory => " Victory Help ",
     };
 
     let entries: Vec<HelpEntry> = match screen {
@@ -365,6 +366,17 @@ pub fn render_help(frame: &mut Frame, area: Rect, screen: &Screen) {
             HelpEntry::Binding("k / ↑", "Previous setting"),
             HelpEntry::Binding("Enter / Space", "Cycle value"),
             HelpEntry::Binding("Esc", "Save and return to menu"),
+        ],
+        Screen::Victory => vec![
+            HelpEntry::Section("Paths"),
+            HelpEntry::Note("Supremacy — last surviving major empire."),
+            HelpEntry::Note("Ascendancy — control ≥50% of colonized systems for 10 turns."),
+            HelpEntry::Note("Scientific — complete the late-game tech and finish a project."),
+            HelpEntry::Note("Legacy — highest score at the turn limit."),
+            HelpEntry::Section("Navigation"),
+            HelpEntry::Binding("V", "Open Victory from any game screen"),
+            HelpEntry::Binding("Esc", "Return to the previous screen"),
+            HelpEntry::Binding("?", "Toggle this help"),
         ],
     };
 

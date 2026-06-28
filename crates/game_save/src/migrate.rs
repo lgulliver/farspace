@@ -230,6 +230,19 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                 // Combat v3 — pending session, v3 reports, and session id
                 // counter are all `#[serde(default)]`.  Nothing to do
                 // beyond bumping the version stamp.
+                save.metadata.schema_version = 41;
+                save.version = 41;
+            }
+            41 => {
+                // Victory v1 — Supremacy / Ascendancy / Scientific / Legacy.
+                // Pre-v42 saves do not carry the new victory status fields.
+                // Every field on the new types uses `#[serde(default)]`, so
+                // nothing needs explicit materialisation.  We re-run the
+                // end-of-turn evaluation to seed the per-empire progress map
+                // and the progress vector, so the new Victory screen shows
+                // useful data immediately after a legacy save is loaded.
+                let turn = save.state.turn;
+                let _ = game_core::victory::evaluate_victory_end_turn(&mut save.state, turn);
                 save.metadata.schema_version = CURRENT_VERSION;
                 save.version = CURRENT_VERSION;
             }
@@ -1237,6 +1250,47 @@ mod tests {
     /// downgraded to 40, and the patched JSON is loaded through
     /// `load` so the `#[serde(default)]` defaults are applied on the
     /// way in.
+    #[test]
+    fn migrate_v41_to_v42_seeds_victory_progress() {
+        use crate::{load, save_to_string};
+
+        let engine = game_core::Engine::new(42);
+        let saved = save_to_string(&engine.state).expect("save should succeed");
+
+        // Patch a v41 save: drop the new victory fields and reset the version
+        // stamp.  The serde defaults will produce an empty `victory_status`
+        // struct on load, and the migration step will repopulate it.
+        let mut json: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        json["version"] = serde_json::json!(41u32);
+        json["metadata"]["schema_version"] = serde_json::json!(41u32);
+        let patched = serde_json::to_string(&json).unwrap();
+
+        let loaded = load(patched.as_bytes()).expect("v41→v42 migration should succeed");
+        assert_eq!(loaded.victory_status.progress.len(), 4);
+        for path in [
+            game_core::VictoryPath::Supremacy,
+            game_core::VictoryPath::Ascendancy,
+            game_core::VictoryPath::Scientific,
+            game_core::VictoryPath::Legacy,
+        ] {
+            assert!(
+                loaded
+                    .victory_status
+                    .progress
+                    .iter()
+                    .any(|p| p.path == path),
+                "v42 status must list path {path:?}"
+            );
+        }
+        assert!(
+            loaded
+                .victory_status
+                .per_empire
+                .contains_key(&loaded.player_empire),
+            "v42 per-empire progress should include the player"
+        );
+    }
+
     #[test]
     fn migrate_v40_to_v41_passes_through_with_combat_v3_defaults() {
         use crate::{load, save_to_string};

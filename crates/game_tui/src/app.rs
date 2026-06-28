@@ -1161,13 +1161,15 @@ impl App {
             return;
         }
 
-        if matches!(
-            key.code,
-            KeyCode::Char('O') | KeyCode::Char('o') | KeyCode::Char('V') | KeyCode::Char('v')
-        ) && self.engine.is_some()
-        {
+        if matches!(key.code, KeyCode::Char('O') | KeyCode::Char('o')) && self.engine.is_some() {
             self.state.active = Screen::EmpireOverview;
             self.state.overview.filter_input = false;
+            return;
+        }
+
+        if matches!(key.code, KeyCode::Char('V') | KeyCode::Char('v')) && self.engine.is_some() {
+            self.state.previous_screen = self.state.active;
+            self.state.active = Screen::Victory;
             return;
         }
 
@@ -1204,6 +1206,24 @@ impl App {
             Screen::Diplomacy => self.handle_diplomacy_key(key),
             Screen::ShipDesigner => self.handle_ship_designer_key(key),
             Screen::SectorGovernance => self.handle_sector_governance_key(key),
+            Screen::Victory => self.handle_victory_key(key),
+        }
+    }
+
+    fn handle_victory_key(&mut self, key: KeyEvent) {
+        if KeyMap::is_escape(key) {
+            let prev = self.state.previous_screen;
+            // Avoid leaving the user stranded on the menu; the Victory
+            // screen only makes sense in-game.
+            let target = if matches!(
+                prev,
+                Screen::Menu | Screen::EmpireSelect | Screen::NewGameSetup | Screen::Settings
+            ) {
+                Screen::SectorOverview
+            } else {
+                prev
+            };
+            self.state.active = target;
         }
     }
 

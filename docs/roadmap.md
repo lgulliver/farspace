@@ -201,15 +201,20 @@ save migration from v36 to v37 is lossless.
 
 **Goal:** define session completion and post-session outcomes.
 
-**Current status:** **Planned**
+**Current status:** **Done (Victory v1)**
 
 **Key deliverables:**
 
-- Victory conditions and trigger rules
-- Scenario setup options and presets
-- Scoring framework
-- Campaign summary outputs
-- Replay log + determinism audit tooling
+- ✅ Four victory paths: Supremacy, Ascendancy, Scientific, Legacy
+- ✅ Per-empire progress stored on `GameState::victory_status`
+- ✅ Deterministic tie-breaking (lower EmpireId wins)
+- ✅ Turn-limit trigger for Legacy fallback (default 300 turns)
+- ✅ Victory screen (`V` binding) and help overlay entry
+- ✅ AI `doctrine_victory_preference` weights research/build per path
+- Scenario setup options and presets (planned)
+- Scoring framework (planned: full economic/exploration score breakdown)
+- Campaign summary outputs (planned)
+- Replay log + determinism audit tooling (planned)
 
 **Dependencies:** stable core loops from phases 1-7
 

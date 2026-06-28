@@ -432,54 +432,55 @@ fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::T
         TechDomain::Exploration => {
             doctrine(AiDoctrine::Explorer) * 3
                 + doctrine(AiDoctrine::Expansionist) * 2
-                + victory_pref(VictoryPath::Discovery)
+                + victory_pref(VictoryPath::Legacy)
         }
-        TechDomain::Engineering => doctrine(AiDoctrine::Industrialist) * 3,
+        TechDomain::Engineering => {
+            doctrine(AiDoctrine::Industrialist) * 3 + victory_pref(VictoryPath::Ascendancy)
+        }
         TechDomain::Military => {
             doctrine(AiDoctrine::Militarist) * 3
                 + doctrine(AiDoctrine::Imperial) * 2
-                + victory_pref(VictoryPath::Dominion)
+                + victory_pref(VictoryPath::Supremacy)
         }
         TechDomain::Society => {
             doctrine(AiDoctrine::Technologist) * 2
                 + doctrine(AiDoctrine::Imperial)
-                + victory_pref(VictoryPath::Unity)
+                + victory_pref(VictoryPath::Scientific)
         }
         TechDomain::Economy => {
-            doctrine(AiDoctrine::Merchant) * 3 + victory_pref(VictoryPath::Prosperity)
+            doctrine(AiDoctrine::Merchant) * 3 + victory_pref(VictoryPath::Legacy)
         }
         TechDomain::Biology => {
             doctrine(AiDoctrine::Biologist) * 3
                 + doctrine(AiDoctrine::Expansionist)
-                + victory_pref(VictoryPath::Prosperity)
+                + victory_pref(VictoryPath::Legacy)
         }
     };
 
     for tag in tech.tags {
         score += match tag {
             TechTag::Survey | TechTag::Sensors | TechTag::Hyperspace | TechTag::SectorMapping => {
-                doctrine(AiDoctrine::Explorer) * 2 + victory_pref(VictoryPath::Discovery)
+                doctrine(AiDoctrine::Explorer) * 2 + victory_pref(VictoryPath::Legacy)
             }
             TechTag::Trade | TechTag::Supply | TechTag::Logistics => {
-                doctrine(AiDoctrine::Merchant) * 2 + victory_pref(VictoryPath::Prosperity)
+                doctrine(AiDoctrine::Merchant) * 2 + victory_pref(VictoryPath::Legacy)
             }
             TechTag::Weapon | TechTag::Defense | TechTag::Invasion | TechTag::Command => {
                 doctrine(AiDoctrine::Militarist)
                     + doctrine(AiDoctrine::Imperial)
-                    + victory_pref(VictoryPath::Dominion)
+                    + victory_pref(VictoryPath::Supremacy)
             }
             TechTag::Production | TechTag::Shipyard | TechTag::Orbital => {
-                doctrine(AiDoctrine::Industrialist) * 2
+                doctrine(AiDoctrine::Industrialist) * 2 + victory_pref(VictoryPath::Ascendancy)
             }
             TechTag::Growth | TechTag::Food | TechTag::Housing | TechTag::Terraforming => {
-                doctrine(AiDoctrine::Biologist) * 2 + victory_pref(VictoryPath::Prosperity)
+                doctrine(AiDoctrine::Biologist) * 2 + victory_pref(VictoryPath::Legacy)
             }
-            TechTag::Colonization => doctrine(AiDoctrine::Expansionist) * 2,
+            TechTag::Colonization => {
+                doctrine(AiDoctrine::Expansionist) * 2 + victory_pref(VictoryPath::Ascendancy)
+            }
             TechTag::Stability => {
-                doctrine(AiDoctrine::Isolationist)
-                    + doctrine(AiDoctrine::Technologist)
-                    + victory_pref(VictoryPath::Prosperity)
-                    + victory_pref(VictoryPath::Unity)
+                doctrine(AiDoctrine::Isolationist) + doctrine(AiDoctrine::Technologist)
             }
             TechTag::EspionageFuture | TechTag::PopulationJobsFuture => -8,
             _ => 0,
@@ -495,15 +496,15 @@ fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::T
         score += FOOD_CRISIS_SCORE_BONUS;
     }
 
-    if let Some(crate::state::VictoryCondition::Ascendancy {
-        victory_tech_ids, ..
+    if let Some(crate::state::VictoryCondition::Scientific {
+        eligibility_tech, ..
     }) = state.scenario.as_ref().and_then(|scenario| {
         scenario
             .victory_settings
-            .condition_for(VictoryPath::Ascendancy)
-    }) && victory_tech_ids.contains(&tech.id)
+            .condition_for(VictoryPath::Scientific)
+    }) && *eligibility_tech == tech.id
     {
-        score += victory_pref(VictoryPath::Ascendancy) * 2;
+        score += victory_pref(VictoryPath::Scientific) * 2;
     }
 
     score
@@ -519,23 +520,18 @@ fn doctrine_victory_preference(state: &GameState, empire_id: EmpireId, path: Vic
         return 0;
     };
     let base = match path {
-        VictoryPath::Dominion => {
+        VictoryPath::Supremacy => {
             def.doctrine_weight(AiDoctrine::Militarist) + def.doctrine_weight(AiDoctrine::Imperial)
         }
-        VictoryPath::Ascendancy => def.doctrine_weight(AiDoctrine::Technologist),
-        VictoryPath::Prosperity => {
-            def.doctrine_weight(AiDoctrine::Merchant)
+        VictoryPath::Ascendancy => {
+            def.doctrine_weight(AiDoctrine::Expansionist)
                 + def.doctrine_weight(AiDoctrine::Industrialist)
-                + def.doctrine_weight(AiDoctrine::Biologist)
         }
-        VictoryPath::Discovery => {
+        VictoryPath::Scientific => def.doctrine_weight(AiDoctrine::Technologist),
+        VictoryPath::Legacy => {
             def.doctrine_weight(AiDoctrine::Explorer)
-                + def.doctrine_weight(AiDoctrine::Expansionist)
-        }
-        VictoryPath::Unity => {
-            def.doctrine_weight(AiDoctrine::Isolationist)
                 + def.doctrine_weight(AiDoctrine::Merchant)
-                + def.doctrine_weight(AiDoctrine::Explorer)
+                + def.doctrine_weight(AiDoctrine::Expansionist) / 2
         }
     };
     let leading_bonus = state
@@ -3724,20 +3720,20 @@ mod tests {
         engine.state.empires.get_mut(&player).unwrap().empire_def = Some(EmpireDefinitionId(4));
         engine.state.empires.get_mut(&ai).unwrap().empire_def = Some(EmpireDefinitionId(5));
 
-        let player_dominion =
-            doctrine_victory_preference(&engine.state, player, VictoryPath::Dominion);
+        let player_supremacy =
+            doctrine_victory_preference(&engine.state, player, VictoryPath::Supremacy);
         let player_ascendancy =
             doctrine_victory_preference(&engine.state, player, VictoryPath::Ascendancy);
-        let ai_dominion = doctrine_victory_preference(&engine.state, ai, VictoryPath::Dominion);
-        let ai_ascendancy = doctrine_victory_preference(&engine.state, ai, VictoryPath::Ascendancy);
+        let ai_supremacy = doctrine_victory_preference(&engine.state, ai, VictoryPath::Supremacy);
+        let ai_scientific = doctrine_victory_preference(&engine.state, ai, VictoryPath::Scientific);
 
         assert!(
-            player_dominion > player_ascendancy,
-            "Militarist/imperial faction should lean Dominion"
+            player_supremacy > player_ascendancy,
+            "Militarist/imperial faction should lean Supremacy"
         );
         assert!(
-            ai_ascendancy > ai_dominion,
-            "Technologist faction should lean Ascendancy"
+            ai_scientific > ai_supremacy,
+            "Technologist faction should lean Scientific"
         );
 
         let mut replay = Engine::new(42);
@@ -3751,8 +3747,8 @@ mod tests {
             .empire_def = Some(EmpireDefinitionId(4));
         replay.state.empires.get_mut(&replay_ai).unwrap().empire_def = Some(EmpireDefinitionId(5));
         assert_eq!(
-            doctrine_victory_preference(&engine.state, player, VictoryPath::Dominion),
-            doctrine_victory_preference(&replay.state, replay_player, VictoryPath::Dominion)
+            doctrine_victory_preference(&engine.state, player, VictoryPath::Supremacy),
+            doctrine_victory_preference(&replay.state, replay_player, VictoryPath::Supremacy)
         );
     }
 

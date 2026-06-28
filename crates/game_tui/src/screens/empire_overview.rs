@@ -9,8 +9,8 @@ use crate::layout::{compose_layout, split_main_detail};
 use crate::screens::Screen;
 use crate::theme::Theme;
 use game_core::{
-    Colony, ColonyId, ColonySupplyState, ColonyUnrestState, EmpireId, GameState, StarId,
-    VictoryProgressValue, all_techs, yield_model,
+    Colony, ColonyId, ColonySupplyState, ColonyUnrestState, EmpireId, EmpireVictoryProgress,
+    GameState, StarId, VictoryPath, all_techs, yield_model,
 };
 use ratatui::{
     Frame,
@@ -348,14 +348,23 @@ fn build_victory_lines(game_state: &GameState, empire_id: EmpireId) -> Vec<(Stri
         .as_ref()
         .map(|scenario| scenario.victory_settings.clone())
         .unwrap_or_default();
-    for path in game_core::VictoryPath::tie_break_order() {
-        let enabled = settings.is_enabled(*path);
-        let progress = game_state
+    let progress_for = |path: VictoryPath| {
+        game_state
             .victory_status
             .progress
             .iter()
-            .find(|progress| progress.path == *path);
-        let Some(progress) = progress else {
+            .find(|p| p.path == path)
+            .copied()
+    };
+    let per_empire: EmpireVictoryProgress = game_state
+        .victory_status
+        .per_empire
+        .get(&empire_id)
+        .cloned()
+        .unwrap_or_default();
+    for path in game_core::VictoryPath::tie_break_order() {
+        let enabled = settings.is_enabled(*path);
+        let Some(progress) = progress_for(*path) else {
             lines.push((
                 format!(
                     "{} [{}] unavailable",
@@ -366,86 +375,104 @@ fn build_victory_lines(game_state: &GameState, empire_id: EmpireId) -> Vec<(Stri
             ));
             continue;
         };
-        let mut detail = match &progress.value {
-            VictoryProgressValue::Dominion {
-                controlled_systems,
-                total_colonized_systems,
-                control_percent,
-                active_major_empires,
-            } => format!(
-                "{}% systems ({}/{}) · majors {}",
-                control_percent, controlled_systems, total_colonized_systems, active_major_empires
-            ),
-            VictoryProgressValue::Ascendancy {
-                completed_victory_techs,
-                required_victory_techs,
-            } => format!(
-                "techs {}/{}",
-                completed_victory_techs, required_victory_techs
-            ),
-            VictoryProgressValue::Prosperity {
-                population,
-                population_required,
-                credits,
-                credits_required,
-                connected_colonies,
-                connected_colonies_required,
-                avg_stability,
-                avg_stability_required,
-                ..
-            } => format!(
-                "pop {}/{} · cr {}/{} · conn {}/{} · stab {}/{}",
-                population,
-                population_required,
-                credits,
-                credits_required,
-                connected_colonies,
-                connected_colonies_required,
-                avg_stability,
-                avg_stability_required
-            ),
-            VictoryProgressValue::Discovery {
-                explored_systems_percent,
-                required_explored_systems_percent,
-                surveyed_planets_percent,
-                required_surveyed_planets_percent,
-                required_techs_completed,
-                required_techs_total,
-            } => format!(
-                "sys {}/{}% · planets {}/{}% · tech {}/{}",
-                explored_systems_percent,
-                required_explored_systems_percent,
-                surveyed_planets_percent,
-                required_surveyed_planets_percent,
-                required_techs_completed,
-                required_techs_total
-            ),
-            VictoryProgressValue::Unity {
-                contacted_empires,
-                contacted_empires_required,
-                non_war_relations,
-                non_war_relations_required,
-                connected_colonies,
-                connected_colonies_required,
-            } => format!(
-                "contact {}/{} · peace {}/{} · connected {}/{}",
-                contacted_empires,
-                contacted_empires_required,
-                non_war_relations,
-                non_war_relations_required,
-                connected_colonies,
-                connected_colonies_required
-            ),
+        let mut detail = match *path {
+            VictoryPath::Supremacy => {
+                let count = game_state
+                    .colonies
+                    .values()
+                    .filter(|c| c.owner == empire_id)
+                    .count();
+                let alive = game_state
+                    .empires
+                    .keys()
+                    .filter(|id| {
+                        let id = **id;
+                        let has_colony = game_state.colonies.values().any(|c| c.owner == id);
+                        has_colony
+                            || game_state.fleets.values().any(|f| {
+                                f.owner == id
+                                    && !matches!(
+                                        f.kind,
+                                        game_core::FleetKind::Scout
+                                            | game_core::FleetKind::FastScout
+                                            | game_core::FleetKind::Science
+                                            | game_core::FleetKind::SurveyCutter
+                                            | game_core::FleetKind::Colonizer
+                                            | game_core::FleetKind::ColonyArk
+                                    )
+                            })
+                    })
+                    .count();
+                format!("colonies {count} · alive empires {alive}")
+            }
+            VictoryPath::Ascendancy => {
+                let hold = per_empire.ascendancy_hold_turns;
+                let req = settings
+                    .condition_for(VictoryPath::Ascendancy)
+                    .and_then(|c| match c {
+                        game_core::VictoryCondition::Ascendancy {
+                            consecutive_turns_required,
+                            ..
+                        } => Some(*consecutive_turns_required),
+                        _ => None,
+                    })
+                    .unwrap_or(10);
+                let pct = settings
+                    .condition_for(VictoryPath::Ascendancy)
+                    .and_then(|c| match c {
+                        game_core::VictoryCondition::Ascendancy {
+                            control_percent, ..
+                        } => Some(*control_percent),
+                        _ => None,
+                    })
+                    .unwrap_or(50);
+                format!("hold {hold}/{req} turns at ≥{pct}% systems")
+            }
+            VictoryPath::Scientific => {
+                let pts = per_empire.scientific_project_points;
+                let req = settings
+                    .condition_for(VictoryPath::Scientific)
+                    .and_then(|c| match c {
+                        game_core::VictoryCondition::Scientific {
+                            project_points_required,
+                            ..
+                        } => Some(*project_points_required),
+                        _ => None,
+                    })
+                    .unwrap_or(1_500);
+                let eligible = per_empire.scientific_eligible;
+                format!(
+                    "project {pts}/{req}{}",
+                    if eligible { " (eligible)" } else { "" }
+                )
+            }
+            VictoryPath::Legacy => {
+                let b = &per_empire.legacy_breakdown;
+                format!(
+                    "score {} (col {col}, pop {pop}, tech {tech}, sys {sys}, pln {pln}, disc {disc}, btl {btl}, cr {cr})",
+                    b.total,
+                    col = b.colonies,
+                    pop = b.population,
+                    tech = b.completed_technologies,
+                    sys = b.explored_systems,
+                    pln = b.surveyed_planets,
+                    disc = b.discoveries_and_resources,
+                    btl = b.battle_victories,
+                    cr = b.credits
+                )
+            }
         };
         if let Some(leader) = progress.leading_empire {
             detail.push_str(&format!(" · lead E{}", leader.0));
         }
         let status = if !enabled {
             "OFF"
-        } else if progress.achieved {
-            "DONE"
         } else {
-            "ON"
+            match progress.status {
+                game_core::VictoryPathStatus::Achieved => "DONE",
+                game_core::VictoryPathStatus::Disabled => "OFF",
+                game_core::VictoryPathStatus::InProgress => "ON",
+            }
         };
         let percent = progress.progress_percent as usize;
         let filled = percent * 10 / 100;
@@ -471,23 +498,20 @@ fn build_victory_lines(game_state: &GameState, empire_id: EmpireId) -> Vec<(Stri
             style,
         ));
     }
-    if let (Some(winner), Some(path), Some(turn)) = (
-        game_state.victory_status.winner,
-        game_state.victory_status.winning_path,
-        game_state.victory_status.turn_achieved,
-    ) {
+    if let Some(final_v) = &game_state.victory_status.final_victory {
         let winner_name = game_state
             .empires
-            .get(&winner)
+            .get(&final_v.winner)
             .map(|empire| empire.name.as_str())
             .unwrap_or("Unknown");
         lines.push((
             format!(
-                "Winner: {} (E{}) via {} on turn {}",
+                "Winner: {} (E{}) via {} on turn {} — {}",
                 winner_name,
-                winner.0,
-                path.label(),
-                turn
+                final_v.winner.0,
+                final_v.path.label(),
+                final_v.turn,
+                final_v.reason
             ),
             Theme::success_style(),
         ));
@@ -1228,7 +1252,7 @@ mod tests {
     }
 
     #[test]
-    fn overview_shows_enabled_unity_as_on_not_future() {
+    fn overview_shows_enabled_legacy_as_on_not_future() {
         let mut engine = Engine::new(42);
         let scenario = engine
             .state
@@ -1238,16 +1262,19 @@ mod tests {
         scenario
             .victory_settings
             .enabled_paths
-            .insert(VictoryPath::Unity);
+            .remove(&VictoryPath::Legacy);
+        scenario
+            .victory_settings
+            .enabled_paths
+            .insert(VictoryPath::Legacy);
         let _ = engine.apply_turn(vec![Command::EndTurn]);
         let lines = build_victory_lines(&engine.state, engine.state.player_empire);
-        let unity_line = lines
+        let legacy_line = lines
             .iter()
-            .find(|(text, _)| text.starts_with("Unity "))
+            .find(|(text, _)| text.starts_with("Legacy "))
             .map(|(text, _)| text.as_str())
-            .expect("unity line should be present");
-        assert!(unity_line.contains("[ON]"));
-        assert!(!unity_line.contains("[FUTURE]"));
+            .expect("legacy line should be present");
+        assert!(legacy_line.contains("[ON]"));
     }
 
     #[test]

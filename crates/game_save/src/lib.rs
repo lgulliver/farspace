@@ -2409,42 +2409,45 @@ mod tests {
         assert_eq!(stored.ai_empire_count, 2);
         assert_eq!(loaded.ai_empires.len(), 2);
         assert!(
-            !stored
+            stored
                 .victory_settings
-                .enabled_paths
-                .contains(&game_core::VictoryPath::Unity)
+                .is_enabled(game_core::VictoryPath::Supremacy)
         );
     }
 
     #[test]
     fn save_load_roundtrip_preserves_victory_status_and_settings() {
         let mut engine = Engine::new(42);
-        engine.state.victory_status.winner = Some(engine.state.player_empire);
-        engine.state.victory_status.winning_path = Some(game_core::VictoryPath::Discovery);
-        engine.state.victory_status.turn_achieved = Some(9);
+        engine.state.victory_status.final_victory = Some(game_core::FinalVictory {
+            winner: engine.state.player_empire,
+            path: game_core::VictoryPath::Scientific,
+            turn: 9,
+            reason: "test".to_string(),
+        });
         if let Some(scenario) = engine.state.scenario.as_mut() {
             scenario
                 .victory_settings
                 .enabled_paths
-                .insert(game_core::VictoryPath::Unity);
+                .remove(&game_core::VictoryPath::Legacy);
         }
 
         let saved = save(&engine.state).expect("save should succeed");
         let loaded = load(&saved).expect("load should succeed");
-        assert_eq!(loaded.victory_status.winner, Some(loaded.player_empire));
-        assert_eq!(
-            loaded.victory_status.winning_path,
-            Some(game_core::VictoryPath::Discovery)
-        );
-        assert_eq!(loaded.victory_status.turn_achieved, Some(9));
+        let final_v = loaded
+            .victory_status
+            .final_victory
+            .as_ref()
+            .expect("final_victory must round-trip");
+        assert_eq!(final_v.winner, loaded.player_empire);
+        assert_eq!(final_v.path, game_core::VictoryPath::Scientific);
+        assert_eq!(final_v.turn, 9);
         assert!(
-            loaded
+            !loaded
                 .scenario
                 .as_ref()
                 .expect("scenario should be present")
                 .victory_settings
-                .enabled_paths
-                .contains(&game_core::VictoryPath::Unity)
+                .is_enabled(game_core::VictoryPath::Legacy)
         );
     }
 

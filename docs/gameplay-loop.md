@@ -38,6 +38,8 @@ Focus: increase colony count while sustaining economy and logistics.
 - Ensure research progress remains aligned with mobility/economy needs.
 - Consolidate fleet positioning for defense and response.
 - Save the run (`:save`) before moving into longer sessions.
+- Open the Victory panel (`V`) to check path progress, rival leaders, and
+  your Legacy score. The panel is read-only and updates every turn.
 
 Focus: transition from initial expansion into a stable multi-colony posture.
 
@@ -47,10 +49,15 @@ Focus: transition from initial expansion into a stable multi-colony posture.
 2. Keep production queues non-idle.
 3. Keep at least one exploration/survey action progressing.
 4. Check event log for blockers, deficits, and completed tasks.
-5. End turn only after economy + fleet intents are set.
+5. Glance at the Victory panel (`V`) to confirm you're on track against
+   rival leaders and the turn limit (default 300).
+6. End turn only after economy + fleet intents are set.
 
 ## Current-alpha caveats
 
 - Diplomacy is contact visibility, not full negotiation.
 - Combat is auto-resolved and summary-driven.
-- There is no final victory screen yet, so treat this loop as sandbox progression.
+- Campaigns now end when one of four victory paths fires (Supremacy,
+  Ascendancy, Scientific, or Legacy). Press `V` from any game screen to
+  open the Victory panel and watch progress, rival leaders, and the
+  Legacy score breakdown. Turn limit defaults to 300 turns.

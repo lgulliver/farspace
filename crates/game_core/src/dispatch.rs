@@ -1761,7 +1761,7 @@ mod tests {
     fn victory_milestone_produces_victory_item() {
         let state = minimal_state();
         let events = vec![Event::VictoryProgressMilestone {
-            path: VictoryPath::Dominion,
+            path: VictoryPath::Supremacy,
             empire: state.player_empire,
             progress_percent: 50,
         }];
@@ -1773,14 +1773,14 @@ mod tests {
             .collect();
         assert!(!items.is_empty());
         assert_eq!(items[0].severity, DispatchSeverity::Notable);
-        assert!(items[0].headline.contains("Dominion"));
+        assert!(items[0].headline.contains("Supremacy"));
     }
 
     #[test]
     fn victory_milestone_at_80_percent_is_historic() {
         let state = minimal_state();
         let events = vec![Event::VictoryProgressMilestone {
-            path: VictoryPath::Discovery,
+            path: VictoryPath::Legacy,
             empire: state.player_empire,
             progress_percent: 80,
         }];

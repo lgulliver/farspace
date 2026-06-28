@@ -5,131 +5,153 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum VictoryPath {
-    Dominion,
+    /// Last surviving major empire wins.
+    Supremacy,
+    /// Wide-empire control victory: hold ≥ threshold of colonized systems for N consecutive turns.
     Ascendancy,
-    Prosperity,
-    Discovery,
-    Unity,
+    /// Late-game science / project victory: complete the late-game tech and accumulate a
+    /// deterministic project threshold.
+    Scientific,
+    /// Turn-limit prestige victory: highest Legacy score when the turn limit is reached.
+    Legacy,
 }
 
 impl VictoryPath {
     pub fn label(self) -> &'static str {
         match self {
-            VictoryPath::Dominion => "Dominion",
+            VictoryPath::Supremacy => "Supremacy",
             VictoryPath::Ascendancy => "Ascendancy",
-            VictoryPath::Prosperity => "Prosperity",
-            VictoryPath::Discovery => "Discovery",
-            VictoryPath::Unity => "Unity",
+            VictoryPath::Scientific => "Scientific",
+            VictoryPath::Legacy => "Legacy",
         }
     }
 
+    pub fn short(self) -> &'static str {
+        match self {
+            VictoryPath::Supremacy => "Sup",
+            VictoryPath::Ascendancy => "Asc",
+            VictoryPath::Scientific => "Sci",
+            VictoryPath::Legacy => "Leg",
+        }
+    }
+
+    /// Order used to break ties when multiple paths can fire in the same turn.
     pub fn tie_break_order() -> &'static [VictoryPath] {
         &[
-            VictoryPath::Dominion,
+            VictoryPath::Supremacy,
             VictoryPath::Ascendancy,
-            VictoryPath::Prosperity,
-            VictoryPath::Discovery,
-            VictoryPath::Unity,
+            VictoryPath::Scientific,
+            VictoryPath::Legacy,
         ]
     }
 }
 
+/// Coarse status of a single victory path for an empire.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum VictoryPathStatus {
+    /// Path is in play; the empire has not yet satisfied the requirement.
+    #[default]
+    InProgress,
+    /// An empire has satisfied the path this turn (or earlier) and won.
+    Achieved,
+    /// Path is turned off in the scenario settings.
+    Disabled,
+}
+
+/// Configurable thresholds for each victory path. Stored inside `VictorySettings`
+/// on the scenario. The default `v1` settings enable all four paths and a 300-turn limit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum VictoryCondition {
-    Dominion {
-        control_percent_required: u8,
-        allow_elimination: bool,
-    },
+    /// Supremacy is gated only by the liveness rule; no numeric threshold.
+    Supremacy,
+    /// Ascendancy: hold ≥ `control_percent` of unique colonized systems for
+    /// `consecutive_turns_required` consecutive turns. `control_percent` is 1–100.
     Ascendancy {
-        required_victory_techs: u32,
-        victory_tech_ids: Vec<TechId>,
+        control_percent: u8,
+        consecutive_turns_required: u32,
     },
-    Prosperity {
-        population_required: u64,
-        credits_required: i64,
-        connected_colonies_required: u32,
-        avg_stability_required: u8,
-        food_surplus_required: Option<i64>,
+    /// Scientific: complete the late-game tech `eligibility_tech` and then accumulate
+    /// `project_points_required` science/industry points (per empire, summed across turns).
+    Scientific {
+        eligibility_tech: TechId,
+        project_points_required: i64,
     },
-    Discovery {
-        systems_explored_percent_required: u8,
-        planets_surveyed_percent_required: u8,
-        required_tech_ids: Vec<TechId>,
-    },
-    Unity {
-        contacted_empires_required: u32,
-        non_war_relations_required: u32,
-        connected_colonies_required: u32,
-    },
+    /// Legacy: scored at the turn limit (when no other path has fired). Thresholds
+    /// only affect early-warning / leader reporting, not the actual score.
+    Legacy { early_warning_percent: u8 },
 }
 
 impl VictoryCondition {
     pub fn path(&self) -> VictoryPath {
         match self {
-            VictoryCondition::Dominion { .. } => VictoryPath::Dominion,
+            VictoryCondition::Supremacy => VictoryPath::Supremacy,
             VictoryCondition::Ascendancy { .. } => VictoryPath::Ascendancy,
-            VictoryCondition::Prosperity { .. } => VictoryPath::Prosperity,
-            VictoryCondition::Discovery { .. } => VictoryPath::Discovery,
-            VictoryCondition::Unity { .. } => VictoryPath::Unity,
+            VictoryCondition::Scientific { .. } => VictoryPath::Scientific,
+            VictoryCondition::Legacy { .. } => VictoryPath::Legacy,
         }
     }
 }
 
+/// Player / scenario configured victory settings.
+///
+/// All fields use `#[serde(default)]` so older saves (pre-v42) deserialise cleanly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct VictorySettings {
+    /// Which paths are currently enabled. Mirrors the conditions list, but is the
+    /// authoritative enable flag for evaluation. `#[serde(default)]` so old saves
+    /// without this field get a sensible default.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub enabled_paths: BTreeSet<VictoryPath>,
+    /// Threshold configuration for each path (in `VictoryPath::tie_break_order()` order).
+    #[cfg_attr(feature = "serde", serde(default))]
     pub conditions: Vec<VictoryCondition>,
+    /// Whether the campaign enforces a turn limit. When true, `Legacy` becomes the
+    /// fallback winner at `turn_limit` if no other path has fired.
+    #[cfg_attr(feature = "serde", serde(default = "default_true"))]
+    pub turn_limit_enabled: bool,
+    /// Number of turns after which the turn-limit `Legacy` evaluation fires.
+    /// Default is 300.
+    #[cfg_attr(feature = "serde", serde(default = "default_turn_limit"))]
+    pub turn_limit: u32,
 }
 
 impl VictorySettings {
+    /// Default v1 victory configuration: all four paths enabled, 300-turn limit.
     pub fn default_v1() -> Self {
         let enabled_paths = [
-            VictoryPath::Dominion,
+            VictoryPath::Supremacy,
             VictoryPath::Ascendancy,
-            VictoryPath::Prosperity,
-            VictoryPath::Discovery,
+            VictoryPath::Scientific,
+            VictoryPath::Legacy,
         ]
         .into_iter()
         .collect::<BTreeSet<_>>();
         let conditions = vec![
-            VictoryCondition::Dominion {
-                control_percent_required: 60,
-                allow_elimination: true,
-            },
+            VictoryCondition::Supremacy,
             VictoryCondition::Ascendancy {
-                required_victory_techs: 4,
-                victory_tech_ids: vec![
-                    TechId(34),
-                    TechId(49),
-                    TechId(50),
-                    TechId(51),
-                    TechId(59),
-                    TechId(60),
-                ],
+                control_percent: 50,
+                consecutive_turns_required: 10,
             },
-            VictoryCondition::Prosperity {
-                population_required: 40,
-                credits_required: 300,
-                connected_colonies_required: 4,
-                avg_stability_required: 95,
-                food_surplus_required: Some(0),
+            VictoryCondition::Scientific {
+                // Late-game tech (highest tier in the existing tree). Used as the
+                // eligibility gate for the Scientific project. Falls back to
+                // `TechId::PAN_GALACTIC_SENSOR_NET` (also a high-tier tech) so
+                // the system has a deterministic, content-free starting point.
+                eligibility_tech: TechId(63),
+                project_points_required: 1_500,
             },
-            VictoryCondition::Discovery {
-                systems_explored_percent_required: 80,
-                planets_surveyed_percent_required: 70,
-                required_tech_ids: vec![TechId::HYPERSPACE_CARTOGRAPHY, TechId::SECTOR_CARTOGRAPHY],
-            },
-            VictoryCondition::Unity {
-                contacted_empires_required: 2,
-                non_war_relations_required: 2,
-                connected_colonies_required: 3,
+            VictoryCondition::Legacy {
+                early_warning_percent: 75,
             },
         ];
         Self {
             enabled_paths,
             conditions,
+            turn_limit_enabled: true,
+            turn_limit: 300,
         }
     }
 
@@ -150,72 +172,193 @@ impl Default for VictorySettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Deterministic breakdown of an empire's Legacy score. Each component is
+/// computed from existing game state so the score is fully explainable to the
+/// player (and to the TUI). Components are summed in the order they appear.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum VictoryProgressValue {
-    Dominion {
-        controlled_systems: u32,
-        total_colonized_systems: u32,
-        control_percent: u8,
-        active_major_empires: u32,
-    },
-    Ascendancy {
-        completed_victory_techs: u32,
-        required_victory_techs: u32,
-    },
-    Prosperity {
-        population: u64,
-        population_required: u64,
-        credits: i64,
-        credits_required: i64,
-        connected_colonies: u32,
-        connected_colonies_required: u32,
-        avg_stability: u8,
-        avg_stability_required: u8,
-        food_surplus: i64,
-        food_surplus_required: Option<i64>,
-    },
-    Discovery {
-        explored_systems_percent: u8,
-        required_explored_systems_percent: u8,
-        surveyed_planets_percent: u8,
-        required_surveyed_planets_percent: u8,
-        required_techs_total: u32,
-        required_techs_completed: u32,
-    },
-    Unity {
-        contacted_empires: u32,
-        contacted_empires_required: u32,
-        non_war_relations: u32,
-        non_war_relations_required: u32,
-        connected_colonies: u32,
-        connected_colonies_required: u32,
-    },
+pub struct LegacyScoreBreakdown {
+    /// +1 per colony owned by the empire.
+    pub colonies: i64,
+    /// +1 per unit of total population.
+    pub population: i64,
+    /// +5 per completed technology.
+    pub completed_technologies: i64,
+    /// +1 per system explored by the empire.
+    pub explored_systems: i64,
+    /// +1 per surveyed planet in the empire's explored footprint.
+    pub surveyed_planets: i64,
+    /// +3 per discovered special, +5 per detected anomaly, +4 per strategic
+    /// resource under extraction.
+    pub discoveries_and_resources: i64,
+    /// +20 per recorded battle win in `state.battle_reports` involving the empire.
+    pub battle_victories: i64,
+    /// +1 per 10 credits of liquid treasury, floored.
+    pub credits: i64,
+    /// Total of the components above.
+    pub total: i64,
 }
 
+/// Per-empire victory progress snapshot. Stored on the `GameState` so the TUI
+/// can render it without re-deriving the whole tree, and so it round-trips
+/// through save/load.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct EmpireVictoryProgress {
+    /// Per-path status (mirrors `VictorySettings::enabled_paths` for the
+    /// 4-path v1 set).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub path_status: BTreeMap<VictoryPath, VictoryPathStatus>,
+    /// Ascendancy hold counter (consecutive turns ≥ threshold).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ascendancy_hold_turns: u32,
+    /// Whether the empire currently meets the Ascendancy threshold.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ascendancy_meets_threshold: bool,
+    /// Cumulative Scientific project points accumulated toward the threshold.
+    /// Only advances after the empire has researched the eligibility tech.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub scientific_project_points: i64,
+    /// Whether the empire has researched the Scientific eligibility tech.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub scientific_eligible: bool,
+    /// Legacy score snapshot + transparent breakdown for the current turn.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub legacy_breakdown: LegacyScoreBreakdown,
+    /// Last warning milestone already emitted for this empire/path (0 = none).
+    /// 25 / 50 / 75 / 90 are the standard Scientific warning bands.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub warning_milestones: BTreeMap<VictoryPath, u8>,
+}
+
+/// Outcome of a fully resolved campaign. `None` while the campaign is still
+/// in progress. Stored on `GameState::final_victory`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct FinalVictory {
+    /// Empire that won the campaign.
+    pub winner: EmpireId,
+    /// Path that fired.
+    pub path: VictoryPath,
+    /// Turn number on which the path was satisfied.
+    pub turn: u32,
+    /// Human-readable reason string used by the TUI Victory screen and event log.
+    pub reason: String,
+}
+
+/// Per-empire aggregate victory view. Mirrors the four `VictoryCondition`
+/// variants and exposes a single `progress_percent` so the TUI can display a
+/// concise bar without switching on each `VictoryCondition` variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct VictoryProgress {
     pub path: VictoryPath,
-    pub enabled: bool,
-    pub condition: VictoryCondition,
-    pub value: VictoryProgressValue,
+    pub status: VictoryPathStatus,
     pub progress_percent: u8,
-    pub achieved: bool,
     pub leading_empire: Option<EmpireId>,
 }
 
+/// Key for the per-(empire, path) milestone map. Tuple keys are not
+/// supported by serde's JSON map encoder, so we wrap the pair in a small
+/// named struct with deterministic `Ord` for `BTreeMap` storage. The
+/// serde representation is a deterministic string of the form
+/// `"<empire>:<path_label>"`, which serde_json accepts as a map key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MilestoneKey {
+    inner: u64,
+}
+
+impl MilestoneKey {
+    pub const fn new(empire: EmpireId, path: VictoryPath) -> Self {
+        // Encode as a single u64 for stable Ord across processes. The encoding
+        // is intentionally not round-trippable; serde is the canonical
+        // representation, this is only used for in-memory ordering.
+        let empire_part = empire.0 & 0x0000_FFFF;
+        let path_part: u64 = match path {
+            VictoryPath::Supremacy => 0,
+            VictoryPath::Ascendancy => 1,
+            VictoryPath::Scientific => 2,
+            VictoryPath::Legacy => 3,
+        };
+        Self {
+            inner: (path_part << 48) | empire_part,
+        }
+    }
+
+    pub const fn empire(self) -> EmpireId {
+        EmpireId(self.inner & 0x0000_0000_FFFF)
+    }
+
+    pub const fn path(self) -> VictoryPath {
+        match (self.inner >> 48) & 0x3 {
+            0 => VictoryPath::Supremacy,
+            1 => VictoryPath::Ascendancy,
+            2 => VictoryPath::Scientific,
+            _ => VictoryPath::Legacy,
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for MilestoneKey {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!("{}:{}", self.empire().0, self.path().label()))
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> Deserialize<'de> for MilestoneKey {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        let (emp, path) = s
+            .split_once(':')
+            .ok_or_else(|| serde::de::Error::custom("MilestoneKey must be empire:path"))?;
+        let empire_id: u64 = emp
+            .parse()
+            .map_err(|_| serde::de::Error::custom("invalid empire id in MilestoneKey"))?;
+        let path = match path {
+            "Supremacy" => VictoryPath::Supremacy,
+            "Ascendancy" => VictoryPath::Ascendancy,
+            "Scientific" => VictoryPath::Scientific,
+            "Legacy" => VictoryPath::Legacy,
+            _ => return Err(serde::de::Error::custom("unknown VictoryPath")),
+        };
+        Ok(MilestoneKey::new(EmpireId(empire_id), path))
+    }
+}
+
+/// Top-level victory state stored on `GameState::victory_status`.
+///
+/// `progress` always lists all four `VictoryPath` variants in tie-break order so
+/// the TUI never needs to special-case missing rows. `final_victory` is `None`
+/// while the campaign is still in play; once set, no further `VictoryAchieved`
+/// events fire.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct VictoryStatus {
+    /// Per-path progress snapshot, ordered for deterministic rendering.
     #[cfg_attr(feature = "serde", serde(default))]
     pub progress: Vec<VictoryProgress>,
+    /// Per-empire progress (status, Ascendancy hold counter, Scientific points,
+    /// Legacy breakdown, warning milestones). Keyed by `EmpireId`.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub winner: Option<EmpireId>,
+    pub per_empire: BTreeMap<EmpireId, EmpireVictoryProgress>,
+    /// Final, terminal victory outcome. `None` while the campaign continues.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub winning_path: Option<VictoryPath>,
+    pub final_victory: Option<FinalVictory>,
+    /// Per-empire recorded highest-path-warning milestone (25/50/75/90). Kept
+    /// here as well as inside `per_empire` so dispatch logic can scan it
+    /// without a per-empire lookup. For v1 these two are written together.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub turn_achieved: Option<u32>,
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub milestone_levels: BTreeMap<VictoryPath, u8>,
+    pub milestone_levels: BTreeMap<MilestoneKey, u8>,
+}
+
+#[cfg(feature = "serde")]
+fn default_true() -> bool {
+    true
+}
+
+#[cfg(feature = "serde")]
+fn default_turn_limit() -> u32 {
+    300
 }

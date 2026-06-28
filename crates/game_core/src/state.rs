@@ -418,7 +418,8 @@ impl DiscoveryRequirements {
     }
 }
 
-fn requirements_met(
+/// Returns true when `requirements` are satisfied by the given survey + completed techs.
+pub fn requirements_met(
     requirements: DiscoveryRequirements,
     surveyed: bool,
     completed_techs: &[TechId],
@@ -3384,34 +3385,12 @@ impl ScenarioSetup {
                 ));
             }
             match condition {
-                VictoryCondition::Dominion {
-                    control_percent_required,
-                    ..
-                } if *control_percent_required == 0 || *control_percent_required > 100 => {
+                VictoryCondition::Ascendancy {
+                    control_percent, ..
+                } if *control_percent == 0 || *control_percent > 100 => {
                     return Err(format!(
-                        "Dominion control threshold must be 1–100, got {}",
-                        control_percent_required
-                    ));
-                }
-                VictoryCondition::Prosperity {
-                    avg_stability_required,
-                    ..
-                } if *avg_stability_required > 200 => {
-                    return Err(format!(
-                        "Prosperity stability threshold must be 0–200, got {}",
-                        avg_stability_required
-                    ));
-                }
-                VictoryCondition::Discovery {
-                    systems_explored_percent_required,
-                    planets_surveyed_percent_required,
-                    ..
-                } if *systems_explored_percent_required > 100
-                    || *planets_surveyed_percent_required > 100 =>
-                {
-                    return Err(format!(
-                        "Discovery thresholds must be <=100, got systems={} planets={}",
-                        systems_explored_percent_required, planets_surveyed_percent_required
+                        "Ascendancy control threshold must be 1–100, got {}",
+                        control_percent
                     ));
                 }
                 _ => {}

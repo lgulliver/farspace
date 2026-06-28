@@ -21,6 +21,7 @@ FARSPACE is playable alpha with multi-screen TUI and deterministic core loop.
 - Terminal fonts and visual modes: [`docs/user/terminal-fonts.md`](docs/user/terminal-fonts.md)
 - 90s-style game manual (GitHub Pages source): [`docs/manual/index.html`](docs/manual/index.html)
 - Recently completed:
+  - ✅ Victory Conditions v1 — Supremacy, Ascendancy, Scientific, Legacy paths
   - ✅ Sector Governance & Automation v1
   - ✅ Planet Specials & Anomalies v1
   - ✅ Strategic Resources v1
@@ -125,6 +126,7 @@ cargo run --release -p farspace
 - `hjkl` / arrows: navigation
 - `Enter` / `e` / `t`: confirm or end turn (context dependent)
 - `G`: sector governance & automation (`D` cycles directive, `A` toggles sector-guided automation)
+- `V`: victory panel — campaign end-state, four paths, Legacy score breakdown
 - `?`: contextual help
 - `:`: command palette (`save`, `load`, `clear-rally`, `visual-mode`, `dispatch`/`news`)
 - `Q` / `Ctrl+C`: quit
@@ -155,7 +157,7 @@ cargo run --release -p farspace
 - **Sector governance:** per-sector strategic directives and sector-guided build automation, with last-turn output reporting (`G`).
 - **Research:** active tech, queue management, unlock-driven progression.
 - **Diplomacy & war:** first contact, relationship drift, empire intel levels, war state, invasion and strategic auto-resolve combat.
-- **Victory:** progress tracked in empire overview (`O`/`V`) across enabled victory paths.
+- **Victory:** four paths — Supremacy (last empire), Ascendancy (≥ 50% systems for 10 turns), Scientific (late-game tech + project), Legacy (turn-limit score fallback). Press `V` to open the panel.
 - **Save/load:** menu (`L`) or command palette (`:` then `save` / `load`).
 
 ### Known alpha limitations
@@ -205,11 +207,13 @@ More detail: [`docs/gameplay-loop.md`](docs/gameplay-loop.md)
 
 ## Current Limitations
 
-- No final victory/campaign end-state yet
-- No tactical battle layer (combat is auto-resolve)
+- Tactical battle layer not yet shipped (combat v3 card play is the
+  next target; v2 strategic auto-resolve is in place)
 - Diplomacy has relationship states and war declaration, but no treaty/deal system
 - Pop/jobs simulation layer is not implemented yet
 - Advanced late-game systems are roadmap items
+- Vassalisation, complex AI, multiplayer, and additional content are out of
+  scope for the v1 victory slice
 
 
 ## License

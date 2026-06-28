@@ -230,6 +230,19 @@ pub fn migrate(save: SaveFile) -> Result<SaveFile, SaveError> {
                 // Combat v3 — pending session, v3 reports, and session id
                 // counter are all `#[serde(default)]`.  Nothing to do
                 // beyond bumping the version stamp.
+                save.metadata.schema_version = 41;
+                save.version = 41;
+            }
+            41 => {
+                // Victory v1 — Supremacy / Ascendancy / Scientific / Legacy.
+                // Pre-v42 saves do not carry the new victory status fields.
+                // Every field on the new types uses `#[serde(default)]`, so
+                // the per-empire status map and progress vector arrive empty.
+                // We rebuild the read-only UI snapshot so the new Victory
+                // screen shows useful data immediately after a legacy save
+                // is loaded, without advancing any hold counters, scientific
+                // project points, or triggering an early victory on load.
+                game_core::victory::recompute_victory_snapshot(&mut save.state);
                 save.metadata.schema_version = CURRENT_VERSION;
                 save.version = CURRENT_VERSION;
             }
@@ -1230,13 +1243,85 @@ mod tests {
         );
     }
 
-    /// v40 saves carry no Combat v3 state.  Migration must add the
-    /// new fields with safe defaults and bump the version stamp.
-    /// This test exercises the *serde* path: a v41 save is serialised
-    /// to JSON, the Combat v3 fields are removed, the version is
-    /// downgraded to 40, and the patched JSON is loaded through
-    /// `load` so the `#[serde(default)]` defaults are applied on the
-    /// way in.
+    /// v41 saves carry no Victory v1 state.  Migration must rebuild the
+    /// read-only `victory_status` snapshot from defaults so the new
+    /// Victory screen is useful immediately on load, without ticking
+    /// any counters or resolving a final victory during load.  This
+    /// test exercises the *serde* path: a v42 save is serialised, the
+    /// `victory_status` and `final_victory` fields are stripped, the
+    /// version is downgraded to 41, and the patched JSON is loaded.
+    #[test]
+    fn migrate_v41_to_v42_seeds_victory_progress() {
+        use crate::{load, save_to_string};
+
+        let engine = game_core::Engine::new(42);
+        let saved = save_to_string(&engine.state).expect("save should succeed");
+
+        // Patch a v41 save: strip the v42-only victory state from the
+        // JSON and reset the version stamp.  The serde defaults will
+        // produce an empty `victory_status` struct on load, and the
+        // migration step will repopulate the read-only snapshot
+        // without mutating any progress counters.
+        let mut json: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        json["version"] = serde_json::json!(41u32);
+        json["metadata"]["schema_version"] = serde_json::json!(41u32);
+        if let Some(state_obj) = json["state"].as_object_mut() {
+            state_obj.remove("victory_status");
+            if let Some(scenario_obj) = state_obj
+                .get_mut("scenario")
+                .and_then(|s| s.as_object_mut())
+                && let Some(vs) = scenario_obj
+                    .get_mut("victory_settings")
+                    .and_then(|v| v.as_object_mut())
+            {
+                vs.remove("turn_limit_enabled");
+                vs.remove("turn_limit");
+            }
+        }
+        let patched = serde_json::to_string(&json).unwrap();
+
+        let loaded = load(patched.as_bytes()).expect("v41→v42 migration should succeed");
+        assert!(
+            loaded.victory_status.progress.len() == 4,
+            "migration must seed the per-path progress vector"
+        );
+        for path in [
+            game_core::VictoryPath::Supremacy,
+            game_core::VictoryPath::Ascendancy,
+            game_core::VictoryPath::Scientific,
+            game_core::VictoryPath::Legacy,
+        ] {
+            assert!(
+                loaded
+                    .victory_status
+                    .progress
+                    .iter()
+                    .any(|p| p.path == path),
+                "v42 status must list path {path:?}"
+            );
+        }
+        assert!(
+            loaded
+                .victory_status
+                .per_empire
+                .contains_key(&loaded.player_empire),
+            "v42 per-empire progress should include the player"
+        );
+        // Hold counters, scientific points, and final_victory must NOT
+        // be advanced by the migration — that's the first end-of-turn's
+        // job.  This is the regression guard for the
+        // `recompute_victory_snapshot` refactor.
+        let player = loaded.player_empire;
+        let progress = loaded
+            .victory_status
+            .per_empire
+            .get(&player)
+            .expect("player per-empire entry");
+        assert_eq!(progress.ascendancy_hold_turns, 0);
+        assert_eq!(progress.scientific_project_points, 0);
+        assert!(loaded.victory_status.final_victory.is_none());
+    }
+
     #[test]
     fn migrate_v40_to_v41_passes_through_with_combat_v3_defaults() {
         use crate::{load, save_to_string};

@@ -141,9 +141,31 @@ Status labels:
 ## Save / Load
 
 - **Status:** **Done**
-- Versioned schema with migration support (`CURRENT_VERSION = 36`)
+- Versioned schema with migration support (`CURRENT_VERSION = 42`)
 - Save/load file and metadata APIs implemented
 - TUI menu + command palette integration for save/load
+
+## Victory / Campaign End
+
+- **Status:** **Done (v1)**
+- Four victory paths evaluated at end of turn: **Supremacy** (last surviving
+  major empire), **Ascendancy** (≥ 50% of unique colonized systems for 10
+  consecutive turns), **Scientific** (late-game tech eligibility + project
+  point threshold), and **Legacy** (turn-limit score fallback at turn 300).
+- Per-empire progress stored in `GameState::victory_status` (status,
+  ascendancy hold counter, scientific project points, legacy score
+  breakdown, warning milestones).
+- Final victory outcome stored on `GameState::victory_status::final_victory`
+  with winner, path, turn, and reason string.
+- `Event::VictoryWarning` (25/50/75/90% bands), `Event::VictoryProgressMilestone`,
+  and `Event::VictoryAchieved` are emitted deterministically.
+- Victory screen (`V` from any game screen, `Esc` to return) renders status,
+  per-path progress, per-path player detail, rival leader, and the full
+  Legacy score breakdown.
+- AI `doctrine_victory_preference` weights each empire's research/build
+  priorities by which victory path they lean toward.
+- `preferred_victory_path_for_empire` exposes a deterministic helper for
+  intel and AI hooks.
 
 ## Testing / Coverage
 

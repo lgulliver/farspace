@@ -440,11 +440,24 @@ pub enum Event {
         empire: EmpireId,
         progress_percent: u8,
     },
+    /// A late-game warning milestone was crossed on a victory path.
+    ///
+    /// Emitted at most once per `(path, threshold)` per empire. The first
+    /// 25/50/75/90% bands are the standard Scientific warning bands. Other
+    /// paths use the same mechanism if a path-specific early warning is
+    /// configured.
+    VictoryWarning {
+        path: VictoryPath,
+        empire: EmpireId,
+        progress_percent: u8,
+    },
     /// A winner has been determined by configured victory conditions.
     VictoryAchieved {
         winner: EmpireId,
         path: VictoryPath,
         turn: u32,
+        /// Human-readable reason for the win (path-specific).
+        reason: String,
     },
     /// A player or AI empire created a custom ship design.
     ShipDesignCreated {
@@ -1241,12 +1254,30 @@ impl Event {
                     path.label()
                 )
             }
-            Event::VictoryAchieved { winner, path, turn } => {
+            Event::VictoryWarning {
+                path,
+                empire,
+                progress_percent,
+            } => {
                 format!(
-                    "VICTORY ACHIEVED: Empire {} won via {} on turn {}",
+                    "VICTORY WARNING: Empire {} crossed the {}% band on the {} path",
+                    empire.0,
+                    progress_percent,
+                    path.label()
+                )
+            }
+            Event::VictoryAchieved {
+                winner,
+                path,
+                turn,
+                reason,
+            } => {
+                format!(
+                    "VICTORY ACHIEVED: Empire {} won via {} on turn {} — {}",
                     winner.0,
                     path.label(),
-                    turn
+                    turn,
+                    reason
                 )
             }
             Event::ShipDesignCreated {

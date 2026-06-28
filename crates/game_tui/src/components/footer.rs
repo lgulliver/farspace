@@ -157,6 +157,7 @@ pub fn render_footer(frame: &mut Frame, area: Rect, screen: &Screen, context: Op
             ("Enter", "Cycle"),
             ("Esc", "Save & Back"),
         ],
+        Screen::Victory => vec![("V", "Open Victory"), ("?", "Help"), ("Esc", "Back")],
     };
 
     let inner_width = usize::from(area.width.saturating_sub(2)).max(1);

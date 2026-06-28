@@ -15,6 +15,7 @@ pub mod sector_overview;
 pub mod settings;
 pub mod ship_designer;
 pub mod system;
+pub mod victory;
 
 use ratatui::{
     Frame,
@@ -44,6 +45,7 @@ pub enum Screen {
     ShipDesigner,
     SectorGovernance,
     Settings,
+    Victory,
 }
 
 impl Screen {
@@ -123,6 +125,13 @@ impl Screen {
                 }
             }
             Screen::Settings => settings::render_settings(frame, area, app_state),
+            Screen::Victory => {
+                if let Some(state) = game_state {
+                    victory::render_victory(frame, area, app_state, state);
+                } else {
+                    render_unavailable_screen(frame, area, "Victory");
+                }
+            }
         }
     }
 }

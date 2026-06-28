@@ -399,14 +399,34 @@ fn lowercase_o_key_opens_empire_overview() {
 }
 
 #[test]
-fn v_key_opens_empire_overview_victory_panel() {
+fn v_key_opens_victory_screen() {
     let mut app = App::new();
     app.new_game(42);
     app.state.active = Screen::SectorMap;
 
     app.handle_key(key(KeyCode::Char('V')));
 
-    assert_eq!(app.state.active, Screen::EmpireOverview);
+    assert_eq!(app.state.active, Screen::Victory);
+    assert_eq!(app.state.previous_screen, Screen::SectorMap);
+}
+
+#[test]
+fn v_key_on_victory_preserves_previous_screen() {
+    let mut app = App::new();
+    app.new_game(42);
+    app.state.active = Screen::Research;
+    app.handle_key(key(KeyCode::Char('V')));
+    assert_eq!(app.state.active, Screen::Victory);
+    assert_eq!(app.state.previous_screen, Screen::Research);
+
+    // Pressing V again while already on Victory must not overwrite the
+    // recorded return target — Esc should still go back to Research.
+    app.handle_key(key(KeyCode::Char('V')));
+    assert_eq!(app.state.active, Screen::Victory);
+    assert_eq!(app.state.previous_screen, Screen::Research);
+
+    app.handle_key(key(KeyCode::Esc));
+    assert_eq!(app.state.active, Screen::Research);
 }
 
 #[test]
@@ -415,14 +435,15 @@ fn end_turn_report_includes_victory_milestones() {
         8,
         &[
             game_core::Event::VictoryProgressMilestone {
-                path: game_core::VictoryPath::Discovery,
+                path: game_core::VictoryPath::Legacy,
                 empire: game_core::EmpireId(1),
                 progress_percent: 50,
             },
             game_core::Event::VictoryAchieved {
                 winner: game_core::EmpireId(1),
-                path: game_core::VictoryPath::Dominion,
+                path: game_core::VictoryPath::Supremacy,
                 turn: 8,
+                reason: "test".to_string(),
             },
         ],
     );
@@ -3064,12 +3085,12 @@ fn diplomacy_modal_closes_with_no_pending_messages() {
 }
 
 #[test]
-fn v_key_opens_victory_overview_with_progress_lines() {
+fn v_key_opens_victory_screen_with_progress_lines() {
     let mut app = App::new();
     app.new_game(42);
     app.state.active = Screen::SectorMap;
     app.handle_key(key(KeyCode::Char('V')));
-    assert_eq!(app.state.active, Screen::EmpireOverview);
+    assert_eq!(app.state.active, Screen::Victory);
 
     let backend = TestBackend::new(140, 40);
     let mut terminal = Terminal::new(backend).unwrap();
@@ -3081,7 +3102,7 @@ fn v_key_opens_victory_overview_with_progress_lines() {
         .iter()
         .map(|cell| cell.symbol())
         .collect();
-    assert!(rendered.contains("Victory"));
+    assert!(rendered.contains("Campaign Status"));
 }
 
 #[test]

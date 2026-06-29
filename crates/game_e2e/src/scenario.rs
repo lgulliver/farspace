@@ -18,7 +18,7 @@ impl Default for E2eScenario {
         Self {
             seed: 12_345,
             max_turns: 100,
-            galaxy_size: GalaxySize::Medium,
+            galaxy_size: GalaxySize::Tiny,
             ai_empire_count: 4,
             player_policy: SimulatedPlayerPolicy::BalancedExplorer,
         }

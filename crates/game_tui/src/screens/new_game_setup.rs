@@ -673,7 +673,7 @@ mod tests {
     fn setup_screen_shows_galaxy_size_label() {
         let state = AppState {
             new_game_setup: NewGameSetupState {
-                galaxy_size: GalaxySize::Large,
+                galaxy_size: GalaxySize::Tiny,
                 ..Default::default()
             },
             ..AppState::default()

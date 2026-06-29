@@ -7,7 +7,7 @@ fn ascendancy_threshold_validation_accepts_in_range_values() {
     for good in [1u8, 50, 100] {
         let scenario = ScenarioSetup {
             seed: 1,
-            galaxy_size: GalaxySize::Medium,
+            galaxy_size: GalaxySize::Tiny,
             ai_empire_count: 1,
             sector_count_override: None,
             star_count_override: None,
@@ -35,7 +35,7 @@ fn ascendancy_threshold_validation_rejects_out_of_range_values() {
     for bad in [0u8, 101, 200] {
         let scenario = ScenarioSetup {
             seed: 1,
-            galaxy_size: GalaxySize::Medium,
+            galaxy_size: GalaxySize::Tiny,
             ai_empire_count: 1,
             sector_count_override: None,
             star_count_override: None,
@@ -1041,7 +1041,7 @@ fn colony_surface_slots_fill_and_reject_overflow() {
 fn scenario_setup_validate_accepts_valid_configs() {
     let setup = ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: None,
         star_count_override: None,
@@ -1062,7 +1062,7 @@ fn scenario_setup_validate_accepts_valid_configs() {
 fn scenario_setup_validate_rejects_zero_ai_count() {
     let setup = ScenarioSetup {
         seed: 1,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 0,
         sector_count_override: None,
         star_count_override: None,
@@ -1077,7 +1077,7 @@ fn scenario_setup_validate_rejects_zero_ai_count() {
 fn scenario_setup_validate_rejects_too_many_ai() {
     let setup = ScenarioSetup {
         seed: 1,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 5,
         sector_count_override: None,
         star_count_override: None,
@@ -1092,7 +1092,7 @@ fn scenario_setup_validate_rejects_too_many_ai() {
 fn scenario_setup_validate_rejects_bad_sector_count() {
     let setup_low = ScenarioSetup {
         seed: 1,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: Some(1), // below min (2)
         star_count_override: None,
@@ -1123,11 +1123,11 @@ fn galaxy_size_star_and_sector_counts() {
     assert_eq!(GalaxySize::Small.default_star_count(), 80);
     assert_eq!(GalaxySize::Small.default_sector_count(), 4);
 
-    assert_eq!(GalaxySize::Medium.default_star_count(), 150);
-    assert_eq!(GalaxySize::Medium.default_sector_count(), 6);
+    assert_eq!(GalaxySize::Tiny.default_star_count(), 150);
+    assert_eq!(GalaxySize::Tiny.default_sector_count(), 6);
 
-    assert_eq!(GalaxySize::Large.default_star_count(), 250);
-    assert_eq!(GalaxySize::Large.default_sector_count(), 8);
+    assert_eq!(GalaxySize::Tiny.default_star_count(), 250);
+    assert_eq!(GalaxySize::Tiny.default_sector_count(), 8);
 
     assert_eq!(GalaxySize::Huge.default_star_count(), 400);
     assert_eq!(GalaxySize::Huge.default_sector_count(), 12);
@@ -1161,7 +1161,7 @@ fn scenario_setup_effective_counts_respect_override() {
 fn scenario_setup_effective_sector_count_clamped() {
     let setup_low = ScenarioSetup {
         seed: 0,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: Some(1), // below min — returns raw value
         star_count_override: None,
@@ -1291,7 +1291,7 @@ fn empire_doctrine_weights_match_faction_intent() {
 fn scenario_setup_validates_valid_empire_def() {
     let setup = ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: None,
         star_count_override: None,
@@ -1306,7 +1306,7 @@ fn scenario_setup_validates_valid_empire_def() {
 fn scenario_setup_rejects_unknown_empire_def() {
     let setup = ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: None,
         star_count_override: None,
@@ -1326,7 +1326,7 @@ fn scenario_setup_rejects_unknown_empire_def() {
 fn scenario_setup_none_empire_def_is_valid() {
     let setup = ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: None,
         star_count_override: None,

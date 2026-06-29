@@ -920,7 +920,7 @@ mod tests {
         use game_core::{DifficultyLevel, GalaxySize, ScenarioSetup, VictorySettings};
         Engine::new_from_setup(ScenarioSetup {
             seed: 42,
-            galaxy_size: GalaxySize::Large,
+            galaxy_size: GalaxySize::Tiny,
             ai_empire_count: 2,
             sector_count_override: None,
             star_count_override: None,

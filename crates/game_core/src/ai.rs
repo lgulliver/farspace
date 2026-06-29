@@ -3865,7 +3865,7 @@ mod tests {
         let make = || {
             Engine::new_from_setup(ScenarioSetup {
                 seed: 55,
-                galaxy_size: GalaxySize::Medium,
+                galaxy_size: GalaxySize::Tiny,
                 ai_empire_count: 1,
                 sector_count_override: None,
                 star_count_override: None,
@@ -3911,7 +3911,7 @@ mod tests {
         use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
         let engine = Engine::new_from_setup(ScenarioSetup {
             seed: 42,
-            galaxy_size: GalaxySize::Medium,
+            galaxy_size: GalaxySize::Tiny,
             ai_empire_count: 2,
             sector_count_override: None,
             star_count_override: None,
@@ -3934,7 +3934,7 @@ mod tests {
         let player_def = EmpireDefinitionId(4); // Vorath Dominion
         let engine = Engine::new_from_setup(ScenarioSetup {
             seed: 42,
-            galaxy_size: GalaxySize::Large,
+            galaxy_size: GalaxySize::Tiny,
             ai_empire_count: 4,
             sector_count_override: None,
             star_count_override: None,
@@ -3958,7 +3958,7 @@ mod tests {
         let make = || {
             let mut engine = Engine::new_from_setup(ScenarioSetup {
                 seed: 42,
-                galaxy_size: GalaxySize::Medium,
+                galaxy_size: GalaxySize::Tiny,
                 ai_empire_count: 1,
                 sector_count_override: None,
                 star_count_override: None,
@@ -4011,7 +4011,7 @@ mod tests {
         let make = || {
             let mut engine = Engine::new_from_setup(ScenarioSetup {
                 seed: 52,
-                galaxy_size: GalaxySize::Medium,
+                galaxy_size: GalaxySize::Tiny,
                 ai_empire_count: 1,
                 sector_count_override: None,
                 star_count_override: None,
@@ -4094,7 +4094,7 @@ mod tests {
         let make = || {
             let mut engine = Engine::new_from_setup(ScenarioSetup {
                 seed: 77,
-                galaxy_size: GalaxySize::Medium,
+                galaxy_size: GalaxySize::Tiny,
                 ai_empire_count: 1,
                 sector_count_override: None,
                 star_count_override: None,
@@ -4170,7 +4170,7 @@ mod tests {
         let make = || {
             let mut engine = Engine::new_from_setup(ScenarioSetup {
                 seed: 88,
-                galaxy_size: GalaxySize::Medium,
+                galaxy_size: GalaxySize::Tiny,
                 ai_empire_count: 1,
                 sector_count_override: None,
                 star_count_override: None,
@@ -4227,7 +4227,7 @@ mod tests {
         let make = || {
             let mut engine = Engine::new_from_setup(ScenarioSetup {
                 seed: 99,
-                galaxy_size: GalaxySize::Medium,
+                galaxy_size: GalaxySize::Tiny,
                 ai_empire_count: 1,
                 sector_count_override: None,
                 star_count_override: None,
@@ -4307,7 +4307,7 @@ mod tests {
         let make = || {
             let mut engine = Engine::new_from_setup(ScenarioSetup {
                 seed: 101,
-                galaxy_size: GalaxySize::Medium,
+                galaxy_size: GalaxySize::Tiny,
                 ai_empire_count: 1,
                 sector_count_override: None,
                 star_count_override: None,
@@ -4501,7 +4501,7 @@ mod tests {
 
         let make_scenario = |elig: crate::state::TechId| crate::state::ScenarioSetup {
             seed: 42,
-            galaxy_size: crate::state::GalaxySize::Medium,
+            galaxy_size: crate::state::GalaxySize::Tiny,
             ai_empire_count: 1,
             sector_count_override: None,
             star_count_override: None,

@@ -824,7 +824,7 @@ mod tests {
         use game_core::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
         let setup = ScenarioSetup {
             seed: 1111,
-            galaxy_size: GalaxySize::Medium,
+            galaxy_size: GalaxySize::Tiny,
             ai_empire_count: 1,
             sector_count_override: None,
             star_count_override: None,

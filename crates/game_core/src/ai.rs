@@ -363,7 +363,10 @@ pub fn empire_power(state: &GameState, empire_id: EmpireId) -> u32 {
 
 /// Return the victory path pressure (0-100) for the empire with the
 /// highest progress on any path.  Used by AI to detect threats.
-pub fn leading_victory_pressure(state: &GameState, empire_id: EmpireId) -> (crate::state::VictoryPath, u8) {
+pub fn leading_victory_pressure(
+    state: &GameState,
+    empire_id: EmpireId,
+) -> (crate::state::VictoryPath, u8) {
     let mut best = (crate::state::VictoryPath::Legacy, 0u8);
     for entry in &state.victory_status.progress {
         if entry.leading_empire == Some(empire_id) && entry.progress_percent > best.1 {
@@ -684,7 +687,9 @@ fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::T
         cstar.is_some_and(|cs| {
             state.fleets.values().any(|f| {
                 f.owner != empire_id
-                    && state.relationship_status(empire_id, f.owner).is_hostile_or_war()
+                    && state
+                        .relationship_status(empire_id, f.owner)
+                        .is_hostile_or_war()
                     && state.stars.get(&f.location).is_some_and(|fs| {
                         let dx = (cs.x - fs.x) as i64;
                         let dy = (cs.y - fs.y) as i64;
@@ -701,9 +706,7 @@ fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::T
     //    there's an uncolonised habitable planet in explored space,
     //    boost Habitat Seeding and Colonial Vanguard techs.
     let has_idle_colonizer = state.fleets.values().any(|f| {
-        f.owner == empire_id
-            && f.kind.is_colonizer()
-            && !state.fleet_missions.contains_key(&f.id)
+        f.owner == empire_id && f.kind.is_colonizer() && !state.fleet_missions.contains_key(&f.id)
     });
     if !has_idle_colonizer {
         let has_uncolonised_habitable = state
@@ -721,7 +724,11 @@ fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::T
 
     // 3. Empty-queue pressure: if most colonies have idle queues,
     //    boost Engineering/Production domain techs.
-    let owned = state.colonies.values().filter(|c| c.owner == empire_id).count();
+    let owned = state
+        .colonies
+        .values()
+        .filter(|c| c.owner == empire_id)
+        .count();
     let idle = state
         .colonies
         .values()
@@ -881,7 +888,10 @@ fn needed_combat_hull(state: &GameState, empire_id: EmpireId) -> Option<ShipDesi
         .values()
         .filter(|c| c.owner == empire_id)
         .filter(|c| {
-            state.diplomacy.values().any(|rs| *rs == crate::state::RelationshipStatus::War)
+            state
+                .diplomacy
+                .values()
+                .any(|rs| *rs == crate::state::RelationshipStatus::War)
                 || state.diplomacy.contains_key(&c.owner)
         })
         .count() as u32;
@@ -1175,7 +1185,11 @@ fn pick_build_item(
     // Fleet composition: if the empire has ≥3 colonies and is short
     // on a specific hull, build the most-needed one.  Runs before the
     // generic science/survey/combat chain so composition takes priority.
-    let owned_colonies = state.colonies.values().filter(|c| c.owner == empire_id).count();
+    let owned_colonies = state
+        .colonies
+        .values()
+        .filter(|c| c.owner == empire_id)
+        .count();
     if owned_colonies >= 3 {
         if let Some(needed) = needed_combat_hull(state, empire_id) {
             // Check the tech requirement for this hull type roughly.

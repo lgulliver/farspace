@@ -625,6 +625,65 @@ fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::T
         score += victory_pref(VictoryPath::Scientific) * 2;
     }
 
+    // --- Adaptive modifiers ---
+
+    // 1. Threat level: if a hostile fleet is within 2 sectors of any
+    //    owned colony, boost Military techs to counter it.
+    let threat_military = state.colonies.values().any(|colony| {
+        if colony.owner != empire_id {
+            return false;
+        }
+        let cstar = state.stars.get(&colony.star);
+        cstar.is_some_and(|cs| {
+            state.fleets.values().any(|f| {
+                f.owner != empire_id
+                    && state.relationship_status(empire_id, f.owner).is_hostile_or_war()
+                    && state.stars.get(&f.location).is_some_and(|fs| {
+                        let dx = (cs.x - fs.x) as i64;
+                        let dy = (cs.y - fs.y) as i64;
+                        dx * dx + dy * dy <= 400 * 400
+                    })
+            })
+        })
+    });
+    if threat_military && tech.domain == TechDomain::Military {
+        score += score / 2; // 50% boost
+    }
+
+    // 2. Colonisation pressure: if no idle colonizers exist and
+    //    there's an uncolonised habitable planet in explored space,
+    //    boost Habitat Seeding and Colonial Vanguard techs.
+    let has_idle_colonizer = state.fleets.values().any(|f| {
+        f.owner == empire_id
+            && f.kind.is_colonizer()
+            && !state.fleet_missions.contains_key(&f.id)
+    });
+    if !has_idle_colonizer {
+        let has_uncolonised_habitable = state
+            .stars
+            .values()
+            .filter(|s| state.explored_stars_for(empire_id).contains(&s.id))
+            .flat_map(|s| &s.planets)
+            .any(|p| p.habitable && p.colony.is_none());
+        if has_uncolonised_habitable
+            && (tech.id == TechId::HABITAT_SEEDING || tech.id == TechId(15))
+        {
+            score += 18;
+        }
+    }
+
+    // 3. Empty-queue pressure: if most colonies have idle queues,
+    //    boost Engineering/Production domain techs.
+    let owned = state.colonies.values().filter(|c| c.owner == empire_id).count();
+    let idle = state
+        .colonies
+        .values()
+        .filter(|c| c.owner == empire_id && c.build_queue.is_empty())
+        .count();
+    if owned > 1 && idle > owned / 2 && tech.domain == TechDomain::Engineering {
+        score += 10;
+    }
+
     score * difficulty_mult / 100
 }
 

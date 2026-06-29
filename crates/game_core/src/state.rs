@@ -3373,14 +3373,18 @@ pub struct ScenarioSetup {
 
 impl ScenarioSetup {
     /// Construct a setup with sensible defaults.
-    /// Uses `Small` (80 stars, 4 sectors) as the default so that tests
-    /// and quick-start remain responsive while still providing a
-    /// meaningful map.  Real campaigns use `Medium` (150 stars) or
-    /// larger through the setup screen.
+    /// Uses `Tiny` (40 stars, 3 sectors) in test builds to keep
+    /// `cargo test` and `cargo llvm-cov` fast.  Uses `Small` (80
+    /// stars, 4 sectors) in release builds for a meaningful default
+    /// map.  Real campaigns use `Medium` (150 stars) or larger
+    /// through the setup screen.
     pub fn default_for_seed(seed: u64) -> Self {
         ScenarioSetup {
             seed,
+            #[cfg(not(test))]
             galaxy_size: GalaxySize::Small,
+            #[cfg(test)]
+            galaxy_size: GalaxySize::Tiny,
             ai_empire_count: 1,
             sector_count_override: None,
             star_count_override: None,

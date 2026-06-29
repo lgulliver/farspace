@@ -2920,26 +2920,23 @@ mod tests {
         let low_star = unexplored[0];
         let high_star = unexplored[1];
 
+        // Configure the high-value star with Oceanic planets (high quality).
+        // Configure the low-value star with Barren planets (low quality).
+        // The new scoring (score_system_for_scout) prioritises planet quality
+        // over spectral class, so the Oceanic star must be the target.
         for sid in &unexplored {
             if let Some(star) = engine.state.stars.get_mut(sid) {
-                star.spectral_class = crate::state::SpectralClass::M;
                 for planet in &mut star.planets {
-                    planet.class = PlanetClass::Terran;
+                    planet.class = PlanetClass::Barren;
                 }
             }
         }
         if let Some(star) = engine.state.stars.get_mut(&high_star) {
-            star.spectral_class = crate::state::SpectralClass::O;
             for planet in &mut star.planets {
-                planet.class = PlanetClass::Volcanic;
+                planet.class = PlanetClass::Oceanic;
             }
         }
-        if let Some(star) = engine.state.stars.get_mut(&low_star) {
-            star.spectral_class = crate::state::SpectralClass::M;
-            for planet in &mut star.planets {
-                planet.class = PlanetClass::Terran;
-            }
-        }
+        // low_star stays Barren — intentionally low-value.
 
         let (_, destination) = pick_scout_target(&engine.state, ai).expect("expected scout target");
         assert_eq!(
@@ -3059,6 +3056,24 @@ mod tests {
     fn ai_does_not_colonize_unexplored_planet() {
         let mut engine = Engine::new(42);
         let ai = ai_id(&engine);
+
+        // Mark every planet at every explored star as either colonized or
+        // uninhabitable so the multi-star colonisation logic has no target
+        // to pick from explored space.  The only remaining planets at the
+        // unexplored star are unreachable by `pick_colonize_target`.
+        for star in engine.state.stars.values_mut() {
+            for (i, planet) in star.planets.iter_mut().enumerate() {
+                let is_existing_ai_colony = planet.colony.is_some()
+                    && engine
+                        .state
+                        .colonies
+                        .get(&planet.colony.unwrap())
+                        .is_some_and(|c| c.owner == ai);
+                if !is_existing_ai_colony {
+                    planet.habitable = false;
+                }
+            }
+        }
 
         // Place a colonizer at an unexplored star
         let unexplored = engine
@@ -3256,12 +3271,16 @@ mod tests {
         // Use AI home star (already has a colony at planet 0).
         // Explicitly mark all other planets at this star as uninhabitable so the
         // test is always deterministic regardless of planet count.
+        // Also mark every other star's planets as uninhabitable so the
+        // multi-star colonisation logic (which now searches all explored
+        // stars, not just the colonizer's current star) has no target.
         let ai_home = engine.state.empires[&ai].home_star;
-        if let Some(star) = engine.state.stars.get_mut(&ai_home) {
+        for star in engine.state.stars.values_mut() {
             for (i, planet) in star.planets.iter_mut().enumerate() {
-                if i != 0 {
-                    planet.habitable = false;
+                if star.id == ai_home && i == 0 {
+                    continue; // The AI's existing colony — leave it alone
                 }
+                planet.habitable = false;
             }
         }
 

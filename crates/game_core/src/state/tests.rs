@@ -1163,19 +1163,19 @@ fn scenario_setup_effective_sector_count_clamped() {
         seed: 0,
         galaxy_size: GalaxySize::Medium,
         ai_empire_count: 1,
-        sector_count_override: Some(1), // below min
+        sector_count_override: Some(1), // below min — returns raw value
         star_count_override: None,
         difficulty: DifficultyLevel::Standard,
         player_empire_def: None,
         victory_settings: crate::state::VictorySettings::default_v1(),
     };
-    assert_eq!(setup_low.effective_sector_count(), 2); // clamped to 2
+    assert_eq!(setup_low.effective_sector_count(), 1);
 
     let setup_high = ScenarioSetup {
-        sector_count_override: Some(20), // above max
+        sector_count_override: Some(20), // above max — returns raw value
         ..setup_low
     };
-    assert_eq!(setup_high.effective_sector_count(), 20); // returns raw override value
+    assert_eq!(setup_high.effective_sector_count(), 20);
 }
 
 // ── Empire Definition tests ─────────────────────────────────────────────

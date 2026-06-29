@@ -200,7 +200,7 @@ fn score_system_for_scout(state: &GameState, empire_id: EmpireId, star_id: StarI
     }
 
     // Contested penalty: if hostile fleets or colonies are near, reduce score.
-    for (fid, fleet) in &state.fleets {
+    for (_, fleet) in &state.fleets {
         if fleet.owner == empire_id {
             continue;
         }
@@ -855,6 +855,12 @@ fn pick_build_item(
                 return Some(BuildItem::Ship(ShipDesignId::PATROL_CORVETTE));
             }
         }
+    }
+
+    // Role-aware build: after crisis checks, let the colony's
+    // specialisation guide what gets built.
+    if let Some(item) = role_aware_build_item(state, colony_id) {
+        return Some(item);
     }
 
     // Expansionist: dispatch scouts early before building infrastructure,
@@ -1713,54 +1719,164 @@ fn ai_role_for_planet_class_with_identity(
 /// Runs once per turn; produces `AiColonyRoleAssigned` events only when a
 /// role change actually occurs.
 fn ai_assign_colony_roles(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Event>) {
-    // Collect colony IDs first to avoid simultaneous mutable borrow
+    let empire = match state.empires.get(&empire_id) {
+        Some(e) => e,
+        None => return,
+    };
+    let emp_def = empire.empire_def.and_then(empire_definition_by_id);
+    let doctrine = |axis| emp_def.map(|d| d.doctrine_weight(axis)).unwrap_or(0);
+    let at_war = state
+        .diplomacy
+        .values()
+        .any(|rs| *rs == crate::state::RelationshipStatus::War);
+    let food_deficit = empire.food < 0;
+
+    // Re-evaluate every 8 turns (not just once for Balanced colonies).
+    let re_eval = state.turn % 8 == 0;
+
     let colony_ids: Vec<ColonyId> = state
         .colonies
         .keys()
         .filter(|&&id| {
-            state
-                .colonies
-                .get(&id)
-                .is_some_and(|c| c.owner == empire_id && c.role == ColonyRole::Balanced)
+            let c = state.colonies.get(&id);
+            c.is_some_and(|c| c.owner == empire_id && (re_eval || c.role == ColonyRole::Balanced))
         })
         .copied()
         .collect();
 
     for colony_id in colony_ids {
-        // Look up the planet class for this colony
-        let planet_class = {
-            let colony = match state.colonies.get(&colony_id) {
-                Some(c) => c,
-                None => continue,
-            };
-            state
-                .stars
-                .get(&colony.star)
-                .and_then(|s| s.planets.get(colony.planet_index))
-                .map(|p| p.class)
-        };
-
-        let planet_class = match planet_class {
-            Some(c) => c,
-            None => continue,
-        };
-
-        let role = ai_role_for_planet_class_with_identity(planet_class, empire_id, state);
-        if role == ColonyRole::Balanced {
-            // No change needed
+        let Some(colony) = state.colonies.get(&colony_id) else {
             continue;
-        }
+        };
+        let Some(planet) = state
+            .stars
+            .get(&colony.star)
+            .and_then(|s| s.planets.get(colony.planet_index))
+        else {
+            continue;
+        };
+        let class = planet.class;
 
-        if let Some(colony) = state.colonies.get_mut(&colony_id) {
-            colony.role = role;
-        }
+        // Compute a dynamic role score for each role, then pick the highest.
+        let base = ai_role_for_planet_class_with_identity(class, empire_id, state);
+        let mut scores: Vec<(i32, ColonyRole)> = Vec::new();
 
-        events.push(Event::AiColonyRoleAssigned {
-            empire: empire_id,
-            colony: colony_id,
-            role,
-        });
+        for &role in ColonyRole::all() {
+            let mut s: i32 = if role == base { 5 } else { 0 };
+            match role {
+                ColonyRole::Agricultural => {
+                    s += match class {
+                        PlanetClass::Oceanic | PlanetClass::Terran => 3,
+                        _ => 0,
+                    };
+                    if food_deficit {
+                        s += 3;
+                    }
+                }
+                ColonyRole::Industrial => {
+                    s += match class {
+                        PlanetClass::Barren | PlanetClass::Volcanic => 4,
+                        _ => 0,
+                    };
+                    if doctrine(AiDoctrine::Industrialist) >= 6 {
+                        s += 2;
+                    }
+                }
+                ColonyRole::Scientific => {
+                    s += match class {
+                        PlanetClass::Frozen => 4,
+                        _ => 0,
+                    };
+                    if doctrine(AiDoctrine::Technologist) >= 6 {
+                        s += 3;
+                    }
+                }
+                ColonyRole::Financial => {
+                    s += match class {
+                        PlanetClass::Desert => 3,
+                        _ => 0,
+                    };
+                    if doctrine(AiDoctrine::Merchant) >= 6 {
+                        s += 2;
+                    }
+                }
+                ColonyRole::Military => {
+                    if at_war {
+                        s += 4;
+                    }
+                    if doctrine(AiDoctrine::Militarist) >= 6 {
+                        s += 2;
+                    }
+                }
+                ColonyRole::Balanced => {
+                    s += 1; // Always a safe fallback
+                }
+            }
+            scores.push((s, role));
+        }
+        scores.sort_by(|a, b| b.0.cmp(&a.0).then((a.1 as u8).cmp(&(b.1 as u8))));
+        if let Some((_, best_role)) = scores.first() {
+            let current_role = colony.role;
+            if *best_role != current_role {
+                if let Some(colony) = state.colonies.get_mut(&colony_id) {
+                    colony.role = *best_role;
+                }
+                events.push(Event::AiColonyRoleAssigned {
+                    empire: empire_id,
+                    colony: colony_id,
+                    role: *best_role,
+                });
+            }
+        }
     }
+}
+
+/// Role-aware build priority: after the top-level crisis checks (food,
+/// defense), defer to per-colony role specialisation rather than the
+/// uniform global priority chain.
+fn role_aware_build_item(state: &GameState, colony_id: ColonyId) -> Option<BuildItem> {
+    let colony = state.colonies.get(&colony_id)?;
+    let planet = state
+        .stars
+        .get(&colony.star)
+        .and_then(|s| s.planets.get(colony.planet_index));
+    let has_shipyard = colony.has_shipyard();
+    let can_place_surface = planet
+        .map(|p| colony.can_place_surface_building(p.size))
+        .unwrap_or(false);
+    let can_place_orbital = planet
+        .map(|p| colony.can_place_orbital_installation(p.size))
+        .unwrap_or(false);
+
+    match colony.role {
+        ColonyRole::Scientific => {
+            if can_place_surface && !colony.buildings.contains(&BuildingType::ScienceNexus) {
+                return Some(BuildItem::SurfaceStructure(BuildingType::ScienceNexus));
+            }
+        }
+        ColonyRole::Agricultural => {
+            if can_place_surface && !colony.buildings.contains(&BuildingType::AquacultureBay) {
+                return Some(BuildItem::SurfaceStructure(BuildingType::AquacultureBay));
+            }
+        }
+        ColonyRole::Industrial | ColonyRole::Financial => {
+            if can_place_surface && !colony.buildings.contains(&BuildingType::FabricationYard) {
+                return Some(BuildItem::SurfaceStructure(BuildingType::FabricationYard));
+            }
+        }
+        ColonyRole::Military => {
+            if can_place_orbital && !has_shipyard {
+                return Some(BuildItem::OrbitalStructure(OrbitalStructureType::Shipyard));
+            }
+            if can_place_surface && !colony.buildings.contains(&BuildingType::FabricationYard) {
+                return Some(BuildItem::SurfaceStructure(BuildingType::FabricationYard));
+            }
+        }
+        ColonyRole::Balanced => {
+            // Fall through to the generic chain below.
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------

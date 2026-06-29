@@ -327,6 +327,52 @@ fn contested_star_resource_score(
     score
 }
 
+/// Deterministic empire power score used for AI threat assessment and
+/// build priority.  Not stored on state; computed on demand.
+pub fn empire_power(state: &GameState, empire_id: EmpireId) -> u32 {
+    let colonies = state
+        .colonies
+        .values()
+        .filter(|c| c.owner == empire_id)
+        .count() as u32;
+    let population: u32 = state
+        .colonies
+        .values()
+        .filter(|c| c.owner == empire_id)
+        .map(|c| c.population as u32)
+        .sum();
+    let fleet_strength: u32 = state
+        .fleets
+        .values()
+        .filter(|f| f.owner == empire_id)
+        .map(|f| f.strength * f.ships)
+        .sum();
+    let techs = state
+        .empires
+        .get(&empire_id)
+        .map(|e| e.research.completed.len() as u32)
+        .unwrap_or(0);
+    let credits = state
+        .empires
+        .get(&empire_id)
+        .map(|e| (e.credits / 10) as u32)
+        .unwrap_or(0);
+
+    colonies * 10 + population * 3 + fleet_strength * 2 + techs * 5 + credits
+}
+
+/// Return the victory path pressure (0-100) for the empire with the
+/// highest progress on any path.  Used by AI to detect threats.
+pub fn leading_victory_pressure(state: &GameState, empire_id: EmpireId) -> (crate::state::VictoryPath, u8) {
+    let mut best = (crate::state::VictoryPath::Legacy, 0u8);
+    for entry in &state.victory_status.progress {
+        if entry.leading_empire == Some(empire_id) && entry.progress_percent > best.1 {
+            best = (entry.path, entry.progress_percent);
+        }
+    }
+    best
+}
+
 /// Run one AI decision pass for the given empire.
 ///
 /// Mutates `state` and returns events for each action taken.
@@ -340,6 +386,7 @@ pub fn run_ai_turn(state: &mut GameState, ai_empire_id: EmpireId) -> Vec<Event> 
     ai_assign_fleet_posture(state, ai_empire_id, &mut events);
     ai_dispatch_scouts(state, ai_empire_id, &mut events);
     ai_dispatch_combat_fleets(state, ai_empire_id, &mut events);
+    ai_dispatch_patrols(state, ai_empire_id, &mut events);
     ai_colonize(state, ai_empire_id, &mut events);
     ai_assign_colony_roles(state, ai_empire_id, &mut events);
 
@@ -684,6 +731,31 @@ fn research_score(state: &GameState, empire_id: EmpireId, tech: &crate::state::T
         score += 10;
     }
 
+    // 4. Victory pressure: if any rival is >50% on a path, boost
+    //    counter-techs.  Scientific leader → Society/Economy catch-up.
+    //    Supremacy/Ascendancy leader → Military boost.
+    for entry in &state.victory_status.progress {
+        if entry.leading_empire == Some(empire_id) || entry.leading_empire.is_none() {
+            continue;
+        }
+        if entry.progress_percent <= 50 {
+            continue;
+        }
+        match entry.path {
+            crate::state::VictoryPath::Scientific => {
+                if matches!(tech.domain, TechDomain::Society | TechDomain::Economy) {
+                    score += 12;
+                }
+            }
+            crate::state::VictoryPath::Supremacy | crate::state::VictoryPath::Ascendancy => {
+                if tech.domain == TechDomain::Military {
+                    score += 15;
+                }
+            }
+            _ => {}
+        }
+    }
+
     score * difficulty_mult / 100
 }
 
@@ -794,6 +866,82 @@ fn custom_ship_for_fleet_kind(
                     .is_some_and(|h| h.fleet_kind == fleet_kind)
         })
         .map(|d| d.design_id)
+}
+
+/// Count the empire's existing fleets of each relevant combat hull
+/// and return the hull type that is most deficient.
+fn needed_combat_hull(state: &GameState, empire_id: EmpireId) -> Option<ShipDesignId> {
+    let colony_count = state
+        .colonies
+        .values()
+        .filter(|c| c.owner == empire_id)
+        .count() as u32;
+    let border_sectors: u32 = state
+        .colonies
+        .values()
+        .filter(|c| c.owner == empire_id)
+        .filter(|c| {
+            state.diplomacy.values().any(|rs| *rs == crate::state::RelationshipStatus::War)
+                || state.diplomacy.contains_key(&c.owner)
+        })
+        .count() as u32;
+
+    let mut corvettes = 0u32;
+    let mut escorts = 0u32;
+    let mut missile = 0u32;
+    let mut destroyers = 0u32;
+    let mut transports = 0u32;
+    for f in state.fleets.values() {
+        if f.owner != empire_id {
+            continue;
+        }
+        match f.kind {
+            FleetKind::PatrolCorvette => corvettes += 1,
+            FleetKind::EscortFrigate => escorts += 1,
+            FleetKind::MissileFrigate => missile += 1,
+            FleetKind::Destroyer => destroyers += 1,
+            FleetKind::TroopTransport => transports += 1,
+            _ => {}
+        }
+    }
+
+    let at_war = state
+        .diplomacy
+        .values()
+        .any(|rs| *rs == crate::state::RelationshipStatus::War);
+
+    // Target ratios: 1 corvette per border sector, 1 escort per 2 colonies,
+    // 1 missile/destroyer per 3 colonies when at war, 1 transport per 4 colonies on war.
+    let want_corvettes = border_sectors.saturating_sub(corvettes);
+    let want_escorts = (colony_count / 2).saturating_sub(escorts);
+    let want_strike = if at_war {
+        (colony_count / 3).saturating_sub(missile + destroyers)
+    } else {
+        0
+    };
+    let want_transports = if at_war {
+        (colony_count / 4).saturating_sub(transports)
+    } else {
+        0
+    };
+
+    // Pick the most-needed hull, preferring cheaper over expensive when equally needed.
+    if want_transports > 0 && want_transports >= want_corvettes && want_transports >= want_escorts {
+        return Some(ShipDesignId::TROOP_TRANSPORT);
+    }
+    if want_corvettes > 0 && want_corvettes >= want_strike {
+        return Some(ShipDesignId::PATROL_CORVETTE);
+    }
+    if want_escorts > 0 && want_escorts >= want_strike {
+        return Some(ShipDesignId::ESCORT_FRIGATE);
+    }
+    if want_strike > 0 && missile <= destroyers {
+        return Some(ShipDesignId::MISSILE_FRIGATE);
+    }
+    if want_strike > 0 {
+        return Some(ShipDesignId::DESTROYER);
+    }
+    None
 }
 
 /// Pick what to build at a colony with an empty queue.
@@ -1022,6 +1170,25 @@ fn pick_build_item(
     // Priority 3 & 4: ships only if the colony has a Shipyard
     if !colony.has_shipyard() {
         return None;
+    }
+
+    // Fleet composition: if the empire has ≥3 colonies and is short
+    // on a specific hull, build the most-needed one.  Runs before the
+    // generic science/survey/combat chain so composition takes priority.
+    let owned_colonies = state.colonies.values().filter(|c| c.owner == empire_id).count();
+    if owned_colonies >= 3 {
+        if let Some(needed) = needed_combat_hull(state, empire_id) {
+            // Check the tech requirement for this hull type roughly.
+            let hull_needs_tech = match needed {
+                ShipDesignId::DESTROYER => TechId::FLEET_COORDINATION,
+                ShipDesignId::MISSILE_FRIGATE => TechId::STRIKE_DOCTRINE,
+                ShipDesignId::TROOP_TRANSPORT => TechId::TROOP_TRANSPORTS,
+                _ => TechId::PERIMETER_DEFENSE,
+            };
+            if has_tech(hull_needs_tech) {
+                return Some(BuildItem::Ship(needed));
+            }
+        }
     }
 
     // Science/survey preferences
@@ -1492,6 +1659,99 @@ fn ai_dispatch_combat_fleets(state: &mut GameState, empire_id: EmpireId, events:
             fleet: fleet_id,
             destination,
         });
+    }
+}
+
+/// Dispatch idle combat fleets to guard important systems during
+/// peacetime.  Only fleet role
+fn ai_dispatch_patrols(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Event>) {
+    if state.turn < 30 {
+        return;
+    }
+
+    // Collect idle combat fleets (not on any mission).
+    let fleet_ids: Vec<FleetId> = state
+        .fleets
+        .keys()
+        .copied()
+        .filter(|&fid| {
+            let f = &state.fleets[&fid];
+            f.owner == empire_id
+                && f.kind.is_combat()
+                && !state.fleet_missions.contains_key(&fid)
+                && !state.scout_missions.contains_key(&fid)
+                && !state.survey_missions.contains_key(&fid)
+        })
+        .collect();
+    if fleet_ids.is_empty() {
+        return;
+    }
+
+    // Identify high-value stars to protect: home star + each colony
+    // that has a strategic resource under extraction.
+    let home = state.empires.get(&empire_id).map(|e| e.home_star);
+    let valuable: std::collections::BTreeSet<StarId> = state
+        .colonies
+        .values()
+        .filter(|c| c.owner == empire_id)
+        .filter_map(|c| {
+            let is_home = home == Some(c.star);
+            let has_strat = state
+                .empire_resource_access
+                .get(&empire_id)
+                .map(|m| !m.is_empty())
+                .unwrap_or(false);
+            let is_border = state.diplomacy.keys().any(|&eid| {
+                state
+                    .colonies
+                    .values()
+                    .any(|oc| oc.owner == eid && oc.star == c.star)
+            });
+            if is_home || has_strat || is_border {
+                Some(c.star)
+            } else {
+                None
+            }
+        })
+        .collect();
+    if valuable.is_empty() {
+        return;
+    }
+
+    // Dispatch up to 1 patrol for every 3 idle combat fleets.
+    let patrol_count = (fleet_ids.len() / 3).max(1);
+    for &fid in fleet_ids.iter().take(patrol_count) {
+        if let Some(target) = valuable.iter().next() {
+            let fleet_loc = state.fleets[&fid].location;
+            if fleet_loc == *target {
+                continue; // Already there
+            }
+            let (turns, used_lane) =
+                ai_travel_turns_for_fleet(state, fid, empire_id, fleet_loc, *target);
+            state.fleet_missions.insert(
+                fid,
+                crate::state::FleetMission {
+                    fleet: fid,
+                    destination: *target,
+                    turns_remaining: turns,
+                    origin: fleet_loc,
+                    total_duration: turns,
+                },
+            );
+            if used_lane {
+                events.push(Event::HyperspaceLaneUsed {
+                    empire: empire_id,
+                    fleet: fid,
+                    from: fleet_loc,
+                    to: *target,
+                });
+            }
+            events.push(crate::events::Event::AiCombatFleetDispatched {
+                empire: empire_id,
+                fleet: fid,
+                destination: *target,
+            });
+        }
     }
 }
 

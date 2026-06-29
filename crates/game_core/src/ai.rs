@@ -21,7 +21,8 @@ use crate::state::{
     GameState, OrbitalStructureType, PlanetAnomaly, PlanetClass, PlanetSpecial, PlaystyleTag,
     ScoutMission, ShipDesignId, SlotCategory, StarId, StrategicResource, StrategicResourceCategory,
     TechDomain, TechId, TechTag, VictoryPath, all_techs, empire_definition_by_id,
-    is_tech_available, visible_anomalies_for_empire, visible_specials_for_empire,
+    is_resource_discoverable, is_tech_available, visible_anomalies_for_empire,
+    visible_specials_for_empire,
 };
 use crate::yield_model::{YieldContext, calculate_yield_with_context};
 
@@ -127,6 +128,114 @@ fn ai_primary_doctrine(state: &GameState, empire_id: EmpireId) -> AiDoctrine {
             .unwrap_or(AiDoctrine::Explorer)
         })
         .unwrap_or(AiDoctrine::Explorer)
+}
+
+/// Multi-factor system score for an unexplored star, used by both
+/// scout dispatch and colonization target selection.  Higher = more
+/// valuable to expand toward.
+///
+/// Components:
+///   - Habitable planet quality (Terran=20, Oceanic=15, Desert=12, etc.)
+///   - Visible specials and anomalies (weighted by doctrine)
+///   - Strategic resource potential (trade_value)
+///   - Distance from home star (closer preferred, but expansionists
+///     get a small frontier bonus for outward push)
+///   - Supply projection penalty for deep targets
+///   - Contested penalty (−50 per hostile/friendly fleet within 2 stars)
+fn score_system_for_scout(state: &GameState, empire_id: EmpireId, star_id: StarId) -> i32 {
+    let Some(star) = state.stars.get(&star_id) else {
+        return 0;
+    };
+    let doctrine = ai_primary_doctrine(state, empire_id);
+    let completed: Vec<TechId> = state
+        .empires
+        .get(&empire_id)
+        .map(|e| e.research.completed.clone())
+        .unwrap_or_default();
+
+    // Planet quality
+    let mut score: i32 = star
+        .planets
+        .iter()
+        .map(|p| {
+            let base = match p.class {
+                PlanetClass::Terran => 20,
+                PlanetClass::Oceanic => 15,
+                PlanetClass::Desert => 10,
+                PlanetClass::Frozen => 8,
+                PlanetClass::Volcanic => 5,
+                PlanetClass::Barren => 3,
+            };
+            let mut extras = 0i32;
+            if p.surveyed {
+                for s in visible_specials_for_empire(p, &completed) {
+                    extras += special_value_for_doctrine(s, doctrine) / 10;
+                }
+                for a in visible_anomalies_for_empire(p, &completed) {
+                    extras += anomaly_value_for_doctrine(a, doctrine) / 10;
+                }
+                for r in &p.resources {
+                    if is_resource_discoverable(*r, &completed) {
+                        extras += i32::from(r.trade_value()) / 20;
+                    }
+                }
+            }
+            base + extras
+        })
+        .sum();
+
+    // Frontier / distance: closer to home = higher, but expansionists
+    // get a small bonus for systems farther out.
+    let home = state.empires.get(&empire_id).map(|e| e.home_star);
+    let home_coords = home.and_then(|hid| state.stars.get(&hid));
+    if let Some(home) = home_coords {
+        let dx = (star.x - home.x) as i64;
+        let dy = (star.y - home.y) as i64;
+        let dist_sq = dx * dx + dy * dy;
+        let dist = (dist_sq as f64).sqrt().round() as i32;
+        score = score.saturating_add(50 - dist / 10);
+        if doctrine == AiDoctrine::Expansionist {
+            score = score.saturating_add(dist / 40);
+        }
+    }
+
+    // Contested penalty: if hostile fleets or colonies are near, reduce score.
+    for (fid, fleet) in &state.fleets {
+        if fleet.owner == empire_id {
+            continue;
+        }
+        if !state
+            .relationship_status(empire_id, fleet.owner)
+            .is_hostile_or_war()
+        {
+            continue;
+        }
+        if let Some(fstar) = state.stars.get(&fleet.location) {
+            let dx = (star.x - fstar.x) as i64;
+            let dy = (star.y - fstar.y) as i64;
+            let sq = dx * dx + dy * dy;
+            if sq <= 600 * 600 {
+                // within ~2 sectors
+                score = score.saturating_sub(50);
+                break;
+            }
+        }
+    }
+
+    // Adjacency to own colonies: slight bonus for systems near existing colonies.
+    for colony in state.colonies.values() {
+        if colony.owner == empire_id {
+            if let Some(cstar) = state.stars.get(&colony.star) {
+                let dx = (star.x - cstar.x) as i64;
+                let dy = (star.y - cstar.y) as i64;
+                if dx * dx + dy * dy <= 500 * 500 {
+                    score = score.saturating_add(15);
+                }
+            }
+        }
+    }
+
+    score.max(1)
 }
 
 fn scout_resource_prospect_score(state: &GameState, empire_id: EmpireId, star_id: StarId) -> i32 {
@@ -1376,7 +1485,7 @@ fn pick_scout_target(state: &GameState, empire_id: EmpireId) -> Option<(FleetId,
             let s = state.stars.get(&sid)?;
             let dx = (s.x - fleet_star.x) as i64;
             let dy = (s.y - fleet_star.y) as i64;
-            let prospect = scout_resource_prospect_score(state, empire_id, sid);
+            let prospect = score_system_for_scout(state, empire_id, sid);
             Some((prospect, dx * dx + dy * dy, sid))
         })
         .collect();
@@ -1443,69 +1552,103 @@ fn ai_colonize(state: &mut GameState, empire_id: EmpireId, events: &mut Vec<Even
     }
 }
 
-/// Find an idle colonizer fleet at an AI-explored star with a habitable free planet.
+/// Find the best colonizer fleet and target star for colonization.
+/// Scores every AI-explored star with idle colonizers, not just the
+/// colonizer's current system.
 fn pick_colonize_target(
     state: &GameState,
     empire_id: EmpireId,
 ) -> Option<(FleetId, StarId, usize)> {
-    // Deterministic iteration order via BTreeMap keys
-    // Both Colonizer and ColonyArk can perform colonization missions.
-    let fleet_id = state.fleets.keys().copied().find(|&fid| {
-        let f = &state.fleets[&fid];
-        f.owner == empire_id
-            && (f.kind == FleetKind::Colonizer || f.kind == FleetKind::ColonyArk)
-            && !state.scout_missions.contains_key(&fid)
-            && !state.fleet_missions.contains_key(&fid)
-    })?;
-
-    let fleet_loc = state.fleets.get(&fleet_id)?.location;
-
-    // Colonizer must be at a star this empire has explored
-    if !state.explored_stars_for(empire_id).contains(&fleet_loc) {
-        return None;
-    }
-
-    let star = state.stars.get(&fleet_loc)?;
     let doctrine = ai_primary_doctrine(state, empire_id);
-    let completed_techs: Vec<TechId> = state
+    let completed: Vec<TechId> = state
         .empires
         .get(&empire_id)
         .map(|e| e.research.completed.clone())
         .unwrap_or_default();
-    let mut candidates: Vec<(i32, usize)> = star
-        .planets
-        .iter()
-        .enumerate()
-        .filter(|(_, p)| p.habitable && p.colony.is_none())
-        .map(|(i, p)| {
-            let mut score = match p.class {
-                PlanetClass::Terran => 12,
-                PlanetClass::Oceanic => 10,
-                PlanetClass::Desert => 8,
-                PlanetClass::Frozen => 7,
-                PlanetClass::Volcanic => 6,
-                PlanetClass::Barren => 5,
+    let explored = state.explored_stars_for(empire_id);
+
+    // Collect all idle colonizer fleets.
+    let colonizer_ids: Vec<FleetId> = state
+        .fleets
+        .keys()
+        .copied()
+        .filter(|&fid| {
+            let f = &state.fleets[&fid];
+            f.owner == empire_id
+                && (f.kind == FleetKind::Colonizer || f.kind == FleetKind::ColonyArk)
+                && !state.scout_missions.contains_key(&fid)
+                && !state.fleet_missions.contains_key(&fid)
+        })
+        .collect();
+    if colonizer_ids.is_empty() {
+        return None;
+    }
+
+    // Score every explored star with a habitable free planet.
+    // For each star, compute the best planet score, then pair
+    // the highest-scoring (fleet, star, planet) combination.
+    let mut candidates: Vec<(i32, FleetId, StarId, usize)> = Vec::new();
+    for star in state.stars.values() {
+        if !explored.contains(&star.id) {
+            continue;
+        }
+        if star
+            .planets
+            .iter()
+            .all(|p| p.colony.is_some() || !p.habitable)
+        {
+            // No colonizable planets at this star.
+            continue;
+        }
+        let base_star_score = score_system_for_scout(state, empire_id, star.id);
+        for (pi, planet) in star.planets.iter().enumerate() {
+            if planet.colony.is_some() || !planet.habitable {
+                continue;
+            }
+            let mut planet_score = match planet.class {
+                PlanetClass::Terran => 20,
+                PlanetClass::Oceanic => 15,
+                PlanetClass::Desert => 10,
+                PlanetClass::Frozen => 8,
+                PlanetClass::Volcanic => 5,
+                PlanetClass::Barren => 3,
             };
-            if p.surveyed {
-                for special in visible_specials_for_empire(p, &completed_techs) {
-                    score += special_value_for_doctrine(special, doctrine) / 10;
+            if planet.surveyed {
+                for s in visible_specials_for_empire(planet, &completed) {
+                    planet_score += special_value_for_doctrine(s, doctrine) / 10;
                 }
-                for anomaly in visible_anomalies_for_empire(p, &completed_techs) {
-                    score += anomaly_value_for_doctrine(anomaly, doctrine) / 10;
+                for a in visible_anomalies_for_empire(planet, &completed) {
+                    planet_score += anomaly_value_for_doctrine(a, doctrine) / 10;
                 }
-                for resource in &p.resources {
-                    if crate::state::is_resource_discoverable(*resource, &completed_techs) {
-                        score += resource_value_for_doctrine(*resource, doctrine) / 20;
+                for r in &planet.resources {
+                    if crate::state::is_resource_discoverable(*r, &completed) {
+                        planet_score += resource_value_for_doctrine(*r, doctrine) / 20;
                     }
                 }
             }
-            (score, i)
-        })
-        .collect();
-    candidates.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    let planet_index = candidates.first().map(|(_, i)| *i)?;
-
-    Some((fleet_id, fleet_loc, planet_index))
+            // Cluster penalty: reduce score if empire already has many colonies nearby.
+            let cluster_penalty: i32 = state
+                .colonies
+                .values()
+                .filter(|c| c.owner == empire_id)
+                .filter_map(|c| state.stars.get(&c.star))
+                .filter(|cs| {
+                    let dx = (star.x - cs.x) as i64;
+                    let dy = (star.y - cs.y) as i64;
+                    dx * dx + dy * dy <= 300 * 300
+                })
+                .count() as i32
+                * 10;
+            let combined_score = base_star_score.saturating_add(planet_score * 2) - cluster_penalty;
+            for &fid in &colonizer_ids {
+                candidates.push((combined_score, fid, star.id, pi));
+            }
+        }
+    }
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then(a.2.cmp(&b.2)));
+    candidates
+        .first()
+        .map(|(_, fid, sid, pi)| (*fid, *sid, *pi))
 }
 
 // ---------------------------------------------------------------------------

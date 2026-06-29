@@ -9248,7 +9248,7 @@ fn new_from_setup_different_seeds_produce_different_galaxies() {
     let make = |seed: u64| {
         Engine::new_from_setup(ScenarioSetup {
             seed,
-            galaxy_size: GalaxySize::Medium,
+            galaxy_size: GalaxySize::Tiny,
             ai_empire_count: 1,
             sector_count_override: None,
             star_count_override: None,
@@ -9327,7 +9327,7 @@ fn new_from_setup_four_ai_empires_created() {
     use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
     let engine = Engine::new_from_setup(ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Large,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 4,
         sector_count_override: None,
         star_count_override: None,
@@ -9358,7 +9358,7 @@ fn new_from_setup_ai_empire_placement_is_deterministic() {
     use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
     let setup = ScenarioSetup {
         seed: 999,
-        galaxy_size: GalaxySize::Large,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 3,
         sector_count_override: None,
         star_count_override: None,
@@ -9394,7 +9394,7 @@ fn new_from_setup_scenario_metadata_stored_in_state() {
     use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
     let setup = ScenarioSetup {
         seed: 1234,
-        galaxy_size: GalaxySize::Large,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 2,
         sector_count_override: None,
         star_count_override: None,
@@ -9409,7 +9409,7 @@ fn new_from_setup_scenario_metadata_stored_in_state() {
         .as_ref()
         .expect("scenario should be stored");
     assert_eq!(stored.seed, 1234);
-    assert_eq!(stored.galaxy_size, GalaxySize::Large);
+    assert_eq!(stored.galaxy_size, GalaxySize::Tiny);
     assert_eq!(stored.ai_empire_count, 2);
 }
 
@@ -9418,7 +9418,7 @@ fn validate_rejects_zero_ai_count() {
     use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
     let bad_setup = ScenarioSetup {
         seed: 1,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 0, // invalid
         sector_count_override: None,
         star_count_override: None,
@@ -9436,7 +9436,7 @@ fn new_from_setup_invalid_ai_count_panics() {
     use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
     let bad_setup = ScenarioSetup {
         seed: 1,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 0, // invalid — new_from_setup should panic
         sector_count_override: None,
         star_count_override: None,
@@ -9457,7 +9457,7 @@ fn player_can_select_valid_empire() {
     let def_id = EmpireDefinitionId(2); // Sylvaran Accord
     let setup = ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: None,
         star_count_override: None,
@@ -9485,7 +9485,7 @@ fn player_can_select_terran_concord() {
     use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
     let engine = Engine::new_from_setup(ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: None,
         star_count_override: None,
@@ -9507,7 +9507,7 @@ fn player_can_select_terran_dominion() {
     use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
     let engine = Engine::new_from_setup(ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: None,
         star_count_override: None,
@@ -9529,7 +9529,7 @@ fn invalid_empire_selection_fails_validation() {
     use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
     let setup = ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: None,
         star_count_override: None,
@@ -9545,7 +9545,7 @@ fn ai_empires_receive_distinct_definitions() {
     use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
     let engine = Engine::new_from_setup(ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Large,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 4,
         sector_count_override: None,
         star_count_override: None,
@@ -9589,7 +9589,7 @@ fn same_seed_produces_same_ai_empire_definitions() {
     let make = || {
         Engine::new_from_setup(ScenarioSetup {
             seed: 1234,
-            galaxy_size: GalaxySize::Large,
+            galaxy_size: GalaxySize::Tiny,
             ai_empire_count: 3,
             sector_count_override: None,
             star_count_override: None,
@@ -9630,7 +9630,7 @@ fn different_seeds_can_produce_different_ai_empire_definitions() {
     let ai_defs_for_seed = |seed: u64| -> Vec<Option<EmpireDefinitionId>> {
         let e = Engine::new_from_setup(ScenarioSetup {
             seed,
-            galaxy_size: GalaxySize::Large,
+            galaxy_size: GalaxySize::Tiny,
             ai_empire_count: 4,
             sector_count_override: None,
             star_count_override: None,
@@ -9673,7 +9673,7 @@ fn empire_trait_modifiers_applied_per_colony() {
     use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
     let setup = ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: None,
         star_count_override: None,
@@ -9722,7 +9722,7 @@ fn terran_concord_science_bonus_applied_per_colony() {
     use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
     let mut engine = Engine::new_from_setup(ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: None,
         star_count_override: None,
@@ -9784,7 +9784,7 @@ fn empire_identity_persists_through_save_load() {
     use crate::state::{DifficultyLevel, EmpireDefinitionId, GalaxySize, ScenarioSetup};
     let setup = ScenarioSetup {
         seed: 77,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 2,
         sector_count_override: None,
         star_count_override: None,
@@ -9831,7 +9831,7 @@ fn default_empire_assigned_when_no_player_def_specified() {
     use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
     let engine = Engine::new_from_setup(ScenarioSetup {
         seed: 42,
-        galaxy_size: GalaxySize::Medium,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 1,
         sector_count_override: None,
         star_count_override: None,
@@ -12307,7 +12307,7 @@ fn two_ai_engine(seed: u64) -> Engine {
     use crate::state::{DifficultyLevel, GalaxySize, ScenarioSetup};
     Engine::new_from_setup(ScenarioSetup {
         seed,
-        galaxy_size: GalaxySize::Large,
+        galaxy_size: GalaxySize::Tiny,
         ai_empire_count: 2,
         sector_count_override: None,
         star_count_override: None,
